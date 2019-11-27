@@ -1,0 +1,20 @@
+[package]
+name = "krustlet"
+version = "0.1.0"
+authors = ["Matt Butcher <matt.butcher@microsoft.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+kube = { version = "0.16.1", features = ["openapi"] }
+k8s-openapi = { version = "0.5.1", features = ["v1_15"] }
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+failure = "0.1.5"
+base64 = "0.10"
+chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
+futures = "0.1"
+hyper = "0.12"
