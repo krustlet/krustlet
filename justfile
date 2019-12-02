@@ -12,3 +12,6 @@ run:
 
 dockerize:
     docker build -t technosophos/krustlet:latest .
+
+just push:
+    docker push technosophos/krustlet:latest
