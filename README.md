@@ -1,8 +1,10 @@
 # Krustlet: Kubernetes Kubelet in Rust for running WASM
 
-**This project is highly experimental**
+**This project is highly experimental.** It is just a proof of concept, and you should not use it in production.
 
-Krustlet acts as a Kubelet by listening on the event stream for new pod requests that match a particular set of node pins.
+Krustlet acts as a Kubelet by listening on the event stream for new pod requests that match a particular set of node selectors.
+
+Specifically, Krustlet listens for the architecture `wasm32-wasi` and schedules those workloads to run in a `wasmtime`-based runtime instead of a container runtime.
 
 ## Building
 
@@ -30,8 +32,28 @@ $ just run
 $ cargo run
 ```
 
+Note that if you are not running the binary in your cluster (e.g. if you are instead running it locally), then the `log` and `exec` calls will result in errors.
+
 ## Scheduling Pods on the Krustlet
 
-The krustlet listens for wasm32 and wasm-wasi:
+The krustlet listens for wasm-wasi architecture:
 
-- TBD
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: greet
+spec:
+  containers:
+    - image: technosophos/greet
+      imagePullPolicy: Always
+      name: greet
+  nodeSelector:
+    kubernetes.io/role: agent
+    beta.kubernetes.io/os: linux
+    beta.kubernetes.io/arch: wasm-wasi
+```
+
+Note that the `nodeSelector` is the important part above, though `image` is expected to point to a WASM module as well.
+
+To load the above into Kubernetes, use `kubectl apply -f greet.yaml`. You should see the pod go into the `Running` state very quickly. If the WASM is not daemonized, it should go to the `Succeeded` phase soon thereafter.

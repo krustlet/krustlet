@@ -18,6 +18,10 @@ const NODE_NAME: &str = "krustlet";
 /// This creates a Kubernetes Node that describes our Kubelet, failing with a log message
 /// if one already exists. If one does exist, we simply re-use it. You may call that
 /// hacky, but I call it... hacky.
+///
+/// A node comes with a lease, and we maintain the lease to tell Kubernetes that the
+/// node remains alive and functional. Note that this will not work in
+/// versions of Kubernetes prior to 1.14.
 pub fn create_node(client: APIClient) {
     let node_client = Api::v1Node(client.clone());
     let pp = PostParams::default();
@@ -46,7 +50,6 @@ pub fn create_node(client: APIClient) {
     };
 }
 
-
 /// Update the timestamps on the Node object.
 ///
 /// This is how we report liveness to the upstream.
@@ -54,7 +57,7 @@ pub fn create_node(client: APIClient) {
 /// We trap errors because... well... quite frankly there is nothing useful
 /// to do if the Kubernetes API is unavailable, and we can merrily continue
 /// doing our processing of the pod queue.
-pub fn udpate_node(client: APIClient) {
+pub fn update_node(client: APIClient) {
     let node_client = Api::v1Node(client.clone());
     // Get me a node
     let node_res = node_client.get(NODE_NAME);
@@ -73,6 +76,13 @@ pub fn udpate_node(client: APIClient) {
 }
 
 /// Create a node lease
+///
+/// These creates a new node lease and claims the node for a set
+/// preiod of time. Leases work by creating a new Lease object
+/// and then using an ownerReference to tie it to a particular node.
+///
+/// As far as I can tell, leases ALWAYS go in the 'kube-node-lease'
+/// namespace, no exceptions.
 fn create_lease(node_uid: &str, client: APIClient) {
     let leases = RawApi::customResource("leases")
         .version("v1")
@@ -95,6 +105,11 @@ fn create_lease(node_uid: &str, client: APIClient) {
     }
 }
 
+/// Update the Kubernetes node lease, essentially requesting that we keep
+/// the lease for another period.
+///
+/// TODO: Our patch is overzealous right now. We just need to update the
+/// timestamp.
 fn update_lease(node_uid: &str, client: APIClient) {
     let leases = RawApi::customResource("leases")
         .version("v1")
@@ -117,6 +132,17 @@ fn update_lease(node_uid: &str, client: APIClient) {
     }
 }
 
+/// Define a new node that will handle WASM load.
+///
+/// The most important part of this spec is the set of labels, which control
+/// how pods are scheduled on this node. It claims the wasm-wasi architecture,
+/// though perhaps this should be wasm32-wasi. I am not clear what to do with
+/// the OS field. I have seen 'emscripten' used for this field, but in our case
+/// the runtime is not emscripten, and besides... specifying which runtime we
+/// use seems like a misstep. Ideally, we'll be able to support multiple runtimes.
+///
+/// TODO: A lot of the values here are faked, and should be replaced by real
+/// numbers post-POC.
 fn node_definition() -> serde_json::Value {
     let pod_ip = "10.21.77.2";
     let port = 3000;
@@ -202,6 +228,11 @@ fn node_definition() -> serde_json::Value {
     })
 }
 
+/// Define a new coordination.Lease object for Kubernetes
+///
+/// The lease tells Kubernetes that we want to claim the node for a while
+/// longer. And then tells Kubernetes how long it should wait before
+/// expecting a new lease.
 fn lease_definition(node_uid: &str) -> serde_json::Value {
     json!(
         {
@@ -224,6 +255,8 @@ fn lease_definition(node_uid: &str) -> serde_json::Value {
 }
 
 /// Defines a new coordiation lease for Kubernetes
+///
+/// We set the lease times, the lease duration, and the node name.
 fn lease_spec_definition() -> LeaseSpec {
     LeaseSpec {
         holder_identity: Some(NODE_NAME.to_string()),
