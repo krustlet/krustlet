@@ -8,6 +8,7 @@ use log::{error, info};
 /// Alias for a Kubernetes Pod.
 pub type KubePod = Object<PodSpec, PodStatus>;
 
+/// Patch the pod status to update the phase.
 pub fn pod_status(client: APIClient, pod: KubePod, phase: &str, ns: &str) {
     let status = serde_json::json!(
         {

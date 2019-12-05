@@ -2,6 +2,16 @@ use log::info;
 use wasmtime::*;
 use wasmtime_wasi::*;
 
+/// Given a WASM binary, execute it.
+///
+/// Currently, this uses the wasmtime runtime with the WASI
+/// module added.
+///
+/// TODO: This should be refactored into a struct where an
+/// outside tool can set the dirs, args, and environment, and
+/// then execute the WASM. It would be excellent to have a
+/// convenience function that could take the pod spec and derive
+/// all of this from that.
 pub fn wasm_run(data: &[u8]) -> Result<(), failure::Error> {
     let engine = HostRef::new(Engine::default());
     let store = HostRef::new(Store::new(&engine));

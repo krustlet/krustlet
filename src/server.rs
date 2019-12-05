@@ -1,13 +1,15 @@
 /// Server is an HTTP(S) server for answering Kubelet callbacks.
-/// 
+///
 /// Logs and exec calls are the main things that a server should handle.
 use futures::future;
 use hyper::rt::Future;
 use hyper::service::service_fn;
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
-use log::{error,info};
+use log::{error, info};
 
 /// Start the Krustlet HTTP(S) server
+///
+/// FIXME: The env var read should be moved up to main.rs
 pub fn start_webserver() -> Result<(), failure::Error> {
     let addr = std::env::var("POD_IP")
         .unwrap_or_else(|_| "127.0.0.1:3000".to_string())
