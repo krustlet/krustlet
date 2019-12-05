@@ -2,6 +2,9 @@ use log::info;
 use wasmtime::*;
 use wasmtime_wasi::*;
 
+/// WasmRuntime provides a Kubelet runtime implementation that executes WASM binaries.
+pub struct WasmRuntime {}
+
 /// Given a WASM binary, execute it.
 ///
 /// Currently, this uses the wasmtime runtime with the WASI

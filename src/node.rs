@@ -6,7 +6,7 @@ use kube::{
     api::{Api, PatchParams, PostParams, RawApi},
     client::APIClient,
 };
-use log::{error, info};
+use log::{debug, error, info};
 
 /// The default node name.
 const NODE_NAME: &str = "krustlet";
@@ -67,7 +67,7 @@ pub fn update_node(client: APIClient) {
             return;
         }
         _ => {
-            println!("no error");
+            debug!("no error");
         }
     }
     let node = node_res.unwrap();
@@ -100,7 +100,7 @@ fn create_lease(node_uid: &str, client: APIClient) {
         .create(&pp, lease_data)
         .expect("Lease should always convert to a request");
     match client.request::<serde_json::Value>(req) {
-        Ok(_) => info!("Created lease"),
+        Ok(_) => debug!("Created lease"),
         Err(e) => error!("Failed to create lease: {}", e),
     }
 }
@@ -121,7 +121,7 @@ fn update_lease(node_uid: &str, client: APIClient) {
     let lease_data =
         serde_json::to_vec(&lease).expect("Lease should always be serializable to JSON");
     // TODO: either wrap this in a conditional or remove
-    info!("{}", serde_json::to_string_pretty(&lease).unwrap());
+    debug!("{}", serde_json::to_string_pretty(&lease).unwrap());
 
     let req = leases
         .patch(NODE_NAME, &pp, lease_data)

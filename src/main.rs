@@ -74,6 +74,14 @@ fn main() -> Result<(), failure::Error> {
 fn handle(client: APIClient, event: WatchEvent<KubePod>, namespace: String) {
     match event {
         WatchEvent::Added(p) => {
+            if let Some(sel) = p.clone().spec.node_selector {
+                let default_arch = "amd64".to_string();
+                let target_arch = "wasm32-wasi".to_string();
+                if sel.get("beta.kubernetes.io/arch").unwrap_or(&default_arch).ne(&target_arch) {
+                    info!("Skip targets other than {}", target_arch);
+                    return;
+                }
+            }
             // To run an Add event, we load the WASM, update the pod status to Running,
             // and then execute the WASM, passing in the relevant data.
             // When the pod finishes, we update the status to Succeeded unless it
