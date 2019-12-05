@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: greet
+spec:
+  containers:
+    - image: technosophos/greet
+      imagePullPolicy: Always
+      name: greet
+  nodeSelector:
+    kubernetes.io/role: agent
+    beta.kubernetes.io/os: linux
+    beta.kubernetes.io/arch: wasm-wasi
