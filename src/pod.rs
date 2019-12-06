@@ -3,7 +3,7 @@ use kube::{
     api::{Api, Object, PatchParams},
     client::APIClient,
 };
-use log::{error, info};
+use log::{error, info, debug};
 
 /// Alias for a Kubernetes Pod.
 pub type KubePod = Object<PodSpec, PodStatus>;
@@ -30,7 +30,7 @@ pub fn pod_status(client: APIClient, pod: KubePod, phase: &str, ns: &str) {
     {
         Ok(o) => {
             info!("Pod status for {} set to {}", meta.name.as_str(), phase);
-            info!(
+            debug!(
                 "Pod status returned: {}",
                 serde_json::to_string_pretty(&o.status).unwrap()
             )

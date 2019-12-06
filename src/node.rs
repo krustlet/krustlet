@@ -93,8 +93,7 @@ fn create_lease(node_uid: &str, client: APIClient) {
     let pp = PostParams::default();
     let lease_data =
         serde_json::to_vec(&lease).expect("Lease should always be serializable to JSON");
-    // TODO: either wrap this in a conditional or remove
-    info!("{}", serde_json::to_string_pretty(&lease).unwrap());
+    debug!("{}", serde_json::to_string_pretty(&lease).unwrap());
 
     let req = leases
         .create(&pp, lease_data)

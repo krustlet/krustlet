@@ -1,7 +1,9 @@
 #[macro_use]
 extern crate serde_json;
-extern crate base64;
+#[macro_use]
+extern crate failure;
 
+pub mod kubelet;
 pub mod node;
 pub mod pod;
 pub mod server;

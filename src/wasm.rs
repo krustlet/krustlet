@@ -1,9 +1,42 @@
+use crate::{
+    kubelet::{Phase, Provider, Status},
+    pod::KubePod,
+};
+use kube::client::APIClient;
 use log::info;
 use wasmtime::*;
 use wasmtime_wasi::*;
 
 /// WasmRuntime provides a Kubelet runtime implementation that executes WASM binaries.
 pub struct WasmRuntime {}
+
+impl Provider for WasmRuntime {
+    fn can_schedule(pod: &KubePod) -> bool {
+        // If there is a node selector and it has arch set to wasm32-wasi, we can
+        // schedule it.
+        let target_arch = "wasm32-wasi".to_string();
+        pod.spec
+            .node_selector
+            .as_ref()
+            .and_then(|i| {
+                i.get("beta.kubernetes.io/arch")
+                    .and_then(|v| Some(v.eq(&target_arch)))
+            })
+            .unwrap_or(false)
+    }
+    fn add(&self, pod: KubePod, client: APIClient) -> Result<(), failure::Error> {
+        Ok(())
+    }
+    fn modify(&self, pod: KubePod, client: APIClient) -> Result<(), failure::Error> {
+        Ok(())
+    }
+    fn status(&self, pod: KubePod, client: APIClient) -> Result<Status, failure::Error> {
+        Ok(Status {
+            phase: Phase::Succeeded,
+            message: None,
+        })
+    }
+}
 
 /// Given a WASM binary, execute it.
 ///
@@ -54,4 +87,38 @@ pub fn wasm_run(data: &[u8]) -> Result<(), failure::Error> {
 
     info!("Instance was executed");
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::pod::KubePod;
+    use k8s_openapi::api::core::v1::PodSpec;
+    #[test]
+    fn test_can_schedule() {
+        let mut mock = KubePod {
+            spec: Default::default(),
+            metadata: Default::default(),
+            status: Default::default(),
+            types: Default::default(),
+        };
+        assert!(!WasmRuntime::can_schedule(&mock));
+
+        let mut selector = std::collections::BTreeMap::new();
+        selector.insert(
+            "beta.kubernetes.io/arch".to_string(),
+            "wasm32-wasi".to_string(),
+        );
+        mock.spec = PodSpec {
+            node_selector: Some(selector.clone()),
+            ..Default::default()
+        };
+        assert!(WasmRuntime::can_schedule(&mock));
+        selector.insert("beta.kubernetes.io/arch".to_string(), "amd64".to_string());
+        mock.spec = PodSpec {
+            node_selector: Some(selector.clone()),
+            ..Default::default()
+        };
+        assert!(!WasmRuntime::can_schedule(&mock));
+    }
 }
