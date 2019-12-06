@@ -1,6 +1,6 @@
 use crate::{
     kubelet::{Phase, Provider, Status},
-    pod::KubePod,
+    pod::{pod_status, KubePod},
 };
 use kube::client::APIClient;
 use log::info;
@@ -25,9 +25,43 @@ impl Provider for WasmRuntime {
             .unwrap_or(false)
     }
     fn add(&self, pod: KubePod, client: APIClient) -> Result<(), failure::Error> {
-        Ok(())
+        // To run an Add event, we load the WASM, update the pod status to Running,
+        // and then execute the WASM, passing in the relevant data.
+        // When the pod finishes, we update the status to Succeeded unless it
+        // produces an error, in which case we mark it Failed.
+        info!("Pod added");
+        let namespace = pod
+            .metadata
+            .clone()
+            .namespace
+            .unwrap_or_else(|| "default".into());
+        // Start with a hard-coded WASM file
+        let data = std::fs::read("./examples/greet.wasm")
+            .expect("greet.wasm should be in examples directory");
+        pod_status(client.clone(), pod.clone(), "Running", namespace.as_str());
+        // TODO: Launch this in a thread.
+        match wasm_run(&data) {
+            Ok(_) => {
+                info!("Pod run to completion");
+                pod_status(client.clone(), pod, "Succeeded", namespace.as_str());
+                Ok(())
+            }
+            Err(e) => {
+                pod_status(client.clone(), pod, "Failed", namespace.as_str());
+                Err(failure::format_err!("Failed to run pod: {}", e))
+            }
+        }
     }
-    fn modify(&self, pod: KubePod, client: APIClient) -> Result<(), failure::Error> {
+    fn modify(&self, pod: KubePod, _client: APIClient) -> Result<(), failure::Error> {
+        // Modify will be tricky. Not only do we need to handle legitimate modifications, but we
+        // need to sift out modifications that simply alter the status. For the time being, we
+        // just ignore them, which is the wrong thing to do... except that it demos better than
+        // other wrong things.
+        info!("Pod modified");
+        info!(
+            "Modified pod spec: {}",
+            serde_json::to_string_pretty(&pod.status.unwrap()).unwrap()
+        );
         Ok(())
     }
     fn status(&self, pod: KubePod, client: APIClient) -> Result<Status, failure::Error> {
