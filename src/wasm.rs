@@ -11,7 +11,7 @@ use wasmtime_wasi::*;
 pub struct WasmRuntime {}
 
 impl Provider for WasmRuntime {
-    fn can_schedule(pod: &KubePod) -> bool {
+    fn can_schedule(&self, pod: &KubePod) -> bool {
         // If there is a node selector and it has arch set to wasm32-wasi, we can
         // schedule it.
         let target_arch = "wasm32-wasi".to_string();

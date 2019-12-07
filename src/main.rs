@@ -10,7 +10,8 @@ use krustlet::{
     node::{create_node, update_node},
     pod::{pod_status, KubePod},
     server::start_webserver,
-    wasm::wasm_run,
+    wasm::WasmRuntime,
+    kubelet::Kubelet,
 };
 
 fn main() -> Result<(), failure::Error> {
@@ -19,47 +20,54 @@ fn main() -> Result<(), failure::Error> {
     let kubeconfig = config::load_kube_config()
         .or_else(|_| config::incluster_config())
         .expect("kubeconfig failed to load");
-    let client = APIClient::new(kubeconfig);
+    //let client = APIClient::new(kubeconfig);
     let namespace = std::env::var("NAMESPACE").unwrap_or_else(|_| "default".into());
+    let address = std::env::var("POD_IP").unwrap_or_else(|_| "0.0.0.0:3000".to_string()).parse()?;
 
     // Initialize the logger
     env_logger::init();
 
-    // Register as a node.
-    create_node(client.clone());
+    let provider = WasmRuntime{};
+    let kubelet = Kubelet::new(provider, kubeconfig, namespace);
+    kubelet.start(address);
 
-    // Start updating the node lease periodically
-    let update_client = client.clone();
-    let node_updater = std::thread::spawn(move || {
-        let sleep_interval = std::time::Duration::from_secs(10);
-        loop {
-            update_node(update_client.clone());
-            std::thread::sleep(sleep_interval);
-        }
-    });
+    // Register as a node.
+    //create_node(client.clone());
+
+    // // Start updating the node lease periodically
+    // let update_client = client.clone();
+    // let node_updater = std::thread::spawn(move || {
+    //     let sleep_interval = std::time::Duration::from_secs(10);
+    //     loop {
+    //         update_node(update_client.clone());
+    //         std::thread::sleep(sleep_interval);
+    //     }
+    // });
 
     // This informer listens for pod events.
-    let pod_informer = std::thread::spawn(move || {
-        let resource = Api::v1Pod(client.clone()).within(namespace.as_str());
+    // let pod_informer = std::thread::spawn(move || {
+    //     let resource = Api::v1Pod(client.clone()).within(namespace.as_str());
 
-        // OMG FIX ME NOW! We are not filtering only for pods that use wasm32-wasi!
+    //     // OMG FIX ME NOW! We are not filtering only for pods that use wasm32-wasi!
 
-        // Create our informer and start listening.
-        let informer = Informer::new(resource)
-            .init()
-            .expect("informer init failed");
-        loop {
-            informer.poll().expect("informer poll failed");
-            while let Some(event) = informer.pop() {
-                handle(client.clone(), event, namespace.clone());
-            }
-        }
-    });
+    //     // Create our informer and start listening.
+    //     let informer = Informer::new(resource)
+    //         .init()
+    //         .expect("informer init failed");
+    //     loop {
+    //         informer.poll().expect("informer poll failed");
+    //         while let Some(event) = informer.pop() {
+    //             handle(client.clone(), event, namespace.clone());
+    //         }
+    //     }
+    // });
 
-    // The webserver handles a few callbacks from Kubernetes.
-    start_webserver()?;
-    node_updater.join().expect("node update thread crashed");
-    pod_informer.join().expect("informer thread crashed");
+    // let addr = std::env::var("POD_IP")
+    //     .unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+    // // The webserver handles a few callbacks from Kubernetes.
+    // start_webserver(addr)?;
+    //node_updater.join().expect("node update thread crashed");
+    //pod_informer.join().expect("informer thread crashed");
 
     Ok(())
 }
