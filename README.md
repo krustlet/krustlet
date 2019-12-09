@@ -4,7 +4,7 @@
 
 Krustlet acts as a Kubelet by listening on the event stream for new pod requests that match a particular set of node selectors.
 
-Specifically, Krustlet listens for the architecture `wasm32-wasi` and schedules those workloads to run in a `wasmtime`-based runtime instead of a container runtime.
+The default implementation of Krustlet listens for the architecture `wasm32-wasi` and schedules those workloads to run in a `wasmtime`-based runtime instead of a container runtime.
 
 ## Building
 
@@ -27,7 +27,7 @@ That will take a LOOONG time the first build, but the layer cache will make it m
 
 Again, we recommend `just`, but you can use `cargo`:
 
-```
+```console
 $ just run
 $ cargo run
 ```
@@ -36,9 +36,9 @@ Note that if you are not running the binary in your cluster (e.g. if you are ins
 
 ## Scheduling Pods on the Krustlet
 
-The krustlet listens for wasm-wasi architecture:
+The krustlet listens for wasm32-wasi architecture:
 
-```
+```yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -51,9 +51,13 @@ spec:
   nodeSelector:
     kubernetes.io/role: agent
     beta.kubernetes.io/os: linux
-    beta.kubernetes.io/arch: wasm-wasi
+    beta.kubernetes.io/arch: wasm32-wasi
 ```
 
 Note that the `nodeSelector` is the important part above, though `image` is expected to point to a WASM module as well.
 
 To load the above into Kubernetes, use `kubectl apply -f greet.yaml`. You should see the pod go into the `Running` state very quickly. If the WASM is not daemonized, it should go to the `Succeeded` phase soon thereafter.
+
+## Creating your own Kubelets with Krustlet
+
+If you want to create your own Kubelet based on Krustlet, all you need to do is implement a `Provider`. See the `src/main.rs` to get started.
