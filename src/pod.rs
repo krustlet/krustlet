@@ -3,7 +3,7 @@ use kube::{
     api::{Api, Object, PatchParams},
     client::APIClient,
 };
-use log::{error, info, debug};
+use log::{debug, error, info};
 
 /// Alias for a Kubernetes Pod.
 pub type KubePod = Object<PodSpec, PodStatus>;

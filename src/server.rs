@@ -7,8 +7,8 @@ use hyper::service::service_fn_ok;
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use kube::client::APIClient;
 use log::{error, info};
-use std::sync::{Arc, Mutex};
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 use crate::kubelet::Provider;
 use crate::pod::KubePod;
@@ -16,16 +16,14 @@ use crate::pod::KubePod;
 /// Start the Krustlet HTTP(S) server
 ///
 /// FIXME: The env var read should be moved up to main.rs
-pub fn start_webserver<T: Provider + Clone + Send + Sync>(
-    provider: T,
+pub fn start_webserver<T: 'static + Provider + Clone + Send + Sync>(
+    provider: Arc<Mutex<T>>,
     address: &SocketAddr,
 ) -> Result<(), failure::Error> {
-    //let shared_provider = Arc::new(Mutex::new(provider.clone()));
-    let provider = provider.clone();
-    let svc = || {
-        //let prov = shared_provider.clone();
-        let shared_provider = Arc::new(Mutex::new(provider.clone()));
-        service_fn_ok( |req| {
+    let shared_provider = provider.clone();
+    let svc = move || {
+        let prov = shared_provider.clone();
+        service_fn_ok(move |req| {
             let path: Vec<&str> = req.uri().path().split('/').collect();
             let path_len = path.len();
             if path_len < 2 {
@@ -33,10 +31,10 @@ pub fn start_webserver<T: Provider + Clone + Send + Sync>(
             }
             match (req.method(), path[1], path_len) {
                 (&Method::GET, "containerLogs", 5) => {
-                    let p = shared_provider.lock().unwrap();
+                    let p = prov.lock().unwrap();
                     get_container_logs(p.clone(), req)
                 }
-                //(&Method::POST, "exec", 5) => post_exec(prov.clone(), req),
+                (&Method::POST, "exec", 5) => post_exec(prov.lock().unwrap().clone(), req),
                 _ => {
                     let mut response = Response::new(Body::from("Not Found"));
                     *response.status_mut() = StatusCode::NOT_FOUND;
@@ -49,7 +47,7 @@ pub fn start_webserver<T: Provider + Clone + Send + Sync>(
         .serve(svc)
         .map_err(|e| error!("HTTP server error: {}", e));
 
-    info!("starting webserver at: {:?}", address;
+    info!("starting webserver at: {:?}", address);
     hyper::rt::run(server);
     Ok(())
 }

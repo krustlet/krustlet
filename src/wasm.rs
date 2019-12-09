@@ -8,6 +8,7 @@ use wasmtime::*;
 use wasmtime_wasi::*;
 
 /// WasmRuntime provides a Kubelet runtime implementation that executes WASM binaries.
+#[derive(Clone)]
 pub struct WasmRuntime {}
 
 impl Provider for WasmRuntime {
@@ -64,7 +65,7 @@ impl Provider for WasmRuntime {
         );
         Ok(())
     }
-    fn status(&self, pod: KubePod, client: APIClient) -> Result<Status, failure::Error> {
+    fn status(&self, _pod: KubePod, _client: APIClient) -> Result<Status, failure::Error> {
         Ok(Status {
             phase: Phase::Succeeded,
             message: None,
@@ -130,13 +131,14 @@ mod test {
     use k8s_openapi::api::core::v1::PodSpec;
     #[test]
     fn test_can_schedule() {
+        let wr = WasmRuntime {};
         let mut mock = KubePod {
             spec: Default::default(),
             metadata: Default::default(),
             status: Default::default(),
             types: Default::default(),
         };
-        assert!(!WasmRuntime::can_schedule(&mock));
+        assert!(!wr.can_schedule(&mock));
 
         let mut selector = std::collections::BTreeMap::new();
         selector.insert(
@@ -147,12 +149,12 @@ mod test {
             node_selector: Some(selector.clone()),
             ..Default::default()
         };
-        assert!(WasmRuntime::can_schedule(&mock));
+        assert!(wr.can_schedule(&mock));
         selector.insert("beta.kubernetes.io/arch".to_string(), "amd64".to_string());
         mock.spec = PodSpec {
             node_selector: Some(selector.clone()),
             ..Default::default()
         };
-        assert!(!WasmRuntime::can_schedule(&mock));
+        assert!(!wr.can_schedule(&mock));
     }
 }

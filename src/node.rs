@@ -152,9 +152,9 @@ fn node_definition() -> serde_json::Value {
         "metadata": {
             "name": NODE_NAME,
             "labels": {
-                "beta.kubernetes.io/arch": "wasm-wasi",
+                "beta.kubernetes.io/arch": "wasm32-wasi",
                 "beta.kubernetes.io/os": "linux",
-                "kubernetes.io/arch": "wasm-wasi",
+                "kubernetes.io/arch": "wasm32-wasi",
                 "kubernetes.io/os": "linux",
                 "kubernetes.io/hostname": "krustlet",
                 "kubernetes.io/role":     "agent",
