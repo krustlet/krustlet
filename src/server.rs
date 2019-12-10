@@ -1,11 +1,9 @@
 /// Server is an HTTP(S) server for answering Kubelet callbacks.
 ///
 /// Logs and exec calls are the main things that a server should handle.
-use futures::future;
 use hyper::rt::Future;
 use hyper::service::service_fn_ok;
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
-use kube::client::APIClient;
 use log::{error, info};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -15,7 +13,8 @@ use crate::pod::KubePod;
 
 /// Start the Krustlet HTTP(S) server
 ///
-/// FIXME: The env var read should be moved up to main.rs
+/// This is a primitive implementation of an HTTP provider for the internal API.
+/// TODO: Support TLS/SSL.
 pub fn start_webserver<T: 'static + Provider + Clone + Send + Sync>(
     provider: Arc<Mutex<T>>,
     address: &SocketAddr,
@@ -52,14 +51,6 @@ pub fn start_webserver<T: 'static + Provider + Clone + Send + Sync>(
     Ok(())
 }
 
-/// Convenience type for hyper
-type BoxFut = Box<dyn futures::future::Future<Item = Response<Body>, Error = hyper::Error> + Send>;
-
-struct WebServer<P: Provider> {
-    provider: P,
-    client: APIClient,
-}
-
 /// Return a simple status message
 fn get_ping() -> Response<Body> {
     Response::new(Body::from("this is the Krustlet HTTP server"))
@@ -90,7 +81,7 @@ fn get_container_logs<T: Provider>(provider: T, _req: Request<Body>) -> Response
 /// Run a pod exec command and get the output
 ///
 /// Implements the kubelet path /exec/{namespace}/{pod}/{container}
-fn post_exec<T: Provider>(provider: T, _req: Request<Body>) -> Response<Body> {
+fn post_exec<T: Provider>(_provider: T, _req: Request<Body>) -> Response<Body> {
     let mut res = Response::new(Body::from("Not Implemented"));
     *res.status_mut() = StatusCode::NOT_IMPLEMENTED;
     res

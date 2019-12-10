@@ -1,9 +1,9 @@
 /// This library contans the Kubelet shell. Use this to create a new Kubelet
 /// with a specific handler. (The handler included here is the WASM handler.)
 use crate::{
+    node::{create_node, update_node},
     pod::KubePod,
     server::start_webserver,
-    node::{create_node, update_node},
 };
 use kube::{
     api::{Api, Informer, WatchEvent},
@@ -45,6 +45,14 @@ pub struct Status {
 ///
 /// A Kubelet is a special kind of server that handles Kubernetes requests
 /// to schedule pods.
+///
+/// The Kubelet creates a listener on the Kubernetes API (called an Informer),
+/// a webserver for API callbacks, and a periodic updater to let Kubernetes
+/// know that the node is still running.
+///
+/// The Provider supplies all of the backend-spcific logic. Krustlet will only
+/// run one (instance of a) Provider. So a provider may be passed around from
+/// thread to thread during the course of the Kubelet's lifetime.
 #[derive(Clone)]
 pub struct Kubelet<P: 'static + Provider + Clone + Send + Sync> {
     provider: Arc<Mutex<P>>,
@@ -100,7 +108,7 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
         });
 
         // Start the webserver
-        start_webserver(self.provider.clone(), &address);
+        start_webserver(self.provider.clone(), &address)?;
 
         // Join the threads
         // FIXME: If any of these dies, we should crash the Kubelet and let it restart.
