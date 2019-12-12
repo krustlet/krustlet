@@ -239,6 +239,8 @@ pub trait Provider {
     /// custom Downward API fields.
     ///
     /// It is safe to call from within your own providers.
+    ///
+    /// TODO: Finish secrets, configmaps, and resource fields
     fn env_vars(
         &self,
         _client: APIClient,
@@ -381,7 +383,7 @@ mod test {
     }
 
     #[test]
-    fn test_resolve_env_vars() {
+    fn test_env_vars() {
         let container = Container {
             env: Some(vec![
                 EnvVar {
