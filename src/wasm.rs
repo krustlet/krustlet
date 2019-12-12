@@ -7,6 +7,8 @@ use log::info;
 use wasmtime::*;
 use wasmtime_wasi::*;
 
+type EnvVars = std::collections::HashMap<String, String>;
+
 /// WasmRuntime provides a Kubelet runtime implementation that executes WASM binaries.
 #[derive(Clone)]
 pub struct WasmRuntime {}
@@ -40,8 +42,32 @@ impl Provider for WasmRuntime {
         let data = std::fs::read("./examples/greet.wasm")
             .expect("greet.wasm should be in examples directory");
         pod_status(client.clone(), pod.clone(), "Running", namespace.as_str());
+
+        // TODO: Implement this for real.
+        // Okay, so here is where things are REALLY unfinished. Right now, we are
+        // only running the first container in a pod. And we are not using the
+        // init containers at all. And they are not executed on their own threads.
+        // So this is basically a toy.
+        //
+        // What it should do:
+        // - for each volume
+        //   - set up the volume map
+        // - for each init container:
+        //   - set up the runtime
+        //   - mount any volumes (popen)
+        //   - run it to completion
+        //   - bail with an error if it fails
+        // - for each container and ephemeral_container
+        //   - set up the runtime
+        //   - mount any volumes (popen)
+        //   - run it to completion
+        //   - bail if it errors
+        let first_container = pod.spec.containers[0].clone();
+
         // TODO: Launch this in a thread.
-        match wasm_run(&data) {
+        let env = self.env_vars(client.clone(), &first_container, &pod);
+        let args = first_container.args.unwrap_or_else(|| vec![]);
+        match wasm_run(&data, env, args) {
             Ok(_) => {
                 info!("Pod run to completion");
                 pod_status(client.clone(), pod, "Succeeded", namespace.as_str());
@@ -83,18 +109,19 @@ impl Provider for WasmRuntime {
 /// then execute the WASM. It would be excellent to have a
 /// convenience function that could take the pod spec and derive
 /// all of this from that.
-pub fn wasm_run(data: &[u8]) -> Result<(), failure::Error> {
+pub fn wasm_run(data: &[u8], env: EnvVars, args: Vec<String>) -> Result<(), failure::Error> {
     let engine = HostRef::new(Engine::default());
     let store = HostRef::new(Store::new(&engine));
     let module = HostRef::new(Module::new(&store, data).expect("wasm module"));
     let preopen_dirs = vec![];
-    let argv = vec![];
-    let environ = vec![];
+    let mut environ = vec![];
+    env.iter()
+        .for_each(|item| environ.push((item.0.to_string(), item.1.to_string())));
     // Build a list of WASI modules
     let wasi_inst = HostRef::new(create_wasi_instance(
         &store,
         &preopen_dirs,
-        &argv,
+        &args,
         &environ,
     )?);
     // Iterate through the module includes and resolve imports

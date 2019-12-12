@@ -17,6 +17,8 @@ fn main() -> Result<(), failure::Error> {
     // Initialize the logger
     env_logger::init();
 
+    // The provider is responsible for all the "back end" logic. If you are creating
+    // a new Kubelet, all you need to implement is a provider.
     let provider = WasmRuntime {};
     let kubelet = Kubelet::new(provider, kubeconfig, namespace);
     kubelet.start(address)

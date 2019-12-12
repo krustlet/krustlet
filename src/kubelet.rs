@@ -5,13 +5,16 @@ use crate::{
     pod::KubePod,
     server::start_webserver,
 };
+use k8s_openapi::api::core::v1::{Container, PodSpec};
 use kube::{
     api::{Api, Informer, WatchEvent},
     client::APIClient,
     config::Configuration,
 };
-use log::{debug, error};
+use log::{debug, error, info};
 use std::sync::{Arc, Mutex};
+
+use std::collections::HashMap;
 
 #[derive(Fail, Debug)]
 #[fail(display = "Operation not supported")]
@@ -98,6 +101,9 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
             loop {
                 informer.poll().expect("informer poll failed");
                 while let Some(event) = informer.pop() {
+                    // TODO: We need to spawn threads (or do something similar)
+                    // to handle the event. Currently, there is only one thread
+                    // executing WASM.
                     let config = config_clone.clone();
                     match provider_clone.lock().unwrap().handle_event(event, config) {
                         Ok(_) => debug!("Handled event successfully"),
@@ -224,5 +230,283 @@ pub trait Provider {
                 Err(e.into())
             }
         }
+    }
+
+    /// Resolve the environment variables for a container.
+    ///
+    /// This generally should not be overwritten unless you need to handle
+    /// environment variable resolution in a special way, such as allowing
+    /// custom Downward API fields.
+    ///
+    /// It is safe to call from within your own providers.
+    fn env_vars(
+        &self,
+        _client: APIClient,
+        container: &Container,
+        pod: &KubePod,
+    ) -> HashMap<String, String> {
+        let fields = field_map(pod);
+        let mut env = HashMap::new();
+        let empty = Vec::new();
+        container
+            .env
+            .as_ref()
+            .unwrap_or_else(|| &empty)
+            .iter()
+            .for_each(|i| {
+                env.insert(
+                    i.name.clone(),
+                    i.value.clone().unwrap_or_else(|| {
+                        if let Some(env_src) = i.value_from.clone() {
+                            // ConfigMaps
+                            if let Some(cfkey) = env_src.config_map_key_ref {
+                                return cfkey.key;
+                            }
+                            // Secrets
+                            if let Some(cfkey) = env_src.secret_key_ref {
+                                return cfkey.key;
+                            }
+                            // Downward API (Field Refs)
+                            if let Some(cfkey) = env_src.field_ref {
+                                return fields
+                                    .get(cfkey.field_path.as_str())
+                                    .and_then(|s| Some(s.to_string()))
+                                    .unwrap_or_default();
+                            }
+                            // Reource Fields
+                        }
+                        "".to_string()
+                    }),
+                );
+            });
+        env
+    }
+}
+
+fn field_map(pod: &KubePod) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    map.insert("metadata.name".into(), pod.metadata.name.clone());
+    map.insert(
+        "metadata.namespace".into(),
+        pod.metadata
+            .namespace
+            .as_ref()
+            .and_then(|i| Some(i.clone()))
+            .unwrap_or_else(|| "default".into())
+            .clone(),
+    );
+    map.insert(
+        "spec.serviceAccountName".into(),
+        pod.spec
+            .service_account_name
+            .as_ref()
+            .and_then(|i| Some(i.clone()))
+            .unwrap_or_default()
+            .clone(),
+    );
+    map.insert(
+        "status.hostIP".into(),
+        pod.status
+            .clone()
+            .expect("spec must be set")
+            .host_ip
+            .and_then(|i| Some(i.clone()))
+            .unwrap_or_default()
+            .clone(),
+    );
+    map.insert(
+        "status.podIP".into(),
+        pod.status
+            .clone()
+            .expect("spec must be set")
+            .pod_ip
+            .and_then(|i| Some(i.clone()))
+            .unwrap_or_default()
+            .clone(),
+    );
+    pod.metadata.labels.iter().for_each(|(k, v)| {
+        info!("adding {} to labels", k);
+        map.insert(format!("metadata.labels.{}", k), v.into());
+    });
+    pod.metadata.annotations.iter().for_each(|(k, v)| {
+        map.insert(format!("metadata.annotations.{}", k), v.into());
+    });
+    map
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::pod::KubePod;
+    use k8s_openapi::api::core::v1::{
+        EnvVar, EnvVarSource, ObjectFieldSelector, PodSpec, PodStatus,
+    };
+    use kube::api::ObjectMeta;
+    use kube::client::APIClient;
+    use std::collections::BTreeMap;
+
+    fn mock_client() -> APIClient {
+        APIClient::new(Configuration {
+            base_path: ".".into(),
+            client: reqwest::Client::new(),
+        })
+    }
+
+    struct MockProvider {}
+
+    // We use a constructor so that as we update the tests, we don't
+    // have to modify a bunch of struct literals with base mock data.
+    impl MockProvider {
+        fn new() -> Self {
+            MockProvider {}
+        }
+    }
+
+    impl Provider for MockProvider {
+        fn can_schedule(&self, _pod: &KubePod) -> bool {
+            true
+        }
+        fn add(&self, _pod: KubePod, _client: APIClient) -> Result<(), failure::Error> {
+            Ok(())
+        }
+        fn modify(&self, _pod: KubePod, _client: APIClient) -> Result<(), failure::Error> {
+            Ok(())
+        }
+        fn status(&self, _pod: KubePod, _client: APIClient) -> Result<Status, failure::Error> {
+            Ok(Status {
+                phase: Phase::Succeeded,
+                message: None,
+            })
+        }
+    }
+
+    #[test]
+    fn test_resolve_env_vars() {
+        let container = Container {
+            env: Some(vec![
+                EnvVar {
+                    name: "first".into(),
+                    value: Some("value".into()),
+                    ..Default::default()
+                },
+                EnvVar {
+                    name: "second".into(),
+                    value_from: Some(EnvVarSource {
+                        field_ref: Some(ObjectFieldSelector {
+                            field_path: "metadata.labels.label".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                EnvVar {
+                    name: "third".into(),
+                    value_from: Some(EnvVarSource {
+                        field_ref: Some(ObjectFieldSelector {
+                            field_path: "metadata.annotations.annotation".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                EnvVar {
+                    name: "NAME".into(),
+                    value_from: Some(EnvVarSource {
+                        field_ref: Some(ObjectFieldSelector {
+                            field_path: "metadata.name".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                EnvVar {
+                    name: "NAMESPACE".into(),
+                    value_from: Some(EnvVarSource {
+                        field_ref: Some(ObjectFieldSelector {
+                            field_path: "metadata.namespace".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                EnvVar {
+                    name: "HOST_IP".into(),
+                    value_from: Some(EnvVarSource {
+                        field_ref: Some(ObjectFieldSelector {
+                            field_path: "status.hostIP".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                EnvVar {
+                    name: "POD_IP".into(),
+                    value_from: Some(EnvVarSource {
+                        field_ref: Some(ObjectFieldSelector {
+                            field_path: "status.podIP".into(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            ]),
+            ..Default::default()
+        };
+        let name = "my-name".to_string();
+        let namespace = Some("my-namespace".to_string());
+        let mut labels = BTreeMap::new();
+        labels.insert("label".to_string(), "value".to_string());
+        let mut annotations = BTreeMap::new();
+        annotations.insert("annotation".to_string(), "value".to_string());
+        let pod = KubePod {
+            metadata: ObjectMeta {
+                labels,
+                annotations,
+                name,
+                namespace,
+                ..Default::default()
+            },
+            spec: PodSpec {
+                service_account_name: Some("svc".to_string()),
+                ..Default::default()
+            },
+            status: Some(PodStatus {
+                host_ip: Some("10.21.77.1".to_string()),
+                pod_ip: Some("10.21.77.2".to_string()),
+                ..Default::default()
+            }),
+            types: Default::default(),
+        };
+        let prov = MockProvider::new();
+        let env = prov.env_vars(mock_client(), &container, &pod);
+
+        assert_eq!(
+            "value",
+            env.get("first").expect("key first should exist").as_str()
+        );
+
+        assert_eq!(
+            "value",
+            env.get("second").expect("metadata.labels.label").as_str()
+        );
+        assert_eq!(
+            "value",
+            env.get("third")
+                .expect("metadata.annotations.annotation")
+                .as_str()
+        );
+        assert_eq!("my-name", env.get("NAME").expect("metadata.name").as_str());
+        assert_eq!(
+            "my-namespace",
+            env.get("NAMESPACE").expect("metadata.namespace").as_str()
+        );
+        assert_eq!("10.21.77.2", env.get("POD_IP").expect("pod_ip").as_str());
+        assert_eq!("10.21.77.1", env.get("HOST_IP").expect("host_ip").as_str());
     }
 }
