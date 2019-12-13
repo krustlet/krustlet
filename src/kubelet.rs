@@ -243,13 +243,19 @@ pub trait Provider {
     /// TODO: Finish secrets, configmaps, and resource fields
     fn env_vars(
         &self,
-        _client: APIClient,
+        client: APIClient,
         container: &Container,
         pod: &KubePod,
     ) -> HashMap<String, String> {
         let fields = field_map(pod);
         let mut env = HashMap::new();
         let empty = Vec::new();
+        let def = "".to_string();
+        let ns = pod
+            .metadata
+            .namespace
+            .clone()
+            .unwrap_or_else(|| "default".into());
         container
             .env
             .as_ref()
@@ -259,14 +265,46 @@ pub trait Provider {
                 env.insert(
                     i.name.clone(),
                     i.value.clone().unwrap_or_else(|| {
+                        let client = client.clone();
                         if let Some(env_src) = i.value_from.clone() {
                             // ConfigMaps
                             if let Some(cfkey) = env_src.config_map_key_ref {
-                                return cfkey.key;
+                                let name = cfkey.name.unwrap_or_else(|| "".into());
+                                match Api::v1ConfigMap(client)
+                                    .within(ns.as_str())
+                                    .get(name.as_str())
+                                {
+                                    Ok(cfgmap) => {
+                                        // I am not totally clear on what the outcome should
+                                        // be of a cfgmap key miss. So for now just return an
+                                        // empty default.
+                                        return cfgmap.data.get(cfkey.key.as_str()).unwrap_or(&def).to_string()
+                                    },
+                                    Err(e) => {
+                                        error!("Error fetching config map {}: {}", name, e);
+                                        return "".to_string();
+                                    }
+                                }
                             }
                             // Secrets
-                            if let Some(cfkey) = env_src.secret_key_ref {
-                                return cfkey.key;
+                            if let Some(seckey) = env_src.secret_key_ref {
+                                let name = seckey.name.unwrap_or_else(|| "".into());
+                                match Api::v1Secret(client)
+                                    .within(ns.as_str())
+                                    .get(name.as_str())
+                                {
+                                    Ok(secret) => {
+                                        // I am not totally clear on what the outcome should
+                                        // be of a cfgmap key miss. So for now just return an
+                                        // empty default.
+                                        
+                                        return secret.stringData.get(seckey.key.as_str()).unwrap_or(&def).to_string()
+                                    },
+                                    Err(e) => {
+                                        error!("Error fetching config map {}: {}", name, e);
+                                        return "".to_string();
+                                    }
+                                }
                             }
                             // Downward API (Field Refs)
                             if let Some(cfkey) = env_src.field_ref {
@@ -285,6 +323,7 @@ pub trait Provider {
     }
 }
 
+/// Build the map of allowable field_ref values.
 fn field_map(pod: &KubePod) -> HashMap<String, String> {
     let mut map = HashMap::new();
     map.insert("metadata.name".into(), pod.metadata.name.clone());
