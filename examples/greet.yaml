@@ -4,7 +4,7 @@ metadata:
   name: greet
 spec:
   containers:
-    - image: technosophos/greet
+    - image: cnabregistry.azurecr.io/wasm:v2
       imagePullPolicy: Always
       name: greet
   nodeSelector:

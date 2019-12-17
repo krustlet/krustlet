@@ -5,6 +5,7 @@ extern crate failure;
 
 pub mod kubelet;
 pub mod node;
+pub mod oci;
 pub mod pod;
 pub mod server;
 pub mod wasm;

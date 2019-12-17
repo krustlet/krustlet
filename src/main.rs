@@ -1,7 +1,7 @@
 use env_logger;
+use krustlet::oci;
 use krustlet::{kubelet::Kubelet, wasm::WasmRuntime};
 use kube::config;
-
 fn main() -> Result<(), failure::Error> {
     // Read the environment. Note that this tries a KubeConfig file first, then
     // falls back on an in-cluster configuration.
@@ -22,4 +22,11 @@ fn main() -> Result<(), failure::Error> {
     let provider = WasmRuntime {};
     let kubelet = Kubelet::new(provider, kubeconfig, namespace);
     kubelet.start(address)
+
+    // oci::pull_wasm(
+    //     String::from("cnabregistry.azurecr.io/wasm-to-oci:v2"),
+    //     String::from("test.wasm"),
+    // )
+    // .unwrap();
+    // Ok(())
 }

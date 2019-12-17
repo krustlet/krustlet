@@ -14,6 +14,6 @@ RUN cargo build --release && \
     rm -rf ./target/release/.fingerprint/krustlet-*
 
 # Build real binaries now
-COPY ./src ./src
+COPY . .
 RUN cargo build --release
 CMD ["/usr/src/krustlet/target/release/krustlet"]

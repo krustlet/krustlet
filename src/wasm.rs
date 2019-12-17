@@ -1,5 +1,6 @@
 use crate::{
     kubelet::{Phase, Provider, Status},
+    oci::pull_wasm,
     pod::{pod_status, KubePod},
 };
 use kube::client::APIClient;
@@ -38,11 +39,13 @@ impl Provider for WasmRuntime {
             .clone()
             .namespace
             .unwrap_or_else(|| "default".into());
-        // Start with a hard-coded WASM file
-        let data = std::fs::read("./examples/greet.wasm")
-            .expect("greet.wasm should be in examples directory");
-        pod_status(client.clone(), pod.clone(), "Running", namespace.as_str());
+        let first_container = pod.spec.containers[0].clone();
 
+        let module_ref = pod.spec.containers[0].image.as_ref().unwrap().to_owned();
+        pull_wasm(module_ref, String::from("pulled.wasm")).unwrap();
+
+        let data = std::fs::read("pulled.wasm").expect("cannot read module file");
+        pod_status(client.clone(), pod.clone(), "Running", namespace.as_str());
         // TODO: Implement this for real.
         // Okay, so here is where things are REALLY unfinished. Right now, we are
         // only running the first container in a pod. And we are not using the
@@ -62,7 +65,8 @@ impl Provider for WasmRuntime {
         //   - mount any volumes (popen)
         //   - run it to completion
         //   - bail if it errors
-        let first_container = pod.spec.containers[0].clone();
+
+        // Start with a hard-coded WASM file
 
         // TODO: Launch this in a thread.
         let env = self.env_vars(client.clone(), &first_container, &pod);
