@@ -73,6 +73,7 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
         }
     }
     pub fn start(&self, address: std::net::SocketAddr) -> Result<(), failure::Error> {
+        self.provider.lock().unwrap().init()?;
         let client = APIClient::new(self.kubeconfig.clone());
         // Create the node. If it already exists, "adopt" the node definition
         create_node(client.clone());
@@ -134,6 +135,10 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
 /// cases where a provider may be middleware for another Kubernetes object, or where a
 /// provider may require supplemental Kubernetes objects such as Secrets, ConfigMaps, or CRDs.
 pub trait Provider {
+    /// Init is guaranteed to be called only once, and prior to the first call to can_schedule().
+    fn init(&self) -> Result<(), failure::Error> {
+        Ok(())
+    }
     /// Given a Pod definition, this function determines whether or not the workload is schedulable on this provider.
     ///
     /// This determines _only_ if the pod, as described, meets the node requirements (e.g. the node selector).
@@ -278,8 +283,12 @@ pub trait Provider {
                                         // I am not totally clear on what the outcome should
                                         // be of a cfgmap key miss. So for now just return an
                                         // empty default.
-                                        return cfgmap.data.get(cfkey.key.as_str()).unwrap_or(&def).to_string()
-                                    },
+                                        return cfgmap
+                                            .data
+                                            .get(cfkey.key.as_str())
+                                            .unwrap_or(&def)
+                                            .to_string();
+                                    }
                                     Err(e) => {
                                         error!("Error fetching config map {}: {}", name, e);
                                         return "".to_string();
@@ -289,17 +298,18 @@ pub trait Provider {
                             // Secrets
                             if let Some(seckey) = env_src.secret_key_ref {
                                 let name = seckey.name.unwrap_or_else(|| "".into());
-                                match Api::v1Secret(client)
-                                    .within(ns.as_str())
-                                    .get(name.as_str())
-                                {
+                                match Api::v1Secret(client).within(ns.as_str()).get(name.as_str()) {
                                     Ok(secret) => {
                                         // I am not totally clear on what the outcome should
                                         // be of a cfgmap key miss. So for now just return an
                                         // empty default.
-                                        
-                                        return secret.stringData.get(seckey.key.as_str()).unwrap_or(&def).to_string()
-                                    },
+
+                                        return secret
+                                            .stringData
+                                            .get(seckey.key.as_str())
+                                            .unwrap_or(&def)
+                                            .to_string();
+                                    }
                                     Err(e) => {
                                         error!("Error fetching config map {}: {}", name, e);
                                         return "".to_string();
@@ -313,7 +323,7 @@ pub trait Provider {
                                     .and_then(|s| Some(s.to_string()))
                                     .unwrap_or_default();
                             }
-                            // Reource Fields
+                            // Reource Fields (Not implementable just yet... need more of a model.)
                         }
                         "".to_string()
                     }),

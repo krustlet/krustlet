@@ -4,16 +4,44 @@ use crate::{
 };
 use kube::client::APIClient;
 use log::info;
+use std::collections::HashMap;
+use wascc_host::{host, Actor, Capability};
+
+// Formerly used wasmtime as a runtime
 use wasmtime::*;
 use wasmtime_wasi::*;
+
+const HTTP_CAPABILITY: &str = "wascc:http_server";
+const ACTOR_PUBLIC_KEY: &str = "deislabs.io/wascc-action-key";
 
 type EnvVars = std::collections::HashMap<String, String>;
 
 /// WasmRuntime provides a Kubelet runtime implementation that executes WASM binaries.
+///
+/// Currently, this runtime uses WASCC as a host, loading the primary container as an actor.
+/// TODO: In the future, we will look at loading capabilities using the "sidecar" metaphor
+/// from Kubernetes.
 #[derive(Clone)]
 pub struct WasmRuntime {}
 
 impl Provider for WasmRuntime {
+    fn init(&self) -> Result<(), failure::Error> {
+        let httplib = "./lib/libwascc_httpsrv.dylib";
+        // The match is to unwrap an error from a thread and convert it to a type that
+        // can cross the thread boundary. There is surely a better way.
+        match Capability::from_file(httplib) {
+            Err(e) => Err(format_err!(
+                "Failed to read HTTP capability {}: {}",
+                httplib,
+                e
+            )),
+            Ok(data) => match host::add_native_capability(data) {
+                Err(e) => Err(format_err!("Failed to load HTTP capability: {}", e)),
+                Ok(_) => Ok(()),
+            },
+        }
+    }
+
     fn can_schedule(&self, pod: &KubePod) -> bool {
         // If there is a node selector and it has arch set to wasm32-wasi, we can
         // schedule it.
@@ -21,10 +49,7 @@ impl Provider for WasmRuntime {
         pod.spec
             .node_selector
             .as_ref()
-            .and_then(|i| {
-                i.get("beta.kubernetes.io/arch")
-                    .and_then(|v| Some(v.eq(&target_arch)))
-            })
+            .and_then(|i| i.get("beta.kubernetes.io/arch").map(|v| v.eq(&target_arch)))
             .unwrap_or(false)
     }
     fn add(&self, pod: KubePod, client: APIClient) -> Result<(), failure::Error> {
@@ -39,9 +64,10 @@ impl Provider for WasmRuntime {
             .namespace
             .unwrap_or_else(|| "default".into());
         // Start with a hard-coded WASM file
-        let data = std::fs::read("./examples/greet.wasm")
-            .expect("greet.wasm should be in examples directory");
-        pod_status(client.clone(), pod.clone(), "Running", namespace.as_str());
+        //let data = std::fs::read("./examples/greet.wasm")
+        //    .expect("greet.wasm should be in examples directory");
+        let data = std::fs::read("./lib/greet_actor_signed.wasm")?;
+        //pod_status(client.clone(), pod.clone(), "Running", namespace.as_str());
 
         // TODO: Implement this for real.
         // Okay, so here is where things are REALLY unfinished. Right now, we are
@@ -64,13 +90,33 @@ impl Provider for WasmRuntime {
         //   - bail if it errors
         let first_container = pod.spec.containers[0].clone();
 
-        // TODO: Launch this in a thread.
+        // This would lock us into one wascc actor per pod. I don't know if
+        // that is a good thing. Other containers would then be limited
+        // to acting as components... which largely follows the sidecar
+        // pattern.
+        //
+        // Another possibility is to embed the key in the image reference
+        // (image/foo.wasm@ed25519:PUBKEY). That might work best, but it is
+        // not terribly useable.
+        //
+        // A really icky one would be to just require the pubkey in the env
+        // vars and suck it out of there. But that violates the intention
+        // of env vars, which is to communicate _into_ the runtime, not to
+        // configure the runtime.
+        let pubkey = pod
+            .metadata
+            .annotations
+            .get(ACTOR_PUBLIC_KEY)
+            .map(|a| a.to_string())
+            .unwrap_or_else(|| "".into());
+
+        // TODO: Launch this in a thread. (not necessary with waSCC)
         let env = self.env_vars(client.clone(), &first_container, &pod);
-        let args = first_container.args.unwrap_or_else(|| vec![]);
-        match wasm_run(&data, env, args) {
+        //let args = first_container.args.unwrap_or_else(|| vec![]);
+        match wascc_run(&data, env, pubkey.as_str()) {
             Ok(_) => {
-                info!("Pod run to completion");
-                pod_status(client.clone(), pod, "Succeeded", namespace.as_str());
+                info!("Pod is executing on a thread");
+                pod_status(client.clone(), pod, "Running", namespace.as_str());
                 Ok(())
             }
             Err(e) => {
@@ -97,6 +143,36 @@ impl Provider for WasmRuntime {
             message: None,
         })
     }
+}
+
+pub fn wascc_run(data: &[u8], env: EnvVars, key: &str) -> Result<(), failure::Error> {
+    let load = match Actor::from_bytes(data.to_vec()) {
+        Err(e) => return Err(format_err!("Error loading WASM: {}", e.to_string())),
+        Ok(data) => data,
+    };
+    if let Err(e) = host::add_actor(load) {
+        return Err(format_err!("Error adding actor: {}", e.to_string()));
+    }
+    let mut httpenv: HashMap<String, String> = HashMap::new();
+    httpenv.insert(
+        "PORT".into(),
+        env.get("PORT")
+            .map(|a| a.to_string())
+            .unwrap_or_else(|| "80".to_string()),
+    );
+    // TODO: Middleware provider for env vars
+    match host::configure(key, HTTP_CAPABILITY, httpenv) {
+        Err(e) => {
+            return Err(format_err!(
+                "Error configuring HTTP server for module: {}",
+                e.to_string()
+            ));
+        }
+        Ok(_) => {
+            info!("Instance executing");
+        }
+    }
+    Ok(())
 }
 
 /// Given a WASM binary, execute it.
@@ -146,8 +222,7 @@ pub fn wasm_run(data: &[u8], env: EnvVars, args: Vec<String>) -> Result<(), fail
 
     // Then create the instance
     let _instance = Instance::new(&store, &module, &imports).expect("wasm instance");
-
-    info!("Instance was executed");
+    info!("Instance executing");
     Ok(())
 }
 
