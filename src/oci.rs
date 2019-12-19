@@ -42,27 +42,6 @@ pub fn pull_wasm(reference: String, file: String) -> Result<(), OCIError> {
     }
 }
 
-pub fn push_wasm(reference: &str, file: &str) -> lib::Result<i64> {
-    let c_ref = CString::new(reference)?;
-    let c_file = CString::new(file)?;
-
-    let go_str_ref = GoString {
-        p: c_ref.as_ptr(),
-        n: c_ref.as_bytes().len() as isize,
-    };
-    let go_str_file = GoString {
-        p: c_file.as_ptr(),
-        n: c_file.as_bytes().len() as isize,
-    };
-
-    let lib = lib::Library::new(lib_file())?;
-    unsafe {
-        let func: lib::Symbol<unsafe extern "C" fn(r: GoString, f: GoString) -> i64> =
-            lib.get(b"Push")?;
-        Ok(func(go_str_ref, go_str_file))
-    }
-}
-
 #[derive(Debug)]
 pub enum OCIError {
     Custom(String),
