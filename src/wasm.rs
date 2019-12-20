@@ -5,7 +5,7 @@ use crate::{
 use kube::client::APIClient;
 use log::info;
 use std::collections::HashMap;
-use wascc_host::{host, Actor, Capability};
+use wascc_host::{host, Actor, NativeCapability};
 
 // Formerly used wasmtime as a runtime
 use wasmtime::*;
@@ -13,6 +13,7 @@ use wasmtime_wasi::*;
 
 const HTTP_CAPABILITY: &str = "wascc:http_server";
 const ACTOR_PUBLIC_KEY: &str = "deislabs.io/wascc-action-key";
+const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 
 type EnvVars = std::collections::HashMap<String, String>;
 
@@ -29,7 +30,7 @@ impl Provider for WasmRuntime {
         let httplib = "./lib/libwascc_httpsrv.dylib";
         // The match is to unwrap an error from a thread and convert it to a type that
         // can cross the thread boundary. There is surely a better way.
-        match Capability::from_file(httplib) {
+        match NativeCapability::from_file(httplib) {
             Err(e) => Err(format_err!(
                 "Failed to read HTTP capability {}: {}",
                 httplib,
@@ -45,7 +46,7 @@ impl Provider for WasmRuntime {
     fn can_schedule(&self, pod: &KubePod) -> bool {
         // If there is a node selector and it has arch set to wasm32-wasi, we can
         // schedule it.
-        let target_arch = "wasm32-wasi".to_string();
+        let target_arch = TARGET_WASM32_WASI.to_string();
         pod.spec
             .node_selector
             .as_ref()
@@ -137,11 +138,28 @@ impl Provider for WasmRuntime {
         );
         Ok(())
     }
-    fn status(&self, _pod: KubePod, _client: APIClient) -> Result<Status, failure::Error> {
-        Ok(Status {
-            phase: Phase::Succeeded,
-            message: None,
-        })
+    fn status(&self, pod: KubePod, _client: APIClient) -> Result<Status, failure::Error> {
+        match pod.metadata.annotations.get(ACTOR_PUBLIC_KEY) {
+            None => Ok(Status {
+                phase: Phase::Unknown,
+                message: None,
+            }),
+            Some(pk) => {
+                match host::actor_claims(pk) {
+                    None => {
+                        // FIXME: I don't know how to tell if an actor failed.
+                        Ok(Status {
+                            phase: Phase::Succeeded,
+                            message: None,
+                        })
+                    }
+                    Some(_) => Ok(Status {
+                        phase: Phase::Running,
+                        message: None,
+                    }),
+                }
+            }
+        }
     }
 }
 
