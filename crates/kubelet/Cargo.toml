@@ -1,0 +1,25 @@
+[package]
+name = "kubelet"
+version = "0.1.0"
+authors = [
+    "Matt Butcher <matt.butcher@microsoft.com>",
+    "Matthew Fisher <matt.fisher@microsoft.com>",
+    "Radu Matei <radu.matei@microsoft.com>",
+    "Taylor Thomas <taylor.thomas@microsoft.com>",
+    "Brian Ketelsen <Brian.Ketelsen@microsoft.com>",
+    "Brian Hardock <Brian.Hardock@microsoft.com>",
+    "Ryan Levick <rylevick@microsoft.com>",
+]
+edition = "2018"
+
+[dependencies]
+failure = "0.1"
+k8s-openapi = { version = "0.5.1", features = ["v1_15"] }
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+hyper = "0.12"
+log = "0.4"
+reqwest = "0.9"
+kube = { version = "0.16.1", features = ["openapi"] }
+chrono = { version = "0.4", features = ["serde"] }

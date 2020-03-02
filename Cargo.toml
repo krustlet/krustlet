@@ -1,25 +1,33 @@
 [package]
 name = "krustlet"
 version = "0.1.0"
-authors = ["Matt Butcher <matt.butcher@microsoft.com>"]
+authors = [
+    "Matt Butcher <matt.butcher@microsoft.com>",
+    "Matthew Fisher <matt.fisher@microsoft.com>",
+    "Radu Matei <radu.matei@microsoft.com>",
+    "Taylor Thomas <taylor.thomas@microsoft.com>",
+    "Brian Ketelsen <Brian.Ketelsen@microsoft.com>",
+    "Brian Hardock <Brian.Hardock@microsoft.com>",
+    "Ryan Levick <rylevick@microsoft.com>",
+]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 kube = { version = "0.16.1", features = ["openapi"] }
-k8s-openapi = { version = "0.5.1", features = ["v1_15"] }
-serde = "1.0"
-serde_derive = "1.0"
-serde_json = "1.0"
-failure = "0.1.5"
-base64 = "0.10"
-chrono = { version = "0.4", features = ["serde"] }
-log = "0.4"
-futures = "0.1"
-hyper = "0.12"
 env_logger = "0.6"
-wasmtime = "0.8"
-wasmtime-wasi = "0.8"
-reqwest = "0.9"
-wascc-host = "0.3.2"
+failure = "0.1"
+kubelet = { path = "./crates/kubelet", version = "0.1.0" }
+wascc-provider = { path = "./crates/wascc-provider", version = "0.1.0" }
+
+[workspace]
+members = [
+    "crates/*"
+]
+
+[[bin]]
+name = "krustlet-wascc"
+path = "src/krustlet-wascc.rs"
+
+[[bin]]
+name = "krustlet-wasi"
+path = "src/krustlet-wasi.rs"
