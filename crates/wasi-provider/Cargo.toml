@@ -1,0 +1,17 @@
+[package]
+name = "wasi-provider"
+version = "0.1.0"
+authors = [
+    "Matt Butcher <matt.butcher@microsoft.com>",
+    "Matthew Fisher <matt.fisher@microsoft.com>",
+    "Radu Matei <radu.matei@microsoft.com>",
+    "Taylor Thomas <taylor.thomas@microsoft.com>",
+    "Brian Ketelsen <Brian.Ketelsen@microsoft.com>",
+    "Brian Hardock <Brian.Hardock@microsoft.com>",
+    "Ryan Levick <rylevick@microsoft.com>",
+]
+edition = "2018"
+
+[dependencies]
+kube = { version = "0.16.1", features = ["openapi"] }
+log = "0.4"
