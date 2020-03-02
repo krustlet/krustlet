@@ -1,4 +1,4 @@
-/// This library contans the Kubelet shell. Use this to create a new Kubelet
+/// This library contains the Kubelet shell. Use this to create a new Kubelet
 /// with a specific handler. (The handler included here is the WASM handler.)
 use crate::{
     node::{create_node, update_node},
@@ -21,6 +21,8 @@ use std::collections::HashMap;
 pub struct NotImplementedError;
 
 /// Describe the lifecycle phase of a workload.
+///
+/// This is specified by Kubernetes itself.
 #[derive(Clone)]
 pub enum Phase {
     /// The workload is currently executing.
@@ -72,6 +74,10 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
             namespace,
         }
     }
+    /// Begin answering requests for the Kubelet.
+    ///
+    /// This will listen on the given address, and will also begin watching for Pod
+    /// events, which it will handle.
     pub fn start(&self, address: std::net::SocketAddr) -> Result<(), failure::Error> {
         self.provider.lock().unwrap().init()?;
         let client = APIClient::new(self.kubeconfig.clone());
@@ -91,6 +97,8 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
         // This informer listens for pod events.
         let provider_clone = self.provider.clone();
         let config_clone = self.kubeconfig.clone();
+
+        // TODO: I think this should listen in all namespaces!
         let ns = self.namespace.clone();
         let pod_informer = std::thread::spawn(move || {
             let pod_client = Api::v1Pod(client.clone()).within(ns.as_str());
@@ -334,6 +342,9 @@ pub trait Provider {
 }
 
 /// Build the map of allowable field_ref values.
+///
+/// The Downward API only supports a small selection of fields. This
+/// provides those fields.
 fn field_map(pod: &KubePod) -> HashMap<String, String> {
     let mut map = HashMap::new();
     map.insert("metadata.name".into(), pod.metadata.name.clone());
