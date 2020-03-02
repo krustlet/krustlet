@@ -19,9 +19,8 @@ pub fn start_webserver<T: 'static + Provider + Clone + Send + Sync>(
     provider: Arc<Mutex<T>>,
     address: &SocketAddr,
 ) -> Result<(), failure::Error> {
-    let shared_provider = provider.clone();
     let svc = move || {
-        let prov = shared_provider.clone();
+        let prov = provider.clone();
         service_fn_ok(move |req| {
             let path: Vec<&str> = req.uri().path().split('/').collect();
             let path_len = path.len();

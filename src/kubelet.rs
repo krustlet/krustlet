@@ -5,7 +5,7 @@ use crate::{
     pod::KubePod,
     server::start_webserver,
 };
-use k8s_openapi::api::core::v1::{Container, PodSpec};
+use k8s_openapi::api::core::v1::Container;
 use kube::{
     api::{Api, Informer, WatchEvent},
     client::APIClient,
@@ -320,7 +320,7 @@ pub trait Provider {
                             if let Some(cfkey) = env_src.field_ref {
                                 return fields
                                     .get(cfkey.field_path.as_str())
-                                    .and_then(|s| Some(s.to_string()))
+                                    .map(|s| s.to_string())
                                     .unwrap_or_default();
                             }
                             // Reource Fields (Not implementable just yet... need more of a model.)
@@ -341,39 +341,30 @@ fn field_map(pod: &KubePod) -> HashMap<String, String> {
         "metadata.namespace".into(),
         pod.metadata
             .namespace
-            .as_ref()
-            .and_then(|i| Some(i.clone()))
-            .unwrap_or_else(|| "default".into())
-            .clone(),
+            .clone()
+            .unwrap_or_else(|| "default".into()),
     );
     map.insert(
         "spec.serviceAccountName".into(),
-        pod.spec
-            .service_account_name
-            .as_ref()
-            .and_then(|i| Some(i.clone()))
-            .unwrap_or_default()
-            .clone(),
+        pod.spec.service_account_name.clone().unwrap_or_default(),
     );
     map.insert(
         "status.hostIP".into(),
         pod.status
-            .clone()
+            .as_ref()
             .expect("spec must be set")
             .host_ip
-            .and_then(|i| Some(i.clone()))
-            .unwrap_or_default()
-            .clone(),
+            .clone()
+            .unwrap_or_default(),
     );
     map.insert(
         "status.podIP".into(),
         pod.status
-            .clone()
+            .as_ref()
             .expect("spec must be set")
             .pod_ip
-            .and_then(|i| Some(i.clone()))
-            .unwrap_or_default()
-            .clone(),
+            .clone()
+            .unwrap_or_default(),
     );
     pod.metadata.labels.iter().for_each(|(k, v)| {
         info!("adding {} to labels", k);
