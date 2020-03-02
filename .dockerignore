@@ -1,1 +1,6 @@
+.github/
+docs/
+examples/
 target/
+.gitignore
+*.md
