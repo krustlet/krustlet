@@ -4,8 +4,8 @@ build:
     cargo build
 
 test:
-    cargo test
     cargo clippy
+    cargo test
 
 run: _cleanup_kube
     cargo run

@@ -21,7 +21,7 @@ pub fn pod_status(client: APIClient, pod: KubePod, phase: &str, ns: &str) {
         }
     );
 
-    let meta = pod.metadata.clone();
+    let meta = pod.metadata;
     let pp = PatchParams::default();
     let data = serde_json::to_vec(&status).expect("Should always serialize");
     match Api::v1Pod(client)

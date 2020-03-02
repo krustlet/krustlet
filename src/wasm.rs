@@ -117,11 +117,11 @@ impl Provider for WasmRuntime {
         match wascc_run(&data, env, pubkey.as_str()) {
             Ok(_) => {
                 info!("Pod is executing on a thread");
-                pod_status(client.clone(), pod, "Running", namespace.as_str());
+                pod_status(client, pod, "Running", namespace.as_str());
                 Ok(())
             }
             Err(e) => {
-                pod_status(client.clone(), pod, "Failed", namespace.as_str());
+                pod_status(client, pod, "Failed", namespace.as_str());
                 Err(failure::format_err!("Failed to run pod: {}", e))
             }
         }
@@ -272,7 +272,7 @@ mod test {
         assert!(wr.can_schedule(&mock));
         selector.insert("beta.kubernetes.io/arch".to_string(), "amd64".to_string());
         mock.spec = PodSpec {
-            node_selector: Some(selector.clone()),
+            node_selector: Some(selector),
             ..Default::default()
         };
         assert!(!wr.can_schedule(&mock));

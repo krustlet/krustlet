@@ -1,0 +1,16 @@
+name: Build and Test
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v1
+      - name: Build
+        run: |
+          cargo fmt --all -- --check
+          cargo install just
+          just build
+          just test
