@@ -11,6 +11,7 @@ jobs:
       - name: Build
         run: |
           cargo fmt --all -- --check
-          cargo install just
-          just build
-          just test
+          wget https://github.com/casey/just/releases/download/v0.5.8/just-v0.5.8-x86_64-unknown-linux-musl.tar.gz
+          tar -xzf just-v0.5.8-x86_64-unknown-linux-musl.tar.gz -C /tmp
+          /tmp/just build
+          /tmp/just test
