@@ -2724,6 +2724,7 @@ name = "wascc-provider"
 version = "0.1.0"
 dependencies = [
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "k8s-openapi 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "kube 0.16.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "kubelet 0.1.0",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",

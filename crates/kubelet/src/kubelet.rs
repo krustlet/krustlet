@@ -76,7 +76,7 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
         self.provider.lock().unwrap().init()?;
         let client = APIClient::new(self.kubeconfig.clone());
         // Create the node. If it already exists, "adopt" the node definition
-        create_node(client.clone());
+        create_node(client.clone(), &self.provider.lock().unwrap().arch());
 
         // Start updating the node lease periodically
         let update_client = client.clone();
@@ -139,6 +139,11 @@ pub trait Provider {
     fn init(&self) -> Result<(), failure::Error> {
         Ok(())
     }
+
+    /// Arch should return a string specifying what architecture this provider supports
+    // TODO: Perhaps we need a NodeConfig or other struct that a Provider should return instead
+    fn arch(&self) -> String;
+
     /// Given a Pod definition, this function determines whether or not the workload is schedulable on this provider.
     ///
     /// This determines _only_ if the pod, as described, meets the node requirements (e.g. the node selector).
@@ -407,6 +412,9 @@ mod test {
     impl Provider for MockProvider {
         fn can_schedule(&self, _pod: &KubePod) -> bool {
             true
+        }
+        fn arch(&self) -> String {
+            "mock".to_string()
         }
         fn add(&self, _pod: KubePod, _client: APIClient) -> Result<(), failure::Error> {
             Ok(())

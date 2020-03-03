@@ -4,21 +4,25 @@ extern crate failure;
 use kube::client::APIClient;
 use kubelet::pod::{pod_status, KubePod};
 use kubelet::{Phase, Provider, Status};
-use log::info;
+use log::{debug, info};
 use std::collections::HashMap;
 use wascc_host::{host, Actor, NativeCapability};
 
-// Formerly used wasmtime as a runtime
-use wasmtime::*;
-use wasmtime_wasi::*;
-
-const HTTP_CAPABILITY: &str = "wascc:http_server";
 const ACTOR_PUBLIC_KEY: &str = "deislabs.io/wascc-action-key";
-const TARGET_WASM32_WASI: &str = "wasm32-wasi";
+const TARGET_WASM32_WASI: &str = "wasm32-wascc";
 
+/// The name of the HTTP capability.
+const HTTP_CAPABILITY: &str = "wascc:http_server";
+
+#[cfg(target_os = "linux")]
+const HTTP_LIB: &str = "./lib/libwascc_httpsrv.so";
+#[cfg(target_os = "macos")]
+const HTTP_LIB: &str = "./lib/libwascc_httpsrv.dylib";
+
+/// Kubernetes' view of environment variables is an unordered map of string to string.
 type EnvVars = std::collections::HashMap<String, String>;
 
-/// WasmProvider provides a Kubelet runtime implementation that executes WASM binaries.
+/// WasccProvider provides a Kubelet runtime implementation that executes WASM binaries.
 ///
 /// Currently, this runtime uses WASCC as a host, loading the primary container as an actor.
 /// TODO: In the future, we will look at loading capabilities using the "sidecar" metaphor
@@ -28,30 +32,26 @@ pub struct WasccProvider {}
 
 impl Provider for WasccProvider {
     fn init(&self) -> Result<(), failure::Error> {
-        let httplib = "./lib/libwascc_httpsrv.dylib";
-        // The match is to unwrap an error from a thread and convert it to a type that
-        // can cross the thread boundary. There is surely a better way.
-        match NativeCapability::from_file(httplib) {
-            Err(e) => Err(format_err!(
-                "Failed to read HTTP capability {}: {}",
-                httplib,
-                e
-            )),
-            Ok(data) => match host::add_native_capability(data) {
-                Err(e) => Err(format_err!("Failed to load HTTP capability: {}", e)),
-                Ok(_) => Ok(()),
-            },
-        }
+        let data = NativeCapability::from_file(HTTP_LIB)
+            .map_err(|e| format_err!("Failed to read HTTP capability {}: {}", HTTP_LIB, e))?;
+        host::add_native_capability(data)
+            .map_err(|e| format_err!("Failed to load HTTP capability: {}", e))
+    }
+
+    fn arch(&self) -> String {
+        TARGET_WASM32_WASI.to_string()
     }
 
     fn can_schedule(&self, pod: &KubePod) -> bool {
         // If there is a node selector and it has arch set to wasm32-wasi, we can
         // schedule it.
-        let target_arch = TARGET_WASM32_WASI.to_string();
         pod.spec
             .node_selector
             .as_ref()
-            .and_then(|i| i.get("beta.kubernetes.io/arch").map(|v| v.eq(&target_arch)))
+            .and_then(|i| {
+                i.get("beta.kubernetes.io/arch")
+                    .map(|v| v.eq(&TARGET_WASM32_WASI))
+            })
             .unwrap_or(false)
     }
     fn add(&self, pod: KubePod, client: APIClient) -> Result<(), failure::Error> {
@@ -59,17 +59,14 @@ impl Provider for WasccProvider {
         // and then execute the WASM, passing in the relevant data.
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
-        info!("Pod added");
+        debug!("Pod added {:?}", pod.metadata.name);
         let namespace = pod
             .metadata
             .clone()
             .namespace
             .unwrap_or_else(|| "default".into());
-        // Start with a hard-coded WASM file
-        //let data = std::fs::read("./examples/greet.wasm")
-        //    .expect("greet.wasm should be in examples directory");
-        let data = std::fs::read("./lib/greet_actor_signed.wasm")?;
-        //pod_status(client.clone(), pod.clone(), "Running", namespace.as_str());
+        // TODO: Replace with actual image store lookup when it is merged
+        let data = std::fs::read("./testdata/greet_actor_signed.wasm")?;
 
         // TODO: Implement this for real.
         // Okay, so here is where things are REALLY unfinished. Right now, we are
@@ -115,7 +112,7 @@ impl Provider for WasccProvider {
         // TODO: Launch this in a thread. (not necessary with waSCC)
         let env = self.env_vars(client.clone(), &first_container, &pod);
         //let args = first_container.args.unwrap_or_else(|| vec![]);
-        match wascc_run(&data, env, pubkey.as_str()) {
+        match wascc_run_http(data, env, pubkey.as_str()) {
             Ok(_) => {
                 info!("Pod is executing on a thread");
                 pod_status(client, pod, "Running", namespace.as_str());
@@ -138,6 +135,15 @@ impl Provider for WasccProvider {
             serde_json::to_string_pretty(&pod.status.unwrap()).unwrap()
         );
         Ok(())
+    }
+    fn delete(&self, pod: KubePod, _client: APIClient) -> Result<(), failure::Error> {
+        let pubkey = pod
+            .metadata
+            .annotations
+            .get(ACTOR_PUBLIC_KEY)
+            .map(|a| a.to_string())
+            .unwrap_or_else(|| "".into());
+        wascc_stop(&pubkey).map_err(|e| format_err!("Failed to stop wascc actor: {}", e))
     }
     fn status(&self, pod: KubePod, _client: APIClient) -> Result<Status, failure::Error> {
         match pod.metadata.annotations.get(ACTOR_PUBLIC_KEY) {
@@ -164,14 +170,10 @@ impl Provider for WasccProvider {
     }
 }
 
-pub fn wascc_run(data: &[u8], env: EnvVars, key: &str) -> Result<(), failure::Error> {
-    let load = match Actor::from_bytes(data.to_vec()) {
-        Err(e) => return Err(format_err!("Error loading WASM: {}", e.to_string())),
-        Ok(data) => data,
-    };
-    if let Err(e) = host::add_actor(load) {
-        return Err(format_err!("Error adding actor: {}", e.to_string()));
-    }
+/// Run a WasCC module inside of the host, configuring it to handle HTTP requests.
+///
+/// This bootstraps an HTTP host, using the value of the env's `PORT` key to expose a port.
+fn wascc_run_http(data: Vec<u8>, env: EnvVars, key: &str) -> Result<(), failure::Error> {
     let mut httpenv: HashMap<String, String> = HashMap::new();
     httpenv.insert(
         "PORT".into(),
@@ -179,68 +181,50 @@ pub fn wascc_run(data: &[u8], env: EnvVars, key: &str) -> Result<(), failure::Er
             .map(|a| a.to_string())
             .unwrap_or_else(|| "80".to_string()),
     );
-    // TODO: Middleware provider for env vars
-    match host::configure(key, HTTP_CAPABILITY, httpenv) {
-        Err(e) => {
-            return Err(format_err!(
-                "Error configuring HTTP server for module: {}",
-                e.to_string()
-            ));
-        }
-        Ok(_) => {
-            info!("Instance executing");
-        }
-    }
-    Ok(())
+
+    wascc_run(
+        data,
+        key,
+        vec![Capability {
+            name: HTTP_CAPABILITY,
+            env,
+        }],
+    )
 }
 
-/// Given a WASM binary, execute it.
-///
-/// Currently, this uses the wasmtime runtime with the WASI
-/// module added.
-///
-/// TODO: This should be refactored into a struct where an
-/// outside tool can set the dirs, args, and environment, and
-/// then execute the WASM. It would be excellent to have a
-/// convenience function that could take the pod spec and derive
-/// all of this from that.
-pub fn wasm_run(data: &[u8], env: EnvVars, args: Vec<String>) -> Result<(), failure::Error> {
-    let engine = HostRef::new(Engine::default());
-    let store = HostRef::new(Store::new(&engine));
-    let module = HostRef::new(Module::new(&store, data).expect("wasm module"));
-    let preopen_dirs = vec![];
-    let mut environ = vec![];
-    env.iter()
-        .for_each(|item| environ.push((item.0.to_string(), item.1.to_string())));
-    // Build a list of WASI modules
-    let wasi_inst = HostRef::new(create_wasi_instance(
-        &store,
-        &preopen_dirs,
-        &args,
-        &environ,
-    )?);
-    // Iterate through the module includes and resolve imports
-    let imports = module
-        .borrow()
-        .imports()
-        .iter()
-        .map(|i| {
-            let module_name = i.module().as_str();
-            let field_name = i.name().as_str();
-            if let Some(export) = wasi_inst.borrow().find_export_by_name(field_name) {
-                Ok(export.clone())
-            } else {
-                failure::bail!(
-                    "Import {} was not found in module {}",
-                    field_name,
-                    module_name
-                )
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+/// Stop a running waSCC actor.
+fn wascc_stop(key: &str) -> Result<(), wascc_host::errors::Error> {
+    host::remove_actor(key)
+}
 
-    // Then create the instance
-    let _instance = Instance::new(&store, &module, &imports).expect("wasm instance");
+/// Capability describes a waSCC capability.
+///
+/// Capabilities are made available to actors through a two-part processthread:
+/// - They must be registered
+/// - For each actor, the capability must be configured
+struct Capability {
+    name: &'static str,
+    env: EnvVars,
+}
+
+/// Run the given WASM data as a waSCC actor with the given public key.
+///
+/// The provided capabilities will be configured for this actor, but the capabilities
+/// must first be loaded into the host by some other process, such as register_native_capabilities().
+fn wascc_run(
+    data: Vec<u8>,
+    key: &str,
+    capabilities: Vec<Capability>,
+) -> Result<(), failure::Error> {
+    info!("wascc run");
+    let load = Actor::from_bytes(data).map_err(|e| format_err!("Error loading WASM: {}", e))?;
+    host::add_actor(load).map_err(|e| format_err!("Error adding actor: {}", e))?;
+
+    capabilities.iter().try_for_each(|cap| {
+        info!("configuring capability {}", cap.name);
+        host::configure(key, cap.name, cap.env.clone())
+            .map_err(|e| format_err!("Error configuring capabilities for module: {}", e))
+    })?;
     info!("Instance executing");
     Ok(())
 }
@@ -248,11 +232,61 @@ pub fn wasm_run(data: &[u8], env: EnvVars, args: Vec<String>) -> Result<(), fail
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::pod::KubePod;
     use k8s_openapi::api::core::v1::PodSpec;
+    use kubelet::pod::KubePod;
+
+    #[cfg(target_os = "linux")]
+    const ECHO_LIB: &str = "./testdata/libecho_provider.so";
+    #[cfg(target_os = "macos")]
+    const ECHO_LIB: &str = "./testdata/libecho_provider.dylib";
+
+    #[test]
+    fn test_init() {
+        let provider = WasccProvider {};
+        provider.init().expect("HTTP capability is registered");
+    }
+
+    #[test]
+    fn test_wascc_run() {
+        // Open file
+        let data = std::fs::read("./testdata/greet_actor_signed.wasm").expect("read the wasm file");
+        // Send into wascc_run
+        wascc_run_http(
+            data,
+            EnvVars::new(),
+            "MADK3R3H47FGXN5F4HWPSJH4WCKDWKXQBBIOVI7YEPEYEMGJ2GDFIFE5",
+        )
+        .expect("successfully executed a WASM");
+
+        // Give the webserver a chance to start up.
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        wascc_stop("MADK3R3H47FGXN5F4HWPSJH4WCKDWKXQBBIOVI7YEPEYEMGJ2GDFIFE5")
+            .expect("Removed the actor");
+    }
+
+    #[test]
+    fn test_wascc_echo() {
+        let data = NativeCapability::from_file(ECHO_LIB).expect("loaded echo library");
+        host::add_native_capability(data).expect("added echo capability");
+
+        let key = "MDAYLDTOZEHQFPB3CL5PAFY5UTNCW32P54XGWYX3FOM2UBRYNCP3I3BF";
+
+        let wasm = std::fs::read("./testdata/echo_actor_signed.wasm").expect("load echo WASM");
+        // TODO: use wascc_run to execute echo_actor
+        wascc_run(
+            wasm,
+            key,
+            vec![Capability {
+                name: "wok:echoProvider",
+                env: EnvVars::new(),
+            }],
+        )
+        .expect("completed echo run")
+    }
+
     #[test]
     fn test_can_schedule() {
-        let wr = WasmProvider {};
+        let wr = WasccProvider {};
         let mut mock = KubePod {
             spec: Default::default(),
             metadata: Default::default(),
@@ -264,7 +298,7 @@ mod test {
         let mut selector = std::collections::BTreeMap::new();
         selector.insert(
             "beta.kubernetes.io/arch".to_string(),
-            "wasm32-wasi".to_string(),
+            "wasm32-wascc".to_string(),
         );
         mock.spec = PodSpec {
             node_selector: Some(selector.clone()),

@@ -1,14 +1,18 @@
-export RUST_LOG := "krustlet=info,main=debug"
+export RUST_LOG := "wascc_provider=debug,wasi_provider=debug,main=debug"
 
 build:
     cargo build
 
 test:
     cargo clippy
-    cargo test
+    cargo test --workspace
 
-run: _cleanup_kube
-    cargo run
+run-wascc: _cleanup_kube
+    # Change directories so we have access to the ./lib dir
+    cd ./crates/wascc-provider && cargo run --bin krustlet-wascc --manifest-path ../../Cargo.toml
+
+run-wasi: _cleanup_kube
+    cargo run --bin krustlet-wasi
 
 dockerize:
     docker build -t technosophos/krustlet:latest .

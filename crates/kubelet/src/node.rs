@@ -22,10 +22,10 @@ const NODE_NAME: &str = "krustlet";
 /// A node comes with a lease, and we maintain the lease to tell Kubernetes that the
 /// node remains alive and functional. Note that this will not work in
 /// versions of Kubernetes prior to 1.14.
-pub fn create_node(client: APIClient) {
+pub fn create_node(client: APIClient, arch: &str) {
     let node_client = Api::v1Node(client.clone());
     let pp = PostParams::default();
-    let node = node_definition();
+    let node = node_definition(arch);
 
     match node_client.create(
         &pp,
@@ -142,7 +142,7 @@ fn update_lease(node_uid: &str, client: APIClient) {
 ///
 /// TODO: A lot of the values here are faked, and should be replaced by real
 /// numbers post-POC.
-fn node_definition() -> serde_json::Value {
+fn node_definition(arch: &str) -> serde_json::Value {
     let pod_ip = "10.21.77.2";
     let port = 3000;
     let ts = Time(Utc::now());
@@ -152,9 +152,9 @@ fn node_definition() -> serde_json::Value {
         "metadata": {
             "name": NODE_NAME,
             "labels": {
-                "beta.kubernetes.io/arch": "wasm32-wasi",
+                "beta.kubernetes.io/arch": arch,
                 "beta.kubernetes.io/os": "linux",
-                "kubernetes.io/arch": "wasm32-wasi",
+                "kubernetes.io/arch": arch,
                 "kubernetes.io/os": "linux",
                 "kubernetes.io/hostname": "krustlet",
                 "kubernetes.io/role":     "agent",
