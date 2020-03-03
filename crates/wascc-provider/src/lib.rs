@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use wascc_host::{host, Actor, NativeCapability};
 
 const ACTOR_PUBLIC_KEY: &str = "deislabs.io/wascc-action-key";
-const TARGET_WASM32_WASI: &str = "wasm32-wascc";
+const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
 
 /// The name of the HTTP capability.
 const HTTP_CAPABILITY: &str = "wascc:http_server";
@@ -39,18 +39,18 @@ impl Provider for WasccProvider {
     }
 
     fn arch(&self) -> String {
-        TARGET_WASM32_WASI.to_string()
+        TARGET_WASM32_WASCC.to_string()
     }
 
     fn can_schedule(&self, pod: &KubePod) -> bool {
-        // If there is a node selector and it has arch set to wasm32-wasi, we can
+        // If there is a node selector and it has arch set to wasm32-wascc, we can
         // schedule it.
         pod.spec
             .node_selector
             .as_ref()
             .and_then(|i| {
                 i.get("beta.kubernetes.io/arch")
-                    .map(|v| v.eq(&TARGET_WASM32_WASI))
+                    .map(|v| v.eq(&TARGET_WASM32_WASCC))
             })
             .unwrap_or(false)
     }

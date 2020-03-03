@@ -4,7 +4,7 @@ build:
     cargo build
 
 test:
-    cargo clippy
+    cargo clippy --workspace
     cargo test --workspace
 
 run-wascc: _cleanup_kube
@@ -12,7 +12,9 @@ run-wascc: _cleanup_kube
     cd ./crates/wascc-provider && cargo run --bin krustlet-wascc --manifest-path ../../Cargo.toml
 
 run-wasi: _cleanup_kube
-    cargo run --bin krustlet-wasi
+    # HACK: Temporary step to change to a directory so it has access to a hard
+    # coded module. This should be removed once we have image support
+    cd ./crates/wasi-provider && cargo run --bin krustlet-wasi --manifest-path ../../Cargo.toml
 
 dockerize:
     docker build -t technosophos/krustlet:latest .

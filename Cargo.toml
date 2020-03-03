@@ -18,6 +18,7 @@ env_logger = "0.6"
 failure = "0.1"
 kubelet = { path = "./crates/kubelet", version = "0.1.0" }
 wascc-provider = { path = "./crates/wascc-provider", version = "0.1.0" }
+wasi-provider = { path = "./crates/wasi-provider", version = "0.1.0" }
 
 [workspace]
 members = [
