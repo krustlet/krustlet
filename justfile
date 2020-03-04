@@ -4,8 +4,11 @@ build:
     cargo build
 
 test:
+    cargo fmt --all -- --check
     cargo clippy --workspace
     cargo test --workspace
+
+run: run-wascc
 
 run-wascc: _cleanup_kube
     # Change directories so we have access to the ./lib dir
