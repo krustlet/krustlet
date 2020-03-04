@@ -14,9 +14,6 @@ edition = "2018"
 
 [dependencies]
 failure = "0.1"
-wasmtime = "0.8"
-wasmtime-wasi = "0.8"
-wasi-common = "0.8"
 wascc-host = "0.3.2"
 log = "0.4"
 serde = "1.0"
