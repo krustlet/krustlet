@@ -15,4 +15,4 @@ spec:
   nodeSelector:
     kubernetes.io/role: agent
     beta.kubernetes.io/os: linux
-    beta.kubernetes.io/arch: wasm32-wasi
+    beta.kubernetes.io/arch: wasm32-wascc
