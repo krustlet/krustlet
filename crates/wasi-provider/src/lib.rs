@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::thread::JoinHandle;
@@ -8,7 +8,7 @@ use std::thread::JoinHandle;
 use failure::{bail, format_err};
 use kube::client::APIClient;
 use kubelet::pod::{pod_status, KubePod};
-use kubelet::{Phase, Provider, Status};
+use kubelet::{Phase, Provider, ProviderError, Status};
 use log::{debug, info};
 use tempfile::NamedTempFile;
 use wasi_common::preopen_dir;
@@ -18,8 +18,8 @@ use wasmtime_wasi::{Wasi, WasiCtxBuilder};
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 
 // PodStore contains a map of a unique pod key pointing to a map of container
-// names to the join handle for their running task
-type PodStore = HashMap<String, HashMap<String, JoinHandle<()>>>;
+// names to the join handle and logging for their running task
+type PodStore = HashMap<String, HashMap<String, (BufReader<File>, JoinHandle<()>)>>;
 
 /// WasiProvider provides a Kubelet runtime implementation that executes WASM
 /// binaries conforming to the WASI spec
@@ -87,7 +87,7 @@ impl Provider for WasiProvider {
         let env = self.env_vars(client.clone(), &first_container, &pod);
 
         // TODO: Replace with actual image store lookup when it is merged
-        let runtime = WasiRuntime::new(
+        let (runtime, output) = WasiRuntime::new(
             PathBuf::from("./testdata/hello-world.wasm"),
             env,
             Vec::default(),
@@ -107,9 +107,9 @@ impl Provider for WasiProvider {
         let handle = std::thread::spawn(move || runtime.run().unwrap());
         let mut handles = self.handles.write().unwrap();
         handles
-            .entry(pod_key(&pod))
+            .entry(key_from_pod(&pod))
             .or_default()
-            .insert(first_container.name, handle);
+            .insert(first_container.name, (output, handle));
         info!("Pod is executing on a thread");
         pod_status(client, pod, "Running", namespace.as_str());
         Ok(())
@@ -141,31 +141,52 @@ impl Provider for WasiProvider {
         // know it is done
         // let fut = async {
         //     let handles = self.handles.read().await;
-        //     let containers = handles.get(pod_key(&pod));
+        //     let containers = handles.get(key_from_pod(&pod));
         // };
         Ok(Status {
             phase: Phase::Running,
             message: None,
         })
     }
-    fn logs(&self, _pod: KubePod) -> Result<Vec<String>, failure::Error> {
-        // TODO: We'll need to probably pass the runtime, output method, or a
-        // combined stream of stdout and stderr into our hashmap so we can
-        // expose them here
-        unimplemented!()
+    fn logs(
+        &self,
+        namespace: String,
+        pod: String,
+        container: String,
+    ) -> Result<Vec<String>, failure::Error> {
+        let mut handles = self.handles.write().unwrap();
+        let handle = handles
+            .get_mut(&pod_key(&namespace, &pod))
+            .ok_or_else(|| ProviderError::PodNotFound {
+                pod_name: pod.clone(),
+            })?
+            .get_mut(&container)
+            .ok_or_else(|| ProviderError::ContainerNotFound {
+                pod_name: pod,
+                container_name: container,
+            })?;
+        Ok(handle
+            .0
+            .by_ref()
+            .lines()
+            .map(|l| l.unwrap_or_else(|_| "<error while reading line>".to_string()))
+            .collect::<Vec<String>>())
     }
 }
 
 /// Generates a unique human readable key for storing a handle to a pod
-fn pod_key(pod: &KubePod) -> String {
-    format!(
-        "{}:{}",
-        pod.metadata
+fn key_from_pod(pod: &KubePod) -> String {
+    pod_key(
+        &pod.metadata
             .namespace
             .clone()
             .unwrap_or_else(|| "default".into()),
-        pod.metadata.name
+        &pod.metadata.name,
     )
+}
+
+fn pod_key<N: AsRef<str>, T: AsRef<str>>(namespace: N, pod_name: T) -> String {
+    format!("{}:{}", namespace.as_ref(), pod_name.as_ref())
 }
 
 /// WasiRuntime provides a WASI compatible runtime. A runtime should be used for
@@ -181,10 +202,8 @@ struct WasiRuntime {
     /// (e.g. /tmp/foo/myfile -> /app/config). If the optional value is not given,
     /// the same path will be allowed in the runtime
     dirs: HashMap<String, Option<String>>,
-    /// Handle to stdout
-    stdout: NamedTempFile,
-    /// handle to stderr
-    stderr: NamedTempFile,
+    /// Handle to output
+    output: NamedTempFile,
 }
 
 impl WasiRuntime {
@@ -205,10 +224,8 @@ impl WasiRuntime {
         args: Vec<String>,
         dirs: HashMap<String, Option<String>>,
         log_file_location: L,
-    ) -> Result<Self, failure::Error> {
-        debug!("before parse file: {:?}", std::env::current_dir().unwrap());
+    ) -> Result<(Self, BufReader<File>), failure::Error> {
         let module_data = wat::parse_file(module_path)?;
-        debug!("after parse file");
 
         // We need to use named temp file because we need multiple file handles
         // and if we are running in the temp dir, we run the possibility of the
@@ -216,17 +233,22 @@ impl WasiRuntime {
         // think it necessary, we can make these permanent files with a cleanup
         // loop that runs elsewhere. These will get deleted when the reference
         // is dropped
-        let stdout = NamedTempFile::new_in(&log_file_location)?;
-        let stderr = NamedTempFile::new_in(&log_file_location)?;
-        debug!("after files");
-        Ok(WasiRuntime {
-            module_data,
-            env,
-            args,
-            dirs,
-            stdout,
-            stderr,
-        })
+        //
+        // As warned in the BufReader docs, creating multiple BufReaders on the
+        // same stream can cause data loss. So reopen a new file object so we
+        // don't drop any data
+        let output = NamedTempFile::new_in(&log_file_location)?;
+        let file_handle = output.reopen()?;
+        Ok((
+            WasiRuntime {
+                module_data,
+                env,
+                args,
+                dirs,
+                output,
+            },
+            BufReader::new(file_handle),
+        ))
     }
 
     fn run(&self) -> Result<(), failure::Error> {
@@ -234,16 +256,17 @@ impl WasiRuntime {
         let store = wasmtime::Store::new(&engine);
 
         // Build the WASI instance and then generate a list of WASI modules
+        let output = self.output.reopen()?;
         let mut ctx_builder_snapshot = WasiCtxBuilder::new()
             .args(&self.args)
             .envs(&self.env)
-            .stdout(self.stdout.reopen()?)
-            .stderr(self.stderr.reopen()?);
+            .stdout(output.try_clone()?)
+            .stderr(output.try_clone()?);
         let mut ctx_builder_unstable = wasi_common::old::snapshot_0::WasiCtxBuilder::new()
             .args(&self.args)
             .envs(&self.env)
-            .stdout(self.stdout.reopen()?)
-            .stderr(self.stderr.reopen()?);
+            .stdout(output.try_clone()?)
+            .stderr(output);
 
         for (key, value) in self.dirs.iter() {
             let guest_dir = value.as_ref().unwrap_or(key);
@@ -297,27 +320,13 @@ impl WasiRuntime {
         info!("module run complete");
         Ok(())
     }
-
-    /// output returns a tuple of BufReaders containing stdout and stderr
-    /// respectively. It will error if it can't open a stream
-    // TODO(taylor): I can't completely tell from documentation, but we may
-    // need to switch this out from a BufReader if it can't handle streaming
-    // logs
-    fn output(&self) -> Result<(BufReader<File>, BufReader<File>), failure::Error> {
-        // As warned in the BufReader docs, creating multiple BufReaders on the
-        // same stream can cause data loss. So reopen a new file object each
-        // time this function as called so as to not drop any data
-        Ok((
-            BufReader::new(self.stdout.reopen()?),
-            BufReader::new(self.stderr.reopen()?),
-        ))
-    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use k8s_openapi::api::core::v1::PodSpec;
+    use k8s_openapi::api::core::v1::{Container, PodSpec};
+    use kube::api::ObjectMeta;
     use kubelet::pod::KubePod;
     use std::io::Read;
 
@@ -352,7 +361,7 @@ mod test {
 
     #[test]
     fn test_run() {
-        let wr = WasiRuntime::new(
+        let (wr, mut output) = WasiRuntime::new(
             "./testdata/hello-world.wasm",
             HashMap::default(),
             Vec::default(),
@@ -361,10 +370,15 @@ mod test {
         )
         .expect("wasi runtime init");
         wr.run().expect("complete run");
-        let (mut stdout_buf, _) = wr.output().expect("process output");
         let mut stdout = String::default();
 
-        stdout_buf.read_to_string(&mut stdout).unwrap();
+        output.read_to_string(&mut stdout).unwrap();
         assert_eq!("Hello, world!\n", stdout);
+    }
+
+    #[test]
+    fn test_logs() {
+        // TODO: Log testing will need to be done in a full integration test as
+        // it requires a kube client
     }
 }

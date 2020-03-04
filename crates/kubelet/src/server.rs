@@ -9,7 +9,6 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use crate::kubelet::Provider;
-use crate::pod::KubePod;
 
 /// Start the Krustlet HTTP(S) server
 ///
@@ -60,13 +59,7 @@ fn get_ping() -> Response<Body> {
 /// Implements the kubelet path /containerLogs/{namespace}/{pod}/{container}
 fn get_container_logs<T: Provider>(provider: &T, _req: Request<Body>) -> Response<Body> {
     // TODO: extract the right data from the request.
-    let pod = KubePod {
-        metadata: Default::default(),
-        spec: Default::default(),
-        status: Default::default(),
-        types: Default::default(),
-    };
-    match provider.logs(pod) {
+    match provider.logs("".to_string(), "".to_string(), "".to_string()) {
         Ok(lines) => Response::new(Body::from(lines.join("\n"))),
         // TODO: THis should detect not implemented vs. regular error
         Err(e) => {

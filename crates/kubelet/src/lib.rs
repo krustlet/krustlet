@@ -9,4 +9,4 @@ pub mod node;
 pub mod pod;
 mod server;
 
-pub use kubelet::*;
+pub use self::kubelet::*;
