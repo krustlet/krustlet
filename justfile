@@ -1,4 +1,4 @@
-export RUST_LOG := "wascc_provider=debug,wasi_provider=debug,main=debug"
+export RUST_LOG := "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,main=debug"
 
 run: run-wascc
 
@@ -28,7 +28,7 @@ push:
 itest:
     kubectl create -f examples/greet.yaml
     sleep 5
-    for i in 1 2 3 4 5; do sleep 3 && kubectl get po greet2; done
+    for i in 1 2 3 4 5; do sleep 3 && kubectl get po greet; done
 
 _cleanup_kube:
     kubectl delete no krustlet || true

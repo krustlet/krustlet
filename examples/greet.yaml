@@ -3,11 +3,11 @@ kind: Pod
 metadata:
   name: greet
   annotations:
-    deislabs.io/wascc-action-key: MADK3R3H47FGXN5F4HWPSJH4WCKDWKXQBBIOVI7YEPEYEMGJ2GDFIFE5
+    deislabs.io/wascc-action-key: MB4OLDIC3TCZ4Q4TGGOVAZC43VXFE2JQVRAXQMQFXUCREOOFEKOKZTY2
 
 spec:
   containers:
-    - image: greet_actor_signed.wasm
+    - image: echo.wasm
       imagePullPolicy: Always
       name: greet
       ports:
@@ -16,3 +16,7 @@ spec:
     kubernetes.io/role: agent
     beta.kubernetes.io/os: linux
     beta.kubernetes.io/arch: wasm32-wascc
+  tolerations:
+    - key: "node.kubernetes.io/network-unavailable"
+      operator: "Exists"
+      effect: "NoSchedule"
