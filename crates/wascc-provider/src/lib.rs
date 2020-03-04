@@ -235,11 +235,6 @@ mod test {
     use k8s_openapi::api::core::v1::PodSpec;
     use kubelet::pod::KubePod;
 
-    #[cfg(target_os = "linux")]
-    const ECHO_LIB: &str = "./testdata/libecho_provider.so";
-    #[cfg(target_os = "macos")]
-    const ECHO_LIB: &str = "./testdata/libecho_provider.dylib";
-
     #[test]
     fn test_init() {
         let provider = WasccProvider {};
@@ -262,26 +257,6 @@ mod test {
         std::thread::sleep(std::time::Duration::from_secs(3));
         wascc_stop("MB4OLDIC3TCZ4Q4TGGOVAZC43VXFE2JQVRAXQMQFXUCREOOFEKOKZTY2")
             .expect("Removed the actor");
-    }
-
-    #[test]
-    fn test_wascc_echo() {
-        let data = NativeCapability::from_file(ECHO_LIB).expect("loaded echo library");
-        host::add_native_capability(data).expect("added echo capability");
-
-        let key = "MDAYLDTOZEHQFPB3CL5PAFY5UTNCW32P54XGWYX3FOM2UBRYNCP3I3BF";
-
-        let wasm = std::fs::read("./testdata/echo_actor_signed.wasm").expect("load echo WASM");
-        // TODO: use wascc_run to execute echo_actor
-        wascc_run(
-            wasm,
-            key,
-            vec![Capability {
-                name: "wok:echoProvider",
-                env: EnvVars::new(),
-            }],
-        )
-        .expect("completed echo run")
     }
 
     #[test]
