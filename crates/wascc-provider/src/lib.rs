@@ -66,7 +66,7 @@ impl Provider for WasccProvider {
             .namespace
             .unwrap_or_else(|| "default".into());
         // TODO: Replace with actual image store lookup when it is merged
-        let data = std::fs::read("./testdata/greet_actor_signed.wasm")?;
+        let data = std::fs::read("./testdata/echo.wasm")?;
 
         // TODO: Implement this for real.
         // Okay, so here is where things are REALLY unfinished. Right now, we are
@@ -108,7 +108,7 @@ impl Provider for WasccProvider {
             .get(ACTOR_PUBLIC_KEY)
             .map(|a| a.to_string())
             .unwrap_or_else(|| "".into());
-
+        debug!("{:?}", pubkey);
         // TODO: Launch this in a thread. (not necessary with waSCC)
         let env = self.env_vars(client.clone(), &first_container, &pod);
         //let args = first_container.args.unwrap_or_else(|| vec![]);
@@ -249,18 +249,18 @@ mod test {
     #[test]
     fn test_wascc_run() {
         // Open file
-        let data = std::fs::read("./testdata/greet_actor_signed.wasm").expect("read the wasm file");
+        let data = std::fs::read("./testdata/echo.wasm").expect("read the wasm file");
         // Send into wascc_run
         wascc_run_http(
             data,
             EnvVars::new(),
-            "MADK3R3H47FGXN5F4HWPSJH4WCKDWKXQBBIOVI7YEPEYEMGJ2GDFIFE5",
+            "MB4OLDIC3TCZ4Q4TGGOVAZC43VXFE2JQVRAXQMQFXUCREOOFEKOKZTY2",
         )
         .expect("successfully executed a WASM");
 
         // Give the webserver a chance to start up.
         std::thread::sleep(std::time::Duration::from_secs(3));
-        wascc_stop("MADK3R3H47FGXN5F4HWPSJH4WCKDWKXQBBIOVI7YEPEYEMGJ2GDFIFE5")
+        wascc_stop("MB4OLDIC3TCZ4Q4TGGOVAZC43VXFE2JQVRAXQMQFXUCREOOFEKOKZTY2")
             .expect("Removed the actor");
     }
 
