@@ -55,7 +55,7 @@ pub struct Status {
 /// a webserver for API callbacks, and a periodic updater to let Kubernetes
 /// know that the node is still running.
 ///
-/// The Provider supplies all of the backend-spcific logic. Krustlet will only
+/// The Provider supplies all of the backend-specific logic. Krustlet will only
 /// run one (instance of a) Provider. So a provider may be passed around from
 /// thread to thread during the course of the Kubelet's lifetime.
 #[derive(Clone)]
@@ -83,26 +83,26 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
         self.provider.lock().unwrap().init()?;
         let client = APIClient::new(self.kubeconfig.clone());
         // Create the node. If it already exists, "adopt" the node definition
-        create_node(client.clone(), &self.provider.lock().unwrap().arch());
+        create_node(&client, &self.provider.lock().unwrap().arch());
 
         // Start updating the node lease periodically
         let update_client = client.clone();
         let node_updater = std::thread::spawn(move || {
             let sleep_interval = std::time::Duration::from_secs(10);
             loop {
-                update_node(update_client.clone());
+                update_node(&update_client);
                 std::thread::sleep(sleep_interval);
             }
         });
 
         // This informer listens for pod events.
-        let provider_clone = self.provider.clone();
-        let config_clone = self.kubeconfig.clone();
+        let provider = self.provider.clone();
+        let config = self.kubeconfig.clone();
 
         // TODO: I think this should listen in all namespaces!
         let ns = self.namespace.clone();
         let pod_informer = std::thread::spawn(move || {
-            let pod_client = Api::v1Pod(client.clone()).within(ns.as_str());
+            let pod_client = Api::v1Pod(client).within(ns.as_str());
 
             // Create our informer and start listening.
             let informer = Informer::new(pod_client)
@@ -114,11 +114,7 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
                     // TODO: We need to spawn threads (or do something similar)
                     // to handle the event. Currently, there is only one thread
                     // executing WASM.
-                    match provider_clone
-                        .lock()
-                        .unwrap()
-                        .handle_event(event, config_clone.clone())
-                    {
+                    match provider.lock().unwrap().handle_event(event, config.clone()) {
                         Ok(_) => debug!("Handled event successfully"),
                         Err(e) => error!("Error handling event: {}", e),
                     };
