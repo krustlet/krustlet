@@ -1,9 +1,12 @@
 export RUST_LOG := "wascc_provider=debug,wasi_provider=debug,main=debug"
 
+run: run-wascc
+
 build:
     cargo build
 
 test:
+    cargo fmt --all -- --check
     cargo clippy --workspace
     cargo test --workspace
 

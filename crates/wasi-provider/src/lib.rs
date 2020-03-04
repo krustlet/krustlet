@@ -1,23 +1,19 @@
-#[macro_use]
-extern crate failure;
-
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
+use std::thread::JoinHandle;
 
+use failure::{bail, format_err};
 use kube::client::APIClient;
 use kubelet::pod::{pod_status, KubePod};
 use kubelet::{Phase, Provider, Status};
 use log::{debug, info};
-use std::thread::JoinHandle;
 use tempfile::NamedTempFile;
-use wasi_common::*;
-use wasmtime::*;
+use wasi_common::preopen_dir;
 use wasmtime_wasi::old::snapshot_0::Wasi as WasiUnstable;
-use wasmtime_wasi::*;
+use wasmtime_wasi::{Wasi, WasiCtxBuilder};
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 
@@ -234,8 +230,8 @@ impl WasiRuntime {
     }
 
     fn run(&self) -> Result<(), failure::Error> {
-        let engine = Engine::default();
-        let store = Store::new(&engine);
+        let engine = wasmtime::Engine::default();
+        let store = wasmtime::Store::new(&engine);
 
         // Build the WASI instance and then generate a list of WASI modules
         let mut ctx_builder_snapshot = WasiCtxBuilder::new()
@@ -260,7 +256,7 @@ impl WasiRuntime {
 
         let wasi_snapshot = Wasi::new(&store, wasi_ctx_snapshot);
         let wasi_unstable = WasiUnstable::new(&store, wasi_ctx_unstable);
-        let module = Module::new(&store, &self.module_data)
+        let module = wasmtime::Module::new(&store, &self.module_data)
             .map_err(|e| format_err!("unable to load module data {}", e))?;
         // Iterate through the module includes and resolve imports
         let imports = module
@@ -284,7 +280,7 @@ impl WasiRuntime {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let instance = Instance::new(&module, &imports)
+        let instance = wasmtime::Instance::new(&module, &imports)
             .map_err(|e| format_err!("unable to instantiate module: {}", e))?;
 
         // NOTE(taylor): In the future, if we want to pass args directly, we'll
