@@ -22,7 +22,7 @@ const NODE_NAME: &str = "krustlet";
 /// A node comes with a lease, and we maintain the lease to tell Kubernetes that the
 /// node remains alive and functional. Note that this will not work in
 /// versions of Kubernetes prior to 1.14.
-pub fn create_node(client: APIClient, arch: &str) {
+pub fn create_node(client: &APIClient, arch: &str) {
     let node_client = Api::v1Node(client.clone());
     let pp = PostParams::default();
     let node = node_definition(arch);
@@ -33,8 +33,8 @@ pub fn create_node(client: APIClient, arch: &str) {
     ) {
         Ok(node) => {
             info!("created node just fine");
-            let node_uid = node.metadata.uid.unwrap_or_else(|| "".to_string());
-            create_lease(node_uid.as_str(), client)
+            let node_uid = node.metadata.uid.unwrap_or_default();
+            create_lease(&node_uid, &client)
         }
         Err(e) => {
             error!("Error creating node: {}", e);
@@ -42,7 +42,7 @@ pub fn create_node(client: APIClient, arch: &str) {
             match node_client.get(NODE_NAME) {
                 Ok(node) => {
                     let node_uid = node.metadata.uid.unwrap_or_else(|| "".to_string());
-                    create_lease(node_uid.as_str(), client)
+                    create_lease(node_uid.as_str(), &client)
                 }
                 Err(e) => error!("Error fetching node after failed create: {}", e),
             }
@@ -57,7 +57,7 @@ pub fn create_node(client: APIClient, arch: &str) {
 /// We trap errors because... well... quite frankly there is nothing useful
 /// to do if the Kubernetes API is unavailable, and we can merrily continue
 /// doing our processing of the pod queue.
-pub fn update_node(client: APIClient) {
+pub fn update_node(client: &APIClient) {
     let node_client = Api::v1Node(client.clone());
     // Get me a node
     let node_res = node_client.get(NODE_NAME);
@@ -83,7 +83,7 @@ pub fn update_node(client: APIClient) {
 ///
 /// As far as I can tell, leases ALWAYS go in the 'kube-node-lease'
 /// namespace, no exceptions.
-fn create_lease(node_uid: &str, client: APIClient) {
+fn create_lease(node_uid: &str, client: &APIClient) {
     let leases = RawApi::customResource("leases")
         .version("v1")
         .group("coordination.k8s.io")
@@ -109,7 +109,7 @@ fn create_lease(node_uid: &str, client: APIClient) {
 ///
 /// TODO: Our patch is overzealous right now. We just need to update the
 /// timestamp.
-fn update_lease(node_uid: &str, client: APIClient) {
+fn update_lease(node_uid: &str, client: &APIClient) {
     let leases = RawApi::customResource("leases")
         .version("v1")
         .group("coordination.k8s.io")

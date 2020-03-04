@@ -11,6 +11,7 @@ authors = [
     "Ryan Levick <rylevick@microsoft.com>",
 ]
 edition = "2018"
+default-run = "krustlet-wascc"
 
 [dependencies]
 kube = { version = "0.16.1", features = ["openapi"] }

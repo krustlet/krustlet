@@ -30,9 +30,9 @@ pub fn start_webserver<T: 'static + Provider + Clone + Send + Sync>(
             match (req.method(), path[1], path_len) {
                 (&Method::GET, "containerLogs", 5) => {
                     let p = prov.lock().unwrap();
-                    get_container_logs(p.clone(), req)
+                    get_container_logs(&*p, req)
                 }
-                (&Method::POST, "exec", 5) => post_exec(prov.lock().unwrap().clone(), req),
+                (&Method::POST, "exec", 5) => post_exec(&*prov.lock().unwrap(), req),
                 _ => {
                     let mut response = Response::new(Body::from("Not Found"));
                     *response.status_mut() = StatusCode::NOT_FOUND;
@@ -58,7 +58,7 @@ fn get_ping() -> Response<Body> {
 /// Get the logs from the running WASM module
 ///
 /// Implements the kubelet path /containerLogs/{namespace}/{pod}/{container}
-fn get_container_logs<T: Provider>(provider: T, _req: Request<Body>) -> Response<Body> {
+fn get_container_logs<T: Provider>(provider: &T, _req: Request<Body>) -> Response<Body> {
     // TODO: extract the right data from the request.
     let pod = KubePod {
         metadata: Default::default(),
@@ -80,7 +80,7 @@ fn get_container_logs<T: Provider>(provider: T, _req: Request<Body>) -> Response
 /// Run a pod exec command and get the output
 ///
 /// Implements the kubelet path /exec/{namespace}/{pod}/{container}
-fn post_exec<T: Provider>(_provider: T, _req: Request<Body>) -> Response<Body> {
+fn post_exec<T: Provider>(_provider: &T, _req: Request<Body>) -> Response<Body> {
     let mut res = Response::new(Body::from("Not Implemented"));
     *res.status_mut() = StatusCode::NOT_IMPLEMENTED;
     res

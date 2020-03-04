@@ -10,7 +10,6 @@ jobs:
       - uses: actions/checkout@v1
       - name: Build
         run: |
-          cargo fmt --all -- --check
           wget https://github.com/casey/just/releases/download/v0.5.8/just-v0.5.8-x86_64-unknown-linux-musl.tar.gz
           tar -xzf just-v0.5.8-x86_64-unknown-linux-musl.tar.gz -C /tmp
           /tmp/just build
