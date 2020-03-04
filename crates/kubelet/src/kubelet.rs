@@ -74,6 +74,7 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
             namespace,
         }
     }
+
     /// Begin answering requests for the Kubelet.
     ///
     /// This will listen on the given address, and will also begin watching for Pod
@@ -113,8 +114,11 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
                     // TODO: We need to spawn threads (or do something similar)
                     // to handle the event. Currently, there is only one thread
                     // executing WASM.
-                    let config = config_clone.clone();
-                    match provider_clone.lock().unwrap().handle_event(event, config) {
+                    match provider_clone
+                        .lock()
+                        .unwrap()
+                        .handle_event(event, config_clone.clone())
+                    {
                         Ok(_) => debug!("Handled event successfully"),
                         Err(e) => error!("Error handling event: {}", e),
                     };
@@ -161,18 +165,22 @@ pub trait Provider {
     /// It is paramount that this function be fast, as every newly created Pod will come through this
     /// function.
     fn can_schedule(&self, pod: &KubePod) -> bool;
+
     /// Given a Pod definition, execute the workload.
     fn add(&self, pod: KubePod, client: APIClient) -> Result<(), failure::Error>;
+
     /// Given an updated Pod definition, update the given workload.
     ///
     /// Pods that are sent to this function have already met certain criteria for modification.
     /// For example, updates to the `status` of a Pod will not be sent into this function.
     fn modify(&self, pod: KubePod, client: APIClient) -> Result<(), failure::Error>;
+
     /// Given a pod, determine the status of the underlying workload.
     ///
     /// This information is used to update Kubernetes about whether this workload is running,
     /// has already finished running, or has failed.
     fn status(&self, pod: KubePod, client: APIClient) -> Result<Status, failure::Error>;
+
     /// Given the definition of a deleted Pod, remove the workload from the runtime.
     ///
     /// This does not need to actually delete the Pod definition -- just destroy the
@@ -180,6 +188,7 @@ pub trait Provider {
     fn delete(&self, _pod: KubePod, _client: APIClient) -> Result<(), failure::Error> {
         Ok(())
     }
+
     /// Given a Pod, get back the logs for the associated workload.
     ///
     /// The default implementation of this returns a message that this feature is
@@ -187,6 +196,7 @@ pub trait Provider {
     fn logs(&self, _pod: KubePod) -> Result<Vec<String>, failure::Error> {
         Err(NotImplementedError {}.into())
     }
+
     /// Execute a given command on a workload and then return the result.
     ///
     /// The default implementation of this returns a message that this feature is
@@ -268,12 +278,7 @@ pub trait Provider {
         let fields = field_map(pod);
         let mut env = HashMap::new();
         let empty = Vec::new();
-        let def = "".to_string();
-        let ns = pod
-            .metadata
-            .namespace
-            .clone()
-            .unwrap_or_else(|| "default".into());
+        let ns = pod.metadata.namespace.as_deref().unwrap_or("default");
         container
             .env
             .as_ref()
@@ -284,14 +289,11 @@ pub trait Provider {
                     i.name.clone(),
                     i.value.clone().unwrap_or_else(|| {
                         let client = client.clone();
-                        if let Some(env_src) = i.value_from.clone() {
+                        if let Some(env_src) = i.value_from.as_ref() {
                             // ConfigMaps
-                            if let Some(cfkey) = env_src.config_map_key_ref {
-                                let name = cfkey.name.unwrap_or_else(|| "".into());
-                                match Api::v1ConfigMap(client)
-                                    .within(ns.as_str())
-                                    .get(name.as_str())
-                                {
+                            if let Some(cfkey) = env_src.config_map_key_ref.as_ref() {
+                                let name = cfkey.name.as_deref().unwrap_or("");
+                                match Api::v1ConfigMap(client).within(ns).get(name) {
                                     Ok(cfgmap) => {
                                         // I am not totally clear on what the outcome should
                                         // be of a cfgmap key miss. So for now just return an
@@ -299,8 +301,8 @@ pub trait Provider {
                                         return cfgmap
                                             .data
                                             .get(cfkey.key.as_str())
-                                            .unwrap_or(&def)
-                                            .to_string();
+                                            .cloned()
+                                            .unwrap_or_default();
                                     }
                                     Err(e) => {
                                         error!("Error fetching config map {}: {}", name, e);
@@ -309,9 +311,9 @@ pub trait Provider {
                                 }
                             }
                             // Secrets
-                            if let Some(seckey) = env_src.secret_key_ref {
-                                let name = seckey.name.unwrap_or_else(|| "".into());
-                                match Api::v1Secret(client).within(ns.as_str()).get(name.as_str()) {
+                            if let Some(seckey) = env_src.secret_key_ref.as_ref() {
+                                let name = seckey.name.as_deref().unwrap_or_default();
+                                match Api::v1Secret(client).within(ns).get(name) {
                                     Ok(secret) => {
                                         // I am not totally clear on what the outcome should
                                         // be of a cfgmap key miss. So for now just return an
@@ -320,8 +322,8 @@ pub trait Provider {
                                         return secret
                                             .stringData
                                             .get(seckey.key.as_str())
-                                            .unwrap_or(&def)
-                                            .to_string();
+                                            .cloned()
+                                            .unwrap_or_default();
                                     }
                                     Err(e) => {
                                         error!("Error fetching config map {}: {}", name, e);
@@ -330,10 +332,10 @@ pub trait Provider {
                                 }
                             }
                             // Downward API (Field Refs)
-                            if let Some(cfkey) = env_src.field_ref {
+                            if let Some(cfkey) = env_src.field_ref.as_ref() {
                                 return fields
                                     .get(cfkey.field_path.as_str())
-                                    .map(|s| s.to_string())
+                                    .cloned()
                                     .unwrap_or_default();
                             }
                             // Reource Fields (Not implementable just yet... need more of a model.)
