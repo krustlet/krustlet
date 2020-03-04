@@ -19,6 +19,9 @@ run-wasi: _cleanup_kube
     # coded module. This should be removed once we have image support
     cd ./crates/wasi-provider && cargo run --bin krustlet-wasi --manifest-path ../../Cargo.toml
 
+run-wasm3: _cleanup_kube
+    cd ./crates/wasm3-provider && cargo run --bin krustlet-wasm --manifest-path ../../Cargo.toml
+
 dockerize:
     docker build -t technosophos/krustlet:latest .
 
