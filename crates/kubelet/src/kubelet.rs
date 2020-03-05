@@ -133,6 +133,20 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
     }
 }
 
+#[derive(Debug, Fail)]
+pub enum ProviderError {
+    #[fail(display = "cannot find pod {}", pod_name)]
+    PodNotFound { pod_name: String },
+    #[fail(
+        display = "cannot find container {} in pod {}",
+        container_name, pod_name
+    )]
+    ContainerNotFound {
+        pod_name: String,
+        container_name: String,
+    },
+}
+
 /// Provider implements the back-end for the Kubelet.
 ///
 /// The primary responsibility of a Provider is to execut a workload (or schedule it on an external executor)
@@ -189,7 +203,12 @@ pub trait Provider {
     ///
     /// The default implementation of this returns a message that this feature is
     /// not available. Override this only when there is an implementation available.
-    fn logs(&self, _pod: KubePod) -> Result<Vec<String>, failure::Error> {
+    fn logs(
+        &self,
+        _namespace: String,
+        _pod: String,
+        _container: String,
+    ) -> Result<Vec<String>, failure::Error> {
         Err(NotImplementedError {}.into())
     }
 
