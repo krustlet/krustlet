@@ -5,6 +5,9 @@ run: run-wascc
 build:
     cargo build
 
+prefetch:
+    cargo fetch --manifest-path ./Cargo.toml
+
 test:
     cargo fmt --all -- --check
     cargo clippy --workspace
