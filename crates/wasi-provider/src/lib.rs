@@ -82,17 +82,14 @@ impl Provider for WasiProvider {
         //   - bail if it errors
         let first_container = pod.spec.containers[0].clone();
 
-        // TODO: Actual log path configuration
-        let current_dir = std::env::current_dir()?;
         let env = self.env_vars(client.clone(), &first_container, &pod);
 
         // TODO: Replace with actual image store lookup when it is merged
-        let (runtime, output) = WasiRuntime::new(
+        let runtime = WasiRuntime::new(
             PathBuf::from("./testdata/hello-world.wasm"),
             env,
             Vec::default(),
             HashMap::default(),
-            current_dir,
         )?;
 
         //let args = first_container.args.unwrap_or_else(|| vec![]);
@@ -104,12 +101,17 @@ impl Provider for WasiProvider {
         //     })
         //     .await?
         // });
-        let handle = std::thread::spawn(move || runtime.run().unwrap());
+
+        // TODO: Actual log path configuration
+        let tempfile = NamedTempFile::new_in(std::env::current_dir()?)?;
+        // Get a separate file handle that can be moved onto the thread
+        let output = tempfile.reopen()?;
+        let handle = std::thread::spawn(move || runtime.run(output).unwrap());
         let mut handles = self.handles.write().unwrap();
-        handles
-            .entry(key_from_pod(&pod))
-            .or_default()
-            .insert(first_container.name, (output, handle));
+        handles.entry(key_from_pod(&pod)).or_default().insert(
+            first_container.name,
+            (BufReader::new(tempfile.reopen()?), handle),
+        );
         info!("Pod is executing on a thread");
         pod_status(client, pod, "Running", namespace.as_str());
         Ok(())
@@ -202,8 +204,6 @@ struct WasiRuntime {
     /// (e.g. /tmp/foo/myfile -> /app/config). If the optional value is not given,
     /// the same path will be allowed in the runtime
     dirs: HashMap<String, Option<String>>,
-    /// Handle to output
-    output: NamedTempFile,
 }
 
 impl WasiRuntime {
@@ -218,13 +218,12 @@ impl WasiRuntime {
     ///     (e.g. /tmp/foo/myfile -> /app/config). If the optional value is not given,
     ///     the same path will be allowed in the runtime
     /// * `log_file_location` - location for storing logs
-    pub fn new<M: AsRef<Path>, L: AsRef<Path>>(
+    pub fn new<M: AsRef<Path>>(
         module_path: M,
         env: HashMap<String, String>,
         args: Vec<String>,
         dirs: HashMap<String, Option<String>>,
-        log_file_location: L,
-    ) -> Result<(Self, BufReader<File>), failure::Error> {
+    ) -> Result<Self, failure::Error> {
         let module_data = wat::parse_file(module_path)?;
 
         // We need to use named temp file because we need multiple file handles
@@ -233,31 +232,22 @@ impl WasiRuntime {
         // think it necessary, we can make these permanent files with a cleanup
         // loop that runs elsewhere. These will get deleted when the reference
         // is dropped
-        //
-        // As warned in the BufReader docs, creating multiple BufReaders on the
-        // same stream can cause data loss. So reopen a new file object so we
-        // don't drop any data
-        let output = NamedTempFile::new_in(&log_file_location)?;
-        let file_handle = output.reopen()?;
-        Ok((
-            WasiRuntime {
-                module_data,
-                env,
-                args,
-                dirs,
-                output,
-            },
-            BufReader::new(file_handle),
-        ))
+        Ok(WasiRuntime {
+            module_data,
+            env,
+            args,
+            dirs,
+        })
     }
 
-    fn run(&self) -> Result<(), failure::Error> {
+    fn run(&self, output: File) -> Result<(), failure::Error> {
         let engine = wasmtime::Engine::default();
         let store = wasmtime::Store::new(&engine);
 
         // Build the WASI instance and then generate a list of WASI modules
-        let output = self.output.reopen()?;
-        let mut ctx_builder_snapshot = WasiCtxBuilder::new()
+        let mut ctx_builder_snapshot = WasiCtxBuilder::new();
+        // For some reason if I didn't split these out, the compiler got mad
+        let mut ctx_builder_snapshot = ctx_builder_snapshot
             .args(&self.args)
             .envs(&self.env)
             .stdout(output.try_clone()?)
@@ -325,8 +315,7 @@ impl WasiRuntime {
 #[cfg(test)]
 mod test {
     use super::*;
-    use k8s_openapi::api::core::v1::{Container, PodSpec};
-    use kube::api::ObjectMeta;
+    use k8s_openapi::api::core::v1::PodSpec;
     use kubelet::pod::KubePod;
     use std::io::Read;
 
@@ -361,17 +350,18 @@ mod test {
 
     #[test]
     fn test_run() {
-        let (wr, mut output) = WasiRuntime::new(
+        let wr = WasiRuntime::new(
             "./testdata/hello-world.wasm",
             HashMap::default(),
             Vec::default(),
             HashMap::default(),
-            std::env::temp_dir(),
         )
         .expect("wasi runtime init");
-        wr.run().expect("complete run");
+        let output = NamedTempFile::new().unwrap();
+        wr.run(output.reopen().unwrap()).expect("complete run");
         let mut stdout = String::default();
 
+        let mut output = BufReader::new(output);
         output.read_to_string(&mut stdout).unwrap();
         assert_eq!("Hello, world!\n", stdout);
     }
