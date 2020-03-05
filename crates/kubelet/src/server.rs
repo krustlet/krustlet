@@ -22,30 +22,32 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
 ) -> Result<(), failure::Error> {
     let service = make_service_fn(move |_conn: &AddrStream| {
         let provider = provider.clone();
-        futures::future::ready(Ok::<_, Error>(service_fn(move |req: Request<Body>| {
-            let provider = provider.clone();
+        async {
+            Ok::<_, Error>(service_fn(move |req: Request<Body>| {
+                let provider = provider.clone();
 
-            async move {
-                let path: Vec<&str> = req.uri().path().split('/').collect();
-                let path_len = path.len();
-                if path_len < 2 {
-                    return Ok::<_, Error>(get_ping());
+                async move {
+                    let path: Vec<&str> = req.uri().path().split('/').collect();
+                    let path_len = path.len();
+                    let response = if path_len < 2 {
+                        get_ping()
+                    } else {
+                        match (req.method(), path[1], path_len) {
+                            (&Method::GET, "containerLogs", 5) => {
+                                get_container_logs(&*provider.lock().await, &req).await
+                            }
+                            (&Method::POST, "exec", 5) => post_exec(&*provider.lock().await, &req),
+                            _ => {
+                                let mut response = Response::new(Body::from("Not Found"));
+                                *response.status_mut() = StatusCode::NOT_FOUND;
+                                response
+                            }
+                        }
+                    };
+                    Ok::<_, Error>(response)
                 }
-                match (req.method(), path[1], path_len) {
-                    (&Method::GET, "containerLogs", 5) => {
-                        use std::ops::Deref;
-                        Ok(get_container_logs(provider.lock().await.deref(), &req).await)
-                    }
-                    (&Method::POST, "exec", 5) => Ok(post_exec(&*provider.lock().await, &req)),
-                    _ => {
-                        let mut response = Response::new(Body::from("Not Found"));
-                        *response.status_mut() = StatusCode::NOT_FOUND;
-                        Ok(response)
-                    }
-                }
-                // Ok::<_, Error>(Response::new(Body::from("Not Found")))
-            }
-        })))
+            }))
+        }
     });
     let server = Server::bind(address).serve(service);
 

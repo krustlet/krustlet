@@ -2,15 +2,16 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
-use std::thread::JoinHandle;
+use std::sync::Arc;
 
 use failure::{bail, format_err};
 use kube::client::APIClient;
-use kubelet::{Phase, Provider, ProviderError, Status};
 use kubelet::pod::{pod_status, Pod};
+use kubelet::{Phase, Provider, ProviderError, Status};
 use log::{debug, info};
 use tempfile::NamedTempFile;
+use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 use wasi_common::preopen_dir;
 use wasmtime_wasi::old::snapshot_0::Wasi as WasiUnstable;
 use wasmtime_wasi::{Wasi, WasiCtxBuilder};
@@ -97,28 +98,18 @@ impl Provider for WasiProvider {
             HashMap::default(),
         )?;
 
-        //let args = first_container.args.unwrap_or_else(|| vec![]);
-        // TODO: we shoult probably make the Providers and kubelet async and use tokio like so:
-        // let handle = tokio::spawn(async move {
-        //     tokio::task::spawn_blocking(move || {
-        //         runtime.run()?;
-        //         Ok::<(), failure::Error>(())
-        //     })
-        //     .await?
-        // });
-
         // TODO: Actual log path configuration
         let tempfile = NamedTempFile::new_in(std::env::current_dir()?)?;
         // Get a separate file handle that can be moved onto the thread
         let output = tempfile.reopen()?;
-        
-        let handle = token::task::spawn_blocking(move || runtime.run(output).unwrap());
+
+        let handle = tokio::task::spawn_blocking(move || runtime.run(output).unwrap());
         {
-        let mut handles = self.handles.write().unwrap();
-        handles.entry(key_from_pod(&pod)).or_default().insert(
-            first_container.name,
-            (BufReader::new(tempfile.reopen()?), handle),
-        );
+            let mut handles = self.handles.write().await;
+            handles.entry(key_from_pod(&pod)).or_default().insert(
+                first_container.name,
+                (BufReader::new(tempfile.reopen()?), handle),
+            );
         }
 
         info!("Pod is executing on a thread");
@@ -164,7 +155,7 @@ impl Provider for WasiProvider {
         })
     }
 
-    async  fn logs(
+    async fn logs(
         &self,
         namespace: String,
         pod: String,
@@ -193,11 +184,11 @@ impl Provider for WasiProvider {
 /// Generates a unique human readable key for storing a handle to a pod
 fn key_from_pod(pod: &Pod) -> String {
     pod_key(
-        &pod.metadata.as_deref().unwrap()
-            .namespace
-            .clone()
-            .unwrap_or_else(|| "default"),
-        &pod.metadata.name,
+        &pod.metadata
+            .as_ref()
+            .and_then(|m| m.namespace.as_deref())
+            .unwrap_or("default"),
+        pod.metadata.as_ref().unwrap().name.as_ref().unwrap(),
     )
 }
 
@@ -329,18 +320,13 @@ impl WasiRuntime {
 #[cfg(test)]
 mod test {
     use super::*;
-    use kubelet::pod::Pod;
+    use k8s_openapi::api::core::v1::PodSpec;
     use std::io::Read;
 
     #[test]
     fn test_can_schedule() {
         let wp = WasiProvider::default();
-        let mut mock = KubePod {
-            spec: Default::default(),
-            metadata: Default::default(),
-            status: Default::default(),
-            types: Default::default(),
-        };
+        let mut mock = Default::default();
         assert!(!wp.can_schedule(&mock));
 
         let mut selector = std::collections::BTreeMap::new();
@@ -348,16 +334,16 @@ mod test {
             "beta.kubernetes.io/arch".to_string(),
             "wasm32-wasi".to_string(),
         );
-        mock.spec = PodSpec {
+        mock.spec = Some(PodSpec {
             node_selector: Some(selector.clone()),
             ..Default::default()
-        };
+        });
         assert!(wp.can_schedule(&mock));
         selector.insert("beta.kubernetes.io/arch".to_string(), "amd64".to_string());
-        mock.spec = PodSpec {
+        mock.spec = Some(PodSpec {
             node_selector: Some(selector),
             ..Default::default()
-        };
+        });
         assert!(!wp.can_schedule(&mock));
     }
 

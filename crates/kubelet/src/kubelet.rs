@@ -306,12 +306,12 @@ pub trait Provider {
         pod: &Pod,
     ) -> HashMap<String, String> {
         let mut env = HashMap::new();
-        let empty = Vec::new();
         let ns = pod
             .metadata
             .as_ref()
             .and_then(|s| s.namespace.as_deref())
             .unwrap_or("default");
+        let empty = Vec::new();
         for env_var in container.env.as_ref().unwrap_or_else(|| &empty).iter() {
             let key = env_var.name.clone();
             let value = match env_var.value.clone() {
@@ -333,7 +333,7 @@ async fn on_missing_value(
     if let Some(env_src) = env_var.value_from.as_ref() {
         // ConfigMaps
         if let Some(cfkey) = env_src.config_map_key_ref.as_ref() {
-            let name = cfkey.name.as_deref().unwrap_or("");
+            let name = cfkey.name.as_deref().unwrap_or_default();
             match Api::<ConfigMap>::namespaced(client, ns).get(name).await {
                 Ok(cfgmap) => {
                     // I am not totally clear on what the outcome should
@@ -364,7 +364,7 @@ async fn on_missing_value(
                     return secret
                         .string_data
                         .unwrap_or_default()
-                        .get(seckey.key.as_str())
+                        .get(&seckey.key)
                         .cloned()
                         .unwrap_or_default();
                 }
@@ -376,10 +376,7 @@ async fn on_missing_value(
         }
         // Downward API (Field Refs)
         if let Some(cfkey) = env_src.field_ref.as_ref() {
-            return fields
-                .get(cfkey.field_path.as_str())
-                .cloned()
-                .unwrap_or_default();
+            return fields.get(&cfkey.field_path).cloned().unwrap_or_default();
         }
         // Reource Fields (Not implementable just yet... need more of a model.)
     }
@@ -484,6 +481,7 @@ mod test {
         }
     }
 
+    #[async_trait::async_trait]
     impl Provider for MockProvider {
         fn can_schedule(&self, _pod: &Pod) -> bool {
             true
@@ -491,13 +489,13 @@ mod test {
         fn arch(&self) -> String {
             "mock".to_string()
         }
-        fn add(&self, _pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
+        async fn add(&self, _pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
             Ok(())
         }
-        fn modify(&self, _pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
+        async fn modify(&self, _pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
             Ok(())
         }
-        fn status(&self, _pod: Pod, _client: APIClient) -> Result<Status, failure::Error> {
+        async fn status(&self, _pod: Pod, _client: APIClient) -> Result<Status, failure::Error> {
             Ok(Status {
                 phase: Phase::Succeeded,
                 message: None,
@@ -505,8 +503,8 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_env_vars() {
+    #[tokio::test]
+    async fn test_env_vars() {
         let container = Container {
             env: Some(vec![
                 EnvVar {
@@ -590,17 +588,17 @@ mod test {
         let mut annotations = BTreeMap::new();
         annotations.insert("annotation".to_string(), "value".to_string());
         let pod = Pod {
-            metadata: ObjectMeta {
-                labels,
-                annotations,
-                name,
+            metadata: Some(ObjectMeta {
+                labels: Some(labels),
+                annotations: Some(annotations),
+                name: Some(name),
                 namespace,
                 ..Default::default()
-            },
-            spec: PodSpec {
+            }),
+            spec: Some(PodSpec {
                 service_account_name: Some("svc".to_string()),
                 ..Default::default()
-            },
+            }),
             status: Some(PodStatus {
                 host_ip: Some("10.21.77.1".to_string()),
                 pod_ip: Some("10.21.77.2".to_string()),
@@ -608,7 +606,7 @@ mod test {
             }),
         };
         let prov = MockProvider::new();
-        let env = prov.env_vars(mock_client(), &container, &pod);
+        let env = prov.env_vars(mock_client(), &container, &pod).await;
 
         assert_eq!(
             "value",

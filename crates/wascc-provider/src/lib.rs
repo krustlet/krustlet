@@ -251,12 +251,15 @@ fn wascc_run(
 #[cfg(test)]
 mod test {
     use super::*;
-    use kubelet::pod::Pod;
+    use k8s_openapi::api::core::v1::PodSpec;
 
-    #[test]
-    fn test_init() {
+    #[tokio::test]
+    async fn test_init() {
         let provider = WasccProvider {};
-        provider.init().expect("HTTP capability is registered");
+        provider
+            .init()
+            .await
+            .expect("HTTP capability is registered");
     }
 
     #[test]
@@ -280,12 +283,7 @@ mod test {
     #[test]
     fn test_can_schedule() {
         let wr = WasccProvider {};
-        let mut mock = KubePod {
-            spec: Default::default(),
-            metadata: Default::default(),
-            status: Default::default(),
-            types: Default::default(),
-        };
+        let mut mock = Default::default();
         assert!(!wr.can_schedule(&mock));
 
         let mut selector = std::collections::BTreeMap::new();
@@ -293,16 +291,16 @@ mod test {
             "beta.kubernetes.io/arch".to_string(),
             "wasm32-wascc".to_string(),
         );
-        mock.spec = PodSpec {
+        mock.spec = Some(PodSpec {
             node_selector: Some(selector.clone()),
             ..Default::default()
-        };
+        });
         assert!(wr.can_schedule(&mock));
         selector.insert("beta.kubernetes.io/arch".to_string(), "amd64".to_string());
-        mock.spec = PodSpec {
+        mock.spec = Some(PodSpec {
             node_selector: Some(selector),
             ..Default::default()
-        };
+        });
         assert!(!wr.can_schedule(&mock));
     }
 }
