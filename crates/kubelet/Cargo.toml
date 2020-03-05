@@ -13,13 +13,16 @@ authors = [
 edition = "2018"
 
 [dependencies]
+async-trait = "0.1.24"
 failure = "0.1"
-k8s-openapi = { version = "0.5.1", features = ["v1_15"] }
+futures = "0.3.4"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-hyper = "0.12"
+hyper = "0.13.3"
 log = "0.4"
 reqwest = "0.9"
-kube = { version = "0.16.1", features = ["openapi"] }
+tokio  = { version = "0.2.13", features = ["time"] }
+kube = { version = "0.28.0"  }
+k8s-openapi = { version = "0.7.1", default-features = false, features = ["v1_17"] }
 chrono = { version = "0.4", features = ["serde"] }

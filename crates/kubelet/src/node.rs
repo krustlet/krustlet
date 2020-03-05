@@ -1,9 +1,9 @@
 use chrono::prelude::*;
-use k8s_openapi::api::coordination::v1::LeaseSpec;
-//use k8s_openapi::api::core::v1::{NodeSpec, NodeStatus};
+use k8s_openapi::api::coordination::v1::{Lease, LeaseSpec};
+use k8s_openapi::api::core::v1::Node;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{MicroTime, Time};
 use kube::{
-    api::{Api, PatchParams, PostParams, RawApi},
+    api::{Api, PatchParams, PostParams},
     client::APIClient,
 };
 use log::{debug, error, info};
@@ -21,28 +21,30 @@ const NODE_NAME: &str = "krustlet";
 ///
 /// A node comes with a lease, and we maintain the lease to tell Kubernetes that the
 /// node remains alive and functional. Note that this will not work in
-/// versions of Kubernetes prior to 1.14.
-pub fn create_node(client: &APIClient, arch: &str) {
-    let node_client = Api::v1Node(client.clone());
-    let pp = PostParams::default();
+/// versions of Kubernetes prior to 1.  14.
+pub async fn create_node(client: &APIClient, arch: &str) {
+    let node_client: Api<Node> = Api::all(client.clone());
     let node = node_definition(arch);
 
-    match node_client.create(
-        &pp,
-        serde_json::to_vec(&node).expect("node serializes correctly"),
-    ) {
+    match node_client
+        .create(
+            &PostParams::default(),
+            serde_json::to_vec(&node).expect("node serializes correctly"),
+        )
+        .await
+    {
         Ok(node) => {
             info!("created node just fine");
-            let node_uid = node.metadata.uid.unwrap_or_default();
-            create_lease(&node_uid, &client)
+            let node_uid = node.metadata.unwrap_or_default().uid.unwrap_or_default();
+            create_lease(&node_uid, &client).await
         }
         Err(e) => {
             error!("Error creating node: {}", e);
             info!("Looking up node to see if it exists already");
-            match node_client.get(NODE_NAME) {
+            match node_client.get(NODE_NAME).await {
                 Ok(node) => {
-                    let node_uid = node.metadata.uid.unwrap_or_else(|| "".to_string());
-                    create_lease(node_uid.as_str(), &client)
+                    let node_uid = node.metadata.unwrap_or_default().uid.unwrap_or_default();
+                    create_lease(&node_uid, &client).await
                 }
                 Err(e) => error!("Error fetching node after failed create: {}", e),
             }
@@ -57,22 +59,21 @@ pub fn create_node(client: &APIClient, arch: &str) {
 /// We trap errors because... well... quite frankly there is nothing useful
 /// to do if the Kubernetes API is unavailable, and we can merrily continue
 /// doing our processing of the pod queue.
-pub fn update_node(client: &APIClient) {
-    let node_client = Api::v1Node(client.clone());
+pub async fn update_node(client: &APIClient) {
+    let node_client: Api<Node> = Api::all(client.clone());
     // Get me a node
-    let node_res = node_client.get(NODE_NAME);
+    let node_res = node_client.get(NODE_NAME).await;
     match node_res {
         Err(e) => {
             error!("Failed to get node: {:?}", e);
             return;
         }
-        _ => {
+        Ok(node) => {
             debug!("no error");
+            let uid = node.metadata.unwrap_or_default().uid.unwrap_or_default();
+            update_lease(&uid, client).await;
         }
     }
-    let node = node_res.unwrap();
-    let uid = node.metadata.uid;
-    update_lease(uid.unwrap_or_else(|| "".to_string()).as_str(), client)
 }
 
 /// Create a node lease
@@ -83,22 +84,16 @@ pub fn update_node(client: &APIClient) {
 ///
 /// As far as I can tell, leases ALWAYS go in the 'kube-node-lease'
 /// namespace, no exceptions.
-fn create_lease(node_uid: &str, client: &APIClient) {
-    let leases = RawApi::customResource("leases")
-        .version("v1")
-        .group("coordination.k8s.io")
-        .within("kube-node-lease"); // Spec says all leases go here
+async fn create_lease(node_uid: &str, client: &APIClient) {
+    let leases: Api<Lease> = Api::namespaced(client.clone(), "kube-node-lease");
 
     let lease = lease_definition(node_uid);
-    let pp = PostParams::default();
     let lease_data =
         serde_json::to_vec(&lease).expect("Lease should always be serializable to JSON");
     debug!("{}", serde_json::to_string_pretty(&lease).unwrap());
 
-    let req = leases
-        .create(&pp, lease_data)
-        .expect("Lease should always convert to a request");
-    match client.request::<serde_json::Value>(req) {
+    let resp = leases.create(&PostParams::default(), lease_data).await;
+    match resp {
         Ok(_) => debug!("Created lease"),
         Err(e) => error!("Failed to create lease: {}", e),
     }
@@ -109,11 +104,8 @@ fn create_lease(node_uid: &str, client: &APIClient) {
 ///
 /// TODO: Our patch is overzealous right now. We just need to update the
 /// timestamp.
-fn update_lease(node_uid: &str, client: &APIClient) {
-    let leases = RawApi::customResource("leases")
-        .version("v1")
-        .group("coordination.k8s.io")
-        .within("kube-node-lease"); // Spec says all leases go here
+async fn update_lease(node_uid: &str, client: &APIClient) {
+    let leases: Api<Lease> = Api::namespaced(client.clone(), "kube-node-lease");
 
     let lease = lease_definition(node_uid);
     let pp = PatchParams::default();
@@ -122,10 +114,8 @@ fn update_lease(node_uid: &str, client: &APIClient) {
     // TODO: either wrap this in a conditional or remove
     debug!("{}", serde_json::to_string_pretty(&lease).unwrap());
 
-    let req = leases
-        .patch(NODE_NAME, &pp, lease_data)
-        .expect("Lease should always convert to a request");
-    match client.request::<serde_json::Value>(req) {
+    let resp = leases.patch(NODE_NAME, &pp, lease_data).await;
+    match resp {
         Ok(_) => info!("Created lease"),
         Err(e) => error!("Failed to create lease: {}", e),
     }

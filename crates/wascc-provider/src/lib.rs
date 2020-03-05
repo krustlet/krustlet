@@ -2,8 +2,8 @@
 extern crate failure;
 
 use kube::client::APIClient;
-use kubelet::pod::{pod_status, KubePod};
-use kubelet::{Phase, Provider, Status};
+use kubelet::pod::pod_status;
+use kubelet::{pod::Pod, Phase, Provider, Status};
 use log::{debug, info};
 use std::collections::HashMap;
 use wascc_host::{host, Actor, NativeCapability};
@@ -30,8 +30,9 @@ type EnvVars = std::collections::HashMap<String, String>;
 #[derive(Clone)]
 pub struct WasccProvider {}
 
+#[async_trait::async_trait]
 impl Provider for WasccProvider {
-    fn init(&self) -> Result<(), failure::Error> {
+    async fn init(&self) -> Result<(), failure::Error> {
         let data = NativeCapability::from_file(HTTP_LIB)
             .map_err(|e| format_err!("Failed to read HTTP capability {}: {}", HTTP_LIB, e))?;
         host::add_native_capability(data)
@@ -42,29 +43,33 @@ impl Provider for WasccProvider {
         TARGET_WASM32_WASCC.to_string()
     }
 
-    fn can_schedule(&self, pod: &KubePod) -> bool {
+    fn can_schedule(&self, pod: &Pod) -> bool {
         // If there is a node selector and it has arch set to wasm32-wascc, we can
         // schedule it.
         pod.spec
-            .node_selector
             .as_ref()
+            .and_then(|s| s.node_selector.as_ref())
             .and_then(|i| {
                 i.get("beta.kubernetes.io/arch")
                     .map(|v| v.eq(&TARGET_WASM32_WASCC))
             })
             .unwrap_or(false)
     }
-    fn add(&self, pod: KubePod, client: APIClient) -> Result<(), failure::Error> {
+
+    async fn add(&self, pod: Pod, client: APIClient) -> Result<(), failure::Error> {
         // To run an Add event, we load the WASM, update the pod status to Running,
         // and then execute the WASM, passing in the relevant data.
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
-        debug!("Pod added {:?}", pod.metadata.name);
+        debug!(
+            "Pod added {:?}",
+            pod.metadata.as_ref().and_then(|m| m.name.as_ref())
+        );
         let namespace = pod
             .metadata
-            .clone()
-            .namespace
-            .unwrap_or_else(|| "default".into());
+            .as_ref()
+            .and_then(|m| m.namespace.as_deref())
+            .unwrap_or_else(|| "default");
         // TODO: Replace with actual image store lookup when it is merged
         let data = std::fs::read("./testdata/echo.wasm")?;
 
@@ -87,7 +92,7 @@ impl Provider for WasccProvider {
         //   - mount any volumes (popen)
         //   - run it to completion
         //   - bail if it errors
-        let first_container = pod.spec.containers[0].clone();
+        let first_container = pod.spec.as_ref().map(|s| s.containers[0].clone()).unwrap();
 
         // This would lock us into one wascc actor per pod. I don't know if
         // that is a good thing. Other containers would then be limited
@@ -104,27 +109,31 @@ impl Provider for WasccProvider {
         // configure the runtime.
         let pubkey = pod
             .metadata
-            .annotations
+            .as_ref()
+            .and_then(|s| s.annotations.as_ref())
+            .unwrap()
             .get(ACTOR_PUBLIC_KEY)
             .map(|a| a.to_string())
-            .unwrap_or_else(|| "".into());
+            .unwrap_or_default();
         debug!("{:?}", pubkey);
+
         // TODO: Launch this in a thread. (not necessary with waSCC)
-        let env = self.env_vars(client.clone(), &first_container, &pod);
+        let env = self.env_vars(client.clone(), &first_container, &pod).await;
         //let args = first_container.args.unwrap_or_else(|| vec![]);
         match wascc_run_http(data, env, pubkey.as_str()) {
             Ok(_) => {
                 info!("Pod is executing on a thread");
-                pod_status(client, pod, "Running", namespace.as_str());
+                pod_status(client, &pod, "Running", namespace).await;
                 Ok(())
             }
             Err(e) => {
-                pod_status(client, pod, "Failed", namespace.as_str());
+                pod_status(client, &pod, "Failed", namespace).await;
                 Err(failure::format_err!("Failed to run pod: {}", e))
             }
         }
     }
-    fn modify(&self, pod: KubePod, _client: APIClient) -> Result<(), failure::Error> {
+
+    async fn modify(&self, pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
         // Modify will be tricky. Not only do we need to handle legitimate modifications, but we
         // need to sift out modifications that simply alter the status. For the time being, we
         // just ignore them, which is the wrong thing to do... except that it demos better than
@@ -136,17 +145,27 @@ impl Provider for WasccProvider {
         );
         Ok(())
     }
-    fn delete(&self, pod: KubePod, _client: APIClient) -> Result<(), failure::Error> {
+
+    async fn delete(&self, pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
         let pubkey = pod
             .metadata
+            .unwrap_or_default()
             .annotations
+            .unwrap_or_default()
             .get(ACTOR_PUBLIC_KEY)
             .map(|a| a.to_string())
             .unwrap_or_else(|| "".into());
         wascc_stop(&pubkey).map_err(|e| format_err!("Failed to stop wascc actor: {}", e))
     }
-    fn status(&self, pod: KubePod, _client: APIClient) -> Result<Status, failure::Error> {
-        match pod.metadata.annotations.get(ACTOR_PUBLIC_KEY) {
+
+    async fn status(&self, pod: Pod, _client: APIClient) -> Result<Status, failure::Error> {
+        match pod
+            .metadata
+            .unwrap_or_default()
+            .annotations
+            .unwrap_or_default()
+            .get(ACTOR_PUBLIC_KEY)
+        {
             None => Ok(Status {
                 phase: Phase::Unknown,
                 message: None,
@@ -232,8 +251,7 @@ fn wascc_run(
 #[cfg(test)]
 mod test {
     use super::*;
-    use k8s_openapi::api::core::v1::PodSpec;
-    use kubelet::pod::KubePod;
+    use kubelet::pod::Pod;
 
     #[test]
     fn test_init() {

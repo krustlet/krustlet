@@ -13,7 +13,8 @@ authors = [
 edition = "2018"
 
 [dependencies]
-kube = { version = "0.16.1", features = ["openapi"] }
+async-trait = "0.1.24"
+kube = { version = "0.28.0" }
 log = "0.4"
 failure = "0.1"
 wasmtime = "0.12"
@@ -27,4 +28,4 @@ wat = "1.0"
 tokio = { version = "0.2.11", features = ["full"] }
 
 [dev-dependencies]
-k8s-openapi = { version = "0.5.1", features = ["v1_15"] }
+k8s-openapi = { version = "0.7.1", features = ["v1_17"] }

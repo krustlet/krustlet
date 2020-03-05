@@ -7,8 +7,8 @@ use std::thread::JoinHandle;
 
 use failure::{bail, format_err};
 use kube::client::APIClient;
-use kubelet::pod::{pod_status, KubePod};
 use kubelet::{Phase, Provider, ProviderError, Status};
+use kubelet::pod::{pod_status, Pod};
 use log::{debug, info};
 use tempfile::NamedTempFile;
 use wasi_common::preopen_dir;
@@ -28,8 +28,9 @@ pub struct WasiProvider {
     handles: Arc<RwLock<PodStore>>,
 }
 
+#[async_trait::async_trait]
 impl Provider for WasiProvider {
-    fn init(&self) -> Result<(), failure::Error> {
+    async fn init(&self) -> Result<(), failure::Error> {
         Ok(())
     }
 
@@ -37,29 +38,33 @@ impl Provider for WasiProvider {
         TARGET_WASM32_WASI.to_string()
     }
 
-    fn can_schedule(&self, pod: &KubePod) -> bool {
+    fn can_schedule(&self, pod: &Pod) -> bool {
         // If there is a node selector and it has arch set to wasm32-wasi, we can
         // schedule it.
         pod.spec
-            .node_selector
             .as_ref()
+            .and_then(|s| s.node_selector.as_ref())
             .and_then(|i| {
                 i.get("beta.kubernetes.io/arch")
                     .map(|v| v.eq(&TARGET_WASM32_WASI))
             })
             .unwrap_or(false)
     }
-    fn add(&self, pod: KubePod, client: APIClient) -> Result<(), failure::Error> {
+
+    async fn add(&self, pod: Pod, client: APIClient) -> Result<(), failure::Error> {
         // To run an Add event, we load the WASM, update the pod status to Running,
         // and then execute the WASM, passing in the relevant data.
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
-        debug!("Pod added {:?}", pod.metadata.name);
+        debug!(
+            "Pod added {:?}",
+            pod.metadata.as_ref().and_then(|m| m.name.as_ref())
+        );
         let namespace = pod
             .metadata
-            .clone()
-            .namespace
-            .unwrap_or_else(|| "default".into());
+            .as_ref()
+            .and_then(|m| m.namespace.as_deref())
+            .unwrap_or_else(|| "default");
 
         // TODO: Implement this for real.
         // Okay, so here is where things are REALLY unfinished. Right now, we are
@@ -80,9 +85,9 @@ impl Provider for WasiProvider {
         //   - mount any volumes (popen)
         //   - run it to completion
         //   - bail if it errors
-        let first_container = pod.spec.containers[0].clone();
+        let first_container = pod.spec.as_ref().map(|s| s.containers[0].clone()).unwrap();
 
-        let env = self.env_vars(client.clone(), &first_container, &pod);
+        let env = self.env_vars(client.clone(), &first_container, &pod).await;
 
         // TODO: Replace with actual image store lookup when it is merged
         let runtime = WasiRuntime::new(
@@ -106,17 +111,23 @@ impl Provider for WasiProvider {
         let tempfile = NamedTempFile::new_in(std::env::current_dir()?)?;
         // Get a separate file handle that can be moved onto the thread
         let output = tempfile.reopen()?;
-        let handle = std::thread::spawn(move || runtime.run(output).unwrap());
+        
+        let handle = token::task::spawn_blocking(move || runtime.run(output).unwrap());
+        {
         let mut handles = self.handles.write().unwrap();
         handles.entry(key_from_pod(&pod)).or_default().insert(
             first_container.name,
             (BufReader::new(tempfile.reopen()?), handle),
         );
+        }
+
         info!("Pod is executing on a thread");
-        pod_status(client, pod, "Running", namespace.as_str());
+
+        pod_status(client, &pod, "Running", namespace).await;
         Ok(())
     }
-    fn modify(&self, pod: KubePod, _client: APIClient) -> Result<(), failure::Error> {
+
+    async fn modify(&self, pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
         // Modify will be tricky. Not only do we need to handle legitimate modifications, but we
         // need to sift out modifications that simply alter the status. For the time being, we
         // just ignore them, which is the wrong thing to do... except that it demos better than
@@ -128,14 +139,16 @@ impl Provider for WasiProvider {
         );
         Ok(())
     }
-    fn delete(&self, _pod: KubePod, _client: APIClient) -> Result<(), failure::Error> {
+
+    async fn delete(&self, _pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
         // There is currently no way to stop a long running instance, so we are
         // SOL here until there is support for it. See
         // https://github.com/bytecodealliance/wasmtime/issues/860 for more
         // information
         unimplemented!("cannot stop a running wasmtime instance")
     }
-    fn status(&self, _pod: KubePod, _client: APIClient) -> Result<Status, failure::Error> {
+
+    async fn status(&self, _pod: Pod, _client: APIClient) -> Result<Status, failure::Error> {
         // TODO(taylor): Figure out the best way to check if a future is still
         // running. I get the feeling that manually calling `poll` on the future
         // is a Bad Idea™ and so I am not sure if there is another way or if we
@@ -150,13 +163,14 @@ impl Provider for WasiProvider {
             message: None,
         })
     }
-    fn logs(
+
+    async  fn logs(
         &self,
         namespace: String,
         pod: String,
         container: String,
     ) -> Result<Vec<String>, failure::Error> {
-        let mut handles = self.handles.write().unwrap();
+        let mut handles = self.handles.write().await;
         let handle = handles
             .get_mut(&pod_key(&namespace, &pod))
             .ok_or_else(|| ProviderError::PodNotFound {
@@ -177,12 +191,12 @@ impl Provider for WasiProvider {
 }
 
 /// Generates a unique human readable key for storing a handle to a pod
-fn key_from_pod(pod: &KubePod) -> String {
+fn key_from_pod(pod: &Pod) -> String {
     pod_key(
-        &pod.metadata
+        &pod.metadata.as_deref().unwrap()
             .namespace
             .clone()
-            .unwrap_or_else(|| "default".into()),
+            .unwrap_or_else(|| "default"),
         &pod.metadata.name,
     )
 }
@@ -315,8 +329,7 @@ impl WasiRuntime {
 #[cfg(test)]
 mod test {
     use super::*;
-    use k8s_openapi::api::core::v1::PodSpec;
-    use kubelet::pod::KubePod;
+    use kubelet::pod::Pod;
     use std::io::Read;
 
     #[test]
