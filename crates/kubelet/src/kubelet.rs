@@ -1,6 +1,7 @@
 /// This library contains the Kubelet shell. Use this to create a new Kubelet
 /// with a specific handler. (The handler included here is the WASM handler.)
 use crate::{
+    config::Config,
     node::{create_node, update_node},
     pod::Pod,
     server::start_webserver,
@@ -67,14 +68,16 @@ pub struct Status {
 pub struct Kubelet<P: 'static + Provider + Clone + Send + Sync> {
     provider: Arc<Mutex<P>>,
     kubeconfig: Configuration,
+    config: Config,
 }
 
 impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
     /// Create a new Kubelet with a provider, a KubeConfig, and a namespace.
-    pub fn new(provider: T, kubeconfig: Configuration) -> Self {
+    pub fn new(provider: T, kubeconfig: Configuration, config: Config) -> Self {
         Kubelet {
             provider: Arc::new(Mutex::new(provider)),
             kubeconfig,
+            config,
         }
     }
 
@@ -82,18 +85,22 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
     ///
     /// This will listen on the given address, and will also begin watching for Pod
     /// events, which it will handle.
-    pub async fn start(&self, address: std::net::SocketAddr) -> Result<(), failure::Error> {
+    pub async fn start(&self) -> Result<(), failure::Error> {
         self.provider.lock().await.init().await?;
         let client = APIClient::new(self.kubeconfig.clone());
         // Create the node. If it already exists, "adopt" the node definition
-        create_node(&client, &self.provider.lock().await.arch()).await;
+        let mut conf = self.config.clone();
+        conf.arch = self.provider.lock().await.arch();
+        // Get the node name for use in the update loop
+        let node_name = conf.node_name.clone();
+        create_node(&client, conf).await;
 
         // Start updating the node lease periodically
         let update_client = client.clone();
         let node_updater = tokio::task::spawn(async move {
             let sleep_interval = std::time::Duration::from_secs(10);
             loop {
-                update_node(&update_client).await;
+                update_node(&update_client, &node_name).await;
                 tokio::time::delay_for(sleep_interval).await;
             }
         });
@@ -121,6 +128,7 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
             }
         });
 
+        let address = std::net::SocketAddr::new(self.config.addr, self.config.port);
         // Start the webserver
         start_webserver(self.provider.clone(), &address).await?;
 

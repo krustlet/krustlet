@@ -34,7 +34,7 @@ itest:
     for i in 1 2 3 4 5; do sleep 3 && kubectl get po greet; done
 
 _cleanup_kube:
-    kubectl delete no krustlet || true
+    kubectl delete no $(hostname | tr '[:upper:]' '[:lower:]') || true
     kubectl delete po greet || true
 
 testfor:
