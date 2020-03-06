@@ -110,9 +110,6 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
             loop {
                 let mut stream = informer.poll().await.expect("informer poll failed").boxed();
                 while let Some(event) = stream.try_next().await.unwrap() {
-                    // TODO: We need to spawn threads (or do something similar)
-                    // to handle the event. Currently, there is only one thread
-                    // executing WASM.
                     match provider
                         .lock()
                         .await
@@ -129,7 +126,6 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
         // Start the webserver
         start_webserver(self.provider.clone(), &address).await?;
 
-        // Join the threads
         // FIXME: If any of these dies, we should crash the Kubelet and let it restart.
         node_updater.await.expect("node update thread crashed");
         pod_informer.await.expect("informer thread crashed");
@@ -214,7 +210,6 @@ pub trait Provider {
         _pod: String,
         _container: String,
     ) -> Result<Vec<String>, failure::Error> {
-
         Err(NotImplementedError {}.into())
     }
 

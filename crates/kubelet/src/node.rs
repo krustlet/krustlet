@@ -21,7 +21,7 @@ const NODE_NAME: &str = "krustlet";
 ///
 /// A node comes with a lease, and we maintain the lease to tell Kubernetes that the
 /// node remains alive and functional. Note that this will not work in
-/// versions of Kubernetes prior to 1.  14.
+/// versions of Kubernetes prior to 1.14.
 pub async fn create_node(client: &APIClient, arch: &str) {
     let node_client: Api<Node> = Api::all(client.clone());
     let node = node_definition(arch);
