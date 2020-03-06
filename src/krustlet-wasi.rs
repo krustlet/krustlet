@@ -1,4 +1,3 @@
-use env_logger;
 use kube::config;
 use kubelet::Kubelet;
 use wasi_provider::WasiProvider;
