@@ -1,7 +1,7 @@
 use chrono::prelude::*;
-use k8s_openapi::api::coordination::v1::{Lease, LeaseSpec};
+use k8s_openapi::api::coordination::v1::Lease;
 use k8s_openapi::api::core::v1::Node;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::{MicroTime, Time};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 use kube::{
     api::{Api, PatchParams, PostParams},
     client::APIClient,
@@ -246,12 +246,17 @@ fn lease_definition(node_uid: &str) -> serde_json::Value {
 /// Defines a new coordiation lease for Kubernetes
 ///
 /// We set the lease times, the lease duration, and the node name.
-fn lease_spec_definition() -> LeaseSpec {
-    LeaseSpec {
-        holder_identity: Some(NODE_NAME.to_string()),
-        acquire_time: Some(MicroTime(Utc::now())),
-        renew_time: Some(MicroTime(Utc::now())),
-        lease_duration_seconds: Some(300),
-        ..Default::default()
-    }
+fn lease_spec_definition() -> serde_json::Value {
+    // Workaround for https://github.com/deislabs/krustlet/issues/5
+    // In the future, use LeaseSpec rather than a JSON value
+    let now = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+
+    json!(
+        {
+            "holderIdentity": NODE_NAME,
+            "acquireTime": now,
+            "renewTime": now,
+            "leaseDurationSeconds": 300
+        }
+    )
 }
