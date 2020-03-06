@@ -67,16 +67,14 @@ pub struct Status {
 pub struct Kubelet<P: 'static + Provider + Clone + Send + Sync> {
     provider: Arc<Mutex<P>>,
     kubeconfig: Configuration,
-    namespace: String,
 }
 
 impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
     /// Create a new Kubelet with a provider, a KubeConfig, and a namespace.
-    pub fn new(provider: T, kubeconfig: Configuration, namespace: String) -> Self {
+    pub fn new(provider: T, kubeconfig: Configuration) -> Self {
         Kubelet {
             provider: Arc::new(Mutex::new(provider)),
             kubeconfig,
-            namespace,
         }
     }
 
