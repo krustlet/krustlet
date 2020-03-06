@@ -2,19 +2,24 @@
 /// with a specific handler. (The handler included here is the WASM handler.)
 use crate::{
     node::{create_node, update_node},
-    pod::KubePod,
+    pod::Pod,
     server::start_webserver,
 };
-use k8s_openapi::api::core::v1::Container;
+use async_trait::async_trait;
+use futures::{StreamExt, TryStreamExt};
+use k8s_openapi::api::core::v1::{ConfigMap, Container, EnvVar, Secret};
 use kube::{
-    api::{Api, Informer, WatchEvent},
+    api::{Api, ListParams, WatchEvent},
     client::APIClient,
     config::Configuration,
+    runtime::Informer,
+    Resource,
 };
 use log::{debug, error, info};
-use std::sync::{Arc, Mutex};
+use tokio::sync::Mutex;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Fail, Debug)]
 #[fail(display = "Operation not supported")]
@@ -79,19 +84,19 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
     ///
     /// This will listen on the given address, and will also begin watching for Pod
     /// events, which it will handle.
-    pub fn start(&self, address: std::net::SocketAddr) -> Result<(), failure::Error> {
-        self.provider.lock().unwrap().init()?;
+    pub async fn start(&self, address: std::net::SocketAddr) -> Result<(), failure::Error> {
+        self.provider.lock().await.init().await?;
         let client = APIClient::new(self.kubeconfig.clone());
         // Create the node. If it already exists, "adopt" the node definition
-        create_node(&client, &self.provider.lock().unwrap().arch());
+        create_node(&client, &self.provider.lock().await.arch()).await;
 
         // Start updating the node lease periodically
         let update_client = client.clone();
-        let node_updater = std::thread::spawn(move || {
+        let node_updater = tokio::task::spawn(async move {
             let sleep_interval = std::time::Duration::from_secs(10);
             loop {
-                update_node(&update_client);
-                std::thread::sleep(sleep_interval);
+                update_node(&update_client).await;
+                tokio::time::delay_for(sleep_interval).await;
             }
         });
 
@@ -99,22 +104,18 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
         let provider = self.provider.clone();
         let config = self.kubeconfig.clone();
 
-        // TODO: I think this should listen in all namespaces!
-        let ns = self.namespace.clone();
-        let pod_informer = std::thread::spawn(move || {
-            let pod_client = Api::v1Pod(client).within(ns.as_str());
-
+        let pod_informer = tokio::task::spawn(async move {
             // Create our informer and start listening.
-            let informer = Informer::new(pod_client)
-                .init()
-                .expect("informer init failed");
+            let informer = Informer::new(client, ListParams::default(), Resource::all::<Pod>());
             loop {
-                informer.poll().expect("informer poll failed");
-                while let Some(event) = informer.pop() {
-                    // TODO: We need to spawn threads (or do something similar)
-                    // to handle the event. Currently, there is only one thread
-                    // executing WASM.
-                    match provider.lock().unwrap().handle_event(event, config.clone()) {
+                let mut stream = informer.poll().await.expect("informer poll failed").boxed();
+                while let Some(event) = stream.try_next().await.unwrap() {
+                    match provider
+                        .lock()
+                        .await
+                        .handle_event(event, config.clone())
+                        .await
+                    {
                         Ok(_) => debug!("Handled event successfully"),
                         Err(e) => error!("Error handling event: {}", e),
                     };
@@ -123,12 +124,11 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
         });
 
         // Start the webserver
-        start_webserver(self.provider.clone(), &address)?;
+        start_webserver(self.provider.clone(), &address).await?;
 
-        // Join the threads
         // FIXME: If any of these dies, we should crash the Kubelet and let it restart.
-        node_updater.join().expect("node update thread crashed");
-        pod_informer.join().expect("informer thread crashed");
+        node_updater.await.expect("node update thread crashed");
+        pod_informer.await.expect("informer thread crashed");
         Ok(())
     }
 }
@@ -156,9 +156,10 @@ pub enum ProviderError {
 /// That is the responsibility of the Kubelet. However, we pass in the client to facilitate
 /// cases where a provider may be middleware for another Kubernetes object, or where a
 /// provider may require supplemental Kubernetes objects such as Secrets, ConfigMaps, or CRDs.
+#[async_trait]
 pub trait Provider {
     /// Init is guaranteed to be called only once, and prior to the first call to can_schedule().
-    fn init(&self) -> Result<(), failure::Error> {
+    async fn init(&self) -> Result<(), failure::Error> {
         Ok(())
     }
 
@@ -174,28 +175,28 @@ pub trait Provider {
     ///
     /// It is paramount that this function be fast, as every newly created Pod will come through this
     /// function.
-    fn can_schedule(&self, pod: &KubePod) -> bool;
+    fn can_schedule(&self, pod: &Pod) -> bool;
 
     /// Given a Pod definition, execute the workload.
-    fn add(&self, pod: KubePod, client: APIClient) -> Result<(), failure::Error>;
+    async fn add(&self, pod: Pod, client: APIClient) -> Result<(), failure::Error>;
 
     /// Given an updated Pod definition, update the given workload.
     ///
     /// Pods that are sent to this function have already met certain criteria for modification.
     /// For example, updates to the `status` of a Pod will not be sent into this function.
-    fn modify(&self, pod: KubePod, client: APIClient) -> Result<(), failure::Error>;
+    async fn modify(&self, pod: Pod, client: APIClient) -> Result<(), failure::Error>;
 
     /// Given a pod, determine the status of the underlying workload.
     ///
     /// This information is used to update Kubernetes about whether this workload is running,
     /// has already finished running, or has failed.
-    fn status(&self, pod: KubePod, client: APIClient) -> Result<Status, failure::Error>;
+    async fn status(&self, pod: Pod, client: APIClient) -> Result<Status, failure::Error>;
 
     /// Given the definition of a deleted Pod, remove the workload from the runtime.
     ///
     /// This does not need to actually delete the Pod definition -- just destroy the
     /// associated workload. The default implementation simply returns Ok.
-    fn delete(&self, _pod: KubePod, _client: APIClient) -> Result<(), failure::Error> {
+    async fn delete(&self, _pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
         Ok(())
     }
 
@@ -203,7 +204,7 @@ pub trait Provider {
     ///
     /// The default implementation of this returns a message that this feature is
     /// not available. Override this only when there is an implementation available.
-    fn logs(
+    async fn logs(
         &self,
         _namespace: String,
         _pod: String,
@@ -216,9 +217,9 @@ pub trait Provider {
     ///
     /// The default implementation of this returns a message that this feature is
     /// not available. Override this only when there is an implementation.
-    fn exec(
+    async fn exec(
         &self,
-        _pod: KubePod,
+        _pod: Pod,
         _client: APIClient,
         _command: String,
     ) -> Result<Vec<String>, failure::Error> {
@@ -229,9 +230,9 @@ pub trait Provider {
     ///
     /// In most cases, this should not be overridden. It is exposed for rare cases when
     /// the underlying event handling needs to change.
-    fn handle_event(
+    async fn handle_event(
         &self,
-        event: WatchEvent<KubePod>,
+        event: WatchEvent<Pod>,
         config: Configuration,
     ) -> Result<(), failure::Error> {
         // TODO: Is there value in keeping one client and cloning it?
@@ -242,31 +243,40 @@ pub trait Provider {
                 // Step 1: Is this legit?
                 // Step 2: Can the provider handle this?
                 if !self.can_schedule(&p) {
-                    debug!("Provider cannot schedule {}", p.metadata.name);
+                    debug!(
+                        "Provider cannot schedule {}",
+                        p.metadata.unwrap_or_default().name.unwrap_or_default()
+                    );
                     return Ok(());
                 };
                 // Step 3: DO IT!
-                self.add(p, client)
+                self.add(p, client).await
             }
             WatchEvent::Modified(p) => {
                 // Step 1: Can the provider handle this? (This should be the faster function,
                 // so we can weed out negatives quickly.)
                 if !self.can_schedule(&p) {
-                    debug!("Provider cannot schedule {}", p.metadata.name);
+                    debug!(
+                        "Provider cannot schedule {}",
+                        p.metadata.unwrap_or_default().name.unwrap_or_default()
+                    );
                     return Ok(());
                 };
                 // Step 2: Is this a real modification, or just status?
                 // Step 3: DO IT!
-                self.modify(p, client)
+                self.modify(p, client).await
             }
             WatchEvent::Deleted(p) => {
                 // Step 1: Can the provider handle this?
                 if !self.can_schedule(&p) {
-                    debug!("Provider cannot schedule {}", p.metadata.name);
+                    debug!(
+                        "Provider cannot schedule {}",
+                        p.metadata.unwrap_or_default().name.unwrap_or_default()
+                    );
                     return Ok(());
                 };
                 // Step 2: DO IT!
-                self.delete(p, client)
+                self.delete(p, client).await
             }
             WatchEvent::Error(e) => {
                 error!("Event error: {}", e);
@@ -284,102 +294,119 @@ pub trait Provider {
     /// It is safe to call from within your own providers.
     ///
     /// TODO: Finish secrets, configmaps, and resource fields
-    fn env_vars(
+    async fn env_vars(
         &self,
         client: APIClient,
         container: &Container,
-        pod: &KubePod,
+        pod: &Pod,
     ) -> HashMap<String, String> {
-        let fields = field_map(pod);
         let mut env = HashMap::new();
-        let empty = Vec::new();
-        let ns = pod.metadata.namespace.as_deref().unwrap_or("default");
-        container
-            .env
+        let ns = pod
+            .metadata
             .as_ref()
-            .unwrap_or_else(|| &empty)
-            .iter()
-            .for_each(|i| {
-                env.insert(
-                    i.name.clone(),
-                    i.value.clone().unwrap_or_else(|| {
-                        let client = client.clone();
-                        if let Some(env_src) = i.value_from.as_ref() {
-                            // ConfigMaps
-                            if let Some(cfkey) = env_src.config_map_key_ref.as_ref() {
-                                let name = cfkey.name.as_deref().unwrap_or("");
-                                match Api::v1ConfigMap(client).within(ns).get(name) {
-                                    Ok(cfgmap) => {
-                                        // I am not totally clear on what the outcome should
-                                        // be of a cfgmap key miss. So for now just return an
-                                        // empty default.
-                                        return cfgmap
-                                            .data
-                                            .get(cfkey.key.as_str())
-                                            .cloned()
-                                            .unwrap_or_default();
-                                    }
-                                    Err(e) => {
-                                        error!("Error fetching config map {}: {}", name, e);
-                                        return "".to_string();
-                                    }
-                                }
-                            }
-                            // Secrets
-                            if let Some(seckey) = env_src.secret_key_ref.as_ref() {
-                                let name = seckey.name.as_deref().unwrap_or_default();
-                                match Api::v1Secret(client).within(ns).get(name) {
-                                    Ok(secret) => {
-                                        // I am not totally clear on what the outcome should
-                                        // be of a cfgmap key miss. So for now just return an
-                                        // empty default.
-
-                                        return secret
-                                            .stringData
-                                            .get(seckey.key.as_str())
-                                            .cloned()
-                                            .unwrap_or_default();
-                                    }
-                                    Err(e) => {
-                                        error!("Error fetching config map {}: {}", name, e);
-                                        return "".to_string();
-                                    }
-                                }
-                            }
-                            // Downward API (Field Refs)
-                            if let Some(cfkey) = env_src.field_ref.as_ref() {
-                                return fields
-                                    .get(cfkey.field_path.as_str())
-                                    .cloned()
-                                    .unwrap_or_default();
-                            }
-                            // Reource Fields (Not implementable just yet... need more of a model.)
-                        }
-                        "".to_string()
-                    }),
-                );
-            });
+            .and_then(|s| s.namespace.as_deref())
+            .unwrap_or("default");
+        let empty = Vec::new();
+        for env_var in container.env.as_ref().unwrap_or_else(|| &empty).iter() {
+            let key = env_var.name.clone();
+            let value = match env_var.value.clone() {
+                Some(v) => v,
+                None => on_missing_value(client.clone(), env_var, ns, &field_map(pod)).await,
+            };
+            env.insert(key, value);
+        }
         env
     }
+}
+
+async fn on_missing_value(
+    client: APIClient,
+    env_var: &EnvVar,
+    ns: &str,
+    fields: &HashMap<String, String>,
+) -> String {
+    if let Some(env_src) = env_var.value_from.as_ref() {
+        // ConfigMaps
+        if let Some(cfkey) = env_src.config_map_key_ref.as_ref() {
+            let name = cfkey.name.as_deref().unwrap_or_default();
+            match Api::<ConfigMap>::namespaced(client, ns).get(name).await {
+                Ok(cfgmap) => {
+                    // I am not totally clear on what the outcome should
+                    // be of a cfgmap key miss. So for now just return an
+                    // empty default.
+                    return cfgmap
+                        .data
+                        .unwrap_or_default()
+                        .get(&cfkey.key)
+                        .cloned()
+                        .unwrap_or_default();
+                }
+                Err(e) => {
+                    error!("Error fetching config map {}: {}", name, e);
+                    return "".to_string();
+                }
+            }
+        }
+        // Secrets
+        if let Some(seckey) = env_src.secret_key_ref.as_ref() {
+            let name = seckey.name.as_deref().unwrap_or_default();
+            match Api::<Secret>::namespaced(client, ns).get(name).await {
+                Ok(secret) => {
+                    // I am not totally clear on what the outcome should
+                    // be of a cfgmap key miss. So for now just return an
+                    // empty default.
+
+                    return secret
+                        .string_data
+                        .unwrap_or_default()
+                        .get(&seckey.key)
+                        .cloned()
+                        .unwrap_or_default();
+                }
+                Err(e) => {
+                    error!("Error fetching config map {}: {}", name, e);
+                    return "".to_string();
+                }
+            }
+        }
+        // Downward API (Field Refs)
+        if let Some(cfkey) = env_src.field_ref.as_ref() {
+            return fields.get(&cfkey.field_path).cloned().unwrap_or_default();
+        }
+        // Reource Fields (Not implementable just yet... need more of a model.)
+    }
+    "".to_string()
 }
 
 /// Build the map of allowable field_ref values.
 ///
 /// The Downward API only supports a small selection of fields. This
 /// provides those fields.
-fn field_map(pod: &KubePod) -> HashMap<String, String> {
+fn field_map(pod: &Pod) -> HashMap<String, String> {
     let mut map = HashMap::new();
-    map.insert("metadata.name".into(), pod.metadata.name.clone());
+    map.insert(
+        "metadata.name".into(),
+        pod.metadata
+            .clone()
+            .unwrap_or_default()
+            .name
+            .unwrap_or_default(),
+    );
     map.insert(
         "metadata.namespace".into(),
         pod.metadata
-            .namespace
             .clone()
+            .unwrap_or_default()
+            .namespace
             .unwrap_or_else(|| "default".into()),
     );
     map.insert(
         "spec.serviceAccountName".into(),
-        pod.spec.service_account_name.clone().unwrap_or_default(),
+        pod.spec
+            .clone()
+            .unwrap_or_default()
+            .service_account_name
+            .unwrap_or_default(),
     );
     map.insert(
         "status.hostIP".into(),
@@ -399,20 +426,31 @@ fn field_map(pod: &KubePod) -> HashMap<String, String> {
             .clone()
             .unwrap_or_default(),
     );
-    pod.metadata.labels.iter().for_each(|(k, v)| {
-        info!("adding {} to labels", k);
-        map.insert(format!("metadata.labels.{}", k), v.into());
-    });
-    pod.metadata.annotations.iter().for_each(|(k, v)| {
-        map.insert(format!("metadata.annotations.{}", k), v.into());
-    });
+    pod.metadata
+        .clone()
+        .unwrap_or_default()
+        .labels
+        .unwrap_or_default()
+        .iter()
+        .for_each(|(k, v)| {
+            info!("adding {} to labels", k);
+            map.insert(format!("metadata.labels.{}", k), v.into());
+        });
+    pod.metadata
+        .clone()
+        .unwrap_or_default()
+        .annotations
+        .unwrap_or_default()
+        .iter()
+        .for_each(|(k, v)| {
+            map.insert(format!("metadata.annotations.{}", k), v.into());
+        });
     map
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::pod::KubePod;
     use k8s_openapi::api::core::v1::{
         EnvVar, EnvVarSource, ObjectFieldSelector, PodSpec, PodStatus,
     };
@@ -422,8 +460,9 @@ mod test {
 
     fn mock_client() -> APIClient {
         APIClient::new(Configuration {
-            base_path: ".".into(),
+            base_path: ".".to_string(),
             client: reqwest::Client::new(),
+            default_ns: " ".to_string(),
         })
     }
 
@@ -437,20 +476,21 @@ mod test {
         }
     }
 
+    #[async_trait::async_trait]
     impl Provider for MockProvider {
-        fn can_schedule(&self, _pod: &KubePod) -> bool {
+        fn can_schedule(&self, _pod: &Pod) -> bool {
             true
         }
         fn arch(&self) -> String {
             "mock".to_string()
         }
-        fn add(&self, _pod: KubePod, _client: APIClient) -> Result<(), failure::Error> {
+        async fn add(&self, _pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
             Ok(())
         }
-        fn modify(&self, _pod: KubePod, _client: APIClient) -> Result<(), failure::Error> {
+        async fn modify(&self, _pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
             Ok(())
         }
-        fn status(&self, _pod: KubePod, _client: APIClient) -> Result<Status, failure::Error> {
+        async fn status(&self, _pod: Pod, _client: APIClient) -> Result<Status, failure::Error> {
             Ok(Status {
                 phase: Phase::Succeeded,
                 message: None,
@@ -458,8 +498,8 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_env_vars() {
+    #[tokio::test]
+    async fn test_env_vars() {
         let container = Container {
             env: Some(vec![
                 EnvVar {
@@ -542,27 +582,26 @@ mod test {
         labels.insert("label".to_string(), "value".to_string());
         let mut annotations = BTreeMap::new();
         annotations.insert("annotation".to_string(), "value".to_string());
-        let pod = KubePod {
-            metadata: ObjectMeta {
-                labels,
-                annotations,
-                name,
+        let pod = Pod {
+            metadata: Some(ObjectMeta {
+                labels: Some(labels),
+                annotations: Some(annotations),
+                name: Some(name),
                 namespace,
                 ..Default::default()
-            },
-            spec: PodSpec {
+            }),
+            spec: Some(PodSpec {
                 service_account_name: Some("svc".to_string()),
                 ..Default::default()
-            },
+            }),
             status: Some(PodStatus {
                 host_ip: Some("10.21.77.1".to_string()),
                 pod_ip: Some("10.21.77.2".to_string()),
                 ..Default::default()
             }),
-            types: Default::default(),
         };
         let prov = MockProvider::new();
-        let env = prov.env_vars(mock_client(), &container, &pod);
+        let env = prov.env_vars(mock_client(), &container, &pod).await;
 
         assert_eq!(
             "value",

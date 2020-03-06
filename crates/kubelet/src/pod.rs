@@ -1,15 +1,13 @@
-use k8s_openapi::api::core::v1::{PodSpec, PodStatus};
 use kube::{
-    api::{Api, Object, PatchParams},
+    api::{Api, PatchParams},
     client::APIClient,
 };
 use log::{debug, error, info};
 
-/// Alias for a Kubernetes Pod.
-pub type KubePod = Object<PodSpec, PodStatus>;
+pub type Pod = k8s_openapi::api::core::v1::Pod;
 
 /// Patch the pod status to update the phase.
-pub fn pod_status(client: APIClient, pod: KubePod, phase: &str, ns: &str) {
+pub async fn pod_status(client: APIClient, pod: &Pod, phase: &str, ns: &str) {
     let status = serde_json::json!(
         {
             "metadata": {
@@ -21,20 +19,18 @@ pub fn pod_status(client: APIClient, pod: KubePod, phase: &str, ns: &str) {
         }
     );
 
-    let meta = pod.metadata;
-    let pp = PatchParams::default();
+    let meta = pod.metadata.as_ref();
     let data = serde_json::to_vec(&status).expect("Should always serialize");
-    match Api::v1Pod(client)
-        .within(ns)
-        .patch_status(meta.name.as_str(), &pp, data)
-    {
+    let name = meta.and_then(|m| m.name.as_deref()).unwrap_or_default();
+    let api: Api<Pod> = Api::namespaced(client, ns);
+    match api.patch_status(&name, &PatchParams::default(), data).await {
         Ok(o) => {
-            info!("Pod status for {} set to {}", meta.name.as_str(), phase);
+            info!("Pod status for {} set to {}", name, phase);
             debug!(
                 "Pod status returned: {}",
                 serde_json::to_string_pretty(&o.status).unwrap()
             )
         }
-        Err(e) => error!("Pod status update failed for {}: {}", meta.name.as_str(), e),
+        Err(e) => error!("Pod status update failed for {}: {}", name, e),
     }
 }
