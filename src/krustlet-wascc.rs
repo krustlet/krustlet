@@ -1,4 +1,5 @@
 use kube::config;
+use kubelet::config::Config;
 use kubelet::Kubelet;
 use wascc_provider::WasccProvider;
 
@@ -10,9 +11,6 @@ async fn main() -> Result<(), failure::Error> {
         .await
         .or_else(|_| config::incluster_config())
         .expect("kubeconfig failed to load");
-    let address = std::env::var("POD_IP")
-        .unwrap_or_else(|_| "0.0.0.0:3000".to_string())
-        .parse()?;
 
     // Initialize the logger
     env_logger::init();
@@ -20,6 +18,10 @@ async fn main() -> Result<(), failure::Error> {
     // The provider is responsible for all the "back end" logic. If you are creating
     // a new Kubelet, all you need to implement is a provider.
     let provider = WasccProvider {};
-    let kubelet = Kubelet::new(provider, kubeconfig);
-    kubelet.start(address).await
+    let kubelet = Kubelet::new(
+        provider,
+        kubeconfig,
+        Config::new_from_flags(env!("CARGO_PKG_VERSION")),
+    );
+    kubelet.start().await
 }

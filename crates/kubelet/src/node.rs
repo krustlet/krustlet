@@ -1,3 +1,4 @@
+use crate::config::Config;
 use chrono::prelude::*;
 use k8s_openapi::api::coordination::v1::Lease;
 use k8s_openapi::api::core::v1::Node;
@@ -8,11 +9,6 @@ use kube::{
 };
 use log::{debug, error, info};
 
-/// The default node name.
-const NODE_NAME: &str = "krustlet";
-
-//type KubeNode = Object<NodeSpec, NodeStatus>;
-
 /// Create a node
 ///
 /// This creates a Kubernetes Node that describes our Kubelet, failing with a log message
@@ -22,9 +18,10 @@ const NODE_NAME: &str = "krustlet";
 /// A node comes with a lease, and we maintain the lease to tell Kubernetes that the
 /// node remains alive and functional. Note that this will not work in
 /// versions of Kubernetes prior to 1.14.
-pub async fn create_node(client: &APIClient, arch: &str) {
+pub async fn create_node(client: &APIClient, config: Config, arch: &str) {
     let node_client: Api<Node> = Api::all(client.clone());
-    let node = node_definition(arch);
+    let node_name = config.node_name.clone();
+    let node = node_definition(config, arch);
 
     match node_client
         .create(
@@ -36,15 +33,15 @@ pub async fn create_node(client: &APIClient, arch: &str) {
         Ok(node) => {
             info!("created node just fine");
             let node_uid = node.metadata.unwrap_or_default().uid.unwrap_or_default();
-            create_lease(&node_uid, &client).await
+            create_lease(&node_uid, &node_name, &client).await
         }
         Err(e) => {
             error!("Error creating node: {}", e);
             info!("Looking up node to see if it exists already");
-            match node_client.get(NODE_NAME).await {
+            match node_client.get(&node_name).await {
                 Ok(node) => {
                     let node_uid = node.metadata.unwrap_or_default().uid.unwrap_or_default();
-                    create_lease(&node_uid, &client).await
+                    create_lease(&node_uid, &node_name, &client).await
                 }
                 Err(e) => error!("Error fetching node after failed create: {}", e),
             }
@@ -59,19 +56,18 @@ pub async fn create_node(client: &APIClient, arch: &str) {
 /// We trap errors because... well... quite frankly there is nothing useful
 /// to do if the Kubernetes API is unavailable, and we can merrily continue
 /// doing our processing of the pod queue.
-pub async fn update_node(client: &APIClient) {
+pub async fn update_node(client: &APIClient, node_name: &str) {
     let node_client: Api<Node> = Api::all(client.clone());
     // Get me a node
-    let node_res = node_client.get(NODE_NAME).await;
+    let node_res = node_client.get(node_name).await;
     match node_res {
         Err(e) => {
             error!("Failed to get node: {:?}", e);
-            return;
         }
         Ok(node) => {
-            debug!("no error");
+            debug!("node update complete, beginning lease update");
             let uid = node.metadata.unwrap_or_default().uid.unwrap_or_default();
-            update_lease(&uid, client).await;
+            update_lease(&uid, node_name, client).await;
         }
     }
 }
@@ -79,15 +75,15 @@ pub async fn update_node(client: &APIClient) {
 /// Create a node lease
 ///
 /// These creates a new node lease and claims the node for a set
-/// preiod of time. Leases work by creating a new Lease object
+/// period of time. Leases work by creating a new Lease object
 /// and then using an ownerReference to tie it to a particular node.
 ///
 /// As far as I can tell, leases ALWAYS go in the 'kube-node-lease'
 /// namespace, no exceptions.
-async fn create_lease(node_uid: &str, client: &APIClient) {
+async fn create_lease(node_uid: &str, node_name: &str, client: &APIClient) {
     let leases: Api<Lease> = Api::namespaced(client.clone(), "kube-node-lease");
 
-    let lease = lease_definition(node_uid);
+    let lease = lease_definition(node_uid, node_name);
     let lease_data =
         serde_json::to_vec(&lease).expect("Lease should always be serializable to JSON");
     debug!("{}", serde_json::to_string_pretty(&lease).unwrap());
@@ -104,17 +100,17 @@ async fn create_lease(node_uid: &str, client: &APIClient) {
 ///
 /// TODO: Our patch is overzealous right now. We just need to update the
 /// timestamp.
-async fn update_lease(node_uid: &str, client: &APIClient) {
+async fn update_lease(node_uid: &str, node_name: &str, client: &APIClient) {
     let leases: Api<Lease> = Api::namespaced(client.clone(), "kube-node-lease");
 
-    let lease = lease_definition(node_uid);
+    let lease = lease_definition(node_uid, node_name);
     let pp = PatchParams::default();
     let lease_data =
         serde_json::to_vec(&lease).expect("Lease should always be serializable to JSON");
     // TODO: either wrap this in a conditional or remove
     debug!("{}", serde_json::to_string_pretty(&lease).unwrap());
 
-    let resp = leases.patch(NODE_NAME, &pp, lease_data).await;
+    let resp = leases.patch(node_name, &pp, lease_data).await;
     match resp {
         Ok(_) => info!("Created lease"),
         Err(e) => error!("Failed to create lease: {}", e),
@@ -129,24 +125,19 @@ async fn update_lease(node_uid: &str, client: &APIClient) {
 /// the OS field. I have seen 'emscripten' used for this field, but in our case
 /// the runtime is not emscripten, and besides... specifying which runtime we
 /// use seems like a misstep. Ideally, we'll be able to support multiple runtimes.
-///
-/// TODO: A lot of the values here are faked, and should be replaced by real
-/// numbers post-POC.
-fn node_definition(arch: &str) -> serde_json::Value {
-    let pod_ip = "10.21.77.2";
-    let port = 3000;
+fn node_definition(config: Config, arch: &str) -> serde_json::Value {
     let ts = Time(Utc::now());
     json!({
         "apiVersion": "v1",
         "kind": "Node",
         "metadata": {
-            "name": NODE_NAME,
+            "name": config.node_name,
             "labels": {
                 "beta.kubernetes.io/arch": arch,
                 "beta.kubernetes.io/os": "linux",
                 "kubernetes.io/arch": arch,
                 "kubernetes.io/os": "linux",
-                "kubernetes.io/hostname": "krustlet",
+                "kubernetes.io/hostname": config.hostname.clone(),
                 "kubernetes.io/role":     "agent",
                 "type": "krustlet"
             },
@@ -201,16 +192,16 @@ fn node_definition(arch: &str) -> serde_json::Value {
             "addresses": [
                 {
                     "type": "InternalIP",
-                    "address": pod_ip
+                    "address": config.node_ip
                 },
                 {
                     "type": "Hostname",
-                    "address": "krustlet"
+                    "address": config.hostname
                 }
             ],
             "daemonEndpoints": {
                 "kubeletEndpoint": {
-                    "Port": port
+                    "Port": config.port
                 }
             }
         }
@@ -222,23 +213,23 @@ fn node_definition(arch: &str) -> serde_json::Value {
 /// The lease tells Kubernetes that we want to claim the node for a while
 /// longer. And then tells Kubernetes how long it should wait before
 /// expecting a new lease.
-fn lease_definition(node_uid: &str) -> serde_json::Value {
+fn lease_definition(node_uid: &str, node_name: &str) -> serde_json::Value {
     json!(
         {
             "apiVersion": "coordination.k8s.io/v1",
             "kind": "Lease",
             "metadata": {
-                "name": NODE_NAME,
+                "name": node_name,
                 "ownerReferences": [
                     {
                         "apiVersion": "v1",
                         "kind": "Node",
-                        "name": NODE_NAME,
+                        "name": node_name,
                         "uid": node_uid
                     }
                 ]
             },
-            "spec": lease_spec_definition()
+            "spec": lease_spec_definition(node_name)
         }
     )
 }
@@ -246,14 +237,14 @@ fn lease_definition(node_uid: &str) -> serde_json::Value {
 /// Defines a new coordiation lease for Kubernetes
 ///
 /// We set the lease times, the lease duration, and the node name.
-fn lease_spec_definition() -> serde_json::Value {
+fn lease_spec_definition(node_name: &str) -> serde_json::Value {
     // Workaround for https://github.com/deislabs/krustlet/issues/5
     // In the future, use LeaseSpec rather than a JSON value
     let now = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
 
     json!(
         {
-            "holderIdentity": NODE_NAME,
+            "holderIdentity": node_name,
             "acquireTime": now,
             "renewTime": now,
             "leaseDurationSeconds": 300

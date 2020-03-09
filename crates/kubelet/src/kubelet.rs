@@ -1,6 +1,7 @@
 /// This library contains the Kubelet shell. Use this to create a new Kubelet
 /// with a specific handler. (The handler included here is the WASM handler.)
 use crate::{
+    config::Config,
     node::{create_node, update_node},
     pod::Pod,
     server::start_webserver,
@@ -11,7 +12,6 @@ use k8s_openapi::api::core::v1::{ConfigMap, Container, EnvVar, Secret};
 use kube::{
     api::{Api, ListParams, WatchEvent},
     client::APIClient,
-    config::Configuration,
     runtime::Informer,
     Resource,
 };
@@ -66,15 +66,17 @@ pub struct Status {
 #[derive(Clone)]
 pub struct Kubelet<P: 'static + Provider + Clone + Send + Sync> {
     provider: Arc<Mutex<P>>,
-    kubeconfig: Configuration,
+    kubeconfig: kube::config::Configuration,
+    config: Config,
 }
 
 impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
     /// Create a new Kubelet with a provider, a KubeConfig, and a namespace.
-    pub fn new(provider: T, kubeconfig: Configuration) -> Self {
+    pub fn new(provider: T, kubeconfig: kube::config::Configuration, config: Config) -> Self {
         Kubelet {
             provider: Arc::new(Mutex::new(provider)),
             kubeconfig,
+            config,
         }
     }
 
@@ -82,18 +84,22 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
     ///
     /// This will listen on the given address, and will also begin watching for Pod
     /// events, which it will handle.
-    pub async fn start(&self, address: std::net::SocketAddr) -> Result<(), failure::Error> {
+    pub async fn start(&self) -> Result<(), failure::Error> {
         self.provider.lock().await.init().await?;
         let client = APIClient::new(self.kubeconfig.clone());
         // Create the node. If it already exists, "adopt" the node definition
-        create_node(&client, &self.provider.lock().await.arch()).await;
+        let conf = self.config.clone();
+        let arch = self.provider.lock().await.arch();
+        // Get the node name for use in the update loop
+        let node_name = conf.node_name.clone();
+        create_node(&client, conf, &arch).await;
 
         // Start updating the node lease periodically
         let update_client = client.clone();
         let node_updater = tokio::task::spawn(async move {
             let sleep_interval = std::time::Duration::from_secs(10);
             loop {
-                update_node(&update_client).await;
+                update_node(&update_client, &node_name).await;
                 tokio::time::delay_for(sleep_interval).await;
             }
         });
@@ -121,6 +127,7 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
             }
         });
 
+        let address = std::net::SocketAddr::new(self.config.addr, self.config.port);
         // Start the webserver
         start_webserver(self.provider.clone(), &address).await?;
 
@@ -231,7 +238,7 @@ pub trait Provider {
     async fn handle_event(
         &self,
         event: WatchEvent<Pod>,
-        config: Configuration,
+        config: kube::config::Configuration,
     ) -> Result<(), failure::Error> {
         // TODO: Is there value in keeping one client and cloning it?
         let client = APIClient::new(config);
@@ -457,7 +464,7 @@ mod test {
     use std::collections::BTreeMap;
 
     fn mock_client() -> APIClient {
-        APIClient::new(Configuration {
+        APIClient::new(kube::config::Configuration {
             base_path: ".".to_string(),
             client: reqwest::Client::new(),
             default_ns: " ".to_string(),

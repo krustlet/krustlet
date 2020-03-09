@@ -46,10 +46,20 @@ To run Krustlet locally, you can run
 $ just run-wasi
 ```
 
-Before startup, this command will delete any nodes in your Kubernetes cluster named "krustlet", so make sure you're
-running this in a test environment.
+Before startup, this command will delete any nodes in your Kubernetes cluster
+named with your hostname, so make sure you're running this in a test
+environment.
 
-Note that if you are running krustlet locally, calls to `kubectl log` and `kubectl exec` will result in errors.
+If you want to interact with the kubelet (for things like `kubectl logs` and
+`kubectl exec`), you'll likely need to set a specific NODE_IP that krustlet will
+be available at. Otherwise, calls to the kubelet will result in errors. This may
+differ from machine to machine. For example, with Minikube on a Mac, you'll have
+an interface called `bridge0` which the cluster can talk to. So your node IP
+should be that IP address. To set the node IP, run:
+
+```console
+export KRUSTLET_NODE_IP=<the ip address>
+```
 
 ## Creating your own Kubelets with Krustlet
 
