@@ -12,7 +12,6 @@ use k8s_openapi::api::core::v1::{ConfigMap, Container, EnvVar, Secret};
 use kube::{
     api::{Api, ListParams, WatchEvent},
     client::APIClient,
-    config::Configuration,
     runtime::Informer,
     Resource,
 };
@@ -67,13 +66,13 @@ pub struct Status {
 #[derive(Clone)]
 pub struct Kubelet<P: 'static + Provider + Clone + Send + Sync> {
     provider: Arc<Mutex<P>>,
-    kubeconfig: Configuration,
+    kubeconfig: kube::config::Configuration,
     config: Config,
 }
 
 impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
     /// Create a new Kubelet with a provider, a KubeConfig, and a namespace.
-    pub fn new(provider: T, kubeconfig: Configuration, config: Config) -> Self {
+    pub fn new(provider: T, kubeconfig: kube::config::Configuration, config: Config) -> Self {
         Kubelet {
             provider: Arc::new(Mutex::new(provider)),
             kubeconfig,
@@ -239,7 +238,7 @@ pub trait Provider {
     async fn handle_event(
         &self,
         event: WatchEvent<Pod>,
-        config: Configuration,
+        config: kube::config::Configuration,
     ) -> Result<(), failure::Error> {
         // TODO: Is there value in keeping one client and cloning it?
         let client = APIClient::new(config);
@@ -465,7 +464,7 @@ mod test {
     use std::collections::BTreeMap;
 
     fn mock_client() -> APIClient {
-        APIClient::new(Configuration {
+        APIClient::new(kube::config::Configuration {
             base_path: ".".to_string(),
             client: reqwest::Client::new(),
             default_ns: " ".to_string(),

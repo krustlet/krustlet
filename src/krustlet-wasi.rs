@@ -1,5 +1,5 @@
 use kube::config;
-use kubelet::config::get_from_flags;
+use kubelet::config::Config;
 use kubelet::Kubelet;
 use wasi_provider::WasiProvider;
 
@@ -18,6 +18,10 @@ async fn main() -> Result<(), failure::Error> {
     // The provider is responsible for all the "back end" logic. If you are creating
     // a new Kubelet, all you need to implement is a provider.
     let provider = WasiProvider::default();
-    let kubelet = Kubelet::new(provider, kubeconfig, get_from_flags());
+    let kubelet = Kubelet::new(
+        provider,
+        kubeconfig,
+        Config::new_from_flags(env!("CARGO_PKG_VERSION")),
+    );
     kubelet.start().await
 }

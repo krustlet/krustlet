@@ -125,9 +125,6 @@ async fn update_lease(node_uid: &str, node_name: &str, client: &APIClient) {
 /// the OS field. I have seen 'emscripten' used for this field, but in our case
 /// the runtime is not emscripten, and besides... specifying which runtime we
 /// use seems like a misstep. Ideally, we'll be able to support multiple runtimes.
-///
-/// TODO: A lot of the values here are faked, and should be replaced by real
-/// numbers post-POC.
 fn node_definition(config: Config) -> serde_json::Value {
     let ts = Time(Utc::now());
     json!({
