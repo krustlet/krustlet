@@ -132,11 +132,12 @@ impl WasiRuntime {
 #[cfg(test)]
 mod test {
     use super::*;
-    use k8s_openapi::api::core::v1::PodSpec;
-    use std::io::Read;
+    use tempfile::NamedTempFile;
+    use tokio::io::AsyncReadExt;
+    use tokio::io::BufReader;
 
-    #[test]
-    fn test_run() {
+    #[tokio::test]
+    async fn test_run() {
         let wr = WasiRuntime::new(
             "./testdata/hello-world.wasm",
             HashMap::default(),
@@ -148,8 +149,8 @@ mod test {
         wr.run(output.reopen().unwrap()).expect("complete run");
         let mut stdout = String::default();
 
-        let mut output = BufReader::new(output);
-        output.read_to_string(&mut stdout).unwrap();
+        let mut output = BufReader::new(tokio::fs::File::from_std(output.into_file()));
+        output.read_to_string(&mut stdout).await.unwrap();
         assert_eq!("Hello, world!\n", stdout);
     }
 }

@@ -22,7 +22,7 @@ serde_derive = "1.0"
 serde_json = "1.0"
 kube = { version = "0.28.0" }
 kubelet = { path = "../kubelet", version = "0.1.0" }
-tokio = { version = "0.2.11", features = ["macros"] }
+tokio = { version = "0.2.11", features = ["fs", "macros"] }
 
 [dev-dependencies]
 k8s-openapi = { version = "0.7.1", features = ["v1_17"] }

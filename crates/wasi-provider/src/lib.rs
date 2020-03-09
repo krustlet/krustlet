@@ -210,7 +210,6 @@ fn pod_key<N: AsRef<str>, T: AsRef<str>>(namespace: N, pod_name: T) -> String {
 mod test {
     use super::*;
     use k8s_openapi::api::core::v1::PodSpec;
-    use std::io::Read;
 
     #[test]
     fn test_can_schedule() {
