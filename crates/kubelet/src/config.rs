@@ -20,8 +20,6 @@ pub struct Config {
     pub hostname: String,
 
     pub node_name: String,
-
-    pub(crate) arch: String,
 }
 
 impl Config {
@@ -42,7 +40,6 @@ impl Config {
             node_ip: default_node_ip(&mut hostname.clone(), preferred_ip_family)?,
             node_name: sanitize_hostname(&hostname),
             hostname,
-            arch: String::default(),
         })
     }
     /// Parses all command line flags and sets the proper defaults. The version
@@ -71,7 +68,6 @@ impl Config {
             node_ip,
             node_name: sanitize_hostname(&hostname),
             hostname,
-            arch: String::default(),
         }
     }
 }

@@ -88,11 +88,11 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
         self.provider.lock().await.init().await?;
         let client = APIClient::new(self.kubeconfig.clone());
         // Create the node. If it already exists, "adopt" the node definition
-        let mut conf = self.config.clone();
-        conf.arch = self.provider.lock().await.arch();
+        let conf = self.config.clone();
+        let arch = self.provider.lock().await.arch();
         // Get the node name for use in the update loop
         let node_name = conf.node_name.clone();
-        create_node(&client, conf).await;
+        create_node(&client, conf, &arch).await;
 
         // Start updating the node lease periodically
         let update_client = client.clone();

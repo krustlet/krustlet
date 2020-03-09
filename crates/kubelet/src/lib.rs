@@ -6,7 +6,7 @@ extern crate failure;
 
 pub mod config;
 mod kubelet;
-pub mod node;
+mod node;
 pub mod pod;
 mod server;
 

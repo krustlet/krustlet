@@ -18,10 +18,10 @@ use log::{debug, error, info};
 /// A node comes with a lease, and we maintain the lease to tell Kubernetes that the
 /// node remains alive and functional. Note that this will not work in
 /// versions of Kubernetes prior to 1.14.
-pub async fn create_node(client: &APIClient, config: Config) {
+pub async fn create_node(client: &APIClient, config: Config, arch: &str) {
     let node_client: Api<Node> = Api::all(client.clone());
     let node_name = config.node_name.clone();
-    let node = node_definition(config);
+    let node = node_definition(config, arch);
 
     match node_client
         .create(
@@ -125,7 +125,7 @@ async fn update_lease(node_uid: &str, node_name: &str, client: &APIClient) {
 /// the OS field. I have seen 'emscripten' used for this field, but in our case
 /// the runtime is not emscripten, and besides... specifying which runtime we
 /// use seems like a misstep. Ideally, we'll be able to support multiple runtimes.
-fn node_definition(config: Config) -> serde_json::Value {
+fn node_definition(config: Config, arch: &str) -> serde_json::Value {
     let ts = Time(Utc::now());
     json!({
         "apiVersion": "v1",
@@ -133,9 +133,9 @@ fn node_definition(config: Config) -> serde_json::Value {
         "metadata": {
             "name": config.node_name,
             "labels": {
-                "beta.kubernetes.io/arch": config.arch.clone(),
+                "beta.kubernetes.io/arch": arch,
                 "beta.kubernetes.io/os": "linux",
-                "kubernetes.io/arch": config.arch,
+                "kubernetes.io/arch": arch,
                 "kubernetes.io/os": "linux",
                 "kubernetes.io/hostname": config.hostname.clone(),
                 "kubernetes.io/role":     "agent",
