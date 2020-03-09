@@ -1,6 +1,7 @@
 mod wasi_runtime;
 
 use std::collections::HashMap;
+use std::io::SeekFrom;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -10,9 +11,7 @@ use kubelet::{Phase, Provider, ProviderError, Status};
 use log::{debug, info};
 use tempfile::NamedTempFile;
 use tokio::fs::File;
-use tokio::io::AsyncBufReadExt;
-use tokio::io::BufReader;
-use tokio::stream::StreamExt;
+use tokio::io::{AsyncReadExt, BufReader};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
@@ -176,7 +175,7 @@ impl Provider for WasiProvider {
         namespace: String,
         pod_name: String,
         container_name: String,
-    ) -> Result<Vec<String>, failure::Error> {
+    ) -> Result<Vec<u8>, failure::Error> {
         let mut handles = self.handles.write().await;
         let handle = handles
             .get_mut(&pod_key(&namespace, &pod_name))
@@ -188,12 +187,13 @@ impl Provider for WasiProvider {
                 pod_name,
                 container_name,
             })?;
-
-        Ok((&mut handle.0)
-            .lines()
-            .map(|l| l.unwrap_or_else(|_| "<error while reading line>".to_string()))
-            .collect::<Vec<String>>()
-            .await)
+        let mut output = Vec::default();
+        (&mut handle.0).read_to_end(&mut output).await?;
+        // Reset the seek location for the next call to read from the file
+        // NOTE: This is a little janky, but the Tokio BufReader does not
+        // implement the AsyncSeek trait
+        handle.0.get_mut().seek(SeekFrom::Start(0)).await?;
+        Ok(output)
     }
 }
 

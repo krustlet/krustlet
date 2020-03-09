@@ -214,7 +214,7 @@ pub trait Provider {
         _namespace: String,
         _pod: String,
         _container: String,
-    ) -> Result<Vec<String>, failure::Error> {
+    ) -> Result<Vec<u8>, failure::Error> {
         Err(NotImplementedError {}.into())
     }
 
