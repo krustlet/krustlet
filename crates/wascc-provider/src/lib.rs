@@ -33,10 +33,14 @@ pub struct WasccProvider {}
 #[async_trait::async_trait]
 impl Provider for WasccProvider {
     async fn init(&self) -> Result<(), failure::Error> {
-        let data = NativeCapability::from_file(HTTP_LIB)
-            .map_err(|e| format_err!("Failed to read HTTP capability {}: {}", HTTP_LIB, e))?;
-        host::add_native_capability(data)
-            .map_err(|e| format_err!("Failed to load HTTP capability: {}", e))
+        tokio::task::spawn_blocking(|| {
+            let data = NativeCapability::from_file(HTTP_LIB)
+                .map_err(|e| format_err!("Failed to read HTTP capability {}: {}", HTTP_LIB, e))?;
+            host::add_native_capability(data)
+                .map_err(|e| format_err!("Failed to load HTTP capability: {}", e))
+        })
+        .await
+        .expect("Could not spawn worker for initializing WasccProvider")
     }
 
     fn arch(&self) -> String {
@@ -71,7 +75,7 @@ impl Provider for WasccProvider {
             .and_then(|m| m.namespace.as_deref())
             .unwrap_or_else(|| "default");
         // TODO: Replace with actual image store lookup when it is merged
-        let data = std::fs::read("./testdata/echo.wasm")?;
+        let data = tokio::fs::read("./testdata/echo.wasm").await?;
 
         // TODO: Implement this for real.
         // Okay, so here is where things are REALLY unfinished. Right now, we are
@@ -119,8 +123,11 @@ impl Provider for WasccProvider {
 
         // TODO: Launch this in a thread. (not necessary with waSCC)
         let env = self.env_vars(client.clone(), &first_container, &pod).await;
-        //let args = first_container.args.unwrap_or_else(|| vec![]);
-        match wascc_run_http(data, env, pubkey.as_str()) {
+
+        let http_result = tokio::task::spawn_blocking(move || wascc_run_http(data, env, &pubkey))
+            .await
+            .expect("Could not start worker for running wascc http");
+        match http_result {
             Ok(_) => {
                 info!("Pod is executing on a thread");
                 pod_status(client, &pod, "Running", namespace).await;
@@ -171,7 +178,11 @@ impl Provider for WasccProvider {
                 message: None,
             }),
             Some(pk) => {
-                match host::actor_claims(pk) {
+                let pk = pk.clone();
+                let result = tokio::task::spawn_blocking(move || host::actor_claims(&pk))
+                    .await
+                    .expect("Could not start worker to claim actors");
+                match result {
                     None => {
                         // FIXME: I don't know how to tell if an actor failed.
                         Ok(Status {
