@@ -1829,8 +1829,8 @@ dependencies = [
 name = "oci-distribution"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "chrono",
+ "failure",
  "hyperx",
  "reqwest",
  "serde",

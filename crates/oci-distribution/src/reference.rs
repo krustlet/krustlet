@@ -1,9 +1,10 @@
+use failure::format_err;
 use std::convert::{Into, TryFrom};
 
 // currently, the library only accepts modules tagged in the following structure:
 // <registry>/<repository>:<tag>
 // for example: webassembly.azurecr.io/hello:v1
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Reference {
     whole: String,
     slash: usize,
@@ -50,6 +51,23 @@ impl TryFrom<String> for Reference {
     }
 }
 
+impl TryFrom<&str> for Reference {
+    type Error = failure::Error;
+    fn try_from(string: &str) -> Result<Self, Self::Error> {
+        let slash = string.find('/').ok_or_else(|| {
+            format_err!("Failed to pare {}. Expected at least one slash (/)", string)
+        })?;
+        let colon = string[slash + 1..].find(':').ok_or_else(|| {
+            format_err!("failed to parse {}. Expected exactly one colon (:)", string)
+        })?;
+        Ok(Reference {
+            whole: string.to_owned(),
+            slash,
+            colon: slash + 1 + colon,
+        })
+    }
+}
+
 impl Into<String> for Reference {
     fn into(self) -> String {
         self.whole
@@ -68,6 +86,18 @@ mod tests {
         assert_eq!(reference.registry(), "webassembly.azurecr.io");
         assert_eq!(reference.repository(), "hello");
         assert_eq!(reference.tag(), "v1");
+
+        let reference = Reference::try_from("webassembly.azurecr.io/hello:v1")
+            .expect("Could not parse reference");
+
+        assert_eq!(reference.registry(), "webassembly.azurecr.io");
+        assert_eq!(reference.repository(), "hello");
+        assert_eq!(reference.tag(), "v1");
+
+        Reference::try_from("webassembly.azurecr.io/hello")
+            .expect_err("No colon should produce an error");
+        Reference::try_from("webassembly.azurecr.io:hello")
+            .expect_err("No slash should produce an error");
     }
 
     #[test]

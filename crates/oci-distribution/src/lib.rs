@@ -2,21 +2,37 @@
 extern crate serde;
 
 use chrono::prelude::{DateTime, Utc};
+use failure::format_err;
 use hyperx::header::Header;
+use reqwest::header::{HeaderMap, HeaderValue};
 use serde::Deserialize;
 use std::convert::TryFrom;
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
 
 use crate::errors::*;
-use crate::reference::Reference;
+pub use crate::reference::Reference;
 
 const OCI_VERSION_KEY: &str = "Docker-Distribution-Api-Version";
 
 pub mod errors;
 pub mod reference;
 
-type OciResult<T> = Result<T, anyhow::Error>;
+type OciResult<T> = Result<T, failure::Error>;
 
+/// The OCI client connects to an OCI registry and fetches OCI images.
+///
+/// An OCI registry is a container registry that adheres to the OCI Distribution
+/// specification. DockerHub is one example, as are ACR and GCR. This client
+/// provides a native Rust implementation for pulling OCI images.
+///
+/// Some OCI registries support completely anonymous access. But most require
+/// at least an Oauth2 handshake. Typlically, you will want to create a new
+/// client, and then run the `auth()` method, which will attempt to get
+/// a read-only bearer token. From there, pulling images can be done with
+/// the `pull_*` functions.
+///
+/// For true anonymous access, you can skip `auth()`. This is not recommended
+/// unless you are sure that the remote registry does not require Oauth2.
 struct Client {
     token: Option<DockerToken>,
 }
@@ -39,7 +55,7 @@ impl Client {
         let res = reqwest::get(&url).await?;
         let disthdr = res.headers().get(OCI_VERSION_KEY);
         let version = disthdr
-            .ok_or_else(|| anyhow::format_err!("no header v2 found"))?
+            .ok_or_else(|| failure::format_err!("no header v2 found"))?
             .to_str()?
             .to_owned();
         Ok(version)
@@ -49,10 +65,10 @@ impl Client {
     ///
     /// This performs authorization and then stores the token internally to be used
     /// on other requests.
-    pub async fn auth(&mut self, host: String, secret: Option<String>) -> OciResult<()> {
+    pub async fn auth(&mut self, image: &Reference, _secret: Option<String>) -> OciResult<()> {
         let cli = reqwest::Client::new();
         // The version request will tell us where to go.
-        let url = format!("https://{}/v2/", host);
+        let url = format!("https://{}/v2/", image.registry());
         let res = cli.get(&url).send().await?;
         let disthdr = res.headers().get(reqwest::header::WWW_AUTHENTICATE);
         if disthdr.is_none() {
@@ -63,55 +79,67 @@ impl Client {
         let auth = WwwAuthenticate::parse_header(&disthdr.unwrap().to_str()?.to_string().into())?;
         let challenge_opt = auth.get::<BearerChallenge>();
         if challenge_opt.is_none() {
+            // This means that no challenge was present, even though the header was present.
+            // Since we do not handle basic auth, it could be the case that the upstream service
+            // is in compatibility mode with a Docker v1 registry.
             return Ok(());
         }
 
+        // Right now, we do read-only auth.
+        let pull_perms = format!("repository:{}:pull", image.repository());
         let challenge = challenge_opt.as_ref().unwrap()[0].clone();
         let realm = challenge.realm.unwrap();
         let service = challenge.service.unwrap();
-        let scope = challenge.scope.unwrap();
+        let scope = pull_perms.to_owned();
 
-        let auth_res: DockerToken = cli
+        // TODO: At some point in the future, we should support sending a secret to the
+        // server for auth. This particular workflow is for read-only public auth.
+        let auth_res = cli
             .get(&realm)
             .query(&[("service", service), ("scope", scope)])
             .send()
-            .await?
-            .json()
-            .await?;
-        self.token = Some(auth_res);
-        /*
-        let mut oauth = OauthClient::new(
-            "krustlet",
-            Url::parse(realm.as_str())?,
-            Url::parse(realm.as_str())?,
-        );
-        oauth.add_scope(challenge.scope.unwrap().as_str());
-        oauth.set_client_secret(secret.unwrap_or_else(|| "".to_owned()));
-
-        let token = oauth
-            .exchange_client_credentials()
-            .with_client(&cli)
-            .execute::<StandardToken>()
             .await?;
 
-        self.token = Some(token);
-        */
-        Ok(())
+        match auth_res.status() {
+            reqwest::StatusCode::OK => {
+                let docker_token: DockerToken = auth_res.json().await?;
+                self.token = Some(docker_token);
+                Ok(())
+            }
+            _ => {
+                let reason = auth_res.text().await?;
+                Err(failure::format_err!("failed to authenticate: {}", reason))
+            }
+        }
     }
 
-    pub async fn pull_manifest(&self, image_name: String) -> OciResult<String> {
+    /// Pull a manifest from the remote OCI Distribution service.
+    ///
+    /// If the connection has already gone through authentication, this will
+    /// use the bearer token. Otherwise, this will attempt an anonymous pull.
+    pub async fn pull_manifest(&self, image: &Reference) -> OciResult<String> {
         // We unwrap right now because this try_from literally cannot fail.
-        let reference = Reference::try_from(image_name).unwrap();
-        let url = reference.to_v2_manifest_url();
-        let res = reqwest::get(&url).await?;
+        let cli = reqwest::Client::new();
+        let url = image.to_v2_manifest_url();
+        let request = cli.get(&url);
+
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("Accept", "application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json".parse().unwrap());
+
+        if let Some(bearer) = self.token.as_ref() {
+            headers.insert("Authorization", bearer.bearer_token().parse().unwrap());
+        }
+
+        let res = request.headers(headers).send().await?;
+
         let status = res.status();
         if res.status().is_client_error() {
             // According to the OCI spec, we should see an error in the message body.
             let err = res.json::<OciEnvelope>().await?;
             // FIXME: This should not have to wrap the error.
-            return Err(anyhow::format_err!("{}", err.errors[0]));
+            return Err(format_err!("{} on {}", err.errors[0], url));
         } else if status.is_server_error() {
-            return Err(anyhow::format_err!("Server error at {}", url));
+            return Err(format_err!("Server error at {}", url));
         }
         let text = res.text().await?;
         Ok(text)
@@ -120,17 +148,23 @@ impl Client {
 
 #[derive(Deserialize)]
 struct DockerToken {
-    token: String,
-    expires_in: u32,
-    issued_at: DateTime<Utc>,
+    access_token: String,
+    expires_in: Option<u32>,
+    issued_at: Option<DateTime<Utc>>,
+}
+
+impl DockerToken {
+    fn bearer_token(&self) -> String {
+        format!("Bearer {}", self.access_token)
+    }
 }
 
 impl Default for DockerToken {
     fn default() -> Self {
         DockerToken {
-            token: "".to_owned(),
-            expires_in: 0,
-            issued_at: Utc::now(),
+            access_token: "".to_owned(),
+            expires_in: None,
+            issued_at: None, // We could do Utc::now() if we really need.
         }
     }
 }
@@ -173,6 +207,7 @@ impl Challenge for BearerChallenge {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::convert::TryFrom;
     #[tokio::test]
     async fn test_version() {
         let c = Client::default();
@@ -185,22 +220,39 @@ mod test {
 
     #[tokio::test]
     async fn test_auth() {
+        let image =
+            Reference::try_from("webassembly.azurecr.io/hello-wasm:v1").expect("parsed reference");
         let mut c = Client::default();
-        c.auth("webassembly.azurecr.io".to_owned(), None)
+        c.auth(&image, None)
             .await
             .expect("result from version request");
+
+        let tok = c.token.expect("token is available");
+        // We test that the token is longer than a minimal hash.
+        assert!(tok.access_token.len() > 64);
     }
 
     #[tokio::test]
     async fn test_pull_manifest() {
+        let image =
+            Reference::try_from("webassembly.azurecr.io/hello-wasm:v1").expect("parsed reference");
         // Currently, pull_manifest does not perform Authz, so this will fail.
         let c = Client::default();
-        c.pull_manifest("webassembly.azurecr.io/hello:v1".to_owned())
+        c.pull_manifest(&image)
             .await
             .expect_err("pull manifest should fail");
 
-        let tok = c.token.expect("token is available");
-        assert!(tok.expires_in > 0);
-        assert_eq!(tok.token.len(), 32);
+        // But this should pass
+        let image =
+            Reference::try_from("webassembly.azurecr.io/hello-wasm:v1").expect("parsed reference");
+        // Currently, pull_manifest does not perform Authz, so this will fail.
+        let mut c = Client::default();
+        c.auth(&image, None).await.expect("authenticated");
+        let manifest = c
+            .pull_manifest(&image)
+            .await
+            .expect("pull manifest should not fail");
+
+        //assert_eq!("booyah!".to_owned(), manifest)
     }
 }

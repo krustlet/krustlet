@@ -44,8 +44,15 @@ pub enum OciErrorCode {
     /// Blob is unknown to registry
     MANIFEST_BLOB_UNKNOWN,
     /// Manifest is invalid
+    ///
+    /// During upload, manifests undergo several checks ensuring validity. If
+    /// those checks fail, this error MAY be returned, unless a more specific
+    /// error is included. The detail will contain information the failed
+    /// validation.
     MANIFEST_INVALID,
     /// Manifest unknown
+    ///
+    /// This error is returned when the manifest, identified by name and tag is unknown to the repository.
     MANIFEST_UNKNOWN,
     /// Manifest failed signature validation
     MANIFEST_UNVERIFIED,
