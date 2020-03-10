@@ -4,7 +4,7 @@
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Error, Method, Request, Response, Server, StatusCode};
-use log::{error, info};
+use log::{debug, error, info};
 use tokio::sync::Mutex;
 
 use std::net::SocketAddr;
@@ -68,15 +68,47 @@ fn get_ping() -> Response<Body> {
 /// Implements the kubelet path /containerLogs/{namespace}/{pod}/{container}
 async fn get_container_logs<T: Provider + Sync>(
     provider: &T,
-    _req: &Request<Body>,
+    req: &Request<Body>,
 ) -> Response<Body> {
-    // TODO: extract the right data from the request.
+    // Basic validation steps
+    let path: Vec<&str> = req.uri().path().split('/').collect();
+    // Because of the leading slash, index 0 is an empty string. Index 1 is the
+    // container logs path
+    let (namespace, pod, container) = match path.as_slice() {
+        [_, _, namespace, pod, container] => (*namespace, *pod, *container),
+        _ => {
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from(format!(
+                    "Resource {} not found",
+                    req.uri().path()
+                )))
+                .unwrap()
+        }
+    };
+    if namespace.is_empty() || pod.is_empty() || container.is_empty() {
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from(format!(
+                "Resource {} not found",
+                req.uri().path()
+            )))
+            .unwrap();
+    }
+
+    // END validation
+
+    debug!(
+        "Got container log request for container {} in pod {} in namespace {}",
+        container, pod, namespace
+    );
+
     match provider
-        .logs("".to_string(), "".to_string(), "".to_string())
+        .logs(namespace.into(), pod.into(), container.into())
         .await
     {
-        Ok(lines) => Response::new(Body::from(lines.join("\n"))),
-        // TODO: THis should detect not implemented vs. regular error
+        Ok(data) => Response::new(Body::from(data)),
+        // TODO: This should detect not implemented vs. regular error (pod not found, etc.)
         Err(e) => {
             error!("Error fetching logs: {}", e);
             let mut res = Response::new(Body::from("Not Implemented"));
