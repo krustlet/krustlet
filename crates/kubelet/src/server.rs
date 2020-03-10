@@ -1,10 +1,16 @@
 /// Server is an HTTP(S) server for answering Kubelet callbacks.
 ///
 /// Logs and exec calls are the main things that a server should handle.
-use hyper::server::conn::AddrStream;
+use async_stream::stream;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Error, Method, Request, Response, Server, StatusCode};
+use hyper::{
+    server::{conn::Http, Builder},
+    Body, Error, Method, Request, Response, StatusCode,
+};
 use log::{debug, error, info};
+use native_tls::{Identity, TlsAcceptor};
+use tokio::net::TcpListener;
+use tokio::stream::StreamExt;
 use tokio::sync::Mutex;
 
 use std::net::SocketAddr;
@@ -20,7 +26,15 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
     provider: Arc<Mutex<T>>,
     address: &SocketAddr,
 ) -> Result<(), failure::Error> {
-    let service = make_service_fn(move |_conn: &AddrStream| {
+    let identity = tokio::fs::read("identity.pfx")
+        .await
+        .expect("Could not read identity file");
+    let identity =
+        Identity::from_pkcs12(&identity, "password").expect("Could not parse indentiy file");
+
+    let acceptor = tokio_tls::TlsAcceptor::from(TlsAcceptor::new(identity).unwrap());
+    let acceptor = Arc::new(acceptor);
+    let service = make_service_fn(move |_| {
         let provider = provider.clone();
         async {
             Ok::<_, Error>(service_fn(move |req: Request<Body>| {
@@ -49,7 +63,21 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
             }))
         }
     });
-    let server = Server::bind(address).serve(service);
+
+    let mut listener = TcpListener::bind(address).await.unwrap();
+    let mut incoming = listener.incoming();
+    let accept = hyper::server::accept::from_stream(stream! {
+        loop {
+            match incoming.next().await {
+                Some(Ok(stream)) => match acceptor.clone().accept(stream).await {
+                    result @ Ok(_) => yield result,
+                    Err(e) => break,
+                },
+                _ => break,
+            }
+        }
+    });
+    let server = Builder::new(accept, Http::new()).serve(service);
 
     info!("starting webserver at: {:?}", address);
 
