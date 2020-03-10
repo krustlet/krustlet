@@ -59,10 +59,6 @@ impl Provider for WasiProvider {
         // and then execute the WASM, passing in the relevant data.
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
-        debug!(
-            "Pod added {:?}",
-            pod.metadata.as_ref().and_then(|m| m.name.as_ref())
-        );
         let namespace = pod
             .metadata
             .as_ref()
@@ -70,10 +66,6 @@ impl Provider for WasiProvider {
             .unwrap_or_else(|| "default");
 
         // TODO: Implement this for real.
-        // Okay, so here is where things are REALLY unfinished. Right now, we are
-        // only running the first container in a pod. And we are not using the
-        // init containers at all. And they are not executed on their own threads.
-        // So this is basically a toy.
         //
         // What it should do:
         // - for each volume
@@ -88,47 +80,55 @@ impl Provider for WasiProvider {
         //   - mount any volumes (popen)
         //   - run it to completion
         //   - bail if it errors
-        let first_container = pod.spec.as_ref().map(|s| s.containers[0].clone()).unwrap();
-
-        let env = self.env_vars(client.clone(), &first_container, &pod).await;
-
-        // Get a separate file handle that can be moved onto the thread
-        let (runtime, output_handle1, output_handle2) =
-            tokio::task::spawn_blocking(move || -> Result<_, failure::Error> {
-                // TODO: Replace with actual image store lookup when it is merged
-                let runtime = WasiRuntime::new(
-                    PathBuf::from("./testdata/hello-world.wasm"),
-                    env,
-                    Vec::default(),
-                    HashMap::default(),
-                )?;
-
-                // We need to use named temp file because we need multiple file handles
-                // and if we are running in the temp dir, we run the possibility of the
-                // temp file getting cleaned out from underneath us while running. If we
-                // think it necessary, we can make these permanent files with a cleanup
-                // loop that runs elsewhere. These will get deleted when the reference
-                // is dropped
-                // TODO: Actual log path configuration
-                let tempfile = NamedTempFile::new_in(std::env::current_dir()?)?;
-                Ok((runtime, tempfile.reopen()?, tempfile.reopen()?))
-            })
-            .await??;
-
-        let handle = tokio::task::spawn_blocking(move || runtime.run(output_handle1));
+        let containers = pod.spec.as_ref().map(|s| &s.containers).unwrap();
+        // Wrap this in a block so the write lock goes out of scope when we are done
+        info!(
+            "Starting containers for pod {:?}",
+            pod.metadata.as_ref().and_then(|m| m.name.as_ref())
+        );
         {
+            // Grab the entry while we are creating things
             let mut handles = self.handles.write().await;
-            handles.entry(key_from_pod(&pod)).or_default().insert(
-                first_container.name,
-                (
-                    BufReader::new(tokio::fs::File::from_std(output_handle2)),
-                    handle,
-                ),
-            );
+            let entry = handles.entry(key_from_pod(&pod)).or_default();
+            for container in containers {
+                let env = self.env_vars(client.clone(), &container, &pod).await;
+                // Get a separate file handle that can be moved onto the thread
+                let (runtime, output_handle1, output_handle2) =
+                    tokio::task::spawn_blocking(move || -> Result<_, failure::Error> {
+                        // TODO: Replace with actual image store lookup when it is merged
+                        let runtime = WasiRuntime::new(
+                            PathBuf::from("./testdata/hello-world.wasm"),
+                            env,
+                            Vec::default(),
+                            HashMap::default(),
+                        )?;
+
+                        // We need to use named temp file because we need multiple file handles
+                        // and if we are running in the temp dir, we run the possibility of the
+                        // temp file getting cleaned out from underneath us while running. If we
+                        // think it necessary, we can make these permanent files with a cleanup
+                        // loop that runs elsewhere. These will get deleted when the reference
+                        // is dropped
+                        // TODO: Actual log path configuration
+                        let tempfile = NamedTempFile::new_in(std::env::current_dir()?)?;
+                        Ok((runtime, tempfile.reopen()?, tempfile.reopen()?))
+                    })
+                    .await??;
+                debug!("Starting container {} on thread", container.name);
+                let handle = tokio::task::spawn_blocking(move || runtime.run(output_handle1));
+                entry.insert(
+                    container.name.clone(),
+                    (
+                        BufReader::new(tokio::fs::File::from_std(output_handle2)),
+                        handle,
+                    ),
+                );
+            }
         }
-
-        info!("Pod is executing on a thread");
-
+        info!(
+            "All containers started for pod {:?}. Updating status",
+            pod.metadata.as_ref().and_then(|m| m.name.as_ref())
+        );
         pod_status(client, &pod, "Running", namespace).await;
         Ok(())
     }
