@@ -39,8 +39,7 @@ impl Provider for WasccProvider {
             host::add_native_capability(data)
                 .map_err(|e| format_err!("Failed to load HTTP capability: {}", e))
         })
-        .await
-        .expect("Could not spawn worker for initializing WasccProvider")
+        .await?
     }
 
     fn arch(&self) -> String {
@@ -124,9 +123,8 @@ impl Provider for WasccProvider {
         // TODO: Launch this in a thread. (not necessary with waSCC)
         let env = self.env_vars(client.clone(), &first_container, &pod).await;
 
-        let http_result = tokio::task::spawn_blocking(move || wascc_run_http(data, env, &pubkey))
-            .await
-            .expect("Could not start worker for running wascc http");
+        let http_result =
+            tokio::task::spawn_blocking(move || wascc_run_http(data, env, &pubkey)).await?;
         match http_result {
             Ok(_) => {
                 info!("Pod is executing on a thread");
@@ -179,9 +177,7 @@ impl Provider for WasccProvider {
             }),
             Some(pk) => {
                 let pk = pk.clone();
-                let result = tokio::task::spawn_blocking(move || host::actor_claims(&pk))
-                    .await
-                    .expect("Could not start worker to claim actors");
+                let result = tokio::task::spawn_blocking(move || host::actor_claims(&pk)).await?;
                 match result {
                     None => {
                         // FIXME: I don't know how to tell if an actor failed.

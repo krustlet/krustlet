@@ -22,7 +22,8 @@ const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 
 // PodStore contains a map of a unique pod key pointing to a map of container
 // names to the join handle and logging for their running task
-type PodStore = HashMap<String, HashMap<String, (BufReader<File>, JoinHandle<()>)>>;
+type PodStore =
+    HashMap<String, HashMap<String, (BufReader<File>, JoinHandle<Result<(), failure::Error>>)>>;
 
 /// WasiProvider provides a Kubelet runtime implementation that executes WASM
 /// binaries conforming to the WASI spec
@@ -92,33 +93,38 @@ impl Provider for WasiProvider {
 
         let env = self.env_vars(client.clone(), &first_container, &pod).await;
 
-        // TODO: Replace with actual image store lookup when it is merged
-        let runtime = WasiRuntime::new(
-            PathBuf::from("./testdata/hello-world.wasm"),
-            env,
-            Vec::default(),
-            HashMap::default(),
-        )?;
-
         // Get a separate file handle that can be moved onto the thread
-        let (input, output) = tokio::task::spawn_blocking(move || {
-            // TODO: Actual log path configuration
-            let tempfile = NamedTempFile::new_in(std::env::current_dir()?)?;
-            Ok::<_, failure::Error>((tempfile.reopen()?, tempfile.reopen()?))
-        })
-        .await
-        .expect("Could not spawn worker to open temp files")?;
+        let (runtime, output_handle1, output_handle2) =
+            tokio::task::spawn_blocking(move || -> Result<_, failure::Error> {
+                // TODO: Replace with actual image store lookup when it is merged
+                let runtime = WasiRuntime::new(
+                    PathBuf::from("./testdata/hello-world.wasm"),
+                    env,
+                    Vec::default(),
+                    HashMap::default(),
+                )?;
 
-        let handle = tokio::task::spawn_blocking(move || {
-            runtime
-                .run(input)
-                .expect("Could not spawn worker to run runtime")
-        });
+                // We need to use named temp file because we need multiple file handles
+                // and if we are running in the temp dir, we run the possibility of the
+                // temp file getting cleaned out from underneath us while running. If we
+                // think it necessary, we can make these permanent files with a cleanup
+                // loop that runs elsewhere. These will get deleted when the reference
+                // is dropped
+                // TODO: Actual log path configuration
+                let tempfile = NamedTempFile::new_in(std::env::current_dir()?)?;
+                Ok((runtime, tempfile.reopen()?, tempfile.reopen()?))
+            })
+            .await??;
+
+        let handle = tokio::task::spawn_blocking(move || runtime.run(output_handle1));
         {
             let mut handles = self.handles.write().await;
             handles.entry(key_from_pod(&pod)).or_default().insert(
                 first_container.name,
-                (BufReader::new(tokio::fs::File::from_std(output)), handle),
+                (
+                    BufReader::new(tokio::fs::File::from_std(output_handle2)),
+                    handle,
+                ),
             );
         }
 

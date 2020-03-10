@@ -43,12 +43,6 @@ impl WasiRuntime {
     ) -> Result<Self, failure::Error> {
         let module_data = wat::parse_file(module_path)?;
 
-        // We need to use named temp file because we need multiple file handles
-        // and if we are running in the temp dir, we run the possibility of the
-        // temp file getting cleaned out from underneath us while running. If we
-        // think it necessary, we can make these permanent files with a cleanup
-        // loop that runs elsewhere. These will get deleted when the reference
-        // is dropped
         Ok(WasiRuntime {
             module_data,
             env,
