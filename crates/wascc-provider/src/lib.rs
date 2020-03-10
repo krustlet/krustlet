@@ -73,30 +73,6 @@ impl Provider for WasccProvider {
             .as_ref()
             .and_then(|m| m.namespace.as_deref())
             .unwrap_or_else(|| "default");
-        // TODO: Replace with actual image store lookup when it is merged
-        let data = tokio::fs::read("./testdata/echo.wasm").await?;
-
-        // TODO: Implement this for real.
-        // Okay, so here is where things are REALLY unfinished. Right now, we are
-        // only running the first container in a pod. And we are not using the
-        // init containers at all. And they are not executed on their own threads.
-        // So this is basically a toy.
-        //
-        // What it should do:
-        // - for each volume
-        //   - set up the volume map
-        // - for each init container:
-        //   - set up the runtime
-        //   - mount any volumes (popen)
-        //   - run it to completion
-        //   - bail with an error if it fails
-        // - for each container and ephemeral_container
-        //   - set up the runtime
-        //   - mount any volumes (popen)
-        //   - run it to completion
-        //   - bail if it errors
-        let first_container = pod.spec.as_ref().map(|s| s.containers[0].clone()).unwrap();
-
         // This would lock us into one wascc actor per pod. I don't know if
         // that is a good thing. Other containers would then be limited
         // to acting as components... which largely follows the sidecar
@@ -120,22 +96,52 @@ impl Provider for WasccProvider {
             .unwrap_or_default();
         debug!("{:?}", pubkey);
 
-        // TODO: Launch this in a thread. (not necessary with waSCC)
-        let env = self.env_vars(client.clone(), &first_container, &pod).await;
+        // TODO: Implement this for real.
+        //
+        // What it should do:
+        // - for each volume
+        //   - set up the volume map
+        // - for each init container:
+        //   - set up the runtime
+        //   - mount any volumes (popen)
+        //   - run it to completion
+        //   - bail with an error if it fails
+        // - for each container and ephemeral_container
+        //   - set up the runtime
+        //   - mount any volumes (popen)
+        //   - run it to completion
+        //   - bail if it errors
+        let containers = pod.spec.as_ref().map(|s| &s.containers).unwrap();
+        // Wrap this in a block so the write lock goes out of scope when we are done
+        info!(
+            "Starting containers for pod {:?}",
+            pod.metadata.as_ref().and_then(|m| m.name.as_ref())
+        );
+        for container in containers {
+            let env = self.env_vars(client.clone(), &container, &pod).await;
 
-        let http_result =
-            tokio::task::spawn_blocking(move || wascc_run_http(data, env, &pubkey)).await?;
-        match http_result {
-            Ok(_) => {
-                info!("Pod is executing on a thread");
-                pod_status(client, &pod, "Running", namespace).await;
-                Ok(())
-            }
-            Err(e) => {
-                pod_status(client, &pod, "Failed", namespace).await;
-                Err(failure::format_err!("Failed to run pod: {}", e))
+            debug!("Starting container {} on thread", container.name);
+            let cloned_key = pubkey.clone();
+            // TODO: Replace with actual image store lookup when it is merged
+            let data = tokio::fs::read("./testdata/echo.wasm").await?;
+            let http_result =
+                tokio::task::spawn_blocking(move || wascc_run_http(data.clone(), env, &cloned_key))
+                    .await?;
+            match http_result {
+                Ok(_) => {
+                    pod_status(client.clone(), &pod, "Running", namespace).await;
+                }
+                Err(e) => {
+                    pod_status(client, &pod, "Failed", namespace).await;
+                    return Err(failure::format_err!("Failed to run pod: {}", e));
+                }
             }
         }
+        info!(
+            "All containers started for pod {:?}. Updating status",
+            pod.metadata.as_ref().and_then(|m| m.name.as_ref())
+        );
+        Ok(())
     }
 
     async fn modify(&self, pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
