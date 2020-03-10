@@ -187,7 +187,7 @@ impl Provider for WasiProvider {
                 pod_name,
                 container_name,
             })?;
-        let mut output = Vec::default();
+        let mut output = Vec::new();
         (&mut handle.0).read_to_end(&mut output).await?;
         // Reset the seek location for the next call to read from the file
         // NOTE: This is a little janky, but the Tokio BufReader does not

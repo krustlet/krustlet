@@ -74,25 +74,26 @@ async fn get_container_logs<T: Provider + Sync>(
     let path: Vec<&str> = req.uri().path().split('/').collect();
     // Because of the leading slash, index 0 is an empty string. Index 1 is the
     // container logs path
-    if path.len() != 5 {
-        let mut res = Response::new(Body::from(format!(
-            "Resource {} not found",
-            req.uri().path()
-        )));
-        *res.status_mut() = StatusCode::NOT_FOUND;
-        return res;
-    }
-
-    let namespace = path[2];
-    let pod = path[3];
-    let container = path[4];
+    let (namespace, pod, container) = match path.as_slice() {
+        [_, _, namespace, pod, container] => (*namespace, *pod, *container),
+        _ => {
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from(format!(
+                    "Resource {} not found",
+                    req.uri().path()
+                )))
+                .unwrap()
+        }
+    };
     if namespace.is_empty() || pod.is_empty() || container.is_empty() {
-        let mut res = Response::new(Body::from(format!(
-            "Resource {} not found",
-            req.uri().path()
-        )));
-        *res.status_mut() = StatusCode::NOT_FOUND;
-        return res;
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from(format!(
+                "Resource {} not found",
+                req.uri().path()
+            )))
+            .unwrap();
     }
 
     // END validation
