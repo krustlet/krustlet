@@ -1,11 +1,10 @@
 #[macro_use]
 extern crate serde;
 
+use chrono::prelude::{DateTime, Utc};
 use hyperx::header::Header;
-use oauth2::{Client as OauthClient, StandardToken};
 use serde::Deserialize;
 use std::convert::TryFrom;
-use url::Url;
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
 
 use crate::errors::*;
@@ -19,7 +18,7 @@ pub mod reference;
 type OciResult<T> = Result<T, anyhow::Error>;
 
 struct Client {
-    token: Option<StandardToken>,
+    token: Option<DockerToken>,
 }
 
 impl Default for Client {
@@ -69,6 +68,18 @@ impl Client {
 
         let challenge = challenge_opt.as_ref().unwrap()[0].clone();
         let realm = challenge.realm.unwrap();
+        let service = challenge.service.unwrap();
+        let scope = challenge.scope.unwrap();
+
+        let auth_res: DockerToken = cli
+            .get(&realm)
+            .query(&[("service", service), ("scope", scope)])
+            .send()
+            .await?
+            .json()
+            .await?;
+        self.token = Some(auth_res);
+        /*
         let mut oauth = OauthClient::new(
             "krustlet",
             Url::parse(realm.as_str())?,
@@ -84,7 +95,7 @@ impl Client {
             .await?;
 
         self.token = Some(token);
-
+        */
         Ok(())
     }
 
@@ -104,6 +115,23 @@ impl Client {
         }
         let text = res.text().await?;
         Ok(text)
+    }
+}
+
+#[derive(Deserialize)]
+struct DockerToken {
+    token: String,
+    expires_in: u32,
+    issued_at: DateTime<Utc>,
+}
+
+impl Default for DockerToken {
+    fn default() -> Self {
+        DockerToken {
+            token: "".to_owned(),
+            expires_in: 0,
+            issued_at: Utc::now(),
+        }
     }
 }
 
@@ -170,5 +198,9 @@ mod test {
         c.pull_manifest("webassembly.azurecr.io/hello:v1".to_owned())
             .await
             .expect_err("pull manifest should fail");
+
+        let tok = c.token.expect("token is available");
+        assert!(tok.expires_in > 0);
+        assert_eq!(tok.token.len(), 32);
     }
 }

@@ -81,22 +81,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-oauth2"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "303a7b3d526142ef2bec43912e257c57e4254e34493ae0c4056a18a568a9e0bb"
-dependencies = [
- "base64 0.11.0",
- "rand 0.7.3",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "url 2.1.1",
-]
-
-[[package]]
 name = "async-trait"
 version = "0.1.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1846,13 +1830,12 @@ name = "oci-distribution"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-oauth2",
+ "chrono",
  "hyperx",
  "reqwest",
  "serde",
  "serde_json",
  "tokio",
- "url 2.1.1",
  "www-authenticate",
 ]
 
