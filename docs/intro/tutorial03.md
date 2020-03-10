@@ -68,9 +68,18 @@ specification as it relates to [WASI](https://wasi.dev/). If your WebAssembly mo
 Our "hello world" application does not require any connection to external services, so the `wasi` runtime will work just
 fine for our use case.
 
-Now that we've determined which runtime to use, let's run it!
+Since we want to interact with the Krustlet (for things like `kubectl logs` and `kubectl exec`), we'll need to tell
+Kubernetes what IP address Krustlet is listening on. Otherwise, certain API calls will result in errors.
 
+To set the node IP, run:
+
+```console
+$ export KRUSTLET_NODE_IP=<your ip address>
 ```
+
+Now that we're ready, let's run it!
+
+```console
 $ just run-wasi
 ```
 

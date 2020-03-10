@@ -26,8 +26,7 @@ If you want to build the Docker image, you'll need [Docker](https://docs.docker.
 We use `just` to build our programs, but you can use `cargo` if you want:
 
 ```console
-$ just
-$ cargo build
+$ just build
 ```
 
 Building a Docker image is easy, too:
@@ -40,25 +39,36 @@ That will take a LOOONG time the first build, but the layer cache will make it m
 
 ## Running
 
-To run Krustlet locally, you can run
+There are two different runtimes available for Krustlet: `wascc` or `wasi`.
+
+The `wascc` runtime is a secure WebAssembly host runtime, connecting "actors" and "capability providers" together to
+connect your WebAssembly runtime to cloud-native services like message brokers, databases, or other external services
+normally unavailable to the WebAssembly runtime.
+
+The `wasi` runtime uses a project called [`wasmtime`](https://github.com/bytecodealliance/wasmtime). wasmtime is a
+standalone JIT-style host runtime for WebAssembly modules. It is focused primarily on standards compliance with the WASM
+specification as it relates to [WASI](https://wasi.dev/). If your WebAssembly module complies with the
+[WebAssembly specification](https://github.com/WebAssembly/spec), wasmtime can run it.
+
+Depending on which host runtime you want, choose one of either:
 
 ```console
+$ just run-wascc
 $ just run-wasi
 ```
 
-Before startup, this command will delete any nodes in your Kubernetes cluster
-named with your hostname, so make sure you're running this in a test
-environment.
+Before startup, this command will delete any nodes in your Kubernetes cluster named with your hostname, so make sure
+you're running this in a test environment.
 
-If you want to interact with the kubelet (for things like `kubectl logs` and
-`kubectl exec`), you'll likely need to set a specific NODE_IP that krustlet will
-be available at. Otherwise, calls to the kubelet will result in errors. This may
-differ from machine to machine. For example, with Minikube on a Mac, you'll have
-an interface called `bridge0` which the cluster can talk to. So your node IP
-should be that IP address. To set the node IP, run:
+If you want to interact with the kubelet (for things like `kubectl logs` and `kubectl exec`), you'll likely need to set
+a specific KRUSTLET_NODE_IP that krustlet will be available at. Otherwise, calls to the kubelet will result in errors.
+This may differ from machine to machine. For example, with Minikube on a Mac, you'll have an interface called `bridge0`
+which the cluster can talk to. So your node IP should be that IP address.
+
+To set the node IP, run:
 
 ```console
-export KRUSTLET_NODE_IP=<the ip address>
+$ export KRUSTLET_NODE_IP=<the ip address>
 ```
 
 ## Creating your own Kubelets with Krustlet
