@@ -2,7 +2,7 @@
 ///
 /// This struct represents that error format, which is formally described here:
 /// https://github.com/opencontainers/distribution-spec/blob/master/spec.md#errors-2
-#[derive(Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug)]
 pub struct OciError {
     pub code: OciErrorCode,
     pub message: String,
@@ -20,12 +20,12 @@ impl std::fmt::Display for OciError {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 pub struct OciEnvelope {
     pub errors: Vec<OciError>,
 }
 
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(serde::Deserialize, Debug, PartialEq)]
 pub enum OciErrorCode {
     /// Blob unknown to registry
     ///

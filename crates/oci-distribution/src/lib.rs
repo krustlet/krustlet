@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate serde;
-
 use chrono::prelude::{DateTime, Utc};
 use failure::format_err;
 use hyperx::header::Header;
@@ -75,8 +72,7 @@ impl Client {
             // The Authenticate header can be set to empty string.
             return Ok(());
         }
-        // FIXME: There must be a more elegant way of passing a header from hyper into WwwAuthenticate.
-        let auth = WwwAuthenticate::parse_header(&disthdr.unwrap().to_str()?.to_string().into())?;
+        let auth = WwwAuthenticate::parse_header(&disthdr.unwrap().as_bytes().into())?;
         let challenge_opt = auth.get::<BearerChallenge>();
         if challenge_opt.is_none() {
             // This means that no challenge was present, even though the header was present.
@@ -87,7 +83,7 @@ impl Client {
 
         // Right now, we do read-only auth.
         let pull_perms = format!("repository:{}:pull", image.repository());
-        let challenge = challenge_opt.as_ref().unwrap()[0].clone();
+        let challenge = challenge_opt.unwrap()[0].clone();
         let realm = challenge.realm.unwrap();
         let service = challenge.service.unwrap();
         let scope = pull_perms.to_owned();
@@ -146,7 +142,7 @@ impl Client {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 struct DockerToken {
     access_token: String,
     expires_in: Option<u32>,
@@ -180,12 +176,11 @@ impl Challenge for BearerChallenge {
     fn challenge_name() -> &'static str {
         "Bearer"
     }
+
     fn from_raw(raw: RawChallenge) -> Option<Self> {
         match raw {
             RawChallenge::Token68(_) => None,
             RawChallenge::Fields(mut map) => Some(BearerChallenge {
-                // NB (mpb): This follows the `remove` pattern from the existing
-                // implementations. Not sure why they do this, though.
                 realm: map.remove("realm"),
                 scope: map.remove("scope"),
                 service: map.remove("service"),
@@ -225,7 +220,7 @@ mod test {
         let mut c = Client::default();
         c.auth(&image, None)
             .await
-            .expect("result from version request");
+            .expect("result from auth request");
 
         let tok = c.token.expect("token is available");
         // We test that the token is longer than a minimal hash.
