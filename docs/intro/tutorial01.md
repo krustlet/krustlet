@@ -97,7 +97,7 @@ use std::time::Duration;
 use std::thread::sleep;
 
 fn main() {
-    while true {
+    loop {
         println!("Hello, World!");
         sleep(Duration::from_secs(5));
     }
