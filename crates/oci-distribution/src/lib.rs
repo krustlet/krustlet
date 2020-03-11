@@ -2,16 +2,17 @@ use chrono::prelude::{DateTime, Utc};
 use failure::format_err;
 use hyperx::header::Header;
 use reqwest::header::{HeaderMap, HeaderValue};
-use serde::Deserialize;
 use std::convert::TryFrom;
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
 
 use crate::errors::*;
+pub use crate::manifest::*;
 pub use crate::reference::Reference;
 
 const OCI_VERSION_KEY: &str = "Docker-Distribution-Api-Version";
 
 pub mod errors;
+pub mod manifest;
 pub mod reference;
 
 type OciResult<T> = Result<T, failure::Error>;
@@ -30,7 +31,7 @@ type OciResult<T> = Result<T, failure::Error>;
 ///
 /// For true anonymous access, you can skip `auth()`. This is not recommended
 /// unless you are sure that the remote registry does not require Oauth2.
-struct Client {
+pub struct Client {
     token: Option<RegistryToken>,
 }
 
@@ -113,13 +114,13 @@ impl Client {
     ///
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
-    pub async fn pull_manifest(&self, image: &Reference) -> OciResult<String> {
+    pub async fn pull_manifest(&self, image: &Reference) -> OciResult<OciManifest> {
         // We unwrap right now because this try_from literally cannot fail.
         let cli = reqwest::Client::new();
         let url = image.to_v2_manifest_url();
         let request = cli.get(&url);
 
-        let mut headers = reqwest::header::HeaderMap::new();
+        let mut headers = HeaderMap::new();
         headers.insert("Accept", "application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json".parse().unwrap());
 
         if let Some(bearer) = self.token.as_ref() {
@@ -137,11 +138,12 @@ impl Client {
         } else if status.is_server_error() {
             return Err(format_err!("Server error at {}", url));
         }
-        let text = res.text().await?;
-        Ok(text)
+        let manifest = res.json::<OciManifest>().await?;
+        Ok(manifest)
     }
 }
 
+/// A token granted during the OAuth2-like workflow for OCI registries.
 #[derive(serde::Deserialize)]
 struct RegistryToken {
     access_token: String,
@@ -248,6 +250,8 @@ mod test {
             .await
             .expect("pull manifest should not fail");
 
-        //assert_eq!("booyah!".to_owned(), manifest)
+        // The test on the manifest checks all fields. This is just a brief sanity check.
+        assert_eq!(manifest.schema_version, 2);
+        assert!(!manifest.layers.is_empty());
     }
 }
