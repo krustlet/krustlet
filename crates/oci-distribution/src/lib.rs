@@ -48,7 +48,7 @@ impl Client {
     /// For this implementation, it will return v2 or an error result. If the error is a
     /// `reqwest` error, the request itself failed. All other error messages mean that
     /// v2 is not supported.
-    pub async fn version(&self, host: String) -> OciResult<String> {
+    pub async fn version(&self, host: &str) -> OciResult<String> {
         let url = format!("https://{}/v2/", host);
         let res = reqwest::get(&url).await?;
         let disthdr = res.headers().get(OCI_VERSION_KEY);
@@ -221,7 +221,7 @@ mod test {
     async fn test_version() {
         let c = Client::default();
         let ver = c
-            .version("webassembly.azurecr.io".to_owned())
+            .version("webassembly.azurecr.io")
             .await
             .expect("result from version request");
         assert_eq!("registry/2.0".to_owned(), ver);
