@@ -130,16 +130,28 @@ impl Client {
         let res = request.headers(headers).send().await?;
 
         let status = res.status();
-        if res.status().is_client_error() {
+
+        // The OCI spec technically does not allow any codes but 200, 500, 401, and 404.
+        // Obviously, HTTP servers are going to send other codes. This tries to catch the
+        // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
+        if status == reqwest::StatusCode::OK {
+            let manifest = res.json::<OciManifest>().await?;
+            Ok(manifest)
+        } else if status.is_client_error() {
             // According to the OCI spec, we should see an error in the message body.
             let err = res.json::<OciEnvelope>().await?;
             // FIXME: This should not have to wrap the error.
-            return Err(format_err!("{} on {}", err.errors[0], url));
+            Err(format_err!("{} on {}", err.errors[0], url))
         } else if status.is_server_error() {
-            return Err(format_err!("Server error at {}", url));
+            Err(format_err!("Server error at {}", url))
+        } else {
+            let text = res.text().await?;
+            Err(format_err!(
+                "An unexpected error occured: code={}, message='{}'",
+                status,
+                text
+            ))
         }
-        let manifest = res.json::<OciManifest>().await?;
-        Ok(manifest)
     }
 }
 
