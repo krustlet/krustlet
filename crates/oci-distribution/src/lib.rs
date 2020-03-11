@@ -31,7 +31,7 @@ type OciResult<T> = Result<T, failure::Error>;
 /// For true anonymous access, you can skip `auth()`. This is not recommended
 /// unless you are sure that the remote registry does not require Oauth2.
 struct Client {
-    token: Option<DockerToken>,
+    token: Option<RegistryToken>,
 }
 
 impl Default for Client {
@@ -98,7 +98,7 @@ impl Client {
 
         match auth_res.status() {
             reqwest::StatusCode::OK => {
-                let docker_token: DockerToken = auth_res.json().await?;
+                let docker_token: RegistryToken = auth_res.json().await?;
                 self.token = Some(docker_token);
                 Ok(())
             }
@@ -143,21 +143,21 @@ impl Client {
 }
 
 #[derive(serde::Deserialize)]
-struct DockerToken {
+struct RegistryToken {
     access_token: String,
     expires_in: Option<u32>,
     issued_at: Option<DateTime<Utc>>,
 }
 
-impl DockerToken {
+impl RegistryToken {
     fn bearer_token(&self) -> String {
         format!("Bearer {}", self.access_token)
     }
 }
 
-impl Default for DockerToken {
+impl Default for RegistryToken {
     fn default() -> Self {
-        DockerToken {
+        RegistryToken {
             access_token: "".to_owned(),
             expires_in: None,
             issued_at: None, // We could do Utc::now() if we really need.
