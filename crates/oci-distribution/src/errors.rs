@@ -26,65 +26,66 @@ pub struct OciEnvelope {
 }
 
 #[derive(serde::Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OciErrorCode {
     /// Blob unknown to registry
     ///
     /// This error MAY be returned when a blob is unknown to the registry in a specified
     /// repository. This can be returned with a standard get or if a manifest
     /// references an unknown layer during upload.
-    BLOB_UNKNOWN,
+    BlobUnknown,
     /// Blob upload is invalid
     ///
     /// The blob upload encountered an error and can no longer proceed.
-    BLOB_UPLOAD_INVALID,
+    BlobUploadInvalid,
     /// Blob upload is unknown to registry
-    BLOB_UPLOAD_UNKNOWN,
+    BlobUploadUnknown,
     /// Provided digest did not match uploaded content.
-    DIGEST_INVALID,
+    DigestInvalid,
     /// Blob is unknown to registry
-    MANIFEST_BLOB_UNKNOWN,
+    ManifestBlobUnknown,
     /// Manifest is invalid
     ///
     /// During upload, manifests undergo several checks ensuring validity. If
     /// those checks fail, this error MAY be returned, unless a more specific
     /// error is included. The detail will contain information the failed
     /// validation.
-    MANIFEST_INVALID,
+    ManifestInvalid,
     /// Manifest unknown
     ///
     /// This error is returned when the manifest, identified by name and tag is unknown to the repository.
-    MANIFEST_UNKNOWN,
+    ManifestUnknown,
     /// Manifest failed signature validation
-    MANIFEST_UNVERIFIED,
+    ManifestUnverified,
     /// Invalid repository name
-    NAME_INVALID,
+    NameInvalid,
     /// Repository name is not known
-    NAME_UNKNOWN,
+    NameUnknown,
     // Provided length did not match content length
-    SIZE_INVALID,
+    SizeInvalid,
     /// Manifest tag did not match URI
-    TAG_INVALID,
+    TagInvalid,
     /// Authentication required.
-    UNAUTHORIZED,
+    Unauthorized,
     // Requested access to the resource is denied
-    DENIED,
+    Denied,
     /// This operation is unsupported
-    UNSUPPORTED,
+    Unsupported,
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    const example_error: &str = r#"
+    const EXAMPLE_ERROR: &str = r#"
       {"errors":[{"code":"UNAUTHORIZED","message":"authentication required","detail":[{"Type":"repository","Name":"hello-wasm","Action":"pull"}]}]}
       "#;
     #[test]
     fn test_deserialize() {
         let envelope: OciEnvelope =
-            serde_json::from_str(example_error).expect("parse example error");
+            serde_json::from_str(EXAMPLE_ERROR).expect("parse example error");
         let e = &envelope.errors[0];
-        assert_eq!(OciErrorCode::UNAUTHORIZED, e.code);
+        assert_eq!(OciErrorCode::Unauthorized, e.code);
         assert_eq!("authentication required", e.message);
     }
 }
