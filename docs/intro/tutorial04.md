@@ -11,16 +11,16 @@ words, your application runs inside a Pod, and we can inspect the status of the 
 Krustlet listens for pods requesting a node with the `wasm32-wasi` architecture. To schedule a Pod that Krustlet
 understands, we need to provide Kubernetes with a YAML file describing our Pod.
 
-Create a new file and call it `krustlet-demo.yaml`:
+Create a new file and call it `krustlet-tutorial.yaml`:
 
 ```yaml
 apiVersion: v1
 kind: Pod
 metadata:
-  name: krustlet-demo
+  name: krustlet-tutorial
 spec:
   containers:
-    - name: krustlet-demo
+    - name: krustlet-tutorial
       image: mycontainerregistry007.azurecr.io/krustlet-tutorial:v1.0.0
   nodeSelector:
     beta.kubernetes.io/arch: wasm32-wasi
@@ -38,7 +38,7 @@ Let's break this file down:
 To deploy this workload to Kubernetes, we use `kubectl`.
 
 ```console
-$ kubectl create -f krustlet-demo.yaml
+$ kubectl create -f krustlet-tutorial.yaml
 ```
 
 Now that the workload has been scheduled, Krustlet should start spewing out some logs in its terminal window, reporting
@@ -48,14 +48,14 @@ We can check the status of our pod:
 
 ```console
 $ kubectl get pods
-NAME            READY   STATUS    RESTARTS   AGE
-krustlet-demo   1/1     Running   0          18s
+NAME                READY   STATUS    RESTARTS   AGE
+krustlet-tutorial   1/1     Running   0          18s
 ```
 
 We can also inspect the logs, too:
 
 ```console
-$ kubectl logs krustlet-demo
+$ kubectl logs krustlet-tutorial
 Hello, World!
 Hello, World!
 Hello, World!

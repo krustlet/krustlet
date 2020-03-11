@@ -22,6 +22,11 @@ kubelet = { path = "./crates/kubelet", version = "0.1.0", features = ["cli"] }
 wascc-provider = { path = "./crates/wascc-provider", version = "0.1.0" }
 wasi-provider = { path = "./crates/wasi-provider", version = "0.1.0" }
 
+[dev-dependencies]
+serde_derive = "1.0"
+serde_json = "1.0"
+k8s-openapi = { version = "0.7.1", default-features = false, features = ["v1_17"] }
+
 [workspace]
 members = [
     "crates/*"

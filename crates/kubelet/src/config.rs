@@ -71,12 +71,15 @@ impl Config {
             default_node_ip(&mut hostname.clone(), &addr)
                 .expect("unable to get default node IP address")
         });
+        let node_name = opts
+            .node_name
+            .unwrap_or_else(|| sanitize_hostname(&hostname));
         let port = opts.port;
         let pfx_path = opts.pfx_path.unwrap_or_else(default_pfx_path);
         let pfx_password = opts.pfx_password.unwrap_or_default();
         Config {
             node_ip,
-            node_name: sanitize_hostname(&hostname),
+            node_name,
             hostname,
             server_config: ServerConfig {
                 addr,
