@@ -26,11 +26,10 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
     provider: Arc<Mutex<T>>,
     address: &SocketAddr,
 ) -> Result<(), failure::Error> {
-    let identity = tokio::fs::read("identity.pfx")
+    let identity = tokio::fs::read("/home/rylevick/krustlet/certificate.pfx")
         .await
         .expect("Could not read identity file");
-    let identity =
-        Identity::from_pkcs12(&identity, "password").expect("Could not parse indentiy file");
+    let identity = Identity::from_pkcs12(&identity, "").expect("Could not parse indentiy file");
 
     let acceptor = tokio_tls::TlsAcceptor::from(TlsAcceptor::new(identity).unwrap());
     let acceptor = Arc::new(acceptor);
