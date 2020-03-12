@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use k8s_openapi::api::core::v1::ContainerStatus;
 use kube::client::APIClient;
 use kubelet::pod::{pod_status, Pod};
 use kubelet::{Phase, Provider, ProviderError, Status};
@@ -132,15 +131,6 @@ impl Provider for WasiProvider {
     }
 
     async fn status(&self, pod: Pod, _client: APIClient) -> Result<Status, failure::Error> {
-        // TODO(taylor): Figure out the best way to check if a future is still
-        // running. I get the feeling that manually calling `poll` on the future
-        // is a Bad Idea™ and so I am not sure if there is another way or if we
-        // should implement messaging using channels to let the main runtime
-        // know it is done
-        // let fut = async {
-        //     let handles = self.handles.read().await;
-        //     let containers = handles.get(key_from_pod(&pod));
-        // };
         let pod_name = pod
             .metadata
             .as_ref()
@@ -158,28 +148,12 @@ impl Provider for WasiProvider {
                 })?;
         let mut container_statuses = Vec::new();
         for (_, handle) in container_handles.iter_mut() {
-            let status = handle.status().await?;
-            // Right now we don't have a way to probe, so just set to ready if
-            // in a running state
-            let ready = status.running.is_some();
-            container_statuses.push(ContainerStatus {
-                state: Some(status),
-                name: pod_name.clone(),
-                ready,
-                // This is always true if startupProbe is not defined. When we
-                // handle probes, this should be updated accordingly
-                started: Some(true),
-                // The rest of the items in status (see docs here:
-                // https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#containerstatus-v1-core)
-                // either don't matter for us or we have not implemented the
-                // functionality yet
-                ..Default::default()
-            })
+            container_statuses.push(handle.status().await?)
         }
-        // TODO: Once #61 is completed, we can actually return the data generated above
         Ok(Status {
             phase: Phase::Running,
             message: None,
+            container_statuses,
         })
     }
 

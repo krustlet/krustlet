@@ -3,10 +3,6 @@ use std::io::SeekFrom;
 use std::path::Path;
 
 use failure::{bail, format_err};
-use k8s_openapi::api::core::v1::{
-    ContainerState, ContainerStateRunning, ContainerStateTerminated, ContainerStateWaiting,
-};
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 use log::{error, info};
 use tempfile::NamedTempFile;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, BufReader};
@@ -15,6 +11,8 @@ use tokio::task::JoinHandle;
 use wasi_common::preopen_dir;
 use wasmtime_wasi::old::snapshot_0::Wasi as WasiUnstable;
 use wasmtime_wasi::{Wasi, WasiCtxBuilder};
+
+use kubelet::{ContainerStatus, RunningStatus, TerminatedStatus, WaitingStatus};
 
 /// WasiRuntime provides a WASI compatible runtime. A runtime should be used for
 /// each "instance" of a process and can be passed to a thread pool for running
@@ -97,17 +95,11 @@ impl WasiRuntime {
         // Clone the module data so it can be moved and we don't have to worry
         // about the lifetime of the struct data
         let module_data = self.module_data.clone();
-        // We could get multiple status updates, so this gives a little
-        // breathing room while avoiding blocking. This is currently super
-        // naive, but will work for now. In the future, we may just want to use
-        // a try_send with a retry
-        let (status_sender, status_recv) = watch::channel(ContainerState {
-            waiting: Some(ContainerStateWaiting {
-                message: Some("No status has been received from the process".into()),
-                reason: None,
-            }),
-            ..Default::default()
-        });
+        let (status_sender, status_recv) =
+            watch::channel(ContainerStatus::Waiting(WaitingStatus {
+                timestamp: chrono::Utc::now(),
+                message: "No status has been received from the process".into(),
+            }));
         let handle = tokio::task::spawn_blocking(move || -> Result<_, failure::Error> {
             let engine = wasmtime::Engine::default();
             let store = wasmtime::Store::new(&engine);
@@ -121,16 +113,11 @@ impl WasiRuntime {
                     let message = "unable to create module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(ContainerState {
-                            terminated: Some(ContainerStateTerminated {
-                                message: Some(message.into()),
-                                reason: None,
-                                exit_code: 1,
-                                finished_at: Some(Time(chrono::Utc::now())),
-                                ..Default::default()
-                            }),
-                            ..Default::default()
-                        })
+                        .broadcast(ContainerStatus::Terminated(TerminatedStatus {
+                            failed: true,
+                            message: message.into(),
+                            timestamp: chrono::Utc::now(),
+                        }))
                         .expect("status should be able to send");
                     // Converting from anyhow
                     Err(format_err!("{}: {}", message, e))
@@ -165,16 +152,11 @@ impl WasiRuntime {
                     let message = "unable to load module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(ContainerState {
-                            terminated: Some(ContainerStateTerminated {
-                                message: Some(message.into()),
-                                reason: None,
-                                exit_code: 1,
-                                finished_at: Some(Time(chrono::Utc::now())),
-                                ..Default::default()
-                            }),
-                            ..Default::default()
-                        })
+                        .broadcast(ContainerStatus::Terminated(TerminatedStatus {
+                            failed: true,
+                            message: message.into(),
+                            timestamp: chrono::Utc::now(),
+                        }))
                         .expect("status should be able to send");
                     Err(e)
                 }
@@ -188,16 +170,11 @@ impl WasiRuntime {
                     let message = "unable to instantiate module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(ContainerState {
-                            terminated: Some(ContainerStateTerminated {
-                                message: Some(message.into()),
-                                reason: None,
-                                exit_code: 1,
-                                finished_at: Some(Time(chrono::Utc::now())),
-                                ..Default::default()
-                            }),
-                            ..Default::default()
-                        })
+                        .broadcast(ContainerStatus::Terminated(TerminatedStatus {
+                            failed: true,
+                            message: message.into(),
+                            timestamp: chrono::Utc::now(),
+                        }))
                         .expect("status should be able to send");
                     // Converting from anyhow
                     Err(format_err!("{}: {}", message, e))
@@ -208,12 +185,9 @@ impl WasiRuntime {
             // need to do a bit more to pass them in here.
             info!("starting run of module");
             status_sender
-                .broadcast(ContainerState {
-                    running: Some(ContainerStateRunning {
-                        started_at: Some(Time(chrono::Utc::now())),
-                    }),
-                    ..Default::default()
-                })
+                .broadcast(ContainerStatus::Running(RunningStatus {
+                    timestamp: chrono::Utc::now(),
+                }))
                 .expect("status should be able to send");
             match instance
                 .get_export("_start")
@@ -229,16 +203,11 @@ impl WasiRuntime {
                     let message = "unable to run module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(ContainerState {
-                            terminated: Some(ContainerStateTerminated {
-                                message: Some(message.into()),
-                                reason: None,
-                                exit_code: 1,
-                                finished_at: Some(Time(chrono::Utc::now())),
-                                ..Default::default()
-                            }),
-                            ..Default::default()
-                        })
+                        .broadcast(ContainerStatus::Terminated(TerminatedStatus {
+                            failed: true,
+                            message: message.into(),
+                            timestamp: chrono::Utc::now(),
+                        }))
                         .expect("status should be able to send");
                     // Converting from anyhow
                     Err(format_err!("{}: {}", message, e))
@@ -247,15 +216,11 @@ impl WasiRuntime {
 
             info!("module run complete");
             status_sender
-                .broadcast(ContainerState {
-                    terminated: Some(ContainerStateTerminated {
-                        message: Some("Module run completed".into()),
-                        exit_code: 0,
-                        finished_at: Some(Time(chrono::Utc::now())),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                })
+                .broadcast(ContainerStatus::Terminated(TerminatedStatus {
+                    failed: false,
+                    message: "Module run completed".into(),
+                    timestamp: chrono::Utc::now(),
+                }))
                 .expect("status should be able to send");
             Ok(())
         });
@@ -274,7 +239,7 @@ impl WasiRuntime {
 pub struct RuntimeHandle<R: AsyncReadExt + AsyncSeekExt + Unpin> {
     output: BufReader<R>,
     handle: JoinHandle<Result<(), failure::Error>>,
-    status_channel: Receiver<ContainerState>,
+    status_channel: Receiver<ContainerStatus>,
 }
 
 impl<R: AsyncReadExt + AsyncSeekExt + Unpin> RuntimeHandle<R> {
@@ -285,7 +250,7 @@ impl<R: AsyncReadExt + AsyncSeekExt + Unpin> RuntimeHandle<R> {
     pub fn new(
         output: R,
         handle: JoinHandle<Result<(), failure::Error>>,
-        status_channel: Receiver<ContainerState>,
+        status_channel: Receiver<ContainerStatus>,
     ) -> Self {
         RuntimeHandle {
             output: BufReader::new(output),
@@ -310,7 +275,7 @@ impl<R: AsyncReadExt + AsyncSeekExt + Unpin> RuntimeHandle<R> {
         unimplemented!("There is currently no way to stop a running wasmtime instance")
     }
 
-    pub async fn status(&self) -> Result<ContainerState, failure::Error> {
+    pub async fn status(&self) -> Result<ContainerStatus, failure::Error> {
         // NOTE: For those who modify this in the future, borrow must be as
         // short lived as possible. We do not use the recv method because it
         // uses the value each time and blocks on the next call, whereas we want
@@ -346,7 +311,7 @@ mod test {
         assert_eq!("Hello, world!\n".to_string().into_bytes(), output);
 
         let status = handle.status().await.unwrap();
-        assert!(status.terminated.is_some());
+        assert!(matches!(status, ContainerStatus::Terminated(_)));
 
         // TODO: Once we add args support and other things that could actually
         // cause a failure on start, we can test the intermediate state. Same
