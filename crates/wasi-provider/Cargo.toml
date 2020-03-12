@@ -25,7 +25,9 @@ serde = "1.0"
 serde_json = "1.0"
 kubelet = { path = "../kubelet", version = "0.1.0" }
 wat = "1.0"
-tokio = { version = "0.2.13", features = ["fs", "stream", "macros", "io-util"] }
+tokio = { version = "0.2.13", features = ["fs", "stream", "macros", "io-util", "sync"] }
+k8s-openapi = { version = "0.7.1", default-features = false, features = ["v1_17"] }
+chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
 k8s-openapi = { version = "0.7.1", features = ["v1_17"] }

@@ -1,28 +1,24 @@
 mod wasi_runtime;
 
 use std::collections::HashMap;
-use std::io::SeekFrom;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use k8s_openapi::api::core::v1::ContainerStatus;
 use kube::client::APIClient;
 use kubelet::pod::{pod_status, Pod};
 use kubelet::{Phase, Provider, ProviderError, Status};
 use log::{debug, info};
-use tempfile::NamedTempFile;
 use tokio::fs::File;
-use tokio::io::{AsyncReadExt, BufReader};
 use tokio::sync::RwLock;
-use tokio::task::JoinHandle;
 
-use wasi_runtime::WasiRuntime;
+use wasi_runtime::{RuntimeHandle, WasiRuntime};
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 
 // PodStore contains a map of a unique pod key pointing to a map of container
 // names to the join handle and logging for their running task
-type PodStore =
-    HashMap<String, HashMap<String, (BufReader<File>, JoinHandle<Result<(), failure::Error>>)>>;
+type PodStore = HashMap<String, HashMap<String, RuntimeHandle<File>>>;
 
 /// WasiProvider provides a Kubelet runtime implementation that executes WASM
 /// binaries conforming to the WASI spec
@@ -92,37 +88,18 @@ impl Provider for WasiProvider {
             let entry = handles.entry(key_from_pod(&pod)).or_default();
             for container in containers {
                 let env = self.env_vars(client.clone(), &container, &pod).await;
-                // Get a separate file handle that can be moved onto the thread
-                let (runtime, output_handle1, output_handle2) =
-                    tokio::task::spawn_blocking(move || -> Result<_, failure::Error> {
-                        // TODO: Replace with actual image store lookup when it is merged
-                        let runtime = WasiRuntime::new(
-                            PathBuf::from("./testdata/hello-world.wasm"),
-                            env,
-                            Vec::default(),
-                            HashMap::default(),
-                        )?;
+                let runtime = WasiRuntime::new(
+                    PathBuf::from("./testdata/hello-world.wasm"),
+                    env,
+                    Vec::default(),
+                    HashMap::default(),
+                    // TODO: Actual log path configuration
+                    std::env::current_dir()?,
+                )?;
 
-                        // We need to use named temp file because we need multiple file handles
-                        // and if we are running in the temp dir, we run the possibility of the
-                        // temp file getting cleaned out from underneath us while running. If we
-                        // think it necessary, we can make these permanent files with a cleanup
-                        // loop that runs elsewhere. These will get deleted when the reference
-                        // is dropped
-                        // TODO: Actual log path configuration
-                        let tempfile = NamedTempFile::new_in(std::env::current_dir()?)?;
-                        Ok((runtime, tempfile.reopen()?, tempfile.reopen()?))
-                    })
-                    .await??;
                 debug!("Starting container {} on thread", container.name);
-                let handle = tokio::task::spawn_blocking(move || runtime.run(output_handle1));
-                entry.insert(
-                    container.name.clone(),
-                    (
-                        BufReader::new(tokio::fs::File::from_std(output_handle2)),
-                        handle,
-                    ),
-                );
+                let handle = runtime.run().await?;
+                entry.insert(container.name.clone(), handle);
             }
         }
         info!(
@@ -154,7 +131,7 @@ impl Provider for WasiProvider {
         unimplemented!("cannot stop a running wasmtime instance")
     }
 
-    async fn status(&self, _pod: Pod, _client: APIClient) -> Result<Status, failure::Error> {
+    async fn status(&self, pod: Pod, _client: APIClient) -> Result<Status, failure::Error> {
         // TODO(taylor): Figure out the best way to check if a future is still
         // running. I get the feeling that manually calling `poll` on the future
         // is a Bad Idea™ and so I am not sure if there is another way or if we
@@ -164,6 +141,42 @@ impl Provider for WasiProvider {
         //     let handles = self.handles.read().await;
         //     let containers = handles.get(key_from_pod(&pod));
         // };
+        let pod_name = pod
+            .metadata
+            .as_ref()
+            .unwrap()
+            .name
+            .as_ref()
+            .unwrap()
+            .clone();
+        let mut handles = self.handles.write().await;
+        let container_handles =
+            handles
+                .get_mut(&key_from_pod(&pod))
+                .ok_or_else(|| ProviderError::PodNotFound {
+                    pod_name: pod_name.clone(),
+                })?;
+        let mut container_statuses = Vec::new();
+        for (_, handle) in container_handles.iter_mut() {
+            let status = handle.status().await?;
+            // Right now we don't have a way to probe, so just set to ready if
+            // in a running state
+            let ready = status.running.is_some();
+            container_statuses.push(ContainerStatus {
+                state: Some(status),
+                name: pod_name.clone(),
+                ready,
+                // This is always true if startupProbe is not defined. When we
+                // handle probes, this should be updated accordingly
+                started: Some(true),
+                // The rest of the items in status (see docs here:
+                // https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#containerstatus-v1-core)
+                // either don't matter for us or we have not implemented the
+                // functionality yet
+                ..Default::default()
+            })
+        }
+        // TODO: Once #61 is completed, we can actually return the data generated above
         Ok(Status {
             phase: Phase::Running,
             message: None,
@@ -187,12 +200,7 @@ impl Provider for WasiProvider {
                 pod_name,
                 container_name,
             })?;
-        let mut output = Vec::new();
-        (&mut handle.0).read_to_end(&mut output).await?;
-        // Reset the seek location for the next call to read from the file
-        // NOTE: This is a little janky, but the Tokio BufReader does not
-        // implement the AsyncSeek trait
-        handle.0.get_mut().seek(SeekFrom::Start(0)).await?;
+        let output = handle.output().await?;
         Ok(output)
     }
 }
