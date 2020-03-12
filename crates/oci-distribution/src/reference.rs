@@ -39,15 +39,9 @@ impl Reference {
 }
 
 impl TryFrom<String> for Reference {
-    type Error = ();
+    type Error = failure::Error;
     fn try_from(string: String) -> Result<Self, Self::Error> {
-        let slash = string.find('/').ok_or(())?;
-        let colon = string[slash + 1..].find(':').ok_or(())?;
-        Ok(Reference {
-            whole: string,
-            slash,
-            colon: slash + 1 + colon,
-        })
+        TryFrom::try_from(string.as_str())
     }
 }
 
