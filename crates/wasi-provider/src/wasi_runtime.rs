@@ -1,24 +1,24 @@
 use std::collections::HashMap;
-use std::io::SeekFrom;
 use std::path::Path;
+use std::sync::Arc;
 
 use failure::{bail, format_err};
 use log::{error, info};
 use tempfile::NamedTempFile;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, BufReader};
-use tokio::sync::watch::{self, Receiver};
+use tokio::sync::watch::{self, Sender};
 use tokio::task::JoinHandle;
 use wasi_common::preopen_dir;
 use wasmtime_wasi::old::snapshot_0::Wasi as WasiUnstable;
 use wasmtime_wasi::{Wasi, WasiCtxBuilder};
 
+use crate::handle::RuntimeHandle;
 use kubelet::{ContainerStatus, RunningStatus, TerminatedStatus, WaitingStatus};
 
 /// WasiRuntime provides a WASI compatible runtime. A runtime should be used for
 /// each "instance" of a process and can be passed to a thread pool for running
 pub struct WasiRuntime {
     /// binary module data to be run as a wasm module
-    module_data: Vec<u8>,
+    module_data: Arc<Vec<u8>>,
     /// key/value environment variables made available to the wasm process
     env: HashMap<String, String>,
     /// the arguments passed as the command-line arguments list
@@ -60,7 +60,7 @@ impl WasiRuntime {
         // loop that runs elsewhere. These will get deleted when the reference
         // is dropped
         Ok(WasiRuntime {
-            module_data,
+            module_data: Arc::new(module_data),
             env,
             args,
             dirs,
@@ -68,7 +68,7 @@ impl WasiRuntime {
         })
     }
 
-    pub async fn run(&self) -> Result<RuntimeHandle<tokio::fs::File>, failure::Error> {
+    pub async fn start(&self) -> Result<RuntimeHandle<tokio::fs::File>, failure::Error> {
         let output = self.output.reopen()?;
         // Build the WASI instance and then generate a list of WASI modules
         let mut ctx_builder_snapshot = WasiCtxBuilder::new();
@@ -92,23 +92,41 @@ impl WasiRuntime {
         let wasi_ctx_snapshot = ctx_builder_snapshot.build()?;
         let wasi_ctx_unstable = ctx_builder_unstable.build()?;
 
-        // Clone the module data so it can be moved and we don't have to worry
-        // about the lifetime of the struct data
-        let module_data = self.module_data.clone();
         let (status_sender, status_recv) =
             watch::channel(ContainerStatus::Waiting(WaitingStatus {
                 timestamp: chrono::Utc::now(),
                 message: "No status has been received from the process".into(),
             }));
-        let handle = tokio::task::spawn_blocking(move || -> Result<_, failure::Error> {
+        let handle = self.spawn_wasmtime(status_sender, wasi_ctx_snapshot, wasi_ctx_unstable);
+
+        Ok(RuntimeHandle::new(
+            tokio::fs::File::from_std(self.output.reopen()?),
+            handle,
+            status_recv,
+        ))
+    }
+
+    // Spawns a running wasmtime instance with the given context and status
+    // channel. Due to the Instance type not being Send safe, all of the logic
+    // needs to be done within the spawned task
+    fn spawn_wasmtime(
+        &self,
+        status_sender: Sender<ContainerStatus>,
+        wasi_ctx_snapshot: wasi_common::WasiCtx,
+        wasi_ctx_unstable: wasi_common::old::snapshot_0::WasiCtx,
+    ) -> JoinHandle<Result<(), failure::Error>> {
+        // Clone the module data Arc so it can be moved
+        let module_data = self.module_data.clone();
+
+        tokio::task::spawn_blocking(move || -> Result<_, failure::Error> {
             let engine = wasmtime::Engine::default();
             let store = wasmtime::Store::new(&engine);
             let wasi_snapshot = Wasi::new(&store, wasi_ctx_snapshot);
             let wasi_unstable = WasiUnstable::new(&store, wasi_ctx_unstable);
-            let module = match wasmtime::Module::new(&store, &module_data) {
+            let module = match wasmtime::Module::new(&store, module_data.as_ref()) {
                 // We can't map errors here or it moves the send channel, so we
                 // do it in a match
-                Ok(m) => Ok(m),
+                Ok(m) => m,
                 Err(e) => {
                     let message = "unable to create module";
                     error!("{}: {:?}", message, e);
@@ -120,11 +138,11 @@ impl WasiRuntime {
                         }))
                         .expect("status should be able to send");
                     // Converting from anyhow
-                    Err(format_err!("{}: {}", message, e))
+                    return Err(format_err!("{}: {}", message, e));
                 }
-            }?;
+            };
             // Iterate through the module includes and resolve imports
-            let imports = match module
+            let imports = module
                 .imports()
                 .iter()
                 .map(|i| {
@@ -143,11 +161,11 @@ impl WasiRuntime {
                         ),
                     }
                 })
-                .collect::<Result<Vec<_>, _>>()
-            {
+                .collect::<Result<Vec<_>, _>>();
+            let imports = match imports {
                 // We can't map errors here or it moves the send channel, so we
                 // do it in a match
-                Ok(m) => Ok(m),
+                Ok(m) => m,
                 Err(e) => {
                     let message = "unable to load module";
                     error!("{}: {:?}", message, e);
@@ -158,14 +176,14 @@ impl WasiRuntime {
                             timestamp: chrono::Utc::now(),
                         }))
                         .expect("status should be able to send");
-                    Err(e)
+                    return Err(e);
                 }
-            }?;
+            };
 
             let instance = match wasmtime::Instance::new(&module, &imports) {
                 // We can't map errors here or it moves the send channel, so we
                 // do it in a match
-                Ok(m) => Ok(m),
+                Ok(m) => m,
                 Err(e) => {
                     let message = "unable to instantiate module";
                     error!("{}: {:?}", message, e);
@@ -177,9 +195,9 @@ impl WasiRuntime {
                         }))
                         .expect("status should be able to send");
                     // Converting from anyhow
-                    Err(format_err!("{}: {}", message, e))
+                    return Err(format_err!("{}: {}", message, e));
                 }
-            }?;
+            };
 
             // NOTE(taylor): In the future, if we want to pass args directly, we'll
             // need to do a bit more to pass them in here.
@@ -191,14 +209,14 @@ impl WasiRuntime {
                 .expect("status should be able to send");
             match instance
                 .get_export("_start")
-                .expect("export")
+                .expect("_start import should exist in wasm module")
                 .func()
                 .unwrap()
                 .call(&[])
             {
                 // We can't map errors here or it moves the send channel, so we
                 // do it in a match
-                Ok(m) => Ok(m),
+                Ok(_) => {}
                 Err(e) => {
                     let message = "unable to run module";
                     error!("{}: {:?}", message, e);
@@ -210,9 +228,9 @@ impl WasiRuntime {
                         }))
                         .expect("status should be able to send");
                     // Converting from anyhow
-                    Err(format_err!("{}: {}", message, e))
+                    return Err(format_err!("{}: {}", message, e));
                 }
-            }?;
+            };
 
             info!("module run complete");
             status_sender
@@ -223,70 +241,7 @@ impl WasiRuntime {
                 }))
                 .expect("status should be able to send");
             Ok(())
-        });
-
-        Ok(RuntimeHandle::new(
-            tokio::fs::File::from_std(self.output.reopen()?),
-            handle,
-            status_recv,
-        ))
-    }
-}
-
-/// Represents a handle to a running WASI instance. Right now, this is
-/// experimental and just for use with the [crate::WasiProvider]. If we like
-/// this pattern, we will expose it as part of the kubelet crate
-pub struct RuntimeHandle<R: AsyncReadExt + AsyncSeekExt + Unpin> {
-    output: BufReader<R>,
-    handle: JoinHandle<Result<(), failure::Error>>,
-    status_channel: Receiver<ContainerStatus>,
-}
-
-impl<R: AsyncReadExt + AsyncSeekExt + Unpin> RuntimeHandle<R> {
-    /// Create a new handle with the given reader for log output and a handle to
-    /// the running tokio task. The sender part of the channel should be given
-    /// to the running process and the receiver half passed to this constructor
-    /// to be used for reporting current status
-    pub fn new(
-        output: R,
-        handle: JoinHandle<Result<(), failure::Error>>,
-        status_channel: Receiver<ContainerStatus>,
-    ) -> Self {
-        RuntimeHandle {
-            output: BufReader::new(output),
-            handle,
-            status_channel,
-        }
-    }
-
-    pub async fn output(&mut self) -> Result<Vec<u8>, failure::Error> {
-        let mut output = Vec::new();
-        self.output.read_to_end(&mut output).await?;
-        // Reset the seek location for the next call to read from the file
-        // NOTE: This is a little janky, but the Tokio BufReader does not
-        // implement the AsyncSeek trait
-        self.output.get_mut().seek(SeekFrom::Start(0)).await?;
-        Ok(output)
-    }
-
-    pub async fn stop(&mut self) -> Result<(), failure::Error> {
-        // TODO: Send an actual stop signal once there is support in wasmtime
-        self.wait().await?;
-        unimplemented!("There is currently no way to stop a running wasmtime instance")
-    }
-
-    pub async fn status(&self) -> Result<ContainerStatus, failure::Error> {
-        // NOTE: For those who modify this in the future, borrow must be as
-        // short lived as possible. We do not use the recv method because it
-        // uses the value each time and blocks on the next call, whereas we want
-        // to return the last sent value until updated
-        Ok((*self.status_channel.borrow()).clone())
-    }
-
-    // For now this is private (for use in testing and in stop). If we find a
-    // need to expose it, we can do that later
-    async fn wait(&mut self) -> Result<(), failure::Error> {
-        (&mut self.handle).await.unwrap()
+        })
     }
 }
 
@@ -304,14 +259,18 @@ mod test {
             std::env::current_dir().unwrap(),
         )
         .expect("wasi runtime init");
-        let mut handle = wr.run().await.expect("runtime handle");
+        let mut handle = wr.start().await.expect("runtime handle");
         handle.wait().await.expect("successful run");
 
-        let output = handle.output().await.unwrap();
+        let mut output = Vec::new();
+        handle.output(&mut output).await.unwrap();
         assert_eq!("Hello, world!\n".to_string().into_bytes(), output);
 
         let status = handle.status().await.unwrap();
-        assert!(matches!(status, ContainerStatus::Terminated(_)));
+        assert!(match status {
+            ContainerStatus::Terminated(_) => true,
+            _ => false,
+        });
 
         // TODO: Once we add args support and other things that could actually
         // cause a failure on start, we can test the intermediate state. Same

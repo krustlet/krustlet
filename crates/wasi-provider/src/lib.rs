@@ -1,3 +1,4 @@
+mod handle;
 mod wasi_runtime;
 
 use std::collections::HashMap;
@@ -11,7 +12,8 @@ use log::{debug, info};
 use tokio::fs::File;
 use tokio::sync::RwLock;
 
-use wasi_runtime::{RuntimeHandle, WasiRuntime};
+use handle::RuntimeHandle;
+use wasi_runtime::WasiRuntime;
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 
@@ -97,7 +99,7 @@ impl Provider for WasiProvider {
                 )?;
 
                 debug!("Starting container {} on thread", container.name);
-                let handle = runtime.run().await?;
+                let handle = runtime.start().await?;
                 entry.insert(container.name.clone(), handle);
             }
         }
@@ -174,7 +176,8 @@ impl Provider for WasiProvider {
                 pod_name,
                 container_name,
             })?;
-        let output = handle.output().await?;
+        let mut output = Vec::new();
+        handle.output(&mut output).await?;
         Ok(output)
     }
 }
