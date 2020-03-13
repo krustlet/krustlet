@@ -71,8 +71,10 @@ impl Config {
             default_node_ip(&mut hostname.clone(), &addr)
                 .expect("unable to get default node IP address")
         });
-        let pfx_path = opts.pfx_path.unwrap_or_else(|| PathBuf::from("."));
-        let pfx_password = opts.pfx_password;
+        let pfx_path = opts
+            .pfx_path
+            .unwrap_or_else(|| PathBuf::from("./config/certificate.pfx"));
+        let pfx_password = opts.pfx_password.unwrap_or_else(|| String::new());
         Config {
             node_ip,
             node_name: sanitize_hostname(&hostname),
@@ -122,11 +124,10 @@ pub struct Opts {
 
     #[clap(
         long = "pfx-password",
-        default_value = "",
         env = "PFX_PASSWORD",
         help = "The password to unencrypt the pfx bundle"
     )]
-    pfx_password: String,
+    pfx_password: Option<String>,
 
     #[clap(
         short = "n",
