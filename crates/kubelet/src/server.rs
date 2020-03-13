@@ -23,7 +23,7 @@ use crate::kubelet::Provider;
 ///
 /// This is a primitive implementation of an HTTP provider for the internal API.
 /// TODO: Support TLS/SSL.
-pub async fn start_webserver<'a, T: 'static + Provider + Send + Sync>(
+pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
     provider: Arc<Mutex<T>>,
     config: &ServerConfig,
 ) -> Result<(), failure::Error> {

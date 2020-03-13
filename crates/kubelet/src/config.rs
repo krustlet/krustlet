@@ -71,6 +71,7 @@ impl Config {
             default_node_ip(&mut hostname.clone(), &addr)
                 .expect("unable to get default node IP address")
         });
+        let port = opts.port;
         let pfx_path = opts
             .pfx_path
             .unwrap_or_else(|| PathBuf::from("./config/certificate.pfx"));
@@ -81,7 +82,7 @@ impl Config {
             hostname,
             server_config: ServerConfig {
                 addr,
-                port: 3000,
+                port,
                 pfx_path,
                 pfx_password,
             },
