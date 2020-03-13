@@ -567,13 +567,13 @@ mod test {
         fn arch(&self) -> String {
             "mock".to_string()
         }
-        async fn add(&self, _pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
+        async fn add(&self, _pod: Pod, _client: APIClient) -> anyhow::Result<()> {
             Ok(())
         }
-        async fn modify(&self, _pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
+        async fn modify(&self, _pod: Pod, _client: APIClient) -> anyhow::Result<()> {
             Ok(())
         }
-        async fn status(&self, _pod: Pod, _client: APIClient) -> Result<Status, failure::Error> {
+        async fn status(&self, _pod: Pod, _client: APIClient) -> anyhow::Result<Status> {
             Ok(Status {
                 phase: Phase::Succeeded,
                 message: None,
