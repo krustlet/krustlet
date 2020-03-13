@@ -76,7 +76,7 @@ impl Default for OciManifest {
 ///
 /// It is defined in the OCI Image Specification:
 /// https://github.com/opencontainers/image-spec/blob/master/descriptor.md#properties
-#[derive(Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OciDescriptor {
     /// The media type of this descriptor.

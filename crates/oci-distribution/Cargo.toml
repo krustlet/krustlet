@@ -21,3 +21,4 @@ serde_json = "1.0"
 www-authenticate = "0.3.0"
 hyperx = "0.13"
 chrono = { version = "0.4", features = ["serde"] }
+futures-util = "0.3.4"

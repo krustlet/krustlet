@@ -1,4 +1,5 @@
 use chrono::prelude::{DateTime, Utc};
+use futures_util::stream::StreamExt;
 use hyperx::header::Header;
 use reqwest::header::HeaderMap;
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
@@ -31,11 +32,15 @@ type OciResult<T> = anyhow::Result<T>;
 /// unless you are sure that the remote registry does not require Oauth2.
 pub struct Client {
     token: Option<RegistryToken>,
+    client: reqwest::Client,
 }
 
 impl Default for Client {
     fn default() -> Self {
-        Client { token: None }
+        Client {
+            token: None,
+            client: reqwest::Client::new(),
+        }
     }
 }
 
@@ -48,7 +53,7 @@ impl Client {
     /// v2 is not supported.
     pub async fn version(&self, host: &str) -> OciResult<String> {
         let url = format!("https://{}/v2/", host);
-        let res = reqwest::get(&url).await?;
+        let res = self.client.get(&url).send().await?;
         let disthdr = res.headers().get(OCI_VERSION_KEY);
         let version = disthdr
             .ok_or_else(|| anyhow::anyhow!("no header v2 found"))?
@@ -62,10 +67,9 @@ impl Client {
     /// This performs authorization and then stores the token internally to be used
     /// on other requests.
     pub async fn auth(&mut self, image: &Reference, _secret: Option<&str>) -> OciResult<()> {
-        let cli = reqwest::Client::new();
         // The version request will tell us where to go.
         let url = format!("https://{}/v2/", image.registry());
-        let res = cli.get(&url).send().await?;
+        let res = self.client.get(&url).send().await?;
         let dist_hdr = match res.headers().get(reqwest::header::WWW_AUTHENTICATE) {
             Some(h) => h,
             None => return Ok(()),
@@ -88,7 +92,8 @@ impl Client {
 
         // TODO: At some point in the future, we should support sending a secret to the
         // server for auth. This particular workflow is for read-only public auth.
-        let auth_res = cli
+        let auth_res = self
+            .client
             .get(realm)
             .query(&[("service", service), ("scope", &pull_perms)])
             .send()
@@ -107,23 +112,26 @@ impl Client {
         }
     }
 
-    /// Pull a manifest from the remote OCI Distribution service.
-    ///
-    /// If the connection has already gone through authentication, this will
-    /// use the bearer token. Otherwise, this will attempt an anonymous pull.
-    pub async fn pull_manifest(&self, image: &Reference) -> OciResult<OciManifest> {
-        let client = reqwest::Client::new();
-        let url = image.to_v2_manifest_url();
-        let request = client.get(&url);
-
+    fn auth_headers(&self) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert("Accept", "application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json".parse().unwrap());
 
         if let Some(bearer) = self.token.as_ref() {
             headers.insert("Authorization", bearer.bearer_token().parse().unwrap());
         }
+        headers
+    }
 
-        let res = request.headers(headers).send().await?;
+    /// Pull a manifest from the remote OCI Distribution service.
+    ///
+    /// If the connection has already gone through authentication, this will
+    /// use the bearer token. Otherwise, this will attempt an anonymous pull.
+    pub async fn pull_manifest(&self, image: &Reference) -> OciResult<OciManifest> {
+        // We unwrap right now because this try_from literally cannot fail.
+        let url = image.to_v2_manifest_url();
+        let request = self.client.get(&url);
+
+        let res = request.headers(self.auth_headers()).send().await?;
 
         // The OCI spec technically does not allow any codes but 200, 500, 401, and 404.
         // Obviously, HTTP servers are going to send other codes. This tries to catch the
@@ -143,6 +151,35 @@ impl Client {
                 res.text().await?
             )),
         }
+    }
+
+    /// Pull a single layer from an OCI registy.
+    ///
+    /// This pulls the layer for a particular image that is identified by
+    /// the given digest. The image reference is used to find the
+    /// repository and the registry, but it is not used to verify that
+    /// the digest is a layer inside of the image. (The manifest is
+    /// used for that.)
+    pub async fn pull_layer<T: std::io::Write>(
+        &self,
+        image: &Reference,
+        digest: &str,
+        mut out: T,
+    ) -> OciResult<T> {
+        let url = image.to_v2_blob_url(digest);
+        let mut stream = self
+            .client
+            .get(&url)
+            .headers(self.auth_headers())
+            .send()
+            .await?
+            .bytes_stream();
+
+        while let Some(bytes) = stream.next().await {
+            out.write_all(&bytes?.to_vec())?;
+        }
+
+        Ok(out)
     }
 }
 
@@ -202,6 +239,9 @@ impl Challenge for BearerChallenge {
 mod test {
     use super::*;
     use std::convert::TryFrom;
+
+    const HELLO_IMAGE: &str = "webassembly.azurecr.io/hello-wasm:v1";
+
     #[tokio::test]
     async fn test_version() {
         let c = Client::default();
@@ -214,8 +254,7 @@ mod test {
 
     #[tokio::test]
     async fn test_auth() {
-        let image =
-            Reference::try_from("webassembly.azurecr.io/hello-wasm:v1").expect("parsed reference");
+        let image = Reference::try_from(HELLO_IMAGE).expect("parsed reference");
         let mut c = Client::default();
         c.auth(&image, None)
             .await
@@ -228,8 +267,7 @@ mod test {
 
     #[tokio::test]
     async fn test_pull_manifest() {
-        let image =
-            Reference::try_from("webassembly.azurecr.io/hello-wasm:v1").expect("parsed reference");
+        let image = Reference::try_from(HELLO_IMAGE).expect("parsed reference");
         // Currently, pull_manifest does not perform Authz, so this will fail.
         let c = Client::default();
         c.pull_manifest(&image)
@@ -237,8 +275,7 @@ mod test {
             .expect_err("pull manifest should fail");
 
         // But this should pass
-        let image =
-            Reference::try_from("webassembly.azurecr.io/hello-wasm:v1").expect("parsed reference");
+        let image = Reference::try_from(HELLO_IMAGE).expect("parsed reference");
         // Currently, pull_manifest does not perform Authz, so this will fail.
         let mut c = Client::default();
         c.auth(&image, None).await.expect("authenticated");
@@ -250,5 +287,25 @@ mod test {
         // The test on the manifest checks all fields. This is just a brief sanity check.
         assert_eq!(manifest.schema_version, 2);
         assert!(!manifest.layers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_pull_layer() {
+        let image = Reference::try_from(HELLO_IMAGE).expect("parsed reference");
+        let mut c = Client::default();
+        c.auth(&image, None).await.expect("authenticated");
+        let manifest = c.pull_manifest(&image).await.expect("pull manifest");
+
+        // Pull one specific layer
+        let file: Vec<u8> = Vec::new();
+        let layer0 = manifest.layers[0].clone();
+
+        let file = c
+            .pull_layer(&image, layer0.digest.as_str(), file)
+            .await
+            .expect("Pull layer into vec");
+
+        // The manifest says how many bytes we should expect.
+        assert_eq!(file.len(), layer0.size as usize);
     }
 }
