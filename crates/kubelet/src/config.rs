@@ -32,7 +32,7 @@ impl Config {
     /// when you don't want to set most of the values yourself. The
     /// preferred_ip_family argument takes an IpAddr that is either V4 or V6 to
     /// indicate the preferred IP family to use for defaults
-    pub fn default_config(preferred_ip_family: &IpAddr) -> Result<Self, failure::Error> {
+    pub fn default_config(preferred_ip_family: &IpAddr) -> anyhow::Result<Self> {
         let hostname = default_hostname()?;
         Ok(Config {
             node_ip: default_node_ip(&mut hostname.clone(), preferred_ip_family)?,
@@ -151,10 +151,10 @@ pub struct Opts {
     node_name: Option<String>,
 }
 
-fn default_hostname() -> Result<String, failure::Error> {
+fn default_hostname() -> anyhow::Result<String> {
     Ok(hostname::get()?
         .into_string()
-        .map_err(|_| format_err!("invalid utf-8 hostname string"))?)
+        .map_err(|_| anyhow::anyhow!("invalid utf-8 hostname string"))?)
 }
 
 // Some hostnames (particularly local ones) can have uppercase letters, which is
@@ -170,10 +170,7 @@ fn sanitize_hostname(hostname: &str) -> String {
 // 1. Lookup the IP from node name by DNS
 // 2. Try to get the IP from the network interface used as default gateway
 //    (unimplemented for now because it doesn't work across platforms)
-fn default_node_ip(
-    hostname: &mut String,
-    preferred_ip_family: &IpAddr,
-) -> Result<IpAddr, failure::Error> {
+fn default_node_ip(hostname: &mut String, preferred_ip_family: &IpAddr) -> anyhow::Result<IpAddr> {
     // NOTE: As of right now, we don't have cloud providers. In the future if
     // that is the case, we will need to add logic for looking up the IP and
     // hostname using the cloud provider as they do in the kubelet
@@ -189,7 +186,7 @@ fn default_node_ip(
                 && is_same_ip_family(&i.ip(), preferred_ip_family)
         })
         .ok_or_else(|| {
-            format_err!(
+            anyhow::anyhow!(
                 "unable to find default IP address for node. Please specify a node IP manually"
             )
         })?

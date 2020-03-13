@@ -13,10 +13,10 @@ authors = [
 edition = "2018"
 
 [dependencies]
+anyhow = "1.0"
 async-trait = "0.1.24"
 kube =  "0.28.0" 
 log = "0.4"
-failure = "0.1"
 wasmtime = "0.12"
 wasmtime-wasi = "0.12"
 wasi-common = "0.12"

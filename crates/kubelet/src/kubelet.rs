@@ -22,13 +22,14 @@ use kube::{
     Resource,
 };
 use log::{debug, error, info};
+use thiserror::Error;
 use tokio::sync::Mutex;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[derive(Fail, Debug)]
-#[fail(display = "Operation not supported")]
+#[derive(Error, Debug)]
+#[error("Operation not supported")]
 pub struct NotImplementedError;
 
 /// Describe the lifecycle phase of a workload.
@@ -165,7 +166,7 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
     ///
     /// This will listen on the given address, and will also begin watching for Pod
     /// events, which it will handle.
-    pub async fn start(&self) -> Result<(), failure::Error> {
+    pub async fn start(&self) -> anyhow::Result<()> {
         self.provider.lock().await.init().await?;
         let client = APIClient::new(self.kubeconfig.clone());
         // Create the node. If it already exists, "adopt" the node definition
@@ -218,14 +219,11 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
     }
 }
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum ProviderError {
-    #[fail(display = "cannot find pod {}", pod_name)]
+    #[error("cannot find pod {}", pod_name)]
     PodNotFound { pod_name: String },
-    #[fail(
-        display = "cannot find container {} in pod {}",
-        container_name, pod_name
-    )]
+    #[error("cannot find container {} in pod {}", container_name, pod_name)]
     ContainerNotFound {
         pod_name: String,
         container_name: String,
@@ -244,7 +242,7 @@ pub enum ProviderError {
 #[async_trait]
 pub trait Provider {
     /// Init is guaranteed to be called only once, and prior to the first call to can_schedule().
-    async fn init(&self) -> Result<(), failure::Error> {
+    async fn init(&self) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -263,25 +261,25 @@ pub trait Provider {
     fn can_schedule(&self, pod: &Pod) -> bool;
 
     /// Given a Pod definition, execute the workload.
-    async fn add(&self, pod: Pod, client: APIClient) -> Result<(), failure::Error>;
+    async fn add(&self, pod: Pod, client: APIClient) -> anyhow::Result<()>;
 
     /// Given an updated Pod definition, update the given workload.
     ///
     /// Pods that are sent to this function have already met certain criteria for modification.
     /// For example, updates to the `status` of a Pod will not be sent into this function.
-    async fn modify(&self, pod: Pod, client: APIClient) -> Result<(), failure::Error>;
+    async fn modify(&self, pod: Pod, client: APIClient) -> anyhow::Result<()>;
 
     /// Given a pod, determine the status of the underlying workload.
     ///
     /// This information is used to update Kubernetes about whether this workload is running,
     /// has already finished running, or has failed.
-    async fn status(&self, pod: Pod, client: APIClient) -> Result<Status, failure::Error>;
+    async fn status(&self, pod: Pod, client: APIClient) -> anyhow::Result<Status>;
 
     /// Given the definition of a deleted Pod, remove the workload from the runtime.
     ///
     /// This does not need to actually delete the Pod definition -- just destroy the
     /// associated workload. The default implementation simply returns Ok.
-    async fn delete(&self, _pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
+    async fn delete(&self, _pod: Pod, _client: APIClient) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -294,7 +292,7 @@ pub trait Provider {
         _namespace: String,
         _pod: String,
         _container: String,
-    ) -> Result<Vec<u8>, failure::Error> {
+    ) -> anyhow::Result<Vec<u8>> {
         Err(NotImplementedError {}.into())
     }
 
@@ -307,7 +305,7 @@ pub trait Provider {
         _pod: Pod,
         _client: APIClient,
         _command: String,
-    ) -> Result<Vec<String>, failure::Error> {
+    ) -> anyhow::Result<Vec<String>> {
         Err(NotImplementedError {}.into())
     }
 
@@ -319,7 +317,7 @@ pub trait Provider {
         &self,
         event: WatchEvent<Pod>,
         config: kube::config::Configuration,
-    ) -> Result<(), failure::Error> {
+    ) -> anyhow::Result<()> {
         // TODO: Is there value in keeping one client and cloning it?
         let client = APIClient::new(config);
         //let provider = self.provider.clone(); // Arc +1

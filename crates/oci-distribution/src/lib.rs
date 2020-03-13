@@ -1,5 +1,4 @@
 use chrono::prelude::{DateTime, Utc};
-use failure::format_err;
 use hyperx::header::Header;
 use reqwest::header::HeaderMap;
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
@@ -14,7 +13,7 @@ pub mod errors;
 pub mod manifest;
 pub mod reference;
 
-type OciResult<T> = Result<T, failure::Error>;
+type OciResult<T> = anyhow::Result<T>;
 
 /// The OCI client connects to an OCI registry and fetches OCI images.
 ///
@@ -52,7 +51,7 @@ impl Client {
         let res = reqwest::get(&url).await?;
         let disthdr = res.headers().get(OCI_VERSION_KEY);
         let version = disthdr
-            .ok_or_else(|| failure::format_err!("no header v2 found"))?
+            .ok_or_else(|| anyhow::anyhow!("no header v2 found"))?
             .to_str()?
             .to_owned();
         Ok(version)
@@ -103,7 +102,7 @@ impl Client {
             }
             _ => {
                 let reason = auth_res.text().await?;
-                Err(failure::format_err!("failed to authenticate: {}", reason))
+                Err(anyhow::anyhow!("failed to authenticate: {}", reason))
             }
         }
     }
@@ -135,10 +134,10 @@ impl Client {
                 // According to the OCI spec, we should see an error in the message body.
                 let err = res.json::<OciEnvelope>().await?;
                 // FIXME: This should not have to wrap the error.
-                Err(format_err!("{} on {}", err.errors[0], url))
+                Err(anyhow::anyhow!("{} on {}", err.errors[0], url))
             }
-            s if s.is_server_error() => Err(format_err!("Server error at {}", url)),
-            s => Err(format_err!(
+            s if s.is_server_error() => Err(anyhow::anyhow!("Server error at {}", url)),
+            s => Err(anyhow::anyhow!(
                 "An unexpected error occured: code={}, message='{}'",
                 s,
                 res.text().await?

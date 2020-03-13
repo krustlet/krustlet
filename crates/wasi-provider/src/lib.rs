@@ -20,7 +20,6 @@ const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 // PodStore contains a map of a unique pod key pointing to a map of container
 // names to the join handle and logging for their running task
 type PodStore = HashMap<String, HashMap<String, RuntimeHandle<File>>>;
-
 /// WasiProvider provides a Kubelet runtime implementation that executes WASM
 /// binaries conforming to the WASI spec
 #[derive(Clone, Default)]
@@ -30,7 +29,7 @@ pub struct WasiProvider {
 
 #[async_trait::async_trait]
 impl Provider for WasiProvider {
-    async fn init(&self) -> Result<(), failure::Error> {
+    async fn init(&self) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -51,7 +50,7 @@ impl Provider for WasiProvider {
             .unwrap_or(false)
     }
 
-    async fn add(&self, pod: Pod, client: APIClient) -> Result<(), failure::Error> {
+    async fn add(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> {
         // To run an Add event, we load the WASM, update the pod status to Running,
         // and then execute the WASM, passing in the relevant data.
         // When the pod finishes, we update the status to Succeeded unless it
@@ -112,7 +111,7 @@ impl Provider for WasiProvider {
         Ok(())
     }
 
-    async fn modify(&self, pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
+    async fn modify(&self, pod: Pod, _client: APIClient) -> anyhow::Result<()> {
         // Modify will be tricky. Not only do we need to handle legitimate modifications, but we
         // need to sift out modifications that simply alter the status. For the time being, we
         // just ignore them, which is the wrong thing to do... except that it demos better than
@@ -122,7 +121,7 @@ impl Provider for WasiProvider {
         Ok(())
     }
 
-    async fn delete(&self, _pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
+    async fn delete(&self, _pod: Pod, _client: APIClient) -> anyhow::Result<()> {
         // There is currently no way to stop a long running instance, so we are
         // SOL here until there is support for it. See
         // https://github.com/bytecodealliance/wasmtime/issues/860 for more
@@ -130,7 +129,7 @@ impl Provider for WasiProvider {
         unimplemented!("cannot stop a running wasmtime instance")
     }
 
-    async fn status(&self, pod: Pod, _client: APIClient) -> Result<Status, failure::Error> {
+    async fn status(&self, pod: Pod, _client: APIClient) -> anyhow::Result<Status> {
         let pod_name = pod
             .metadata
             .as_ref()
@@ -150,6 +149,7 @@ impl Provider for WasiProvider {
         for (_, handle) in container_handles.iter_mut() {
             container_statuses.push(handle.status().await?)
         }
+
         Ok(Status {
             phase: Phase::Running,
             message: None,
@@ -162,7 +162,7 @@ impl Provider for WasiProvider {
         namespace: String,
         pod_name: String,
         container_name: String,
-    ) -> Result<Vec<u8>, failure::Error> {
+    ) -> anyhow::Result<Vec<u8>> {
         let mut handles = self.handles.write().await;
         let handle = handles
             .get_mut(&pod_key(&namespace, &pod_name))
