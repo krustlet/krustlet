@@ -27,7 +27,6 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
     provider: Arc<Mutex<T>>,
     config: &ServerConfig,
 ) -> Result<(), failure::Error> {
-    println!("{:?}", std::fs::read(&config.pfx_path));
     let identity = tokio::fs::read(&config.pfx_path)
         .await
         .with_context(|e| format!("Could not read file {:?}: {}", config.pfx_path, e))?;
