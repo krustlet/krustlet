@@ -37,8 +37,8 @@ impl<R: AsyncReadExt + AsyncSeekExt + Unpin> RuntimeHandle<R> {
     pub async fn output(&mut self, buf: &mut Vec<u8>) -> Result<usize, failure::Error> {
         let bytes_written = self.output.read_to_end(buf).await?;
         // Reset the seek location for the next call to read from the file
-        // NOTE: This is a little janky, but the Tokio BufReader does not
-        // implement the AsyncSeek trait
+        // NOTE: The Tokio BufReader does not implement seek, so we need to get
+        // a mutable ref to the inner file and perform the seek
         self.output.get_mut().seek(SeekFrom::Start(0)).await?;
         Ok(bytes_written)
     }

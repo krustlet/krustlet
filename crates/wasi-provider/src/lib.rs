@@ -96,7 +96,8 @@ impl Provider for WasiProvider {
                     HashMap::default(),
                     // TODO: Actual log path configuration
                     std::env::current_dir()?,
-                )?;
+                )
+                .await?;
 
                 debug!("Starting container {} on thread", container.name);
                 let handle = runtime.start().await?;

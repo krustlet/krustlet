@@ -12,7 +12,7 @@ use wasmtime_wasi::old::snapshot_0::Wasi as WasiUnstable;
 use wasmtime_wasi::{Wasi, WasiCtxBuilder};
 
 use crate::handle::RuntimeHandle;
-use kubelet::{ContainerStatus, RunningStatus, TerminatedStatus, WaitingStatus};
+use kubelet::ContainerStatus;
 
 /// WasiRuntime provides a WASI compatible runtime. A runtime should be used for
 /// each "instance" of a process and can be passed to a thread pool for running
@@ -29,7 +29,7 @@ pub struct WasiRuntime {
     dirs: HashMap<String, Option<String>>,
 
     /// The tempfile that output from the wasmtime process writes to
-    output: NamedTempFile,
+    output: Arc<NamedTempFile>,
 }
 
 impl WasiRuntime {
@@ -44,14 +44,25 @@ impl WasiRuntime {
     ///     (e.g. /tmp/foo/myfile -> /app/config). If the optional value is not given,
     ///     the same path will be allowed in the runtime
     /// * `log_dir` - location for storing logs
-    pub fn new<M: AsRef<Path>, L: AsRef<Path>>(
+    pub async fn new<
+        M: AsRef<Path> + Send + Sync + 'static,
+        L: AsRef<Path> + Send + Sync + 'static,
+    >(
         module_path: M,
         env: HashMap<String, String>,
         args: Vec<String>,
         dirs: HashMap<String, Option<String>>,
         log_dir: L,
     ) -> Result<Self, failure::Error> {
-        let module_data = wat::parse_file(module_path)?;
+        let (module_data, temp) = tokio::task::spawn_blocking(
+            move || -> Result<(Vec<u8>, NamedTempFile), failure::Error> {
+                Ok((
+                    wat::parse_file(module_path)?,
+                    NamedTempFile::new_in(log_dir)?,
+                ))
+            },
+        )
+        .await??;
 
         // We need to use named temp file because we need multiple file handles
         // and if we are running in the temp dir, we run the possibility of the
@@ -64,25 +75,33 @@ impl WasiRuntime {
             env,
             args,
             dirs,
-            output: NamedTempFile::new_in(log_dir)?,
+            output: Arc::new(temp),
         })
     }
 
     pub async fn start(&self) -> Result<RuntimeHandle<tokio::fs::File>, failure::Error> {
-        let output = self.output.reopen()?;
+        let temp = self.output.clone();
+        // Because a reopen is blocking, run in a blocking task to get new
+        // handles to the tempfile
+        let (output_write, output_read) = tokio::task::spawn_blocking(
+            move || -> Result<(std::fs::File, std::fs::File), failure::Error> {
+                Ok((temp.reopen()?, temp.reopen()?))
+            },
+        )
+        .await??;
         // Build the WASI instance and then generate a list of WASI modules
         let mut ctx_builder_snapshot = WasiCtxBuilder::new();
         // For some reason if I didn't split these out, the compiler got mad
         let mut ctx_builder_snapshot = ctx_builder_snapshot
             .args(&self.args)
             .envs(&self.env)
-            .stdout(output.try_clone()?)
-            .stderr(output.try_clone()?);
+            .stdout(output_write.try_clone()?)
+            .stderr(output_write.try_clone()?);
         let mut ctx_builder_unstable = wasi_common::old::snapshot_0::WasiCtxBuilder::new()
             .args(&self.args)
             .envs(&self.env)
-            .stdout(output.try_clone()?)
-            .stderr(output);
+            .stdout(output_write.try_clone()?)
+            .stderr(output_write);
 
         for (key, value) in self.dirs.iter() {
             let guest_dir = value.as_ref().unwrap_or(key);
@@ -92,15 +111,14 @@ impl WasiRuntime {
         let wasi_ctx_snapshot = ctx_builder_snapshot.build()?;
         let wasi_ctx_unstable = ctx_builder_unstable.build()?;
 
-        let (status_sender, status_recv) =
-            watch::channel(ContainerStatus::Waiting(WaitingStatus {
-                timestamp: chrono::Utc::now(),
-                message: "No status has been received from the process".into(),
-            }));
+        let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
+            timestamp: chrono::Utc::now(),
+            message: "No status has been received from the process".into(),
+        });
         let handle = self.spawn_wasmtime(status_sender, wasi_ctx_snapshot, wasi_ctx_unstable);
 
         Ok(RuntimeHandle::new(
-            tokio::fs::File::from_std(self.output.reopen()?),
+            tokio::fs::File::from_std(output_read),
             handle,
             status_recv,
         ))
@@ -131,11 +149,11 @@ impl WasiRuntime {
                     let message = "unable to create module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(ContainerStatus::Terminated(TerminatedStatus {
+                        .broadcast(ContainerStatus::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
-                        }))
+                        })
                         .expect("status should be able to send");
                     // Converting from anyhow
                     return Err(format_err!("{}: {}", message, e));
@@ -170,11 +188,11 @@ impl WasiRuntime {
                     let message = "unable to load module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(ContainerStatus::Terminated(TerminatedStatus {
+                        .broadcast(ContainerStatus::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
-                        }))
+                        })
                         .expect("status should be able to send");
                     return Err(e);
                 }
@@ -188,11 +206,11 @@ impl WasiRuntime {
                     let message = "unable to instantiate module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(ContainerStatus::Terminated(TerminatedStatus {
+                        .broadcast(ContainerStatus::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
-                        }))
+                        })
                         .expect("status should be able to send");
                     // Converting from anyhow
                     return Err(format_err!("{}: {}", message, e));
@@ -203,9 +221,9 @@ impl WasiRuntime {
             // need to do a bit more to pass them in here.
             info!("starting run of module");
             status_sender
-                .broadcast(ContainerStatus::Running(RunningStatus {
+                .broadcast(ContainerStatus::Running {
                     timestamp: chrono::Utc::now(),
-                }))
+                })
                 .expect("status should be able to send");
             match instance
                 .get_export("_start")
@@ -221,11 +239,11 @@ impl WasiRuntime {
                     let message = "unable to run module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(ContainerStatus::Terminated(TerminatedStatus {
+                        .broadcast(ContainerStatus::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
-                        }))
+                        })
                         .expect("status should be able to send");
                     // Converting from anyhow
                     return Err(format_err!("{}: {}", message, e));
@@ -234,11 +252,11 @@ impl WasiRuntime {
 
             info!("module run complete");
             status_sender
-                .broadcast(ContainerStatus::Terminated(TerminatedStatus {
+                .broadcast(ContainerStatus::Terminated {
                     failed: false,
                     message: "Module run completed".into(),
                     timestamp: chrono::Utc::now(),
-                }))
+                })
                 .expect("status should be able to send");
             Ok(())
         })
@@ -258,6 +276,7 @@ mod test {
             HashMap::default(),
             std::env::current_dir().unwrap(),
         )
+        .await
         .expect("wasi runtime init");
         let mut handle = wr.start().await.expect("runtime handle");
         handle.wait().await.expect("successful run");
@@ -268,7 +287,7 @@ mod test {
 
         let status = handle.status().await.unwrap();
         assert!(match status {
-            ContainerStatus::Terminated(_) => true,
+            ContainerStatus::Terminated { .. } => true,
             _ => false,
         });
 

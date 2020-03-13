@@ -58,36 +58,6 @@ pub struct Status {
     pub container_statuses: Vec<ContainerStatus>,
 }
 
-/// A struct that contains all necessary information for a waiting status, meant
-/// to be used with the [ContainerStatus] enum
-#[derive(Clone, Debug)]
-pub struct WaitingStatus {
-    /// The timestamp of when this status was reported
-    pub timestamp: DateTime<Utc>,
-    /// A human readable string describing the why it is in a waiting status
-    pub message: String,
-}
-
-/// A struct that contains all necessary information for a running status, meant
-/// to be used with the [ContainerStatus] enum
-#[derive(Clone, Debug)]
-pub struct RunningStatus {
-    /// The timestamp of when this status was reported
-    pub timestamp: DateTime<Utc>,
-}
-
-/// A struct that contains all necessary information for a terminated status,
-/// meant to be used with the [ContainerStatus] enum
-#[derive(Clone, Debug)]
-pub struct TerminatedStatus {
-    /// The timestamp of when this status was reported
-    pub timestamp: DateTime<Utc>,
-    /// A human readable string describing the why it is in a terminating status
-    pub message: String,
-    /// Should be set to true if the process exited with an error
-    pub failed: bool,
-}
-
 /// ContainerStatus is a simplified version of the Kubernetes container status
 /// for use in providers. It allows for simple creation of the current status of
 /// a "container" (a running wasm process) without worrying about a bunch of
@@ -95,44 +65,58 @@ pub struct TerminatedStatus {
 /// to a Kubernetes API status
 #[derive(Clone, Debug)]
 pub enum ContainerStatus {
-    Waiting(WaitingStatus),
-    Running(RunningStatus),
-    Terminated(TerminatedStatus),
+    Waiting {
+        /// The timestamp of when this status was reported
+        timestamp: DateTime<Utc>,
+        /// A human readable string describing the why it is in a waiting status
+        message: String,
+    },
+    Running {
+        /// The timestamp of when this status was reported
+        timestamp: DateTime<Utc>,
+    },
+    Terminated {
+        /// The timestamp of when this status was reported
+        timestamp: DateTime<Utc>,
+        /// A human readable string describing the why it is in a terminating status
+        message: String,
+        /// Should be set to true if the process exited with an error
+        failed: bool,
+    },
 }
 
 impl ContainerStatus {
-    pub fn to_kubernetes(&self, pod_name: &str) -> KubeContainerStatus {
-        let state = match self {
-            Self::Waiting(w) => ContainerState {
-                waiting: Some(ContainerStateWaiting {
-                    message: Some(w.message.clone()),
+    pub fn to_kubernetes(&self, pod_name: String) -> KubeContainerStatus {
+        let mut state = ContainerState::default();
+        match self {
+            Self::Waiting { message, .. } => {
+                state.waiting.replace(ContainerStateWaiting {
+                    message: Some(message.clone()),
                     ..Default::default()
-                }),
-                ..Default::default()
-            },
-            Self::Running(r) => ContainerState {
-                running: Some(ContainerStateRunning {
-                    started_at: Some(Time(r.timestamp)),
-                }),
-                ..Default::default()
-            },
-            Self::Terminated(t) => {
-                let exit_code = if t.failed { 1 } else { 0 };
-                ContainerState {
-                    terminated: Some(ContainerStateTerminated {
-                        finished_at: Some(Time(t.timestamp)),
-                        message: Some(t.message.clone()),
-                        exit_code,
-                        ..Default::default()
-                    }),
+                });
+            }
+            Self::Running { timestamp } => {
+                state.running.replace(ContainerStateRunning {
+                    started_at: Some(Time(*timestamp)),
+                });
+            }
+            Self::Terminated {
+                timestamp,
+                message,
+                failed,
+            } => {
+                state.terminated.replace(ContainerStateTerminated {
+                    finished_at: Some(Time(*timestamp)),
+                    message: Some(message.clone()),
+                    exit_code: *failed as i32,
                     ..Default::default()
-                }
+                });
             }
         };
         let ready = state.running.is_some();
         KubeContainerStatus {
             state: Some(state),
-            name: pod_name.to_string(),
+            name: pod_name,
             // Right now we don't have a way to probe, so just set to ready if
             // in a running state
             ready,
