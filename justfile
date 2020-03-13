@@ -1,4 +1,4 @@
-export RUST_LOG := "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,main=debug"
+export RUST_LOG := "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,main=debug,kubelet=debug"
 
 run: run-wascc
 
@@ -13,11 +13,11 @@ test:
     cargo clippy --workspace
     cargo test --workspace
 
-run-wascc: _cleanup_kube
+run-wascc: _cleanup_kube bootstrap-ssl
     # Change directories so we have access to the ./lib dir
     cd ./crates/wascc-provider && cargo run --bin krustlet-wascc --manifest-path ../../Cargo.toml
 
-run-wasi: _cleanup_kube
+run-wasi: _cleanup_kube bootstrap-ssl
     # HACK: Temporary step to change to a directory so it has access to a hard
     # coded module. This should be removed once we have image support
     cd ./crates/wasi-provider && cargo run --bin krustlet-wasi --manifest-path ../../Cargo.toml
@@ -27,6 +27,13 @@ dockerize:
 
 push:
     docker push technosophos/krustlet:latest
+
+bootstrap-ssl:
+    mkdir -p ~/.krustlet/config
+    test -f  ~/.krustlet/config/host.key || openssl genrsa 2048 >  ~/.krustlet/config/host.key
+    chmod 400 ~/.krustlet/config/host.key
+    test -f ~/.krustlet/config/host.cert || openssl req -new -x509 -nodes -sha256 -days 365 -key ~/.krustlet/config/host.key -out ~/.krustlet/config/host.cert -subj "/C=AU/ST=./L=./O=./OU=./CN=."
+    test -f ~/.krustlet/config/certificate.pfx || openssl pkcs12 -export -out  ~/.krustlet/config/certificate.pfx -inkey  ~/.krustlet/config/host.key -in  ~/.krustlet/config/host.cert -password pass:
 
 itest:
     kubectl create -f examples/greet.yaml

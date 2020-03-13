@@ -2,6 +2,7 @@
 use clap::derive::{FromArgMatches, IntoApp};
 use std::net::IpAddr;
 use std::net::ToSocketAddrs;
+use std::path::PathBuf;
 
 const DEFAULT_PORT: u16 = 3000;
 
@@ -10,16 +11,20 @@ const DEFAULT_PORT: u16 = 3000;
 /// [get_from_flags method](get_from_flags) (this requires the `cli` feature to
 /// be enabled). Use [default_config](Config::default_config) to generate a
 /// config with all of the default values set.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Config {
-    pub addr: IpAddr,
-
-    pub port: u16,
-
     pub node_ip: IpAddr,
     pub hostname: String,
-
     pub node_name: String,
+    pub server_config: ServerConfig,
+}
+
+#[derive(Clone, Debug)]
+pub struct ServerConfig {
+    pub addr: IpAddr,
+    pub port: u16,
+    pub pfx_path: PathBuf,
+    pub pfx_password: String,
 }
 
 impl Config {
@@ -30,16 +35,20 @@ impl Config {
     pub fn default_config(preferred_ip_family: &IpAddr) -> Result<Self, failure::Error> {
         let hostname = default_hostname()?;
         Ok(Config {
-            addr: match preferred_ip_family {
-                // Just unwrap these because they are programmer error if they
-                // don't parse
-                IpAddr::V4(_) => "0.0.0.0".parse().unwrap(),
-                IpAddr::V6(_) => "::".parse().unwrap(),
-            },
-            port: DEFAULT_PORT,
             node_ip: default_node_ip(&mut hostname.clone(), preferred_ip_family)?,
             node_name: sanitize_hostname(&hostname),
             hostname,
+            server_config: ServerConfig {
+                addr: match preferred_ip_family {
+                    // Just unwrap these because they are programmer error if they
+                    // don't parse
+                    IpAddr::V4(_) => "0.0.0.0".parse().unwrap(),
+                    IpAddr::V6(_) => "::".parse().unwrap(),
+                },
+                port: DEFAULT_PORT,
+                pfx_password: String::new(),
+                pfx_path: default_pfx_path(),
+            },
         })
     }
     /// Parses all command line flags and sets the proper defaults. The version
@@ -62,12 +71,19 @@ impl Config {
             default_node_ip(&mut hostname.clone(), &addr)
                 .expect("unable to get default node IP address")
         });
+        let port = opts.port;
+        let pfx_path = opts.pfx_path.unwrap_or_else(default_pfx_path);
+        let pfx_password = opts.pfx_password.unwrap_or_default();
         Config {
-            addr,
-            port: 3000,
             node_ip,
             node_name: sanitize_hostname(&hostname),
             hostname,
+            server_config: ServerConfig {
+                addr,
+                port,
+                pfx_path,
+                pfx_password,
+            },
         }
     }
 }
@@ -97,6 +113,20 @@ pub struct Opts {
         help = "The port krustlet should listen on"
     )]
     port: u16,
+
+    #[clap(
+        long = "pfx-path",
+        env = "PFX_PATH",
+        help = "The path to the pfx bundle for ssl configuration"
+    )]
+    pfx_path: Option<PathBuf>,
+
+    #[clap(
+        long = "pfx-password",
+        env = "PFX_PASSWORD",
+        help = "The password to unencrypt the pfx bundle"
+    )]
+    pfx_password: Option<String>,
 
     #[clap(
         short = "n",
@@ -164,6 +194,12 @@ fn default_node_ip(
             )
         })?
         .ip())
+}
+
+fn default_pfx_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap()
+        .join(".krustlet/config/certificate.pfx")
 }
 
 fn is_same_ip_family(first: &IpAddr, second: &IpAddr) -> bool {

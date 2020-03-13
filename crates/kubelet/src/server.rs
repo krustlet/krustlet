@@ -1,15 +1,22 @@
 /// Server is an HTTP(S) server for answering Kubelet callbacks.
 ///
 /// Logs and exec calls are the main things that a server should handle.
-use hyper::server::conn::AddrStream;
+use async_stream::stream;
+use failure::ResultExt;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Error, Method, Request, Response, Server, StatusCode};
+use hyper::{
+    server::{conn::Http, Builder},
+    Body, Error, Method, Request, Response, StatusCode,
+};
 use log::{debug, error, info};
+use native_tls::{Identity, TlsAcceptor};
+use tokio::net::TcpListener;
+use tokio::stream::StreamExt;
 use tokio::sync::Mutex;
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
+use crate::config::ServerConfig;
 use crate::kubelet::Provider;
 
 /// Start the Krustlet HTTP(S) server
@@ -18,9 +25,17 @@ use crate::kubelet::Provider;
 /// TODO: Support TLS/SSL.
 pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
     provider: Arc<Mutex<T>>,
-    address: &SocketAddr,
+    config: &ServerConfig,
 ) -> Result<(), failure::Error> {
-    let service = make_service_fn(move |_conn: &AddrStream| {
+    println!("{:?}", std::fs::read(&config.pfx_path));
+    let identity = tokio::fs::read(&config.pfx_path)
+        .await
+        .with_context(|e| format!("Could not read file {:?}: {}", config.pfx_path, e))?;
+    let identity = Identity::from_pkcs12(&identity, &config.pfx_password)?;
+
+    let acceptor = tokio_tls::TlsAcceptor::from(TlsAcceptor::new(identity)?);
+    let acceptor = Arc::new(acceptor);
+    let service = make_service_fn(move |_| {
         let provider = provider.clone();
         async {
             Ok::<_, Error>(service_fn(move |req: Request<Body>| {
@@ -28,28 +43,48 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
 
                 async move {
                     let path: Vec<&str> = req.uri().path().split('/').collect();
-                    let path_len = path.len();
-                    let response = if path_len < 2 {
-                        get_ping()
-                    } else {
-                        match (req.method(), path[1], path_len) {
-                            (&Method::GET, "containerLogs", 5) => {
-                                get_container_logs(&*provider.lock().await, &req).await
-                            }
-                            (&Method::POST, "exec", 5) => post_exec(&*provider.lock().await, &req),
-                            _ => {
-                                let mut response = Response::new(Body::from("Not Found"));
-                                *response.status_mut() = StatusCode::NOT_FOUND;
-                                response
-                            }
+
+                    let response = match (req.method(), path.as_slice()) {
+                        (_, path) if path.len() <= 2 => get_ping(),
+                        (&Method::GET, [_, "containerLogs", namespace, pod, container]) => {
+                            get_container_logs(
+                                &*provider.lock().await,
+                                &req,
+                                namespace.to_string(),
+                                pod.to_string(),
+                                container.to_string(),
+                            )
+                            .await
                         }
+                        (&Method::POST, [_, "exec", _, _, _]) => {
+                            post_exec(&*provider.lock().await, &req)
+                        }
+                        _ => Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .body(Body::from("Not Found"))
+                            .unwrap(),
                     };
                     Ok::<_, Error>(response)
                 }
             }))
         }
     });
-    let server = Server::bind(address).serve(service);
+
+    let address = std::net::SocketAddr::new(config.addr, config.port);
+    let mut listener = TcpListener::bind(&address).await.unwrap();
+    let mut incoming = listener.incoming();
+    let accept = hyper::server::accept::from_stream(stream! {
+        loop {
+            match incoming.next().await {
+                Some(Ok(stream)) => match acceptor.clone().accept(stream).await {
+                    result @ Ok(_) => yield result,
+                    Err(e) => error!("error accepting ssl connection: {}", e),
+                },
+                _ => break,
+            }
+        }
+    });
+    let server = Builder::new(accept, Http::new()).serve(service);
 
     info!("starting webserver at: {:?}", address);
 
@@ -69,23 +104,14 @@ fn get_ping() -> Response<Body> {
 async fn get_container_logs<T: Provider + Sync>(
     provider: &T,
     req: &Request<Body>,
+    namespace: String,
+    pod: String,
+    container: String,
 ) -> Response<Body> {
-    // Basic validation steps
-    let path: Vec<&str> = req.uri().path().split('/').collect();
-    // Because of the leading slash, index 0 is an empty string. Index 1 is the
-    // container logs path
-    let (namespace, pod, container) = match path.as_slice() {
-        [_, _, namespace, pod, container] => (*namespace, *pod, *container),
-        _ => {
-            return Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from(format!(
-                    "Resource {} not found",
-                    req.uri().path()
-                )))
-                .unwrap()
-        }
-    };
+    debug!(
+        "Got container log request for container {} in pod {} in namespace {}",
+        container, pod, namespace
+    );
     if namespace.is_empty() || pod.is_empty() || container.is_empty() {
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
@@ -95,20 +121,9 @@ async fn get_container_logs<T: Provider + Sync>(
             )))
             .unwrap();
     }
-
-    // END validation
-
-    debug!(
-        "Got container log request for container {} in pod {} in namespace {}",
-        container, pod, namespace
-    );
-
-    match provider
-        .logs(namespace.into(), pod.into(), container.into())
-        .await
-    {
+    match provider.logs(namespace, pod, container).await {
         Ok(data) => Response::new(Body::from(data)),
-        // TODO: This should detect not implemented vs. regular error (pod not found, etc.)
+        // TODO: This should detect not implemented vs. regular error
         Err(e) => {
             error!("Error fetching logs: {}", e);
             let mut res = Response::new(Body::from("Not Implemented"));
