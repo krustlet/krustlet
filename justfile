@@ -1,4 +1,5 @@
-export RUST_LOG := "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,main=debug,kubelet=debug"
+export RUST_LOG := "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,main=debug"
+export PFX_PASSWORD := "testing"
 
 run: run-wascc
 
@@ -30,10 +31,9 @@ push:
 
 bootstrap-ssl:
     mkdir -p ~/.krustlet/config
-    test -f  ~/.krustlet/config/host.key || openssl genrsa 2048 >  ~/.krustlet/config/host.key
-    chmod 400 ~/.krustlet/config/host.key
-    test -f ~/.krustlet/config/host.cert || openssl req -new -x509 -nodes -sha256 -days 365 -key ~/.krustlet/config/host.key -out ~/.krustlet/config/host.cert -subj "/C=AU/ST=./L=./O=./OU=./CN=."
-    test -f ~/.krustlet/config/certificate.pfx || openssl pkcs12 -export -out  ~/.krustlet/config/certificate.pfx -inkey  ~/.krustlet/config/host.key -in  ~/.krustlet/config/host.cert -password pass:
+    test -f  ~/.krustlet/config/host.key && test -f ~/.krustlet/config/host.cert || openssl req -x509 -sha256 -newkey rsa:2048 -keyout ~/.krustlet/config/host.key -out ~/.krustlet/config/host.cert -days 365 -nodes -subj "/C=AU/ST=./L=./O=./OU=./CN=."
+    test -f ~/.krustlet/config/certificate.pfx || openssl pkcs12 -export -out  ~/.krustlet/config/certificate.pfx -inkey  ~/.krustlet/config/host.key -in  ~/.krustlet/config/host.cert -password "pass:${PFX_PASSWORD}"
+    chmod 400 ~/.krustlet/config/*
 
 itest:
     kubectl create -f examples/greet.yaml
