@@ -127,9 +127,8 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
             }
         });
 
-        let address = std::net::SocketAddr::new(self.config.addr, self.config.port);
         // Start the webserver
-        start_webserver(self.provider.clone(), &address).await?;
+        start_webserver(self.provider.clone(), &self.config.server_config).await?;
 
         // FIXME: If any of these dies, we should crash the Kubelet and let it restart.
         node_updater.await.expect("node update thread crashed");

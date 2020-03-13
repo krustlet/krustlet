@@ -13,23 +13,24 @@ use tokio::net::TcpListener;
 use tokio::stream::StreamExt;
 use tokio::sync::Mutex;
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
+use crate::config::ServerConfig;
 use crate::kubelet::Provider;
 
 /// Start the Krustlet HTTP(S) server
 ///
 /// This is a primitive implementation of an HTTP provider for the internal API.
 /// TODO: Support TLS/SSL.
-pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
+pub async fn start_webserver<'a, T: 'static + Provider + Send + Sync>(
     provider: Arc<Mutex<T>>,
-    address: &SocketAddr,
+    config: &ServerConfig,
 ) -> Result<(), failure::Error> {
-    let identity = tokio::fs::read("/home/rylevick/krustlet/certificate.pfx")
+    let identity = tokio::fs::read(&config.pfx_path)
         .await
         .expect("Could not read identity file");
-    let identity = Identity::from_pkcs12(&identity, "").expect("Could not parse indentiy file");
+    let identity = Identity::from_pkcs12(&identity, &config.pfx_password)
+        .expect("Could not parse indentiy file");
 
     let acceptor = tokio_tls::TlsAcceptor::from(TlsAcceptor::new(identity).unwrap());
     let acceptor = Arc::new(acceptor);
@@ -63,14 +64,15 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
         }
     });
 
-    let mut listener = TcpListener::bind(address).await.unwrap();
+    let address = std::net::SocketAddr::new(config.addr, config.port);
+    let mut listener = TcpListener::bind(&address).await.unwrap();
     let mut incoming = listener.incoming();
     let accept = hyper::server::accept::from_stream(stream! {
         loop {
             match incoming.next().await {
                 Some(Ok(stream)) => match acceptor.clone().accept(stream).await {
                     result @ Ok(_) => yield result,
-                    Err(e) => break,
+                    Err(e) => error!("error accepting ssl connection: {}", e),
                 },
                 _ => break,
             }

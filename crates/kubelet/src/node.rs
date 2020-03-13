@@ -201,7 +201,7 @@ fn node_definition(config: Config, arch: &str) -> serde_json::Value {
             ],
             "daemonEndpoints": {
                 "kubeletEndpoint": {
-                    "Port": config.port
+                    "Port": config.server_config.port
                 }
             }
         }
