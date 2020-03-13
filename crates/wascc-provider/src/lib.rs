@@ -150,10 +150,7 @@ impl Provider for WasccProvider {
         // just ignore them, which is the wrong thing to do... except that it demos better than
         // other wrong things.
         info!("Pod modified");
-        info!(
-            "Modified pod spec: {}",
-            serde_json::to_string_pretty(&pod.status.unwrap()).unwrap()
-        );
+        info!("Modified pod spec: {:#?}", pod.status.unwrap());
         Ok(())
     }
 
