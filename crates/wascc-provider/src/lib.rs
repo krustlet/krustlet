@@ -177,6 +177,7 @@ impl Provider for WasccProvider {
             None => Ok(Status {
                 phase: Phase::Unknown,
                 message: None,
+                container_statuses: Vec::new(),
             }),
             Some(pk) => {
                 let pk = pk.clone();
@@ -187,11 +188,13 @@ impl Provider for WasccProvider {
                         Ok(Status {
                             phase: Phase::Succeeded,
                             message: None,
+                            container_statuses: Vec::new(),
                         })
                     }
                     Some(_) => Ok(Status {
                         phase: Phase::Running,
                         message: None,
+                        container_statuses: Vec::new(),
                     }),
                 }
             }

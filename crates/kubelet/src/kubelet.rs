@@ -7,8 +7,14 @@ use crate::{
     server::start_webserver,
 };
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use futures::{StreamExt, TryStreamExt};
-use k8s_openapi::api::core::v1::{ConfigMap, Container, EnvVar, Secret};
+use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
+use k8s_openapi::api::core::v1::{
+    ConfigMap, Container, ContainerState, ContainerStateRunning, ContainerStateTerminated,
+    ContainerStateWaiting, EnvVar, Secret,
+};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 use kube::{
     api::{Api, ListParams, WatchEvent},
     client::APIClient,
@@ -49,6 +55,81 @@ pub enum Phase {
 pub struct Status {
     pub phase: Phase,
     pub message: Option<String>,
+    pub container_statuses: Vec<ContainerStatus>,
+}
+
+/// ContainerStatus is a simplified version of the Kubernetes container status
+/// for use in providers. It allows for simple creation of the current status of
+/// a "container" (a running wasm process) without worrying about a bunch of
+/// Options. Use the [ContainerStatus::to_kubernetes] method for converting it
+/// to a Kubernetes API status
+#[derive(Clone, Debug)]
+pub enum ContainerStatus {
+    Waiting {
+        /// The timestamp of when this status was reported
+        timestamp: DateTime<Utc>,
+        /// A human readable string describing the why it is in a waiting status
+        message: String,
+    },
+    Running {
+        /// The timestamp of when this status was reported
+        timestamp: DateTime<Utc>,
+    },
+    Terminated {
+        /// The timestamp of when this status was reported
+        timestamp: DateTime<Utc>,
+        /// A human readable string describing the why it is in a terminating status
+        message: String,
+        /// Should be set to true if the process exited with an error
+        failed: bool,
+    },
+}
+
+impl ContainerStatus {
+    pub fn to_kubernetes(&self, pod_name: String) -> KubeContainerStatus {
+        let mut state = ContainerState::default();
+        match self {
+            Self::Waiting { message, .. } => {
+                state.waiting.replace(ContainerStateWaiting {
+                    message: Some(message.clone()),
+                    ..Default::default()
+                });
+            }
+            Self::Running { timestamp } => {
+                state.running.replace(ContainerStateRunning {
+                    started_at: Some(Time(*timestamp)),
+                });
+            }
+            Self::Terminated {
+                timestamp,
+                message,
+                failed,
+            } => {
+                state.terminated.replace(ContainerStateTerminated {
+                    finished_at: Some(Time(*timestamp)),
+                    message: Some(message.clone()),
+                    exit_code: *failed as i32,
+                    ..Default::default()
+                });
+            }
+        };
+        let ready = state.running.is_some();
+        KubeContainerStatus {
+            state: Some(state),
+            name: pod_name,
+            // Right now we don't have a way to probe, so just set to ready if
+            // in a running state
+            ready,
+            // This is always true if startupProbe is not defined. When we
+            // handle probes, this should be updated accordingly
+            started: Some(true),
+            // The rest of the items in status (see docs here:
+            // https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#containerstatus-v1-core)
+            // either don't matter for us or we have not implemented the
+            // functionality yet
+            ..Default::default()
+        }
+    }
 }
 
 /// Kubelet provides the core Kubelet capability.
@@ -498,6 +579,7 @@ mod test {
             Ok(Status {
                 phase: Phase::Succeeded,
                 message: None,
+                container_statuses: Vec::new(),
             })
         }
     }
