@@ -47,7 +47,7 @@ impl Config {
                 },
                 port: DEFAULT_PORT,
                 pfx_password: String::new(),
-                pfx_path: PathBuf::new(),
+                pfx_path: default_pfx_path(),
             },
         })
     }
@@ -72,10 +72,8 @@ impl Config {
                 .expect("unable to get default node IP address")
         });
         let port = opts.port;
-        let pfx_path = opts
-            .pfx_path
-            .unwrap_or_else(|| PathBuf::from("./config/certificate.pfx"));
-        let pfx_password = opts.pfx_password.unwrap_or_else(|| String::new());
+        let pfx_path = opts.pfx_path.unwrap_or_else(default_pfx_path);
+        let pfx_password = opts.pfx_password.unwrap_or_default();
         Config {
             node_ip,
             node_name: sanitize_hostname(&hostname),
@@ -196,6 +194,12 @@ fn default_node_ip(
             )
         })?
         .ip())
+}
+
+fn default_pfx_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap()
+        .join(".krustlet/config/certificate.pfx")
 }
 
 fn is_same_ip_family(first: &IpAddr, second: &IpAddr) -> bool {

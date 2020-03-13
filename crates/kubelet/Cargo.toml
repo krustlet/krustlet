@@ -14,6 +14,7 @@ edition = "2018"
 
 [dependencies]
 async-trait = "0.1.24"
+dirs = "2.0"
 failure = "0.1"
 futures = "0.3.4"
 serde = "1.0"

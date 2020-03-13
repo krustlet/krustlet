@@ -1457,6 +1457,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap 3.0.0-beta.1",
+ "dirs",
  "failure",
  "futures",
  "hostname",

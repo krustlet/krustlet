@@ -27,9 +27,10 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
     provider: Arc<Mutex<T>>,
     config: &ServerConfig,
 ) -> Result<(), failure::Error> {
+    println!("{:?}", std::fs::read(&config.pfx_path));
     let identity = tokio::fs::read(&config.pfx_path)
         .await
-        .with_context(|e| format!("Could not read file '{:?}': {}", &config.pfx_path, e))?;
+        .with_context(|e| format!("Could not read file {:?}: {}", config.pfx_path, e))?;
     let identity = Identity::from_pkcs12(&identity, &config.pfx_password)?;
 
     let acceptor = tokio_tls::TlsAcceptor::from(TlsAcceptor::new(identity)?);
@@ -58,11 +59,10 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
                         (&Method::POST, [_, "exec", _, _, _]) => {
                             post_exec(&*provider.lock().await, &req)
                         }
-                        _ => {
-                            let mut response = Response::new(Body::from("Not Found"));
-                            *response.status_mut() = StatusCode::NOT_FOUND;
-                            response
-                        }
+                        _ => Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .body(Body::from("Not Found"))
+                            .unwrap(),
                     };
                     Ok::<_, Error>(response)
                 }
