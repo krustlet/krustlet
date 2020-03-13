@@ -1,8 +1,7 @@
 use chrono::prelude::{DateTime, Utc};
 use failure::format_err;
 use hyperx::header::Header;
-use reqwest::header::{HeaderMap, HeaderValue};
-use std::convert::TryFrom;
+use reqwest::header::HeaderMap;
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
 
 use crate::errors::*;
@@ -63,37 +62,36 @@ impl Client {
     ///
     /// This performs authorization and then stores the token internally to be used
     /// on other requests.
-    pub async fn auth(&mut self, image: &Reference, _secret: Option<String>) -> OciResult<()> {
+    pub async fn auth(&mut self, image: &Reference, _secret: Option<&str>) -> OciResult<()> {
         let cli = reqwest::Client::new();
         // The version request will tell us where to go.
         let url = format!("https://{}/v2/", image.registry());
         let res = cli.get(&url).send().await?;
-        let disthdr = res.headers().get(reqwest::header::WWW_AUTHENTICATE);
-        if disthdr.is_none() {
-            // The Authenticate header can be set to empty string.
-            return Ok(());
-        }
-        let auth = WwwAuthenticate::parse_header(&disthdr.unwrap().as_bytes().into())?;
-        let challenge_opt = auth.get::<BearerChallenge>();
-        if challenge_opt.is_none() {
-            // This means that no challenge was present, even though the header was present.
-            // Since we do not handle basic auth, it could be the case that the upstream service
-            // is in compatibility mode with a Docker v1 registry.
-            return Ok(());
-        }
+        let dist_hdr = match res.headers().get(reqwest::header::WWW_AUTHENTICATE) {
+            Some(h) => h,
+            None => return Ok(()),
+        };
+
+        let auth = WwwAuthenticate::parse_header(&dist_hdr.as_bytes().into())?;
+        // If challenge_opt is not set it means that no challenge was present, even though the header
+        // was present. Since we do not handle basic auth, it could be the case that the upstream service
+        // is in compatibility mode with a Docker v1 registry.
+        let challenge_opt = match auth.get::<BearerChallenge>() {
+            Some(co) => co,
+            None => return Ok(()),
+        };
 
         // Right now, we do read-only auth.
         let pull_perms = format!("repository:{}:pull", image.repository());
-        let challenge = challenge_opt.unwrap()[0].clone();
-        let realm = challenge.realm.unwrap();
-        let service = challenge.service.unwrap();
-        let scope = pull_perms.to_owned();
+        let challenge = &challenge_opt[0];
+        let realm = challenge.realm.as_ref().unwrap();
+        let service = challenge.service.as_ref().unwrap();
 
         // TODO: At some point in the future, we should support sending a secret to the
         // server for auth. This particular workflow is for read-only public auth.
         let auth_res = cli
-            .get(&realm)
-            .query(&[("service", service), ("scope", scope)])
+            .get(realm)
+            .query(&[("service", service), ("scope", &pull_perms)])
             .send()
             .await?;
 
@@ -115,10 +113,9 @@ impl Client {
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
     pub async fn pull_manifest(&self, image: &Reference) -> OciResult<OciManifest> {
-        // We unwrap right now because this try_from literally cannot fail.
-        let cli = reqwest::Client::new();
+        let client = reqwest::Client::new();
         let url = image.to_v2_manifest_url();
-        let request = cli.get(&url);
+        let request = client.get(&url);
 
         let mut headers = HeaderMap::new();
         headers.insert("Accept", "application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json".parse().unwrap());
@@ -129,34 +126,29 @@ impl Client {
 
         let res = request.headers(headers).send().await?;
 
-        let status = res.status();
-
         // The OCI spec technically does not allow any codes but 200, 500, 401, and 404.
         // Obviously, HTTP servers are going to send other codes. This tries to catch the
         // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
-        if status == reqwest::StatusCode::OK {
-            let manifest = res.json::<OciManifest>().await?;
-            Ok(manifest)
-        } else if status.is_client_error() {
-            // According to the OCI spec, we should see an error in the message body.
-            let err = res.json::<OciEnvelope>().await?;
-            // FIXME: This should not have to wrap the error.
-            Err(format_err!("{} on {}", err.errors[0], url))
-        } else if status.is_server_error() {
-            Err(format_err!("Server error at {}", url))
-        } else {
-            let text = res.text().await?;
-            Err(format_err!(
+        match res.status() {
+            reqwest::StatusCode::OK => Ok(res.json::<OciManifest>().await?),
+            s if s.is_client_error() => {
+                // According to the OCI spec, we should see an error in the message body.
+                let err = res.json::<OciEnvelope>().await?;
+                // FIXME: This should not have to wrap the error.
+                Err(format_err!("{} on {}", err.errors[0], url))
+            }
+            s if s.is_server_error() => Err(format_err!("Server error at {}", url)),
+            s => Err(format_err!(
                 "An unexpected error occured: code={}, message='{}'",
-                status,
-                text
-            ))
+                s,
+                res.text().await?
+            )),
         }
     }
 }
 
 /// A token granted during the OAuth2-like workflow for OCI registries.
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Default)]
 struct RegistryToken {
     access_token: String,
     expires_in: Option<u32>,
@@ -166,16 +158,6 @@ struct RegistryToken {
 impl RegistryToken {
     fn bearer_token(&self) -> String {
         format!("Bearer {}", self.access_token)
-    }
-}
-
-impl Default for RegistryToken {
-    fn default() -> Self {
-        RegistryToken {
-            access_token: "".to_owned(),
-            expires_in: None,
-            issued_at: None, // We could do Utc::now() if we really need.
-        }
     }
 }
 
@@ -201,14 +183,18 @@ impl Challenge for BearerChallenge {
             }),
         }
     }
+
     fn into_raw(self) -> RawChallenge {
         let mut map = ChallengeFields::new();
-        self.realm
-            .and_then(|realm| map.insert_static_quoting("realm", realm));
-        self.scope
-            .and_then(|item| map.insert_static_quoting("scope", item));
-        self.service
-            .and_then(|item| map.insert_static_quoting("service", item));
+        if let Some(realm) = self.realm {
+            map.insert_static_quoting("realm", realm);
+        }
+        if let Some(scope) = self.scope {
+            map.insert_static_quoting("scope", scope);
+        }
+        if let Some(service) = self.service {
+            map.insert_static_quoting("service", service);
+        }
         RawChallenge::Fields(map)
     }
 }
