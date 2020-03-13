@@ -26,10 +26,7 @@ pub async fn pod_status(client: APIClient, pod: &Pod, phase: &str, ns: &str) {
     match api.patch_status(&name, &PatchParams::default(), data).await {
         Ok(o) => {
             info!("Pod status for {} set to {}", name, phase);
-            debug!(
-                "Pod status returned: {}",
-                serde_json::to_string_pretty(&o.status).unwrap()
-            )
+            debug!("Pod status returned: {:#?}", o.status)
         }
         Err(e) => error!("Pod status update failed for {}: {}", name, e),
     }
