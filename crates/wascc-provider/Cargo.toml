@@ -13,8 +13,8 @@ authors = [
 edition = "2018"
 
 [dependencies]
+anyhow = "1.0"
 async-trait = "0.1.24"
-failure = "0.1"
 wascc-host = "0.5.2"
 log = "0.4"
 serde = "1.0"

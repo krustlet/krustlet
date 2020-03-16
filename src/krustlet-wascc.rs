@@ -4,7 +4,7 @@ use kubelet::Kubelet;
 use wascc_provider::WasccProvider;
 
 #[tokio::main]
-async fn main() -> Result<(), failure::Error> {
+async fn main() -> anyhow::Result<()> {
     // Read the environment. Note that this tries a KubeConfig file first, then
     // falls back on an in-cluster configuration.
     let kubeconfig = config::load_kube_config()

@@ -1,4 +1,3 @@
-use failure::format_err;
 use std::convert::{Into, TryFrom};
 
 // currently, the library only accepts modules tagged in the following structure:
@@ -39,20 +38,23 @@ impl Reference {
 }
 
 impl TryFrom<String> for Reference {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
     fn try_from(string: String) -> Result<Self, Self::Error> {
         TryFrom::try_from(string.as_str())
     }
 }
 
 impl TryFrom<&str> for Reference {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
     fn try_from(string: &str) -> Result<Self, Self::Error> {
         let slash = string.find('/').ok_or_else(|| {
-            format_err!("Failed to pare {}. Expected at least one slash (/)", string)
+            anyhow::anyhow!(
+                "Failed to parse {}. Expected at least one slash (/)",
+                string
+            )
         })?;
         let colon = string[slash + 1..].find(':').ok_or_else(|| {
-            format_err!("failed to parse {}. Expected exactly one colon (:)", string)
+            anyhow::anyhow!("failed to parse {}. Expected exactly one colon (:)", string)
         })?;
         Ok(Reference {
             whole: string.to_owned(),

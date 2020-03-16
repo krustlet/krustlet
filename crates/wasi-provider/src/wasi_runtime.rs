@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use failure::{bail, format_err};
+use anyhow::bail;
 use log::{error, info};
 use tempfile::NamedTempFile;
 use tokio::sync::watch::{self, Sender};
@@ -53,16 +53,15 @@ impl WasiRuntime {
         args: Vec<String>,
         dirs: HashMap<String, Option<String>>,
         log_dir: L,
-    ) -> Result<Self, failure::Error> {
-        let (module_data, temp) = tokio::task::spawn_blocking(
-            move || -> Result<(Vec<u8>, NamedTempFile), failure::Error> {
+    ) -> anyhow::Result<Self> {
+        let (module_data, temp) =
+            tokio::task::spawn_blocking(move || -> anyhow::Result<(Vec<u8>, NamedTempFile)> {
                 Ok((
                     wat::parse_file(module_path)?,
                     NamedTempFile::new_in(log_dir)?,
                 ))
-            },
-        )
-        .await??;
+            })
+            .await??;
 
         // We need to use named temp file because we need multiple file handles
         // and if we are running in the temp dir, we run the possibility of the
@@ -79,16 +78,17 @@ impl WasiRuntime {
         })
     }
 
-    pub async fn start(&self) -> Result<RuntimeHandle<tokio::fs::File>, failure::Error> {
+    pub async fn start(&self) -> anyhow::Result<RuntimeHandle<tokio::fs::File>> {
         let temp = self.output.clone();
         // Because a reopen is blocking, run in a blocking task to get new
         // handles to the tempfile
         let (output_write, output_read) = tokio::task::spawn_blocking(
-            move || -> Result<(std::fs::File, std::fs::File), failure::Error> {
+            move || -> anyhow::Result<(std::fs::File, std::fs::File)> {
                 Ok((temp.reopen()?, temp.reopen()?))
             },
         )
         .await??;
+
         // Build the WASI instance and then generate a list of WASI modules
         let mut ctx_builder_snapshot = WasiCtxBuilder::new();
         // For some reason if I didn't split these out, the compiler got mad
@@ -132,11 +132,11 @@ impl WasiRuntime {
         status_sender: Sender<ContainerStatus>,
         wasi_ctx_snapshot: wasi_common::WasiCtx,
         wasi_ctx_unstable: wasi_common::old::snapshot_0::WasiCtx,
-    ) -> JoinHandle<Result<(), failure::Error>> {
+    ) -> JoinHandle<anyhow::Result<()>> {
         // Clone the module data Arc so it can be moved
         let module_data = self.module_data.clone();
 
-        tokio::task::spawn_blocking(move || -> Result<_, failure::Error> {
+        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
             let engine = wasmtime::Engine::default();
             let store = wasmtime::Store::new(&engine);
             let wasi_snapshot = Wasi::new(&store, wasi_ctx_snapshot);
@@ -155,8 +155,7 @@ impl WasiRuntime {
                             timestamp: chrono::Utc::now(),
                         })
                         .expect("status should be able to send");
-                    // Converting from anyhow
-                    return Err(format_err!("{}: {}", message, e));
+                    return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
             };
             // Iterate through the module includes and resolve imports
@@ -213,7 +212,7 @@ impl WasiRuntime {
                         })
                         .expect("status should be able to send");
                     // Converting from anyhow
-                    return Err(format_err!("{}: {}", message, e));
+                    return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
             };
 
@@ -245,8 +244,7 @@ impl WasiRuntime {
                             timestamp: chrono::Utc::now(),
                         })
                         .expect("status should be able to send");
-                    // Converting from anyhow
-                    return Err(format_err!("{}: {}", message, e));
+                    return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
             };
 

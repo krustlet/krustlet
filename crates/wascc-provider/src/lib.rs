@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate failure;
-
 use kube::client::APIClient;
 use kubelet::pod::pod_status;
 use kubelet::{pod::Pod, Phase, Provider, Status};
@@ -32,12 +29,13 @@ pub struct WasccProvider {}
 
 #[async_trait::async_trait]
 impl Provider for WasccProvider {
-    async fn init(&self) -> Result<(), failure::Error> {
+    async fn init(&self) -> anyhow::Result<()> {
         tokio::task::spawn_blocking(|| {
-            let data = NativeCapability::from_file(HTTP_LIB)
-                .map_err(|e| format_err!("Failed to read HTTP capability {}: {}", HTTP_LIB, e))?;
+            let data = NativeCapability::from_file(HTTP_LIB).map_err(|e| {
+                anyhow::anyhow!("Failed to read HTTP capability {}: {}", HTTP_LIB, e)
+            })?;
             host::add_native_capability(data)
-                .map_err(|e| format_err!("Failed to load HTTP capability: {}", e))
+                .map_err(|e| anyhow::anyhow!("Failed to load HTTP capability: {}", e))
         })
         .await?
     }
@@ -59,7 +57,7 @@ impl Provider for WasccProvider {
             .unwrap_or(false)
     }
 
-    async fn add(&self, pod: Pod, client: APIClient) -> Result<(), failure::Error> {
+    async fn add(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> {
         // To run an Add event, we load the WASM, update the pod status to Running,
         // and then execute the WASM, passing in the relevant data.
         // When the pod finishes, we update the status to Succeeded unless it
@@ -133,7 +131,7 @@ impl Provider for WasccProvider {
                 }
                 Err(e) => {
                     pod_status(client, &pod, "Failed", namespace).await;
-                    return Err(failure::format_err!("Failed to run pod: {}", e));
+                    return Err(anyhow::anyhow!("Failed to run pod: {}", e));
                 }
             }
         }
@@ -144,7 +142,7 @@ impl Provider for WasccProvider {
         Ok(())
     }
 
-    async fn modify(&self, pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
+    async fn modify(&self, pod: Pod, _client: APIClient) -> anyhow::Result<()> {
         // Modify will be tricky. Not only do we need to handle legitimate modifications, but we
         // need to sift out modifications that simply alter the status. For the time being, we
         // just ignore them, which is the wrong thing to do... except that it demos better than
@@ -154,7 +152,7 @@ impl Provider for WasccProvider {
         Ok(())
     }
 
-    async fn delete(&self, pod: Pod, _client: APIClient) -> Result<(), failure::Error> {
+    async fn delete(&self, pod: Pod, _client: APIClient) -> anyhow::Result<()> {
         let pubkey = pod
             .metadata
             .unwrap_or_default()
@@ -163,10 +161,10 @@ impl Provider for WasccProvider {
             .get(ACTOR_PUBLIC_KEY)
             .map(|a| a.to_string())
             .unwrap_or_else(|| "".into());
-        wascc_stop(&pubkey).map_err(|e| format_err!("Failed to stop wascc actor: {}", e))
+        wascc_stop(&pubkey).map_err(|e| anyhow::anyhow!("Failed to stop wascc actor: {}", e))
     }
 
-    async fn status(&self, pod: Pod, _client: APIClient) -> Result<Status, failure::Error> {
+    async fn status(&self, pod: Pod, _client: APIClient) -> anyhow::Result<Status> {
         match pod
             .metadata
             .unwrap_or_default()
@@ -205,7 +203,7 @@ impl Provider for WasccProvider {
 /// Run a WasCC module inside of the host, configuring it to handle HTTP requests.
 ///
 /// This bootstraps an HTTP host, using the value of the env's `PORT` key to expose a port.
-fn wascc_run_http(data: Vec<u8>, env: EnvVars, key: &str) -> Result<(), failure::Error> {
+fn wascc_run_http(data: Vec<u8>, env: EnvVars, key: &str) -> anyhow::Result<()> {
     let mut httpenv: HashMap<String, String> = HashMap::new();
     httpenv.insert(
         "PORT".into(),
@@ -225,7 +223,7 @@ fn wascc_run_http(data: Vec<u8>, env: EnvVars, key: &str) -> Result<(), failure:
 }
 
 /// Stop a running waSCC actor.
-fn wascc_stop(key: &str) -> Result<(), wascc_host::errors::Error> {
+fn wascc_stop(key: &str) -> anyhow::Result<(), wascc_host::errors::Error> {
     host::remove_actor(key)
 }
 
@@ -243,19 +241,15 @@ struct Capability {
 ///
 /// The provided capabilities will be configured for this actor, but the capabilities
 /// must first be loaded into the host by some other process, such as register_native_capabilities().
-fn wascc_run(
-    data: Vec<u8>,
-    key: &str,
-    capabilities: Vec<Capability>,
-) -> Result<(), failure::Error> {
+fn wascc_run(data: Vec<u8>, key: &str, capabilities: Vec<Capability>) -> anyhow::Result<()> {
     info!("wascc run");
-    let load = Actor::from_bytes(data).map_err(|e| format_err!("Error loading WASM: {}", e))?;
-    host::add_actor(load).map_err(|e| format_err!("Error adding actor: {}", e))?;
+    let load = Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
+    host::add_actor(load).map_err(|e| anyhow::anyhow!("Error adding actor: {}", e))?;
 
     capabilities.iter().try_for_each(|cap| {
         info!("configuring capability {}", cap.name);
         host::configure(key, cap.name, cap.env.clone())
-            .map_err(|e| format_err!("Error configuring capabilities for module: {}", e))
+            .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
     })?;
     info!("Instance executing");
     Ok(())

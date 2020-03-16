@@ -15,14 +15,14 @@ edition = "2018"
 [dependencies]
 async-trait = "0.1.24"
 dirs = "2.0"
-failure = "0.1"
+anyhow = "1.0"
 futures = { version = "0.3.4", default-features = false }
 serde_derive = "1.0"
 serde_json = "1.0"
 hyper = { version = "0.13.3", default-features = false, features = ["stream"] }
 log = "0.4"
 reqwest = "0.10.4"
-tokio  = { version = "0.2.13", features = ["fs", "stream"] }
+tokio  = { version = "0.2.13", features = ["fs", "stream", "macros"] }
 kube = "0.28.0" 
 k8s-openapi = { version = "0.7.1", default-features = false, features = ["v1_17"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -31,6 +31,7 @@ hostname = "^0.3"
 native-tls = "0.2.4"
 tokio-tls = "0.3.0"
 async-stream = "0.2.1"
+thiserror = "1.0"
 
 [features]
 cli = ["clap"]

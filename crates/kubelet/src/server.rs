@@ -1,8 +1,8 @@
 /// Server is an HTTP(S) server for answering Kubelet callbacks.
 ///
 /// Logs and exec calls are the main things that a server should handle.
+use anyhow::Context;
 use async_stream::stream;
-use failure::ResultExt;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{
     server::{conn::Http, Builder},
@@ -26,10 +26,10 @@ use crate::kubelet::Provider;
 pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
     provider: Arc<Mutex<T>>,
     config: &ServerConfig,
-) -> Result<(), failure::Error> {
+) -> anyhow::Result<()> {
     let identity = tokio::fs::read(&config.pfx_path)
         .await
-        .with_context(|e| format!("Could not read file {:?}: {}", config.pfx_path, e))?;
+        .with_context(|| format!("Could not read file {:?}", config.pfx_path))?;
     let identity = Identity::from_pkcs12(&identity, &config.pfx_password)?;
 
     let acceptor = tokio_tls::TlsAcceptor::from(TlsAcceptor::new(identity)?);
