@@ -35,7 +35,7 @@ pub struct NotImplementedError;
 /// Describe the lifecycle phase of a workload.
 ///
 /// This is specified by Kubernetes itself.
-#[derive(Clone)]
+#[derive(Clone, Copy, serde::Serialize, Debug)]
 pub enum Phase {
     /// The workload is currently executing.
     Running,

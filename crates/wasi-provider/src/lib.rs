@@ -107,7 +107,7 @@ impl Provider for WasiProvider {
             "All containers started for pod {:?}. Updating status",
             pod.metadata.as_ref().and_then(|m| m.name.as_ref())
         );
-        pod_status(client, &pod, "Running", namespace).await;
+        pod_status(client, &pod, Phase::Running, namespace).await;
         Ok(())
     }
 

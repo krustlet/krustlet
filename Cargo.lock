@@ -1280,7 +1280,7 @@ dependencies = [
  "log",
  "native-tls",
  "reqwest",
- "serde_derive",
+ "serde",
  "serde_json",
  "thiserror",
  "tokio",

@@ -127,10 +127,10 @@ impl Provider for WasccProvider {
                     .await?;
             match http_result {
                 Ok(_) => {
-                    pod_status(client.clone(), &pod, "Running", namespace).await;
+                    pod_status(client.clone(), &pod, Phase::Running, namespace).await;
                 }
                 Err(e) => {
-                    pod_status(client, &pod, "Failed", namespace).await;
+                    pod_status(client, &pod, Phase::Failed, namespace).await;
                     return Err(anyhow::anyhow!("Failed to run pod: {}", e));
                 }
             }
