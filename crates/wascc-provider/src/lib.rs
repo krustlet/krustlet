@@ -1,8 +1,9 @@
 use kube::client::APIClient;
 use kubelet::{pod::Pod, Phase, Provider, Status};
 use log::{debug, info};
-use std::collections::HashMap;
 use wascc_host::{host, Actor, NativeCapability};
+
+use std::collections::HashMap;
 
 const ACTOR_PUBLIC_KEY: &str = "deislabs.io/wascc-action-key";
 const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
@@ -60,7 +61,6 @@ impl Provider for WasccProvider {
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
         debug!("Pod added {:?}", pod.name());
-        let namespace = pod.namespace();
         // This would lock us into one wascc actor per pod. I don't know if
         // that is a good thing. Other containers would then be limited
         // to acting as components... which largely follows the sidecar
@@ -92,15 +92,9 @@ impl Provider for WasccProvider {
         //   - mount any volumes (popen)
         //   - run it to completion
         //   - bail if it errors
-        let containers = pod
-            .as_serialized()
-            .spec
-            .as_ref()
-            .map(|s| &s.containers)
-            .unwrap();
-        // Wrap this in a block so the write lock goes out of scope when we are done
+
         info!("Starting containers for pod {:?}", pod.name());
-        for container in containers {
+        for container in pod.containers() {
             let env = self.env_vars(client.clone(), &container, &pod).await;
 
             debug!("Starting container {} on thread", container.name);
@@ -111,10 +105,10 @@ impl Provider for WasccProvider {
                 tokio::task::spawn_blocking(move || wascc_run_http(data, env, &pub_key)).await?;
             match http_result {
                 Ok(_) => {
-                    pod.patch_status(client.clone(), "Running", namespace).await;
+                    pod.patch_status(client.clone(), &Phase::Running).await;
                 }
                 Err(e) => {
-                    pod.patch_status(client, "Failed", namespace).await;
+                    pod.patch_status(client, &Phase::Failed).await;
                     return Err(anyhow::anyhow!("Failed to run pod: {}", e));
                 }
             }
@@ -134,20 +128,18 @@ impl Provider for WasccProvider {
         info!("Pod modified");
         info!(
             "Modified pod spec: {:#?}",
-            pod.as_serialized().status.as_ref().unwrap()
+            pod.as_kube_pod().status.as_ref().unwrap()
         );
         Ok(())
     }
 
     async fn delete(&self, pod: Pod, _client: APIClient) -> anyhow::Result<()> {
-        let empty = std::collections::BTreeMap::new();
-        let pubkey = pod
+        let pub_key = pod
             .annotations()
-            .unwrap_or_else(|| &empty)
             .get(ACTOR_PUBLIC_KEY)
             .map(String::as_str)
             .unwrap_or_default();
-        wascc_stop(&pubkey).map_err(|e| anyhow::anyhow!("Failed to stop wascc actor: {}", e))
+        wascc_stop(&pub_key).map_err(|e| anyhow::anyhow!("Failed to stop wascc actor: {}", e))
     }
 
     async fn status(&self, pod: Pod, _client: APIClient) -> anyhow::Result<Status> {
@@ -238,6 +230,7 @@ fn wascc_run(data: Vec<u8>, key: &str, capabilities: Vec<Capability>) -> anyhow:
 #[cfg(test)]
 mod test {
     use super::*;
+    use k8s_openapi::api::core::v1::Pod as KubePod;
     use k8s_openapi::api::core::v1::PodSpec;
 
     #[cfg(target_os = "linux")]
@@ -295,7 +288,7 @@ mod test {
     #[test]
     fn test_can_schedule() {
         let wr = WasccProvider {};
-        let mut mock = Default::default();
+        let mock = Default::default();
         assert!(!wr.can_schedule(&mock));
 
         let mut selector = std::collections::BTreeMap::new();
@@ -303,16 +296,20 @@ mod test {
             "beta.kubernetes.io/arch".to_string(),
             "wasm32-wascc".to_string(),
         );
+        let mut mock: KubePod = mock.into();
         mock.spec = Some(PodSpec {
             node_selector: Some(selector.clone()),
             ..Default::default()
         });
+        let mock = Pod::new(mock);
         assert!(wr.can_schedule(&mock));
         selector.insert("beta.kubernetes.io/arch".to_string(), "amd64".to_string());
+        let mut mock: KubePod = mock.into();
         mock.spec = Some(PodSpec {
             node_selector: Some(selector),
             ..Default::default()
         });
+        let mock = Pod::new(mock);
         assert!(!wr.can_schedule(&mock));
     }
 }

@@ -40,10 +40,7 @@ impl Provider for WasiProvider {
     fn can_schedule(&self, pod: &Pod) -> bool {
         // If there is a node selector and it has arch set to wasm32-wasi, we can
         // schedule it.
-        pod.as_serialized()
-            .spec
-            .as_ref()
-            .and_then(|s| s.node_selector.as_ref())
+        pod.node_selector()
             .and_then(|i| {
                 i.get("beta.kubernetes.io/arch")
                     .map(|v| v.eq(&TARGET_WASM32_WASI))
@@ -56,7 +53,6 @@ impl Provider for WasiProvider {
         // and then execute the WASM, passing in the relevant data.
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
-        let namespace = pod.namespace();
 
         // TODO: Implement this for real.
         //
@@ -73,19 +69,13 @@ impl Provider for WasiProvider {
         //   - mount any volumes (popen)
         //   - run it to completion
         //   - bail if it errors
-        let containers = pod
-            .as_serialized()
-            .spec
-            .as_ref()
-            .map(|s| &s.containers)
-            .unwrap();
-        // Wrap this in a block so the write lock goes out of scope when we are done
         info!("Starting containers for pod {:?}", pod.name());
+        // Wrap this in a block so the write lock goes out of scope when we are done
         {
             // Grab the entry while we are creating things
             let mut handles = self.handles.write().await;
             let entry = handles.entry(key_from_pod(&pod)).or_default();
-            for container in containers {
+            for container in pod.containers() {
                 let env = self.env_vars(client.clone(), &container, &pod).await;
                 let runtime = WasiRuntime::new(
                     PathBuf::from("./testdata/hello-world.wasm"),
@@ -106,7 +96,7 @@ impl Provider for WasiProvider {
             "All containers started for pod {:?}. Updating status",
             pod.name()
         );
-        pod.patch_status(client, "Running", namespace).await;
+        pod.patch_status(client, &Phase::Running).await;
         Ok(())
     }
 
@@ -118,7 +108,7 @@ impl Provider for WasiProvider {
         info!("Pod modified");
         info!(
             "Modified pod spec: {:#?}",
-            pod.as_serialized().status.as_ref().unwrap()
+            pod.as_kube_pod().status.as_ref().unwrap()
         );
         Ok(())
     }
@@ -187,12 +177,13 @@ fn pod_key<N: AsRef<str>, T: AsRef<str>>(namespace: N, pod_name: T) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
+    use k8s_openapi::api::core::v1::Pod as KubePod;
     use k8s_openapi::api::core::v1::PodSpec;
 
     #[test]
     fn test_can_schedule() {
         let wp = WasiProvider::default();
-        let mut mock = Default::default();
+        let mock = Default::default();
         assert!(!wp.can_schedule(&mock));
 
         let mut selector = std::collections::BTreeMap::new();
@@ -200,16 +191,20 @@ mod test {
             "beta.kubernetes.io/arch".to_string(),
             "wasm32-wasi".to_string(),
         );
+        let mut mock: KubePod = mock.into();
         mock.spec = Some(PodSpec {
             node_selector: Some(selector.clone()),
             ..Default::default()
         });
+        let mock = Pod::new(mock);
         assert!(wp.can_schedule(&mock));
         selector.insert("beta.kubernetes.io/arch".to_string(), "amd64".to_string());
+        let mut mock: KubePod = mock.into();
         mock.spec = Some(PodSpec {
             node_selector: Some(selector),
             ..Default::default()
         });
+        let mock = Pod::new(mock);
         assert!(!wp.can_schedule(&mock));
     }
 

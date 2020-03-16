@@ -3,13 +3,14 @@
 use crate::{
     config::Config,
     node::{create_node, update_node},
-    pod::{ApiPod, Pod},
+    pod::Pod,
     server::start_webserver,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
+use k8s_openapi::api::core::v1::Pod as KubePod;
 use k8s_openapi::api::core::v1::{
     ConfigMap, Container, ContainerState, ContainerStateRunning, ContainerStateTerminated,
     ContainerStateWaiting, EnvVarSource, Secret,
@@ -35,7 +36,7 @@ pub struct NotImplementedError;
 /// Describe the lifecycle phase of a workload.
 ///
 /// This is specified by Kubernetes itself.
-#[derive(Clone)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub enum Phase {
     /// The workload is currently executing.
     Running,
@@ -192,7 +193,7 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
 
         let pod_informer = tokio::task::spawn(async move {
             // Create our informer and start listening.
-            let informer = Informer::new(client, ListParams::default(), Resource::all::<ApiPod>());
+            let informer = Informer::new(client, ListParams::default(), Resource::all::<KubePod>());
             loop {
                 let mut stream = informer.poll().await.expect("informer poll failed").boxed();
                 while let Some(event) = stream.try_next().await.unwrap() {
@@ -315,7 +316,7 @@ pub trait Provider {
     /// the underlying event handling needs to change.
     async fn handle_event(
         &self,
-        event: WatchEvent<ApiPod>,
+        event: WatchEvent<KubePod>,
         config: kube::config::Configuration,
     ) -> anyhow::Result<()> {
         // TODO: Is there value in keeping one client and cloning it?
@@ -418,7 +419,7 @@ async fn on_missing_value(
     ns: &str,
     fields: &HashMap<String, String>,
 ) -> String {
-    if let Some(env_src) = env_var_source.as_ref() {
+    if let Some(env_src) = env_var_source {
         // ConfigMaps
         if let Some(cfkey) = env_src.config_map_key_ref.as_ref() {
             let name = cfkey.name.as_deref().unwrap_or_default();
@@ -494,11 +495,11 @@ fn field_map(pod: &Pod) -> HashMap<String, String> {
         "status.podIP".into(),
         pod.pod_ip().unwrap_or_default().to_owned(),
     );
-    pod.labels_iter().for_each(|(k, v)| {
+    pod.labels().iter().for_each(|(k, v)| {
         info!("adding {} to labels", k);
         map.insert(format!("metadata.labels.{}", k), v.clone());
     });
-    pod.annotations_iter().for_each(|(k, v)| {
+    pod.annotations().iter().for_each(|(k, v)| {
         map.insert(format!("metadata.annotations.{}", k), v.clone());
     });
     map
@@ -639,7 +640,7 @@ mod test {
         labels.insert("label".to_string(), "value".to_string());
         let mut annotations = BTreeMap::new();
         annotations.insert("annotation".to_string(), "value".to_string());
-        let pod = ApiPod {
+        let pod = Pod::new(KubePod {
             metadata: Some(ObjectMeta {
                 labels: Some(labels),
                 annotations: Some(annotations),
@@ -656,7 +657,7 @@ mod test {
                 pod_ip: Some("10.21.77.2".to_string()),
                 ..Default::default()
             }),
-        };
+        });
         let prov = MockProvider::new();
         let env = prov.env_vars(mock_client(), &container, &pod).await;
 
