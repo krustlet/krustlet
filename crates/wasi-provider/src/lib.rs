@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use kube::client::APIClient;
-use kubelet::pod::{pod_status, Pod};
+use kubelet::pod::Pod;
 use kubelet::{Phase, Provider, ProviderError, Status};
 use log::{debug, info};
 use tokio::fs::File;
@@ -40,7 +40,8 @@ impl Provider for WasiProvider {
     fn can_schedule(&self, pod: &Pod) -> bool {
         // If there is a node selector and it has arch set to wasm32-wasi, we can
         // schedule it.
-        pod.spec
+        pod.as_serialized()
+            .spec
             .as_ref()
             .and_then(|s| s.node_selector.as_ref())
             .and_then(|i| {
@@ -55,11 +56,7 @@ impl Provider for WasiProvider {
         // and then execute the WASM, passing in the relevant data.
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
-        let namespace = pod
-            .metadata
-            .as_ref()
-            .and_then(|m| m.namespace.as_deref())
-            .unwrap_or_else(|| "default");
+        let namespace = pod.namespace();
 
         // TODO: Implement this for real.
         //
@@ -76,12 +73,14 @@ impl Provider for WasiProvider {
         //   - mount any volumes (popen)
         //   - run it to completion
         //   - bail if it errors
-        let containers = pod.spec.as_ref().map(|s| &s.containers).unwrap();
+        let containers = pod
+            .as_serialized()
+            .spec
+            .as_ref()
+            .map(|s| &s.containers)
+            .unwrap();
         // Wrap this in a block so the write lock goes out of scope when we are done
-        info!(
-            "Starting containers for pod {:?}",
-            pod.metadata.as_ref().and_then(|m| m.name.as_ref())
-        );
+        info!("Starting containers for pod {:?}", pod.name());
         {
             // Grab the entry while we are creating things
             let mut handles = self.handles.write().await;
@@ -105,9 +104,9 @@ impl Provider for WasiProvider {
         }
         info!(
             "All containers started for pod {:?}. Updating status",
-            pod.metadata.as_ref().and_then(|m| m.name.as_ref())
+            pod.name()
         );
-        pod_status(client, &pod, "Running", namespace).await;
+        pod.patch_status(client, "Running", namespace).await;
         Ok(())
     }
 
@@ -117,7 +116,10 @@ impl Provider for WasiProvider {
         // just ignore them, which is the wrong thing to do... except that it demos better than
         // other wrong things.
         info!("Pod modified");
-        info!("Modified pod spec: {:#?}", pod.status.unwrap());
+        info!(
+            "Modified pod spec: {:#?}",
+            pod.as_serialized().status.as_ref().unwrap()
+        );
         Ok(())
     }
 
@@ -130,20 +132,13 @@ impl Provider for WasiProvider {
     }
 
     async fn status(&self, pod: Pod, _client: APIClient) -> anyhow::Result<Status> {
-        let pod_name = pod
-            .metadata
-            .as_ref()
-            .unwrap()
-            .name
-            .as_ref()
-            .unwrap()
-            .clone();
+        let pod_name = pod.name().unwrap_or_default();
         let mut handles = self.handles.write().await;
         let container_handles =
             handles
                 .get_mut(&key_from_pod(&pod))
                 .ok_or_else(|| ProviderError::PodNotFound {
-                    pod_name: pod_name.clone(),
+                    pod_name: pod_name.to_owned(),
                 })?;
         let mut container_statuses = Vec::new();
         for (_, handle) in container_handles.iter_mut() {
@@ -182,13 +177,7 @@ impl Provider for WasiProvider {
 
 /// Generates a unique human readable key for storing a handle to a pod
 fn key_from_pod(pod: &Pod) -> String {
-    pod_key(
-        &pod.metadata
-            .as_ref()
-            .and_then(|m| m.namespace.as_deref())
-            .unwrap_or("default"),
-        pod.metadata.as_ref().unwrap().name.as_ref().unwrap(),
-    )
+    pod_key(&pod.namespace(), pod.name().unwrap_or_default())
 }
 
 fn pod_key<N: AsRef<str>, T: AsRef<str>>(namespace: N, pod_name: T) -> String {

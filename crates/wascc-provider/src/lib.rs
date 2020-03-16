@@ -1,5 +1,4 @@
 use kube::client::APIClient;
-use kubelet::pod::pod_status;
 use kubelet::{pod::Pod, Phase, Provider, Status};
 use log::{debug, info};
 use std::collections::HashMap;
@@ -47,9 +46,7 @@ impl Provider for WasccProvider {
     fn can_schedule(&self, pod: &Pod) -> bool {
         // If there is a node selector and it has arch set to wasm32-wascc, we can
         // schedule it.
-        pod.spec
-            .as_ref()
-            .and_then(|s| s.node_selector.as_ref())
+        pod.node_selector()
             .and_then(|i| {
                 i.get("beta.kubernetes.io/arch")
                     .map(|v| v.eq(&TARGET_WASM32_WASCC))
@@ -62,15 +59,8 @@ impl Provider for WasccProvider {
         // and then execute the WASM, passing in the relevant data.
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
-        debug!(
-            "Pod added {:?}",
-            pod.metadata.as_ref().and_then(|m| m.name.as_ref())
-        );
-        let namespace = pod
-            .metadata
-            .as_ref()
-            .and_then(|m| m.namespace.as_deref())
-            .unwrap_or_else(|| "default");
+        debug!("Pod added {:?}", pod.name());
+        let namespace = pod.namespace();
         // This would lock us into one wascc actor per pod. I don't know if
         // that is a good thing. Other containers would then be limited
         // to acting as components... which largely follows the sidecar
@@ -84,15 +74,8 @@ impl Provider for WasccProvider {
         // vars and suck it out of there. But that violates the intention
         // of env vars, which is to communicate _into_ the runtime, not to
         // configure the runtime.
-        let pubkey = pod
-            .metadata
-            .as_ref()
-            .and_then(|s| s.annotations.as_ref())
-            .unwrap()
-            .get(ACTOR_PUBLIC_KEY)
-            .map(|a| a.to_string())
-            .unwrap_or_default();
-        debug!("{:?}", pubkey);
+        let pub_key = pod.get_annotation(ACTOR_PUBLIC_KEY).unwrap_or_default();
+        debug!("{:?}", pub_key);
 
         // TODO: Implement this for real.
         //
@@ -109,35 +92,36 @@ impl Provider for WasccProvider {
         //   - mount any volumes (popen)
         //   - run it to completion
         //   - bail if it errors
-        let containers = pod.spec.as_ref().map(|s| &s.containers).unwrap();
+        let containers = pod
+            .as_serialized()
+            .spec
+            .as_ref()
+            .map(|s| &s.containers)
+            .unwrap();
         // Wrap this in a block so the write lock goes out of scope when we are done
-        info!(
-            "Starting containers for pod {:?}",
-            pod.metadata.as_ref().and_then(|m| m.name.as_ref())
-        );
+        info!("Starting containers for pod {:?}", pod.name());
         for container in containers {
             let env = self.env_vars(client.clone(), &container, &pod).await;
 
             debug!("Starting container {} on thread", container.name);
-            let cloned_key = pubkey.clone();
+            let pub_key = pub_key.to_owned();
             // TODO: Replace with actual image store lookup when it is merged
             let data = tokio::fs::read("./testdata/echo.wasm").await?;
             let http_result =
-                tokio::task::spawn_blocking(move || wascc_run_http(data.clone(), env, &cloned_key))
-                    .await?;
+                tokio::task::spawn_blocking(move || wascc_run_http(data, env, &pub_key)).await?;
             match http_result {
                 Ok(_) => {
-                    pod_status(client.clone(), &pod, "Running", namespace).await;
+                    pod.patch_status(client.clone(), "Running", namespace).await;
                 }
                 Err(e) => {
-                    pod_status(client, &pod, "Failed", namespace).await;
+                    pod.patch_status(client, "Failed", namespace).await;
                     return Err(anyhow::anyhow!("Failed to run pod: {}", e));
                 }
             }
         }
         info!(
             "All containers started for pod {:?}. Updating status",
-            pod.metadata.as_ref().and_then(|m| m.name.as_ref())
+            pod.name()
         );
         Ok(())
     }
@@ -148,37 +132,33 @@ impl Provider for WasccProvider {
         // just ignore them, which is the wrong thing to do... except that it demos better than
         // other wrong things.
         info!("Pod modified");
-        info!("Modified pod spec: {:#?}", pod.status.unwrap());
+        info!(
+            "Modified pod spec: {:#?}",
+            pod.as_serialized().status.as_ref().unwrap()
+        );
         Ok(())
     }
 
     async fn delete(&self, pod: Pod, _client: APIClient) -> anyhow::Result<()> {
+        let empty = std::collections::BTreeMap::new();
         let pubkey = pod
-            .metadata
-            .unwrap_or_default()
-            .annotations
-            .unwrap_or_default()
+            .annotations()
+            .unwrap_or_else(|| &empty)
             .get(ACTOR_PUBLIC_KEY)
-            .map(|a| a.to_string())
-            .unwrap_or_else(|| "".into());
+            .map(String::as_str)
+            .unwrap_or_default();
         wascc_stop(&pubkey).map_err(|e| anyhow::anyhow!("Failed to stop wascc actor: {}", e))
     }
 
     async fn status(&self, pod: Pod, _client: APIClient) -> anyhow::Result<Status> {
-        match pod
-            .metadata
-            .unwrap_or_default()
-            .annotations
-            .unwrap_or_default()
-            .get(ACTOR_PUBLIC_KEY)
-        {
+        match pod.get_annotation(ACTOR_PUBLIC_KEY) {
             None => Ok(Status {
                 phase: Phase::Unknown,
                 message: None,
                 container_statuses: Vec::new(),
             }),
             Some(pk) => {
-                let pk = pk.clone();
+                let pk = pk.to_owned();
                 let result = tokio::task::spawn_blocking(move || host::actor_claims(&pk)).await?;
                 match result {
                     None => {
