@@ -36,17 +36,8 @@ pub struct Client {
     client: reqwest::Client,
 }
 
-/*
-impl Default for Client {
-    fn default() -> Self {
-        Client {
-            token: None,
-            client: reqwest::Client::new(),
-        }
-    }
-}
-*/
 impl Client {
+    // Create a new client initialized to share HTTP connections across multiple requests.
     fn new() -> Self {
         Client {
             token: None,
@@ -160,7 +151,7 @@ impl Client {
     /// repository and the registry, but it is not used to verify that
     /// the digest is a layer inside of the image. (The manifest is
     /// used for that.)
-    pub async fn pull_layer<T: AsyncWrite + AsyncWriteExt + Unpin>(
+    pub async fn pull_layer<T: AsyncWrite + Unpin>(
         &self,
         image: &Reference,
         digest: &str,
