@@ -438,18 +438,17 @@ async fn on_missing_value(
             match Api::<Secret>::namespaced(client, ns).get(name).await {
                 Ok(secret) => {
                     // I am not totally clear on what the outcome should
-                    // be of a cfgmap key miss. So for now just return an
+                    // be of a secret key miss. So for now just return an
                     // empty default.
-
                     return secret
-                        .string_data
+                        .data
                         .unwrap_or_default()
-                        .get(&seckey.key)
-                        .cloned()
+                        .remove(&seckey.key)
+                        .map(|s| String::from_utf8(s.0).unwrap_or_default())
                         .unwrap_or_default();
                 }
                 Err(e) => {
-                    error!("Error fetching config map {}: {}", name, e);
+                    error!("Error fetching secret {}: {}", name, e);
                     return "".to_string();
                 }
             }
