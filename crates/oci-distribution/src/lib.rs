@@ -2,6 +2,7 @@ use chrono::prelude::{DateTime, Utc};
 use futures_util::stream::StreamExt;
 use hyperx::header::Header;
 use reqwest::header::HeaderMap;
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
 
 use crate::errors::*;
@@ -159,7 +160,7 @@ impl Client {
     /// repository and the registry, but it is not used to verify that
     /// the digest is a layer inside of the image. (The manifest is
     /// used for that.)
-    pub async fn pull_layer<T: std::io::Write + tokio::io::AsyncWrite>(
+    pub async fn pull_layer<T: AsyncWrite + AsyncWriteExt + Unpin>(
         &self,
         image: &Reference,
         digest: &str,
@@ -175,8 +176,7 @@ impl Client {
             .bytes_stream();
 
         while let Some(bytes) = stream.next().await {
-            //out.write_all(&bytes?.to_vec())?;
-            out.write_all(&bytes?)?;
+            out.write_all(&bytes?).await?;
         }
 
         Ok(out)
