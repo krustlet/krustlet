@@ -155,7 +155,6 @@ impl WasiRuntime {
                             timestamp: chrono::Utc::now(),
                         })
                         .expect("status should be able to send");
-                    // Converting from anyhow
                     return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
             };
