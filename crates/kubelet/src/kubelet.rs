@@ -10,9 +10,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
+use k8s_openapi::api::core::v1::Pod as KubePod;
 use k8s_openapi::api::core::v1::{
     ConfigMap, Container, ContainerState, ContainerStateRunning, ContainerStateTerminated,
-    ContainerStateWaiting, EnvVar, Secret,
+    ContainerStateWaiting, EnvVarSource, Secret,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 use kube::{
@@ -35,7 +36,7 @@ pub struct NotImplementedError;
 /// Describe the lifecycle phase of a workload.
 ///
 /// This is specified by Kubernetes itself.
-#[derive(Clone)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub enum Phase {
     /// The workload is currently executing.
     Running,
@@ -192,7 +193,7 @@ impl<T: 'static + Provider + Sync + Send + Clone> Kubelet<T> {
 
         let pod_informer = tokio::task::spawn(async move {
             // Create our informer and start listening.
-            let informer = Informer::new(client, ListParams::default(), Resource::all::<Pod>());
+            let informer = Informer::new(client, ListParams::default(), Resource::all::<KubePod>());
             loop {
                 let mut stream = informer.poll().await.expect("informer poll failed").boxed();
                 while let Some(event) = stream.try_next().await.unwrap() {
@@ -315,51 +316,54 @@ pub trait Provider {
     /// the underlying event handling needs to change.
     async fn handle_event(
         &self,
-        event: WatchEvent<Pod>,
+        event: WatchEvent<KubePod>,
         config: kube::config::Configuration,
     ) -> anyhow::Result<()> {
         // TODO: Is there value in keeping one client and cloning it?
         let client = APIClient::new(config);
         //let provider = self.provider.clone(); // Arc +1
         match event {
-            WatchEvent::Added(p) => {
+            WatchEvent::Added(pod) => {
+                let pod = pod.into();
                 // Step 1: Is this legit?
                 // Step 2: Can the provider handle this?
-                if !self.can_schedule(&p) {
+                if !self.can_schedule(&pod) {
                     debug!(
                         "Provider cannot schedule {}",
-                        p.metadata.unwrap_or_default().name.unwrap_or_default()
+                        pod.name().unwrap_or_default()
                     );
                     return Ok(());
                 };
                 // Step 3: DO IT!
-                self.add(p, client).await
+                self.add(pod, client).await
             }
-            WatchEvent::Modified(p) => {
+            WatchEvent::Modified(pod) => {
+                let pod = pod.into();
                 // Step 1: Can the provider handle this? (This should be the faster function,
                 // so we can weed out negatives quickly.)
-                if !self.can_schedule(&p) {
+                if !self.can_schedule(&pod) {
                     debug!(
                         "Provider cannot schedule {}",
-                        p.metadata.unwrap_or_default().name.unwrap_or_default()
+                        pod.name().unwrap_or_default()
                     );
                     return Ok(());
                 };
                 // Step 2: Is this a real modification, or just status?
                 // Step 3: DO IT!
-                self.modify(p, client).await
+                self.modify(pod, client).await
             }
-            WatchEvent::Deleted(p) => {
+            WatchEvent::Deleted(pod) => {
+                let pod = pod.into();
                 // Step 1: Can the provider handle this?
-                if !self.can_schedule(&p) {
+                if !self.can_schedule(&pod) {
                     debug!(
                         "Provider cannot schedule {}",
-                        p.metadata.unwrap_or_default().name.unwrap_or_default()
+                        pod.name().unwrap_or_default()
                     );
                     return Ok(());
                 };
                 // Step 2: DO IT!
-                self.delete(p, client).await
+                self.delete(pod, client).await
             }
             WatchEvent::Error(e) => {
                 error!("Event error: {}", e);
@@ -384,17 +388,24 @@ pub trait Provider {
         pod: &Pod,
     ) -> HashMap<String, String> {
         let mut env = HashMap::new();
-        let ns = pod
-            .metadata
-            .as_ref()
-            .and_then(|s| s.namespace.as_deref())
-            .unwrap_or("default");
-        let empty = Vec::new();
-        for env_var in container.env.as_ref().unwrap_or_else(|| &empty).iter() {
-            let key = env_var.name.clone();
-            let value = match env_var.value.clone() {
+        let vars = match container.env.as_ref() {
+            Some(e) => e,
+            None => return env,
+        };
+
+        for env_var in vars.clone().into_iter() {
+            let key = env_var.name;
+            let value = match env_var.value {
                 Some(v) => v,
-                None => on_missing_value(client.clone(), env_var, ns, &field_map(pod)).await,
+                None => {
+                    on_missing_value(
+                        client.clone(),
+                        env_var.value_from,
+                        pod.namespace(),
+                        &field_map(pod),
+                    )
+                    .await
+                }
             };
             env.insert(key, value);
         }
@@ -404,11 +415,11 @@ pub trait Provider {
 
 async fn on_missing_value(
     client: APIClient,
-    env_var: &EnvVar,
+    env_var_source: Option<EnvVarSource>,
     ns: &str,
     fields: &HashMap<String, String>,
 ) -> String {
-    if let Some(env_src) = env_var.value_from.as_ref() {
+    if let Some(env_src) = env_var_source {
         // ConfigMaps
         if let Some(cfkey) = env_src.config_map_key_ref.as_ref() {
             let name = cfkey.name.as_deref().unwrap_or_default();
@@ -465,68 +476,31 @@ async fn on_missing_value(
 /// The Downward API only supports a small selection of fields. This
 /// provides those fields.
 fn field_map(pod: &Pod) -> HashMap<String, String> {
-    let mut map = HashMap::new();
+    let mut map: HashMap<String, String> = HashMap::new();
     map.insert(
         "metadata.name".into(),
-        pod.metadata
-            .clone()
-            .unwrap_or_default()
-            .name
-            .unwrap_or_default(),
+        pod.name().unwrap_or_default().to_owned(),
     );
-    map.insert(
-        "metadata.namespace".into(),
-        pod.metadata
-            .clone()
-            .unwrap_or_default()
-            .namespace
-            .unwrap_or_else(|| "default".into()),
-    );
+    map.insert("metadata.namespace".into(), pod.namespace().to_owned());
     map.insert(
         "spec.serviceAccountName".into(),
-        pod.spec
-            .clone()
-            .unwrap_or_default()
-            .service_account_name
-            .unwrap_or_default(),
+        pod.service_account_name().unwrap_or_default().to_owned(),
     );
     map.insert(
         "status.hostIP".into(),
-        pod.status
-            .as_ref()
-            .expect("spec must be set")
-            .host_ip
-            .clone()
-            .unwrap_or_default(),
+        pod.host_ip().unwrap_or_default().to_owned(),
     );
     map.insert(
         "status.podIP".into(),
-        pod.status
-            .as_ref()
-            .expect("spec must be set")
-            .pod_ip
-            .clone()
-            .unwrap_or_default(),
+        pod.pod_ip().unwrap_or_default().to_owned(),
     );
-    pod.metadata
-        .clone()
-        .unwrap_or_default()
-        .labels
-        .unwrap_or_default()
-        .iter()
-        .for_each(|(k, v)| {
-            info!("adding {} to labels", k);
-            map.insert(format!("metadata.labels.{}", k), v.into());
-        });
-    pod.metadata
-        .clone()
-        .unwrap_or_default()
-        .annotations
-        .unwrap_or_default()
-        .iter()
-        .for_each(|(k, v)| {
-            map.insert(format!("metadata.annotations.{}", k), v.into());
-        });
+    pod.labels().iter().for_each(|(k, v)| {
+        info!("adding {} to labels", k);
+        map.insert(format!("metadata.labels.{}", k), v.clone());
+    });
+    pod.annotations().iter().for_each(|(k, v)| {
+        map.insert(format!("metadata.annotations.{}", k), v.clone());
+    });
     map
 }
 
@@ -665,7 +639,7 @@ mod test {
         labels.insert("label".to_string(), "value".to_string());
         let mut annotations = BTreeMap::new();
         annotations.insert("annotation".to_string(), "value".to_string());
-        let pod = Pod {
+        let pod = Pod::new(KubePod {
             metadata: Some(ObjectMeta {
                 labels: Some(labels),
                 annotations: Some(annotations),
@@ -682,7 +656,7 @@ mod test {
                 pod_ip: Some("10.21.77.2".to_string()),
                 ..Default::default()
             }),
-        };
+        });
         let prov = MockProvider::new();
         let env = prov.env_vars(mock_client(), &container, &pod).await;
 
