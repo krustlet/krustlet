@@ -7,7 +7,7 @@ use kube::{
 };
 use log::{debug, error, info};
 
-/// A Kubertnetes Pod
+/// A Kubernetes Pod
 ///
 /// This is a new type around the k8s_openapi Pod definition
 /// providing convenient accessor methods
