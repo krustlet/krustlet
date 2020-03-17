@@ -21,8 +21,12 @@ impl Pod {
     }
 
     /// Get the name of the pod
-    pub fn name(&self) -> Option<&str> {
-        self.0.metadata.as_ref()?.name.as_deref()
+    pub fn name(&self) -> &str {
+        self.0
+            .metadata
+            .as_ref()
+            .and_then(|m| m.name.as_deref())
+            .expect("Pod name should always be set but was not")
     }
 
     /// Get the pod's namespace
@@ -95,7 +99,7 @@ impl Pod {
         );
 
         let data = serde_json::to_vec(&status).expect("Should always serialize");
-        let name = self.name().unwrap_or_default();
+        let name = self.name();
         let api: Api<KubePod> = Api::namespaced(client, self.namespace());
         match api.patch_status(&name, &PatchParams::default(), data).await {
             Ok(o) => {

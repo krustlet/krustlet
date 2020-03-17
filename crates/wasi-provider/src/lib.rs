@@ -122,7 +122,7 @@ impl Provider for WasiProvider {
     }
 
     async fn status(&self, pod: Pod, _client: APIClient) -> anyhow::Result<Status> {
-        let pod_name = pod.name().unwrap_or_default();
+        let pod_name = pod.name();
         let mut handles = self.handles.write().await;
         let container_handles =
             handles
@@ -167,7 +167,7 @@ impl Provider for WasiProvider {
 
 /// Generates a unique human readable key for storing a handle to a pod
 fn key_from_pod(pod: &Pod) -> String {
-    pod_key(&pod.namespace(), pod.name().unwrap_or_default())
+    pod_key(pod.namespace(), pod.name())
 }
 
 fn pod_key<N: AsRef<str>, T: AsRef<str>>(namespace: N, pod_name: T) -> String {
