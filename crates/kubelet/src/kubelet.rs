@@ -328,10 +328,7 @@ pub trait Provider {
                 // Step 1: Is this legit?
                 // Step 2: Can the provider handle this?
                 if !self.can_schedule(&pod) {
-                    debug!(
-                        "Provider cannot schedule {}",
-                        pod.name().unwrap_or_default()
-                    );
+                    debug!("Provider cannot schedule {}", pod.name());
                     return Ok(());
                 };
                 // Step 3: DO IT!
@@ -342,10 +339,7 @@ pub trait Provider {
                 // Step 1: Can the provider handle this? (This should be the faster function,
                 // so we can weed out negatives quickly.)
                 if !self.can_schedule(&pod) {
-                    debug!(
-                        "Provider cannot schedule {}",
-                        pod.name().unwrap_or_default()
-                    );
+                    debug!("Provider cannot schedule {}", pod.name());
                     return Ok(());
                 };
                 // Step 2: Is this a real modification, or just status?
@@ -356,10 +350,7 @@ pub trait Provider {
                 let pod = pod.into();
                 // Step 1: Can the provider handle this?
                 if !self.can_schedule(&pod) {
-                    debug!(
-                        "Provider cannot schedule {}",
-                        pod.name().unwrap_or_default()
-                    );
+                    debug!("Provider cannot schedule {}", pod.name());
                     return Ok(());
                 };
                 // Step 2: DO IT!
@@ -477,10 +468,7 @@ async fn on_missing_value(
 /// provides those fields.
 fn field_map(pod: &Pod) -> HashMap<String, String> {
     let mut map: HashMap<String, String> = HashMap::new();
-    map.insert(
-        "metadata.name".into(),
-        pod.name().unwrap_or_default().to_owned(),
-    );
+    map.insert("metadata.name".into(), pod.name().to_owned());
     map.insert("metadata.namespace".into(), pod.namespace().to_owned());
     map.insert(
         "spec.serviceAccountName".into(),
