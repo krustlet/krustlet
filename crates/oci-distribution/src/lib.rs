@@ -38,7 +38,7 @@ pub struct Client {
 
 impl Client {
     // Create a new client initialized to share HTTP connections across multiple requests.
-    fn new() -> Self {
+    pub fn new() -> Self {
         Client {
             token: None,
             client: reqwest::Client::new(),
