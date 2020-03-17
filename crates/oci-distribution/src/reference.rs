@@ -11,28 +11,43 @@ pub struct Reference {
 }
 
 impl Reference {
+    /// Get the original reference.
     pub fn whole(&self) -> &str {
         &self.whole
     }
 
+    /// Get the registry name.
     pub fn registry(&self) -> &str {
         &self.whole[..self.slash]
     }
 
+    /// Get the repository (a.k.a the image name) of this reference
     pub fn repository(&self) -> &str {
         &self.whole[self.slash + 1..self.colon]
     }
 
+    /// Get the tag for this reference.
     pub fn tag(&self) -> &str {
         &self.whole[self.colon + 1..]
     }
 
+    /// Convert a Reference to a v2 manifest URL.
     pub fn to_v2_manifest_url(&self) -> String {
         format!(
             "https://{}/v2/{}/manifests/{}",
             self.registry(),
             self.repository(),
             self.tag()
+        )
+    }
+
+    /// Convert a Reference to a v2 blob (layer) URL.
+    pub fn to_v2_blob_url(&self, digest: &str) -> String {
+        format!(
+            "https://{}/v2/{}/blobs/{}",
+            self.registry(),
+            self.repository(),
+            digest
         )
     }
 }
