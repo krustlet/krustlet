@@ -32,3 +32,23 @@ jobs:
         run: |
           just build
           just test
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: engineerd/setup-kind@v0.3.0
+    - uses: engineerd/configurator@v0.0.1
+      with:
+        name: just
+        url: https://github.com/casey/just/releases/download/v0.5.8/just-v0.5.8-x86_64-unknown-linux-musl.tar.gz
+        pathInArchive: just
+    - name: Run e2e tests
+      run: |
+        cd crates/wascc-provider
+        cargo build --bin krustlet-wascc --manifest-path ../../Cargo.toml
+        ../../target/debug/krustlet-wascc --node-name krustlet-wascc --port 3000 &
+        cd ../wasi-provider
+        cargo build --bin krustlet-wasi --manifest-path ../../Cargo.toml
+        ../../target/debug/krustlet-wasi --node-name krustlet-wasi --port 3001 &
+        cd ../..
+        just test-e2e

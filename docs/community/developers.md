@@ -71,6 +71,36 @@ To set the node IP, run:
 $ export KRUSTLET_NODE_IP=<the ip address>
 ```
 
+## Testing
+
+Krustlet contains both integration and unit tests. For convenience, there are `just` targets for running one or the other.
+
+For unit tests:
+
+```console
+$ just test
+```
+
+For the integration tests, start a wascc and wasi node in separate terminals before running the tests.
+
+In terminal 1:
+
+```console
+$ just run-wascc
+```
+
+In terminal 2:
+
+```console
+$ just run-wasi
+```
+
+And in terminal 3:
+
+```
+$ just test-e2e
+```
+
 ## Creating your own Kubelets with Krustlet
 
 If you want to create your own Kubelet based on Krustlet, all you need to do is implement a `Provider`.

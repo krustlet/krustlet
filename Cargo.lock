@@ -1226,8 +1226,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "env_logger 0.7.1",
+ "k8s-openapi",
  "kube",
  "kubelet",
+ "serde_derive",
+ "serde_json",
  "tokio",
  "wascc-provider",
  "wasi-provider",

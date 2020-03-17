@@ -150,9 +150,16 @@ fn node_definition(config: Config, arch: &str) -> serde_json::Value {
         },
         "status": {
             "nodeInfo": {
-                "operatingSystem": "linux",
                 "architecture": "wasm-wasi",
+                "bootID": "",
+                "containerRuntimeVersion": "mvp",
+                "kernelVersion": "",
+                "kubeProxyVersion": "v1.17.0",
                 "kubeletVersion": "v1.17.0",
+                "machineID": "",
+                "operatingSystem": "linux",
+                "osImage": "",
+                "systemUUID": ""
             },
             "capacity": {
                 "cpu": "4",
