@@ -23,7 +23,7 @@ hyper = { version = "0.13.3", default-features = false, features = ["stream"] }
 log = "0.4"
 reqwest = "0.10.4"
 tokio  = { version = "0.2.13", features = ["fs", "stream", "macros"] }
-kube = "0.28.0" 
+kube = "0.29.0" 
 k8s-openapi = { version = "0.7.1", default-features = false, features = ["v1_17"] }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { git = "https://github.com/clap-rs/clap", features = ["wrap_help"], optional = true }

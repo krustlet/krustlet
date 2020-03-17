@@ -26,7 +26,8 @@ pub async fn create_node(client: &APIClient, config: Config, arch: &str) {
     match node_client
         .create(
             &PostParams::default(),
-            serde_json::to_vec(&node).expect("node serializes correctly"),
+            &serde_json::from_value(node)
+                .expect("failed to deserialize node from node definition JSON"),
         )
         .await
     {
@@ -84,11 +85,10 @@ async fn create_lease(node_uid: &str, node_name: &str, client: &APIClient) {
     let leases: Api<Lease> = Api::namespaced(client.clone(), "kube-node-lease");
 
     let lease = lease_definition(node_uid, node_name);
-    let lease_data =
-        serde_json::to_vec(&lease).expect("Lease should always be serializable to JSON");
-    debug!("{}", serde_json::to_string_pretty(&lease).unwrap());
+    let lease = serde_json::from_value(lease)
+        .expect("failed to deserialize lease from lease definition JSON");
 
-    let resp = leases.create(&PostParams::default(), lease_data).await;
+    let resp = leases.create(&PostParams::default(), &lease).await;
     match resp {
         Ok(_) => debug!("Created lease"),
         Err(e) => error!("Failed to create lease: {}", e),
@@ -104,13 +104,12 @@ async fn update_lease(node_uid: &str, node_name: &str, client: &APIClient) {
     let leases: Api<Lease> = Api::namespaced(client.clone(), "kube-node-lease");
 
     let lease = lease_definition(node_uid, node_name);
-    let pp = PatchParams::default();
     let lease_data =
         serde_json::to_vec(&lease).expect("Lease should always be serializable to JSON");
-    // TODO: either wrap this in a conditional or remove
-    debug!("{}", serde_json::to_string_pretty(&lease).unwrap());
 
-    let resp = leases.patch(node_name, &pp, lease_data).await;
+    let resp = leases
+        .patch(node_name, &PatchParams::default(), lease_data)
+        .await;
     match resp {
         Ok(_) => info!("Created lease"),
         Err(e) => error!("Failed to create lease: {}", e),
