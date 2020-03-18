@@ -1226,6 +1226,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "env_logger 0.7.1",
+ "futures",
  "k8s-openapi",
  "kube",
  "kubelet",

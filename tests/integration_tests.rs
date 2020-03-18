@@ -1,8 +1,10 @@
+use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::{Node, Pod};
 use kube::{
-    api::{Api, DeleteParams, PostParams},
+    api::{Api, DeleteParams, ListParams, PostParams, Resource, WatchEvent},
     client::APIClient,
     config,
+    runtime::Informer,
 };
 use serde_json::json;
 
@@ -44,7 +46,7 @@ async fn test_wascc_provider() {
         "wasm32-wascc"
     );
 
-    let pods: Api<Pod> = Api::namespaced(client, "default");
+    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
         "kind": "Pod",
@@ -74,7 +76,40 @@ async fn test_wascc_provider() {
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    // TODO: check the pod status, wait for it to become ready, check logs
+    let inf: Informer<Pod> = Informer::new(
+        client,
+        ListParams::default()
+            .fields("metadata.name=hello-wascc")
+            .timeout(10),
+        Resource::namespaced::<Pod>("default"),
+    );
+
+    let mut watcher = inf
+        .poll()
+        .await
+        .expect("failed to poll for pod events")
+        .boxed();
+
+    while let Some(event) = watcher
+        .try_next()
+        .await
+        .expect("failed to poll for a pod event")
+    {
+        match event {
+            WatchEvent::Modified(o) => {
+                let phase = o.status.unwrap().phase.unwrap();
+                if phase == "Running" {
+                    break;
+                }
+            }
+            WatchEvent::Error(e) => {
+                panic!("WatchEvent error: {:?}", e);
+            }
+            _ => {}
+        }
+    }
+
+    // TODO: check pod logs
 
     // cleanup
     pods.delete("hello-wascc", &DeleteParams::default())
@@ -120,7 +155,7 @@ async fn test_wasi_provider() {
         "wasm32-wasi"
     );
 
-    let pods: Api<Pod> = Api::namespaced(client, "default");
+    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
         "kind": "Pod",
@@ -148,7 +183,40 @@ async fn test_wasi_provider() {
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    // TODO: check the pod status, wait for it to become ready, check logs
+    let inf: Informer<Pod> = Informer::new(
+        client,
+        ListParams::default()
+            .fields("metadata.name=hello-wasi")
+            .timeout(10),
+        Resource::namespaced::<Pod>("default"),
+    );
+
+    let mut watcher = inf
+        .poll()
+        .await
+        .expect("failed to poll for pod events")
+        .boxed();
+
+    while let Some(event) = watcher
+        .try_next()
+        .await
+        .expect("failed to poll for a pod event")
+    {
+        match event {
+            WatchEvent::Modified(o) => {
+                let phase = o.status.unwrap().phase.unwrap();
+                if phase == "Running" {
+                    break;
+                }
+            }
+            WatchEvent::Error(e) => {
+                panic!("WatchEvent error: {:?}", e);
+            }
+            _ => {}
+        }
+    }
+
+    // TODO: check pod logs
 
     // cleanup
     pods.delete("hello-wasi", &DeleteParams::default())
