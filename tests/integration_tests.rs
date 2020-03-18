@@ -1,34 +1,31 @@
+use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::{Node, Pod};
 use kube::{
-    api::{Api, DeleteParams, PostParams},
+    api::{Api, DeleteParams, ListParams, LogParams, PostParams, Resource, WatchEvent},
     client::APIClient,
     config,
+    runtime::Informer,
 };
 use serde_json::json;
 
 #[tokio::test]
-async fn test_wascc_provider() {
+async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     // Read the environment. Note that this tries a KubeConfig file first, then
     // falls back on an in-cluster configuration.
     let kubeconfig = config::load_kube_config()
         .await
-        .or_else(|_| config::incluster_config())
-        .expect("kubeconfig failed to load");
+        .or_else(|_| config::incluster_config())?;
 
     let client = APIClient::new(kubeconfig);
 
     let nodes: Api<Node> = Api::all(client.clone());
 
-    let node = nodes
-        .get("krustlet-wascc")
-        .await
-        .expect("failed to find node with name 'krustlet-wascc'");
-
+    let node = nodes.get("krustlet-wascc").await?;
     let node_status = node.status.expect("node reported no status");
     assert_eq!(
         node_status
             .node_info
-            .expect("node reported no information")
+            .expect("node status reported no info")
             .architecture,
         "wasm-wasi",
         "expected node to support the wasm-wasi architecture"
@@ -44,7 +41,7 @@ async fn test_wascc_provider() {
         "wasm32-wascc"
     );
 
-    let pods: Api<Pod> = Api::namespaced(client, "default");
+    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
         "kind": "Pod",
@@ -65,40 +62,64 @@ async fn test_wascc_provider() {
                 "beta.kubernetes.io/arch": "wasm32-wascc",
             },
         }
-    })).expect("failed to deserialize pod spec from JSON");
+    }))?;
 
-    let pod = pods
-        .create(&PostParams::default(), &p)
-        .await
-        .expect("could not create pod");
+    let pod = pods.create(&PostParams::default(), &p).await?;
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    // TODO: check the pod status, wait for it to become ready, check logs
+    let inf: Informer<Pod> = Informer::new(
+        client,
+        ListParams::default()
+            .fields("metadata.name=hello-wascc")
+            .timeout(10),
+        Resource::namespaced::<Pod>("default"),
+    );
+
+    let mut watcher = inf.poll().await?.boxed();
+
+    while let Some(event) = watcher.try_next().await? {
+        match event {
+            WatchEvent::Modified(o) => {
+                let phase = o.status.unwrap().phase.unwrap();
+                if phase == "Running" {
+                    break;
+                }
+            }
+            WatchEvent::Error(e) => {
+                panic!("WatchEvent error: {:?}", e);
+            }
+            _ => {}
+        }
+    }
+
+    let mut logs = pods
+        .log_stream("hello-wascc", &LogParams::default())
+        .await?;
+
+    while let Some(line) = logs.try_next().await? {
+        assert_eq!("{\"kind\":\"Status\",\"apiVersion\":\"v1\",\"metadata\":{},\"status\":\"Failure\",\"message\":\"an error on the server (\\\"Not Implemented\\\") has prevented the request from succeeding ( pods/log hello-wascc)\",\"reason\":\"InternalError\",\"details\":{\"name\":\"hello-wascc\",\"kind\":\"pods/log\"},\"code\":501}\n", String::from_utf8_lossy(&line));
+    }
 
     // cleanup
-    pods.delete("hello-wascc", &DeleteParams::default())
-        .await
-        .expect("could not delete pod");
+    pods.delete("hello-wascc", &DeleteParams::default()).await?;
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_wasi_provider() {
+async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
     // Read the environment. Note that this tries a KubeConfig file first, then
     // falls back on an in-cluster configuration.
     let kubeconfig = config::load_kube_config()
         .await
-        .or_else(|_| config::incluster_config())
-        .expect("kubeconfig failed to load");
+        .or_else(|_| config::incluster_config())?;
 
     let client = APIClient::new(kubeconfig);
 
     let nodes: Api<Node> = Api::all(client.clone());
 
-    let node = nodes
-        .get("krustlet-wasi")
-        .await
-        .expect("failed to find node with name 'krustlet-wasi'");
+    let node = nodes.get("krustlet-wasi").await?;
 
     let node_status = node.status.expect("node reported no status");
     assert_eq!(
@@ -120,7 +141,7 @@ async fn test_wasi_provider() {
         "wasm32-wasi"
     );
 
-    let pods: Api<Pod> = Api::namespaced(client, "default");
+    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
         "kind": "Pod",
@@ -138,20 +159,45 @@ async fn test_wasi_provider() {
                 "beta.kubernetes.io/arch": "wasm32-wasi",
             },
         }
-    }))
-    .expect("failed to deserialize pod spec from JSON");
+    }))?;
 
-    let pod = pods
-        .create(&PostParams::default(), &p)
-        .await
-        .expect("could not create pod");
+    let pod = pods.create(&PostParams::default(), &p).await?;
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    // TODO: check the pod status, wait for it to become ready, check logs
+    let inf: Informer<Pod> = Informer::new(
+        client,
+        ListParams::default()
+            .fields("metadata.name=hello-wasi")
+            .timeout(10),
+        Resource::namespaced::<Pod>("default"),
+    );
+
+    let mut watcher = inf.poll().await?.boxed();
+
+    while let Some(event) = watcher.try_next().await? {
+        match event {
+            WatchEvent::Modified(o) => {
+                let phase = o.status.unwrap().phase.unwrap();
+                if phase == "Running" {
+                    break;
+                }
+            }
+            WatchEvent::Error(e) => {
+                panic!("WatchEvent error: {:?}", e);
+            }
+            _ => {}
+        }
+    }
+
+    let mut logs = pods.log_stream("hello-wasi", &LogParams::default()).await?;
+
+    while let Some(line) = logs.try_next().await? {
+        assert_eq!("Hello World!\n", String::from_utf8_lossy(&line));
+    }
 
     // cleanup
-    pods.delete("hello-wasi", &DeleteParams::default())
-        .await
-        .expect("could not delete pod");
+    pods.delete("hello-wasi", &DeleteParams::default()).await?;
+
+    Ok(())
 }

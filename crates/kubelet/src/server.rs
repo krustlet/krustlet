@@ -17,7 +17,7 @@ use tokio::sync::Mutex;
 use std::sync::Arc;
 
 use crate::config::ServerConfig;
-use crate::kubelet::Provider;
+use crate::kubelet::{NotImplementedError, Provider};
 
 /// Start the Krustlet HTTP(S) server
 ///
@@ -122,11 +122,14 @@ async fn get_container_logs<T: Provider + Sync>(
     }
     match provider.logs(namespace, pod, container).await {
         Ok(data) => Response::new(Body::from(data)),
-        // TODO: This should detect not implemented vs. regular error
         Err(e) => {
             error!("Error fetching logs: {}", e);
-            let mut res = Response::new(Body::from("Not Implemented"));
-            *res.status_mut() = StatusCode::NOT_IMPLEMENTED;
+            let mut res = Response::new(Body::from(format!("Server error: {}", e)));
+            *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            if e.is::<NotImplementedError>() {
+                res = Response::new(Body::from("Not Implemented"));
+                *res.status_mut() = StatusCode::NOT_IMPLEMENTED;
+            }
             res
         }
     }
