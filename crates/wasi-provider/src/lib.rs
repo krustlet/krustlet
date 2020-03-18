@@ -66,7 +66,7 @@ impl Provider for WasiProvider {
         //   - mount any volumes (popen)
         //   - run it to completion
         //   - bail if it errors
-        let pod_name = pod.name().unwrap().to_owned();
+        let pod_name = pod.name().to_owned();
         info!("Starting containers for pod {:?}", pod_name);
         // Wrap this in a block so the write lock goes out of scope when we are done
         let mut container_handles = HashMap::new();
@@ -98,7 +98,6 @@ impl Provider for WasiProvider {
             "All containers started for pod {:?}. Updating status",
             pod_name
         );
-        // pod.patch_status(client, &Phase::Running).await;
         Ok(())
     }
 
@@ -115,11 +114,13 @@ impl Provider for WasiProvider {
         Ok(())
     }
 
-    async fn delete(&self, _pod: Pod, _client: APIClient) -> anyhow::Result<()> {
+    async fn delete(&self, pod: Pod, _client: APIClient) -> anyhow::Result<()> {
         // There is currently no way to stop a long running instance, so we are
         // SOL here until there is support for it. See
         // https://github.com/bytecodealliance/wasmtime/issues/860 for more
-        // information
+        // information. For now, just delete the handle from the map
+        let mut handles = self.handles.write().await;
+        handles.remove(&key_from_pod(&pod));
         unimplemented!("cannot stop a running wasmtime instance")
     }
 

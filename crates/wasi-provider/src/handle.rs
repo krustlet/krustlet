@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
 use kubelet::pod::Pod;
-use kubelet::{ContainerStatus, Phase, ProviderError, Status};
+use kubelet::{ContainerStatus, ProviderError, Status};
 
 /// Represents a handle to a running WASI instance. Right now, this is
 /// experimental and just for use with the [crate::WasiProvider]. If we like
@@ -97,7 +97,6 @@ impl<R: AsyncReadExt + AsyncSeekExt + Unpin> PodHandle<R> {
         let cloned_pod = pod.clone();
         let status_handle = tokio::task::spawn(async move {
             loop {
-                println!("got here");
                 let status = match channel_map.next().await {
                     Some(s) => s,
                     // None means everything is closed, so go ahead and exit
@@ -111,8 +110,7 @@ impl<R: AsyncReadExt + AsyncSeekExt + Unpin> PodHandle<R> {
                     .patch_status(
                         client.clone(),
                         Status {
-                            phase: Phase::Running,
-                            message: Some("todo".into()),
+                            message: None,
                             container_statuses: vec![status.1],
                         },
                     )
@@ -138,7 +136,7 @@ impl<R: AsyncReadExt + AsyncSeekExt + Unpin> PodHandle<R> {
             handles
                 .get_mut(container_name)
                 .ok_or_else(|| ProviderError::ContainerNotFound {
-                    pod_name: self.pod.name().unwrap().to_owned(),
+                    pod_name: self.pod.name().to_owned(),
                     container_name: container_name.to_owned(),
                 })?;
         handle.output(buf).await

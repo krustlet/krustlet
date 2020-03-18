@@ -37,7 +37,7 @@ pub struct NotImplementedError;
 ///
 /// This is specified by Kubernetes itself.
 #[derive(Clone, Debug, serde::Serialize)]
-pub enum Phase {
+pub(crate) enum Phase {
     /// The workload is currently executing.
     Running,
     /// The workload has exited with an error.
@@ -61,7 +61,8 @@ impl Default for Phase {
 /// state of the workload.
 #[derive(Clone, Debug, Default)]
 pub struct Status {
-    pub phase: Phase,
+    /// Allows a provider to set a custom message, otherwise, kubelet will infer
+    /// a message from the container statuses
     pub message: Option<String>,
     pub container_statuses: Vec<ContainerStatus>,
 }

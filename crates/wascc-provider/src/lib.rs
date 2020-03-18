@@ -1,5 +1,5 @@
 use kube::client::APIClient;
-use kubelet::{pod::Pod, Phase, Provider, Status};
+use kubelet::{pod::Pod, ContainerStatus, Provider, Status};
 use log::{debug, info};
 use wascc_host::{host, Actor, NativeCapability};
 
@@ -108,7 +108,9 @@ impl Provider for WasccProvider {
                     pod.patch_status(
                         client.clone(),
                         Status {
-                            phase: Phase::Running,
+                            container_statuses: vec![ContainerStatus::Running {
+                                timestamp: chrono::Utc::now(),
+                            }],
                             ..Default::default()
                         },
                     )
@@ -118,7 +120,11 @@ impl Provider for WasccProvider {
                     pod.patch_status(
                         client,
                         Status {
-                            phase: Phase::Failed,
+                            container_statuses: vec![ContainerStatus::Terminated {
+                                timestamp: chrono::Utc::now(),
+                                failed: true,
+                                message: "Error while starting container".to_string(),
+                            }],
                             ..Default::default()
                         },
                     )

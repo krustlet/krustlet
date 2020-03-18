@@ -49,9 +49,9 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
                             get_container_logs(
                                 &*provider.lock().await,
                                 &req,
-                                namespace.to_string(),
-                                pod.to_string(),
-                                container.to_string(),
+                                (*namespace).to_string(),
+                                (*pod).to_string(),
+                                (*container).to_string(),
                             )
                             .await
                         }
