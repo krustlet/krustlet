@@ -118,7 +118,7 @@ impl Pod {
             .container_statuses
             .unwrap_or_default()
             .into_iter()
-            .filter(|s| current_statuses.contains_key(&s.name))
+            .filter(|s| !current_statuses.contains_key(&s.name))
             .collect::<Vec<KubeContainerStatus>>();
         container_statuses.extend(current_statuses.drain().map(|(_, v)| v));
         let mut num_succeeded: usize = 0;
