@@ -283,7 +283,7 @@ mod test {
         handle.output(&mut output).await.unwrap();
         assert_eq!("Hello, world!\n".to_string().into_bytes(), output);
 
-        let status = handle.status().await.unwrap();
+        let status = handle.status().recv().await.unwrap();
         assert!(match status {
             ContainerStatus::Terminated { .. } => true,
             _ => false,

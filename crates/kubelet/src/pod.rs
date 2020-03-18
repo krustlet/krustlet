@@ -1,17 +1,18 @@
-use crate::Phase;
+use crate::Status;
 use k8s_openapi::api::core::v1::Container as KubeContainer;
+use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::{
     api::{Api, PatchParams},
     client::APIClient,
 };
-use log::{debug, error, info};
+use log::{debug, error};
 
 /// A Kubernetes Pod
 ///
 /// This is a new type around the k8s_openapi Pod definition
 /// providing convenient accessor methods
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Pod(KubePod);
 
 impl Pod {
@@ -85,27 +86,27 @@ impl Pod {
         Some(self.annotations().get(key)?.as_str())
     }
 
-    /// Patch the pod status to update the phase.
-    pub async fn patch_status(&self, client: APIClient, phase: &Phase) {
-        let status = serde_json::json!(
+    /// Patch the pod status using the given status information.
+    pub async fn patch_status(&self, client: APIClient, status: Status) {
+        let name = self.name();
+        debug!("Setting pod status for {} to {:?}", name, status);
+        let json_status = serde_json::json!(
             {
                 "metadata": {
                     "resourceVersion": "",
                 },
                 "status": {
-                    "phase": phase
+                    "phase": status.phase,
+                    "message": status.message,
+                    "containerStatuses": status.container_statuses.into_iter().map(|s| s.to_kubernetes(name.to_owned())).collect::<Vec<KubeContainerStatus>>()
                 }
             }
         );
 
-        let data = serde_json::to_vec(&status).expect("Should always serialize");
-        let name = self.name();
+        let data = serde_json::to_vec(&json_status).expect("Should always serialize");
         let api: Api<KubePod> = Api::namespaced(client, self.namespace());
         match api.patch_status(&name, &PatchParams::default(), data).await {
-            Ok(o) => {
-                info!("Pod status for {} set to {:?}", name, phase);
-                debug!("Pod status returned: {:#?}", o.status)
-            }
+            Ok(o) => debug!("Pod status returned: {:#?}", o.status),
             Err(e) => error!("Pod status update failed for {}: {}", name, e),
         }
     }

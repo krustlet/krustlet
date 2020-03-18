@@ -105,10 +105,24 @@ impl Provider for WasccProvider {
                 tokio::task::spawn_blocking(move || wascc_run_http(data, env, &pub_key)).await?;
             match http_result {
                 Ok(_) => {
-                    pod.patch_status(client.clone(), &Phase::Running).await;
+                    pod.patch_status(
+                        client.clone(),
+                        Status {
+                            phase: Phase::Running,
+                            ..Default::default()
+                        },
+                    )
+                    .await;
                 }
                 Err(e) => {
-                    pod.patch_status(client, &Phase::Failed).await;
+                    pod.patch_status(
+                        client,
+                        Status {
+                            phase: Phase::Failed,
+                            ..Default::default()
+                        },
+                    )
+                    .await;
                     return Err(anyhow::anyhow!("Failed to run pod: {}", e));
                 }
             }
@@ -140,35 +154,6 @@ impl Provider for WasccProvider {
             .map(String::as_str)
             .unwrap_or_default();
         wascc_stop(&pub_key).map_err(|e| anyhow::anyhow!("Failed to stop wascc actor: {}", e))
-    }
-
-    async fn status(&self, pod: Pod, _client: APIClient) -> anyhow::Result<Status> {
-        match pod.get_annotation(ACTOR_PUBLIC_KEY) {
-            None => Ok(Status {
-                phase: Phase::Unknown,
-                message: None,
-                container_statuses: Vec::new(),
-            }),
-            Some(pk) => {
-                let pk = pk.to_owned();
-                let result = tokio::task::spawn_blocking(move || host::actor_claims(&pk)).await?;
-                match result {
-                    None => {
-                        // FIXME: I don't know how to tell if an actor failed.
-                        Ok(Status {
-                            phase: Phase::Succeeded,
-                            message: None,
-                            container_statuses: Vec::new(),
-                        })
-                    }
-                    Some(_) => Ok(Status {
-                        phase: Phase::Running,
-                        message: None,
-                        container_statuses: Vec::new(),
-                    }),
-                }
-            }
-        }
     }
 }
 

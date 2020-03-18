@@ -1,5 +1,5 @@
-/// This library contains the Kubelet shell. Use this to create a new Kubelet
-/// with a specific handler. (The handler included here is the WASM handler.)
+/// This library contains code for running a kubelet. Use this to create a new
+/// Kubelet with a specific handler (called a `Provider`)
 use crate::{
     config::Config,
     node::{create_node, update_node},
@@ -48,12 +48,18 @@ pub enum Phase {
     Unknown,
 }
 
+impl Default for Phase {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
 /// Describe the status of a workload.
 ///
 /// Phase captures the lifecycle aspect of the workload, while
 /// the message provides a human-readable description of the
 /// state of the workload.
-#[derive(Clone)]
+#[derive(Clone, Debug, Default)]
 pub struct Status {
     pub phase: Phase,
     pub message: Option<String>,
@@ -269,12 +275,6 @@ pub trait Provider {
     /// Pods that are sent to this function have already met certain criteria for modification.
     /// For example, updates to the `status` of a Pod will not be sent into this function.
     async fn modify(&self, pod: Pod, client: APIClient) -> anyhow::Result<()>;
-
-    /// Given a pod, determine the status of the underlying workload.
-    ///
-    /// This information is used to update Kubernetes about whether this workload is running,
-    /// has already finished running, or has failed.
-    async fn status(&self, pod: Pod, client: APIClient) -> anyhow::Result<Status>;
 
     /// Given the definition of a deleted Pod, remove the workload from the runtime.
     ///
@@ -533,13 +533,6 @@ mod test {
         }
         async fn modify(&self, _pod: Pod, _client: APIClient) -> anyhow::Result<()> {
             Ok(())
-        }
-        async fn status(&self, _pod: Pod, _client: APIClient) -> anyhow::Result<Status> {
-            Ok(Status {
-                phase: Phase::Succeeded,
-                message: None,
-                container_statuses: Vec::new(),
-            })
         }
     }
 

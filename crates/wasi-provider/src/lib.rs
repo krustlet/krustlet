@@ -7,24 +7,21 @@ use std::sync::Arc;
 
 use kube::client::APIClient;
 use kubelet::pod::Pod;
-use kubelet::{Phase, Provider, ProviderError, Status};
+use kubelet::{Provider, ProviderError};
 use log::{debug, info};
 use tokio::fs::File;
 use tokio::sync::RwLock;
 
-use handle::RuntimeHandle;
+use handle::PodHandle;
 use wasi_runtime::WasiRuntime;
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 
-// PodStore contains a map of a unique pod key pointing to a map of container
-// names to the join handle and logging for their running task
-type PodStore = HashMap<String, HashMap<String, RuntimeHandle<File>>>;
 /// WasiProvider provides a Kubelet runtime implementation that executes WASM
 /// binaries conforming to the WASI spec
 #[derive(Clone, Default)]
 pub struct WasiProvider {
-    handles: Arc<RwLock<PodStore>>,
+    handles: Arc<RwLock<HashMap<String, PodHandle<File>>>>,
 }
 
 #[async_trait::async_trait]
@@ -69,34 +66,39 @@ impl Provider for WasiProvider {
         //   - mount any volumes (popen)
         //   - run it to completion
         //   - bail if it errors
-        info!("Starting containers for pod {:?}", pod.name());
+        let pod_name = pod.name().unwrap().to_owned();
+        info!("Starting containers for pod {:?}", pod_name);
         // Wrap this in a block so the write lock goes out of scope when we are done
+        let mut container_handles = HashMap::new();
+        for container in pod.containers() {
+            let env = self.env_vars(client.clone(), &container, &pod).await;
+            let runtime = WasiRuntime::new(
+                PathBuf::from("./testdata/hello-world.wasm"),
+                env,
+                Vec::default(),
+                HashMap::default(),
+                // TODO: Actual log path configuration
+                std::env::current_dir()?,
+            )
+            .await?;
+
+            debug!("Starting container {} on thread", container.name);
+            let handle = runtime.start().await?;
+            container_handles.insert(container.name.clone(), handle);
+        }
         {
             // Grab the entry while we are creating things
             let mut handles = self.handles.write().await;
-            let entry = handles.entry(key_from_pod(&pod)).or_default();
-            for container in pod.containers() {
-                let env = self.env_vars(client.clone(), &container, &pod).await;
-                let runtime = WasiRuntime::new(
-                    PathBuf::from("./testdata/hello-world.wasm"),
-                    env,
-                    Vec::default(),
-                    HashMap::default(),
-                    // TODO: Actual log path configuration
-                    std::env::current_dir()?,
-                )
-                .await?;
-
-                debug!("Starting container {} on thread", container.name);
-                let handle = runtime.start().await?;
-                entry.insert(container.name.clone(), handle);
-            }
+            handles.insert(
+                key_from_pod(&pod),
+                PodHandle::new(container_handles, pod, client)?,
+            );
         }
         info!(
             "All containers started for pod {:?}. Updating status",
-            pod.name()
+            pod_name
         );
-        pod.patch_status(client, &Phase::Running).await;
+        // pod.patch_status(client, &Phase::Running).await;
         Ok(())
     }
 
@@ -121,27 +123,6 @@ impl Provider for WasiProvider {
         unimplemented!("cannot stop a running wasmtime instance")
     }
 
-    async fn status(&self, pod: Pod, _client: APIClient) -> anyhow::Result<Status> {
-        let pod_name = pod.name();
-        let mut handles = self.handles.write().await;
-        let container_handles =
-            handles
-                .get_mut(&key_from_pod(&pod))
-                .ok_or_else(|| ProviderError::PodNotFound {
-                    pod_name: pod_name.to_owned(),
-                })?;
-        let mut container_statuses = Vec::new();
-        for (_, handle) in container_handles.iter_mut() {
-            container_statuses.push(handle.status().await?)
-        }
-
-        Ok(Status {
-            phase: Phase::Running,
-            message: None,
-            container_statuses,
-        })
-    }
-
     async fn logs(
         &self,
         namespace: String,
@@ -153,14 +134,9 @@ impl Provider for WasiProvider {
             .get_mut(&pod_key(&namespace, &pod_name))
             .ok_or_else(|| ProviderError::PodNotFound {
                 pod_name: pod_name.clone(),
-            })?
-            .get_mut(&container_name)
-            .ok_or_else(|| ProviderError::ContainerNotFound {
-                pod_name,
-                container_name,
             })?;
         let mut output = Vec::new();
-        handle.output(&mut output).await?;
+        handle.output(&container_name, &mut output).await?;
         Ok(output)
     }
 }
