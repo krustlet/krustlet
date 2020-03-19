@@ -203,13 +203,17 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
 
     let pod = pods.get("hello-wasi").await?;
 
-    let state = pod.status.expect("foo").container_statuses.expect("bar")[0]
+    let state = pod
+        .status
+        .expect("pod status")
+        .container_statuses
+        .expect("container_status")[0]
         .state
         .as_ref()
-        .expect("baz")
+        .expect("state")
         .terminated
         .clone()
-        .expect("bash");
+        .expect("terminated state");
     assert_eq!(state.exit_code, 0);
 
     // cleanup
