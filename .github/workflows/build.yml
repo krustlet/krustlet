@@ -44,13 +44,11 @@ jobs:
         pathInArchive: just
     - name: Run e2e tests
       run: |
-        ip addr
-        exit 1
         cd crates/wascc-provider
         cargo build --bin krustlet-wascc --manifest-path ../../Cargo.toml
-        ../../target/debug/krustlet-wascc --node-name krustlet-wascc --node-ip 172.17.0.1 --port 3000 &
+        ../../target/debug/krustlet-wascc --node-name krustlet-wascc --port 3000 &
         cd ../wasi-provider
         cargo build --bin krustlet-wasi --manifest-path ../../Cargo.toml
-        ../../target/debug/krustlet-wasi --node-name krustlet-wasi --node-ip 172.17.0.1 --port 3001 &
+        ../../target/debug/krustlet-wasi --node-name krustlet-wasi --port 3001 &
         cd ../..
         just test-e2e
