@@ -106,15 +106,13 @@ impl<R: AsyncReadExt + AsyncSeekExt + Unpin> PodHandle<R> {
                     "Got status update from container {}: {:#?}",
                     status.0, status.1
                 );
-                cloned_pod
-                    .patch_status(
-                        client.clone(),
-                        Status {
-                            message: None,
-                            container_statuses: vec![status.1],
-                        },
-                    )
-                    .await;
+                let mut container_statuses = HashMap::new();
+                container_statuses.insert(status.0, status.1);
+                let status = Status {
+                    message: None,
+                    container_statuses,
+                };
+                cloned_pod.patch_status(client.clone(), status).await;
             }
         });
         Ok(PodHandle {

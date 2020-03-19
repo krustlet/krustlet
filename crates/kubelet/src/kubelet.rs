@@ -64,14 +64,14 @@ pub struct Status {
     /// Allows a provider to set a custom message, otherwise, kubelet will infer
     /// a message from the container statuses
     pub message: Option<String>,
-    pub container_statuses: Vec<ContainerStatus>,
+    pub container_statuses: HashMap<String, ContainerStatus>,
 }
 
 /// ContainerStatus is a simplified version of the Kubernetes container status
 /// for use in providers. It allows for simple creation of the current status of
 /// a "container" (a running wasm process) without worrying about a bunch of
 /// Options. Use the [ContainerStatus::to_kubernetes] method for converting it
-/// to a Kubernetes API status
+/// to a Kubernetes API container status
 #[derive(Clone, Debug)]
 pub enum ContainerStatus {
     Waiting {
@@ -95,7 +95,7 @@ pub enum ContainerStatus {
 }
 
 impl ContainerStatus {
-    pub fn to_kubernetes(&self, pod_name: String) -> KubeContainerStatus {
+    pub fn to_kubernetes(&self, container_name: String) -> KubeContainerStatus {
         let mut state = ContainerState::default();
         match self {
             Self::Waiting { message, .. } => {
@@ -125,7 +125,7 @@ impl ContainerStatus {
         let ready = state.running.is_some();
         KubeContainerStatus {
             state: Some(state),
-            name: pod_name,
+            name: container_name,
             // Right now we don't have a way to probe, so just set to ready if
             // in a running state
             ready,

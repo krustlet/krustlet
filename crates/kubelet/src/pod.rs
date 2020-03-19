@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{Phase, Status};
 use k8s_openapi::api::core::v1::Container as KubeContainer;
 use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
@@ -106,25 +108,20 @@ impl Pod {
 
         // This section figures out what the current phase of the pod should be
         // based on the container statuses
-        let current_statuses = status
+        let mut current_statuses = status
             .container_statuses
             .into_iter()
-            .map(|s| s.to_kubernetes(name.to_owned()))
-            .collect::<Vec<KubeContainerStatus>>();
+            .map(|s| (s.0.clone(), s.1.to_kubernetes(s.0)))
+            .collect::<HashMap<String, KubeContainerStatus>>();
         // Filter out any ones we are updating and then combine them all together
         let mut container_statuses = current_status
             .container_statuses
             .unwrap_or_default()
             .into_iter()
-            .filter(|s| {
-                current_statuses
-                    .iter()
-                    .find(|&other| other.name == s.name)
-                    .is_none()
-            })
+            .filter(|s| current_statuses.contains_key(&s.name))
             .collect::<Vec<KubeContainerStatus>>();
-        container_statuses.extend(current_statuses);
-        let mut num_terminated: usize = 0;
+        container_statuses.extend(current_statuses.drain().map(|(_, v)| v));
+        let mut num_succeeded: usize = 0;
         let mut failed = false;
         // TODO(thomastaylor312): Add inferring a message from these container
         // statuses if there is no message passed in the Status object
@@ -137,12 +134,12 @@ impl Pod {
                     failed = true;
                     break;
                 } else {
-                    num_terminated += 1
+                    num_succeeded += 1
                 }
             }
         }
         // is there ever a case when we get a status that we should end up in Phase unknown?
-        let phase = if num_terminated == container_statuses.len() {
+        let phase = if num_succeeded == container_statuses.len() {
             Phase::Succeeded
         } else if failed {
             Phase::Failed

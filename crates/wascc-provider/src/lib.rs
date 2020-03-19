@@ -105,30 +105,34 @@ impl Provider for WasccProvider {
                 tokio::task::spawn_blocking(move || wascc_run_http(data, env, &pub_key)).await?;
             match http_result {
                 Ok(_) => {
-                    pod.patch_status(
-                        client.clone(),
-                        Status {
-                            container_statuses: vec![ContainerStatus::Running {
-                                timestamp: chrono::Utc::now(),
-                            }],
-                            ..Default::default()
+                    let mut container_statuses = HashMap::new();
+                    container_statuses.insert(
+                        container.name.clone(),
+                        ContainerStatus::Running {
+                            timestamp: chrono::Utc::now(),
                         },
-                    )
-                    .await;
+                    );
+                    let status = Status {
+                        container_statuses,
+                        ..Default::default()
+                    };
+                    pod.patch_status(client.clone(), status).await;
                 }
                 Err(e) => {
-                    pod.patch_status(
-                        client,
-                        Status {
-                            container_statuses: vec![ContainerStatus::Terminated {
-                                timestamp: chrono::Utc::now(),
-                                failed: true,
-                                message: "Error while starting container".to_string(),
-                            }],
-                            ..Default::default()
+                    let mut container_statuses = HashMap::new();
+                    container_statuses.insert(
+                        container.name.clone(),
+                        ContainerStatus::Terminated {
+                            timestamp: chrono::Utc::now(),
+                            failed: true,
+                            message: "Error while starting container".to_string(),
                         },
-                    )
-                    .await;
+                    );
+                    let status = Status {
+                        container_statuses,
+                        ..Default::default()
+                    };
+                    pod.patch_status(client, status).await;
                     return Err(anyhow::anyhow!("Failed to run pod: {}", e));
                 }
             }
