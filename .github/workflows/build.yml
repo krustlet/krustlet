@@ -44,6 +44,8 @@ jobs:
         pathInArchive: just
     - name: Run e2e tests
       run: |
+        ip addr
+        exit 1
         cd crates/wascc-provider
         cargo build --bin krustlet-wascc --manifest-path ../../Cargo.toml
         ../../target/debug/krustlet-wascc --node-name krustlet-wascc --node-ip 172.17.0.1 --port 3000 &
