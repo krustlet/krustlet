@@ -1,17 +1,20 @@
-use crate::Phase;
+use std::collections::HashMap;
+
+use crate::{Phase, Status};
 use k8s_openapi::api::core::v1::Container as KubeContainer;
+use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::{
     api::{Api, PatchParams},
     client::APIClient,
 };
-use log::{debug, error, info};
+use log::{debug, error};
 
 /// A Kubernetes Pod
 ///
 /// This is a new type around the k8s_openapi Pod definition
 /// providing convenient accessor methods
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Pod(KubePod);
 
 impl Pod {
@@ -85,27 +88,83 @@ impl Pod {
         Some(self.annotations().get(key)?.as_str())
     }
 
-    /// Patch the pod status to update the phase.
-    pub async fn patch_status(&self, client: APIClient, phase: &Phase) {
-        let status = serde_json::json!(
+    /// Patch the pod status using the given status information.
+    pub async fn patch_status(&self, client: APIClient, status: Status) {
+        let name = self.name();
+        let api: Api<KubePod> = Api::namespaced(client, self.namespace());
+        let current_status = match api.get(name).await {
+            Ok(p) => match p.status {
+                Some(s) => s,
+                None => {
+                    error!("Pod is missing status information. This should not occur");
+                    return;
+                }
+            },
+            Err(e) => {
+                error!("Unable to fetch current status of pod {}, aborting status patch (will be retried on next status update): {:?}", name, e);
+                return;
+            }
+        };
+
+        // This section figures out what the current phase of the pod should be
+        // based on the container statuses
+        let mut current_statuses = status
+            .container_statuses
+            .into_iter()
+            .map(|s| (s.0.clone(), s.1.to_kubernetes(s.0)))
+            .collect::<HashMap<String, KubeContainerStatus>>();
+        // Filter out any ones we are updating and then combine them all together
+        let mut container_statuses = current_status
+            .container_statuses
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|s| !current_statuses.contains_key(&s.name))
+            .collect::<Vec<KubeContainerStatus>>();
+        container_statuses.extend(current_statuses.drain().map(|(_, v)| v));
+        let mut num_succeeded: usize = 0;
+        let mut failed = false;
+        // TODO(thomastaylor312): Add inferring a message from these container
+        // statuses if there is no message passed in the Status object
+        for status in container_statuses.iter() {
+            // Basically anything is considered running phase in kubernetes
+            // unless it is explicitly exited, so don't worry about considering
+            // that state. We only really need to check terminated
+            if let Some(terminated) = &status.state.as_ref().unwrap().terminated {
+                if terminated.exit_code != 0 {
+                    failed = true;
+                    break;
+                } else {
+                    num_succeeded += 1
+                }
+            }
+        }
+        // is there ever a case when we get a status that we should end up in Phase unknown?
+        let phase = if num_succeeded == container_statuses.len() {
+            Phase::Succeeded
+        } else if failed {
+            Phase::Failed
+        } else {
+            Phase::Running
+        };
+
+        let json_status = serde_json::json!(
             {
                 "metadata": {
                     "resourceVersion": "",
                 },
                 "status": {
-                    "phase": phase
+                    "phase": phase,
+                    "message": status.message,
+                    "containerStatuses": container_statuses
                 }
             }
         );
 
-        let data = serde_json::to_vec(&status).expect("Should always serialize");
-        let name = self.name();
-        let api: Api<KubePod> = Api::namespaced(client, self.namespace());
+        debug!("Setting pod status for {} using {:?}", name, json_status);
+
+        let data = serde_json::to_vec(&json_status).expect("Should always serialize");
         match api.patch_status(&name, &PatchParams::default(), data).await {
-            Ok(o) => {
-                info!("Pod status for {} set to {:?}", name, phase);
-                debug!("Pod status returned: {:#?}", o.status)
-            }
+            Ok(o) => debug!("Pod status returned: {:#?}", o.status),
             Err(e) => error!("Pod status update failed for {}: {}", name, e),
         }
     }

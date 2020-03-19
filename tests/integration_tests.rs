@@ -174,12 +174,17 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let mut watcher = inf.poll().await?.boxed();
-
+    let mut found_running = false;
     while let Some(event) = watcher.try_next().await? {
         match event {
             WatchEvent::Modified(o) => {
                 let phase = o.status.unwrap().phase.unwrap();
                 if phase == "Running" {
+                    found_running = true;
+                }
+                if phase == "Succeeded" && !found_running {
+                    panic!("Reached completed phase before receiving Running phase")
+                } else if phase == "Succeeded" {
                     break;
                 }
             }
@@ -193,8 +198,19 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
     let mut logs = pods.log_stream("hello-wasi", &LogParams::default()).await?;
 
     while let Some(line) = logs.try_next().await? {
-        assert_eq!("Hello World!\n", String::from_utf8_lossy(&line));
+        assert_eq!("Hello, world!\n", String::from_utf8_lossy(&line));
     }
+
+    let pod = pods.get("hello-wasi").await?;
+
+    let state = pod.status.expect("foo").container_statuses.expect("bar")[0]
+        .state
+        .as_ref()
+        .expect("baz")
+        .terminated
+        .clone()
+        .expect("bash");
+    assert_eq!(state.exit_code, 0);
 
     // cleanup
     pods.delete("hello-wasi", &DeleteParams::default()).await?;

@@ -1,5 +1,5 @@
 use kube::client::APIClient;
-use kubelet::{pod::Pod, Phase, Provider, Status};
+use kubelet::{pod::Pod, ContainerStatus, Provider, Status};
 use log::{debug, info};
 use wascc_host::{host, Actor, NativeCapability};
 
@@ -105,10 +105,34 @@ impl Provider for WasccProvider {
                 tokio::task::spawn_blocking(move || wascc_run_http(data, env, &pub_key)).await?;
             match http_result {
                 Ok(_) => {
-                    pod.patch_status(client.clone(), &Phase::Running).await;
+                    let mut container_statuses = HashMap::new();
+                    container_statuses.insert(
+                        container.name.clone(),
+                        ContainerStatus::Running {
+                            timestamp: chrono::Utc::now(),
+                        },
+                    );
+                    let status = Status {
+                        container_statuses,
+                        ..Default::default()
+                    };
+                    pod.patch_status(client.clone(), status).await;
                 }
                 Err(e) => {
-                    pod.patch_status(client, &Phase::Failed).await;
+                    let mut container_statuses = HashMap::new();
+                    container_statuses.insert(
+                        container.name.clone(),
+                        ContainerStatus::Terminated {
+                            timestamp: chrono::Utc::now(),
+                            failed: true,
+                            message: "Error while starting container".to_string(),
+                        },
+                    );
+                    let status = Status {
+                        container_statuses,
+                        ..Default::default()
+                    };
+                    pod.patch_status(client, status).await;
                     return Err(anyhow::anyhow!("Failed to run pod: {}", e));
                 }
             }
@@ -140,35 +164,6 @@ impl Provider for WasccProvider {
             .map(String::as_str)
             .unwrap_or_default();
         wascc_stop(&pub_key).map_err(|e| anyhow::anyhow!("Failed to stop wascc actor: {}", e))
-    }
-
-    async fn status(&self, pod: Pod, _client: APIClient) -> anyhow::Result<Status> {
-        match pod.get_annotation(ACTOR_PUBLIC_KEY) {
-            None => Ok(Status {
-                phase: Phase::Unknown,
-                message: None,
-                container_statuses: Vec::new(),
-            }),
-            Some(pk) => {
-                let pk = pk.to_owned();
-                let result = tokio::task::spawn_blocking(move || host::actor_claims(&pk)).await?;
-                match result {
-                    None => {
-                        // FIXME: I don't know how to tell if an actor failed.
-                        Ok(Status {
-                            phase: Phase::Succeeded,
-                            message: None,
-                            container_statuses: Vec::new(),
-                        })
-                    }
-                    Some(_) => Ok(Status {
-                        phase: Phase::Running,
-                        message: None,
-                        container_statuses: Vec::new(),
-                    }),
-                }
-            }
-        }
     }
 }
 

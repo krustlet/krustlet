@@ -1,5 +1,5 @@
-/// This library contains the Kubelet shell. Use this to create a new Kubelet
-/// with a specific handler. (The handler included here is the WASM handler.)
+/// This library contains code for running a kubelet. Use this to create a new
+/// Kubelet with a specific handler (called a `Provider`)
 use crate::{
     config::Config,
     node::{create_node, update_node},
@@ -37,7 +37,7 @@ pub struct NotImplementedError;
 ///
 /// This is specified by Kubernetes itself.
 #[derive(Clone, Debug, serde::Serialize)]
-pub enum Phase {
+pub(crate) enum Phase {
     /// The workload is currently executing.
     Running,
     /// The workload has exited with an error.
@@ -48,23 +48,30 @@ pub enum Phase {
     Unknown,
 }
 
+impl Default for Phase {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
 /// Describe the status of a workload.
 ///
 /// Phase captures the lifecycle aspect of the workload, while
 /// the message provides a human-readable description of the
 /// state of the workload.
-#[derive(Clone)]
+#[derive(Clone, Debug, Default)]
 pub struct Status {
-    pub phase: Phase,
+    /// Allows a provider to set a custom message, otherwise, kubelet will infer
+    /// a message from the container statuses
     pub message: Option<String>,
-    pub container_statuses: Vec<ContainerStatus>,
+    pub container_statuses: HashMap<String, ContainerStatus>,
 }
 
 /// ContainerStatus is a simplified version of the Kubernetes container status
 /// for use in providers. It allows for simple creation of the current status of
 /// a "container" (a running wasm process) without worrying about a bunch of
 /// Options. Use the [ContainerStatus::to_kubernetes] method for converting it
-/// to a Kubernetes API status
+/// to a Kubernetes API container status
 #[derive(Clone, Debug)]
 pub enum ContainerStatus {
     Waiting {
@@ -88,7 +95,7 @@ pub enum ContainerStatus {
 }
 
 impl ContainerStatus {
-    pub fn to_kubernetes(&self, pod_name: String) -> KubeContainerStatus {
+    pub fn to_kubernetes(&self, container_name: String) -> KubeContainerStatus {
         let mut state = ContainerState::default();
         match self {
             Self::Waiting { message, .. } => {
@@ -118,7 +125,7 @@ impl ContainerStatus {
         let ready = state.running.is_some();
         KubeContainerStatus {
             state: Some(state),
-            name: pod_name,
+            name: container_name,
             // Right now we don't have a way to probe, so just set to ready if
             // in a running state
             ready,
@@ -269,12 +276,6 @@ pub trait Provider {
     /// Pods that are sent to this function have already met certain criteria for modification.
     /// For example, updates to the `status` of a Pod will not be sent into this function.
     async fn modify(&self, pod: Pod, client: APIClient) -> anyhow::Result<()>;
-
-    /// Given a pod, determine the status of the underlying workload.
-    ///
-    /// This information is used to update Kubernetes about whether this workload is running,
-    /// has already finished running, or has failed.
-    async fn status(&self, pod: Pod, client: APIClient) -> anyhow::Result<Status>;
 
     /// Given the definition of a deleted Pod, remove the workload from the runtime.
     ///
@@ -533,13 +534,6 @@ mod test {
         }
         async fn modify(&self, _pod: Pod, _client: APIClient) -> anyhow::Result<()> {
             Ok(())
-        }
-        async fn status(&self, _pod: Pod, _client: APIClient) -> anyhow::Result<Status> {
-            Ok(Status {
-                phase: Phase::Succeeded,
-                message: None,
-                container_statuses: Vec::new(),
-            })
         }
     }
 
