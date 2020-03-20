@@ -36,6 +36,7 @@ type OciResult<T> = anyhow::Result<T>;
 /// For true anonymous access, you can skip `auth()`. This is not recommended
 /// unless you are sure that the remote registry does not require Oauth2.
 pub struct Client {
+    config: ClientConfig,
     token: Option<RegistryToken>,
     client: reqwest::Client,
 }
@@ -44,6 +45,16 @@ impl Client {
     // Create a new client initialized to share HTTP connections across multiple requests.
     pub fn new() -> Self {
         Client {
+            config: Default::default(),
+            token: None,
+            client: reqwest::Client::new(),
+        }
+    }
+
+    // Create a new client with the supplied config
+    pub fn new_with_config(config: ClientConfig) -> Self {
+        Client {
+            config,
             token: None,
             client: reqwest::Client::new(),
         }
@@ -88,7 +99,7 @@ impl Client {
     /// `reqwest` error, the request itself failed. All other error messages mean that
     /// v2 is not supported.
     pub async fn version(&self, host: &str) -> OciResult<String> {
-        let url = format!("https://{}/v2/", host);
+        let url = format!("{}://{}/v2/", self.config.protocol.as_str(), host);
         let res = self.client.get(&url).send().await?;
         let dist_hdr = res.headers().get(OCI_VERSION_KEY);
         let version = dist_hdr
@@ -104,7 +115,11 @@ impl Client {
     /// on other requests.
     pub async fn auth(&mut self, image: &Reference, _secret: Option<&str>) -> OciResult<()> {
         // The version request will tell us where to go.
-        let url = format!("https://{}/v2/", image.registry());
+        let url = format!(
+            "{}://{}/v2/",
+            self.config.protocol.as_str(),
+            image.registry()
+        );
         let res = self.client.get(&url).send().await?;
         let dist_hdr = match res.headers().get(reqwest::header::WWW_AUTHENTICATE) {
             Some(h) => h,
@@ -153,7 +168,7 @@ impl Client {
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
     pub async fn pull_manifest(&self, image: &Reference) -> OciResult<OciManifest> {
-        let url = image.to_v2_manifest_url();
+        let url = image.to_v2_manifest_url(self.config.protocol.as_str());
         let request = self.client.get(&url);
 
         let res = request.headers(self.auth_headers()).send().await?;
@@ -191,7 +206,7 @@ impl Client {
         digest: &str,
         mut out: T,
     ) -> OciResult<()> {
-        let url = image.to_v2_blob_url(&digest);
+        let url = image.to_v2_blob_url(self.config.protocol.as_str(), digest);
         let mut stream = self
             .client
             .get(&url)
@@ -258,6 +273,34 @@ impl ModuleStore for FileModuleStore {
         let path = self.pull_file_path(image_ref);
         tokio::fs::write(&path, contents).await?;
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ClientConfig {
+    pub protocol: ClientProtocol,
+}
+
+impl Default for ClientConfig {
+    fn default() -> Self {
+        Self {
+            protocol: ClientProtocol::Https,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ClientProtocol {
+    Http,
+    Https,
+}
+
+impl ClientProtocol {
+    fn as_str(&self) -> &str {
+        match self {
+            ClientProtocol::Https => "https",
+            ClientProtocol::Http => "http",
+        }
     }
 }
 

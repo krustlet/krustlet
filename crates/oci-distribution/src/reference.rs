@@ -32,9 +32,10 @@ impl Reference {
     }
 
     /// Convert a Reference to a v2 manifest URL.
-    pub fn to_v2_manifest_url(&self) -> String {
+    pub fn to_v2_manifest_url(&self, protocol: &str) -> String {
         format!(
-            "https://{}/v2/{}/manifests/{}",
+            "{}://{}/v2/{}/manifests/{}",
+            protocol,
             self.registry(),
             self.repository(),
             self.tag()
@@ -42,9 +43,10 @@ impl Reference {
     }
 
     /// Convert a Reference to a v2 blob (layer) URL.
-    pub fn to_v2_blob_url(&self, digest: &str) -> String {
+    pub fn to_v2_blob_url(&self, protocol: &str, digest: &str) -> String {
         format!(
-            "https://{}/v2/{}/blobs/{}",
+            "{}://{}/v2/{}/blobs/{}",
+            protocol,
             self.registry(),
             self.repository(),
             digest
@@ -117,7 +119,7 @@ mod tests {
             .expect("Could not parse reference");
         assert_eq!(
             "https://webassembly.azurecr.io/v2/hello/manifests/v1",
-            reference.to_v2_manifest_url()
+            reference.to_v2_manifest_url("https")
         );
     }
 }
