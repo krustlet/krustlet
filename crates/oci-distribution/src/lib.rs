@@ -35,6 +35,7 @@ type OciResult<T> = anyhow::Result<T>;
 ///
 /// For true anonymous access, you can skip `auth()`. This is not recommended
 /// unless you are sure that the remote registry does not require Oauth2.
+#[derive(Default)]
 pub struct Client {
     config: ClientConfig,
     token: Option<RegistryToken>,
@@ -42,17 +43,8 @@ pub struct Client {
 }
 
 impl Client {
-    // Create a new client initialized to share HTTP connections across multiple requests.
-    pub fn new() -> Self {
-        Client {
-            config: Default::default(),
-            token: None,
-            client: reqwest::Client::new(),
-        }
-    }
-
     // Create a new client with the supplied config
-    pub fn new_with_config(config: ClientConfig) -> Self {
+    pub fn new(config: ClientConfig) -> Self {
         Client {
             config,
             token: None,
@@ -365,7 +357,7 @@ mod test {
 
     #[tokio::test]
     async fn test_version() {
-        let c = Client::new();
+        let c = Client::default();
         let ver = c
             .version("webassembly.azurecr.io")
             .await
@@ -376,7 +368,7 @@ mod test {
     #[tokio::test]
     async fn test_auth() {
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-        let mut c = Client::new();
+        let mut c = Client::default();
         c.auth(&image, None)
             .await
             .expect("result from auth request");
@@ -390,7 +382,7 @@ mod test {
     async fn test_pull_manifest() {
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
         // Currently, pull_manifest does not perform Authz, so this will fail.
-        let c = Client::new();
+        let c = Client::default();
         c.pull_manifest(&image)
             .await
             .expect_err("pull manifest should fail");
@@ -398,7 +390,7 @@ mod test {
         // But this should pass
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
         // Currently, pull_manifest does not perform Authz, so this will fail.
-        let mut c = Client::new();
+        let mut c = Client::default();
         c.auth(&image, None).await.expect("authenticated");
         let manifest = c
             .pull_manifest(&image)
@@ -413,7 +405,7 @@ mod test {
     #[tokio::test]
     async fn test_pull_layer() {
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-        let mut c = Client::new();
+        let mut c = Client::default();
         c.auth(&image, None).await.expect("authenticated");
         let manifest = c
             .pull_manifest(&image)
@@ -448,7 +440,7 @@ mod test {
     #[tokio::test]
     async fn test_pull() {
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-        let mut c = Client::new();
+        let mut c = Client::default();
 
         let store = InMemoryModuleStore {
             contents: Mutex::new(Vec::new()),
