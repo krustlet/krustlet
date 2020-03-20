@@ -3,7 +3,7 @@ use std::io::SeekFrom;
 
 use kube::client::APIClient;
 use log::{debug, error, info};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader};
 use tokio::stream::{StreamExt, StreamMap};
 use tokio::sync::watch::Receiver;
 use tokio::sync::RwLock;
@@ -15,13 +15,13 @@ use kubelet::{ContainerStatus, ProviderError, Status};
 /// Represents a handle to a running WASI instance. Right now, this is
 /// experimental and just for use with the [crate::WasiProvider]. If we like
 /// this pattern, we will expose it as part of the kubelet crate
-pub struct RuntimeHandle<R: AsyncReadExt + AsyncSeekExt + Unpin> {
+pub struct RuntimeHandle<R: AsyncRead + AsyncSeek + Unpin> {
     output: BufReader<R>,
     handle: JoinHandle<anyhow::Result<()>>,
     status_channel: Receiver<ContainerStatus>,
 }
 
-impl<R: AsyncReadExt + AsyncSeekExt + Unpin> RuntimeHandle<R> {
+impl<R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<R> {
     /// Create a new handle with the given reader for log output and a handle to
     /// the running tokio task. The sender part of the channel should be given
     /// to the running process and the receiver half passed to this constructor
@@ -69,14 +69,14 @@ impl<R: AsyncReadExt + AsyncSeekExt + Unpin> RuntimeHandle<R> {
 /// PodHandle is the top level handle into managing a pod. It manages updating
 /// statuses for the containers in the pod and can be used to stop the pod and
 /// access logs
-pub struct PodHandle<R: AsyncReadExt + AsyncSeekExt + Unpin> {
+pub struct PodHandle<R: AsyncRead + AsyncSeek + Unpin> {
     container_handles: RwLock<HashMap<String, RuntimeHandle<R>>>,
     // The channel for sending a stop signal to the status updater tasks
     status_handle: JoinHandle<()>,
     pod: Pod,
 }
 
-impl<R: AsyncReadExt + AsyncSeekExt + Unpin> PodHandle<R> {
+impl<R: AsyncRead + AsyncSeek + Unpin> PodHandle<R> {
     /// Creates a new pod handle that manages the given map of container names
     /// to [crate::RuntimeHandle]s. The given pod and client are used to
     /// maintain a reference to the kubernetes object and to be able to update
@@ -88,7 +88,7 @@ impl<R: AsyncReadExt + AsyncSeekExt + Unpin> PodHandle<R> {
     ) -> anyhow::Result<Self> {
         let mut channel_map = StreamMap::with_capacity(container_handles.len());
         for (name, handle) in container_handles.iter() {
-            channel_map.insert(name.clone(), handle.status().clone());
+            channel_map.insert(name.clone(), handle.status());
         }
         // TODO: This does not allow for restarting single containers because we
         // move the stream map and lose the ability to insert a new channel for
@@ -97,17 +97,14 @@ impl<R: AsyncReadExt + AsyncSeekExt + Unpin> PodHandle<R> {
         let cloned_pod = pod.clone();
         let status_handle = tokio::task::spawn(async move {
             loop {
-                let status = match channel_map.next().await {
+                let (name, status) = match channel_map.next().await {
                     Some(s) => s,
                     // None means everything is closed, so go ahead and exit
                     None => return,
                 };
-                debug!(
-                    "Got status update from container {}: {:#?}",
-                    status.0, status.1
-                );
+                debug!("Got status update from container {}: {:#?}", name, status);
                 let mut container_statuses = HashMap::new();
-                container_statuses.insert(status.0, status.1);
+                container_statuses.insert(name, status);
                 let status = Status {
                     message: None,
                     container_statuses,

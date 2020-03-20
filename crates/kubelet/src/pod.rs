@@ -108,7 +108,7 @@ impl Pod {
 
         // This section figures out what the current phase of the pod should be
         // based on the container statuses
-        let mut current_statuses = status
+        let current_statuses = status
             .container_statuses
             .into_iter()
             .map(|s| (s.0.clone(), s.1.to_kubernetes(s.0)))
@@ -120,7 +120,7 @@ impl Pod {
             .into_iter()
             .filter(|s| !current_statuses.contains_key(&s.name))
             .collect::<Vec<KubeContainerStatus>>();
-        container_statuses.extend(current_statuses.drain().map(|(_, v)| v));
+        container_statuses.extend(current_statuses.into_iter().map(|(_, v)| v));
         let mut num_succeeded: usize = 0;
         let mut failed = false;
         // TODO(thomastaylor312): Add inferring a message from these container
