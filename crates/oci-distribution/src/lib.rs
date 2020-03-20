@@ -51,8 +51,8 @@ impl Client {
 }
 
 impl Client {
-    /// Pull an image and store it in an image store.    
-    pub async fn pull<T: ImageStore>(&mut self, image: &Reference, store: &T) -> OciResult<()> {
+    /// Pull an image and store it in a module store.    
+    pub async fn pull<T: ModuleStore>(&mut self, image: &Reference, store: &T) -> OciResult<()> {
         self.auth(image, None).await?;
         let manifest = self.pull_manifest(image).await?;
 
@@ -222,19 +222,20 @@ impl Client {
         headers
     }
 }
+
 #[async_trait]
-pub trait ImageStore {
+pub trait ModuleStore {
     async fn store(&self, image_ref: &Reference, contents: Vec<u8>) -> std::io::Result<()>;
 }
 
-pub struct FileImageStore {
+pub struct FileModuleStore {
     root_dir: PathBuf,
 }
 
-impl FileImageStore {
+impl FileModuleStore {
     pub fn new(root_dir: &Path) -> Self {
         Self {
-            root_dir: root_dir.join(".oci").join("image"),
+            root_dir: root_dir.join(".oci").join("modules"),
         }
     }
 
@@ -251,7 +252,7 @@ impl FileImageStore {
 }
 
 #[async_trait]
-impl ImageStore for FileImageStore {
+impl ModuleStore for FileModuleStore {
     async fn store(&self, image_ref: &Reference, contents: Vec<u8>) -> std::io::Result<()> {
         tokio::fs::create_dir_all(self.pull_path(image_ref)).await?;
         let path = self.pull_file_path(image_ref);
@@ -389,12 +390,12 @@ mod test {
     }
 
     use std::sync::Mutex;
-    struct InMemoryImageStore {
+    struct InMemoryModuleStore {
         contents: Mutex<Vec<u8>>,
     }
 
     #[async_trait]
-    impl ImageStore for InMemoryImageStore {
+    impl ModuleStore for InMemoryModuleStore {
         async fn store(&self, _image_ref: &Reference, contents: Vec<u8>) -> std::io::Result<()> {
             std::mem::replace(&mut *self.contents.lock().unwrap(), contents);
             Ok(())
@@ -406,7 +407,7 @@ mod test {
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
         let mut c = Client::new();
 
-        let store = InMemoryImageStore {
+        let store = InMemoryModuleStore {
             contents: Mutex::new(Vec::new()),
         };
         c.pull(&image, &store)
