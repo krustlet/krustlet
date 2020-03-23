@@ -235,6 +235,7 @@ pub trait ModuleStore {
     async fn store(&self, image_ref: &Reference, contents: Vec<u8>) -> std::io::Result<()>;
 }
 
+#[derive(Clone)]
 pub struct FileModuleStore {
     root_dir: PathBuf,
 }
@@ -253,7 +254,7 @@ impl FileModuleStore {
             .join(r.tag())
     }
 
-    pub(crate) fn pull_file_path(&self, r: &Reference) -> PathBuf {
+    pub fn pull_file_path(&self, r: &Reference) -> PathBuf {
         self.pull_path(r).join("module.wasm")
     }
 }

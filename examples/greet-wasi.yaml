@@ -2,11 +2,9 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: greet
-  annotations:
-    deislabs.io/wascc-action-key: MB4OLDIC3TCZ4Q4TGGOVAZC43VXFE2JQVRAXQMQFXUCREOOFEKOKZTY2
 spec:
   containers:
-    - image: echo.wasm
+    - image: webassembly.azurecr.io/hello-wasm:v1 
       imagePullPolicy: Always
       name: greet
       ports:
@@ -14,7 +12,7 @@ spec:
   nodeSelector:
     kubernetes.io/role: agent
     beta.kubernetes.io/os: linux
-    beta.kubernetes.io/arch: wasm32-wascc
+    beta.kubernetes.io/arch: wasm32-wasi
   tolerations:
     - key: "node.kubernetes.io/network-unavailable"
       operator: "Exists"
