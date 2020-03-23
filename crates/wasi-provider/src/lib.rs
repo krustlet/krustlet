@@ -2,6 +2,7 @@ mod handle;
 mod wasi_runtime;
 
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -9,6 +10,7 @@ use kube::client::APIClient;
 use kubelet::pod::Pod;
 use kubelet::{Provider, ProviderError};
 use log::{debug, info};
+use oci_distribution::{Client, FileModuleStore, Reference};
 use tokio::fs::File;
 use tokio::sync::RwLock;
 
@@ -71,9 +73,20 @@ impl Provider for WasiProvider {
         // Wrap this in a block so the write lock goes out of scope when we are done
         let mut container_handles = HashMap::new();
         for container in pod.containers() {
+            let mut c = Client::default();
+
+            let image = container
+                .image
+                .clone()
+                .expect("Container must have an image");
+            let image = Reference::try_from(image).unwrap();
+            let store = FileModuleStore::new(&PathBuf::from("/home/rylevick"));
+            let path = store.pull_file_path(&image);
+            debug!("Pulling image from store to {:?}", path);
+            c.pull(&image, &store).await.unwrap();
             let env = self.env_vars(client.clone(), &container, &pod).await;
             let runtime = WasiRuntime::new(
-                PathBuf::from("./testdata/hello-world.wasm"),
+                path,
                 env,
                 Vec::default(),
                 HashMap::default(),

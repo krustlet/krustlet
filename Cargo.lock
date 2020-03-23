@@ -2984,6 +2984,7 @@ dependencies = [
  "kube",
  "kubelet",
  "log",
+ "oci-distribution",
  "tempfile",
  "tokio",
  "wasi-common",
