@@ -41,5 +41,5 @@ bootstrap-ssl:
     @chmod 400 $(eval echo $KEY_DIR)/*
 
 _cleanup_kube:
-    kubectl delete no $(hostname | tr '[:upper:]' '[:lower:]') || true
-    kubectl delete po greet || true
+    kubectl delete node krustlet-wasi krustlet-wascc || true
+    kubectl delete --all pods --namespace=default || true
