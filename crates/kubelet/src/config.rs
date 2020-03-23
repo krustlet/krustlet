@@ -17,6 +17,7 @@ pub struct Config {
     pub hostname: String,
     pub node_name: String,
     pub server_config: ServerConfig,
+    pub data_dir: PathBuf,
 }
 
 #[derive(Clone, Debug)]
@@ -38,6 +39,7 @@ impl Config {
             node_ip: default_node_ip(&mut hostname.clone(), preferred_ip_family)?,
             node_name: sanitize_hostname(&hostname),
             hostname,
+            data_dir: default_dir()?,
             server_config: ServerConfig {
                 addr: match preferred_ip_family {
                     // Just unwrap these because they are programmer error if they
@@ -77,10 +79,14 @@ impl Config {
         let port = opts.port;
         let pfx_path = opts.pfx_path.unwrap_or_else(default_pfx_path);
         let pfx_password = opts.pfx_password.unwrap_or_default();
+        let data_dir = opts
+            .data_dir
+            .unwrap_or_else(|| default_dir().expect("unable to get default directory"));
         Config {
             node_ip,
             node_name,
             hostname,
+            data_dir,
             server_config: ServerConfig {
                 addr,
                 port,
@@ -152,12 +158,25 @@ pub struct Opts {
         help = "The name for this node in Kubernetes, defaults to the hostname of this machine"
     )]
     node_name: Option<String>,
+
+    #[clap(
+        long = "data-dir",
+        env = "KRUSTLET_DATA_DIR",
+        help = "The data path (logs, container images, etc) for krustlet storage. Defaults to $HOME/.krustlet"
+    )]
+    data_dir: Option<PathBuf>,
 }
 
 fn default_hostname() -> anyhow::Result<String> {
     Ok(hostname::get()?
         .into_string()
         .map_err(|_| anyhow::anyhow!("invalid utf-8 hostname string"))?)
+}
+
+fn default_dir() -> anyhow::Result<PathBuf> {
+    Ok(dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Unable to get home directory"))?
+        .join(".krustlet"))
 }
 
 // Some hostnames (particularly local ones) can have uppercase letters, which is
