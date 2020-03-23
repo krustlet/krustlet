@@ -2980,6 +2980,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "dirs",
  "k8s-openapi",
  "kube",
  "kubelet",

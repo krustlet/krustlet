@@ -73,17 +73,18 @@ impl Provider for WasiProvider {
         // Wrap this in a block so the write lock goes out of scope when we are done
         let mut container_handles = HashMap::new();
         for container in pod.containers() {
+            // TODO: pull images in parallel
             let mut c = Client::default();
-
             let image = container
                 .image
                 .clone()
                 .expect("Container must have an image");
             let image = Reference::try_from(image).unwrap();
-            let store = FileModuleStore::new(&PathBuf::from("/home/rylevick"));
+            let store = FileModuleStore::new(&dirs::home_dir().expect("Cannot get home directory"));
             let path = store.pull_file_path(&image);
             debug!("Pulling image from store to {:?}", path);
             c.pull(&image, &store).await.unwrap();
+
             let env = self.env_vars(client.clone(), &container, &pod).await;
             let runtime = WasiRuntime::new(
                 path,
