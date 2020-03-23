@@ -2981,6 +2981,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "dirs",
+ "futures",
  "k8s-openapi",
  "kube",
  "kubelet",

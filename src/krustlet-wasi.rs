@@ -17,7 +17,7 @@ async fn main() -> anyhow::Result<()> {
 
     // The provider is responsible for all the "back end" logic. If you are creating
     // a new Kubelet, all you need to implement is a provider.
-    let provider = WasiProvider::default();
+    let provider = WasiProvider::new();
     let kubelet = Kubelet::new(
         provider,
         kubeconfig,

@@ -10,7 +10,7 @@ use kube::client::APIClient;
 use kubelet::pod::Pod;
 use kubelet::{Provider, ProviderError};
 use log::{debug, info};
-use oci_distribution::{Client, FileModuleStore, Reference};
+use oci_distribution::{FileModuleStore, Reference};
 use tokio::fs::File;
 use tokio::sync::RwLock;
 
@@ -21,9 +21,52 @@ const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 
 /// WasiProvider provides a Kubelet runtime implementation that executes WASM
 /// binaries conforming to the WASI spec
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct WasiProvider {
     handles: Arc<RwLock<HashMap<String, PodHandle<File>>>>,
+    store: FileModuleStore,
+}
+
+impl WasiProvider {
+    pub fn new() -> Self {
+        let store = FileModuleStore::new(&dirs::home_dir().expect("Cannot get home directory"));
+        Self {
+            handles: Default::default(),
+            store,
+        }
+    }
+
+    // Fetch all container modules for a given `Pod` storing the name of the
+    // container and the module's path on the file system as key/value pairs
+    // in a hashmap.
+    async fn fetch_container_modules(&self, pod: &Pod) -> HashMap<String, PathBuf> {
+        // Fetch all of the container modules in parallel
+        let container_module_futures = pod
+            .containers()
+            .iter()
+            .map(move |container| {
+                let mut c = oci_distribution::Client::default();
+                let image = container
+                    .image
+                    .clone()
+                    .expect("Container must have an image");
+                let image = Reference::try_from(image).unwrap();
+                let path = self.store.pull_file_path(&image);
+                debug!("Pulling image from store to {:?}", path);
+
+                async move {
+                    c.pull(&image, &self.store).await.unwrap();
+                    (container.name.clone(), path)
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // Collect the container modules into a HashMap for quick lookup
+        futures::future::join_all(container_module_futures)
+            .await
+            .into_iter()
+            .collect::<HashMap<String, PathBuf>>()
+    }
 }
 
 #[async_trait::async_trait]
@@ -72,22 +115,13 @@ impl Provider for WasiProvider {
         info!("Starting containers for pod {:?}", pod_name);
         // Wrap this in a block so the write lock goes out of scope when we are done
         let mut container_handles = HashMap::new();
-        for container in pod.containers() {
-            // TODO: pull images in parallel
-            let mut c = Client::default();
-            let image = container
-                .image
-                .clone()
-                .expect("Container must have an image");
-            let image = Reference::try_from(image).unwrap();
-            let store = FileModuleStore::new(&dirs::home_dir().expect("Cannot get home directory"));
-            let path = store.pull_file_path(&image);
-            debug!("Pulling image from store to {:?}", path);
-            c.pull(&image, &store).await.unwrap();
 
+        let mut module_paths = self.fetch_container_modules(&pod).await;
+
+        for container in pod.containers() {
             let env = self.env_vars(client.clone(), &container, &pod).await;
             let runtime = WasiRuntime::new(
-                path,
+                module_paths.remove(&container.name).unwrap(),
                 env,
                 Vec::default(),
                 HashMap::default(),
@@ -173,7 +207,7 @@ mod test {
 
     #[test]
     fn test_can_schedule() {
-        let wp = WasiProvider::default();
+        let wp = WasiProvider::new();
         let mock = Default::default();
         assert!(!wp.can_schedule(&mock));
 

@@ -235,6 +235,7 @@ pub trait ModuleStore {
     async fn store(&self, image_ref: &Reference, contents: Vec<u8>) -> std::io::Result<()>;
 }
 
+#[derive(Clone)]
 pub struct FileModuleStore {
     root_dir: PathBuf,
 }
