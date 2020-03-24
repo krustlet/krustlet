@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hello-world-wasi-rust
+data:
+  myval: "cool stuff"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hello-world-wasi-rust
+spec:
+  containers:
+    - name: hello-world-wasi-rust
+      image: webassembly.azurecr.io/hello-world-wasi-rust:v0.1.0
+      env:
+        - name: FOO
+          value: bar
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: CONFIG_MAP_VAL
+          valueFrom:
+            configMapKeyRef:
+              key: myval
+              name: hello-world-wasi-rust
+  nodeSelector:
+    beta.kubernetes.io/arch: wasm32-wasi

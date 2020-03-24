@@ -23,9 +23,7 @@ run-wascc: _cleanup_kube bootstrap-ssl
     cd ./crates/wascc-provider && cargo run --bin krustlet-wascc --manifest-path ../../Cargo.toml -- --node-name krustlet-wascc --port 3000
 
 run-wasi: _cleanup_kube bootstrap-ssl
-    @# HACK: Temporary step to change to a directory so it has access to a hard
-    @# coded module. This should be removed once we have image support
-    cd ./crates/wasi-provider && cargo run --bin krustlet-wasi --manifest-path ../../Cargo.toml -- --node-name krustlet-wasi --port 3001
+    cargo run --bin krustlet-wasi -- --node-name krustlet-wasi --port 3001
 
 dockerize:
     docker build -t technosophos/krustlet:latest .
