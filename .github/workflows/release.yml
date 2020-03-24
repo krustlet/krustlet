@@ -1,6 +1,12 @@
 name: release
 
-on: release
+on:
+  push:
+    branches:
+      - master
+  release:
+    types:
+      - published
 
 jobs:
   build:
@@ -13,9 +19,15 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Get the version
+      - name: get the version
         id: get_version
+        if: github.event_name == 'release'
         run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+
+      - name: get the version
+        id: get_version
+        if: github.event_name == 'push'
+        run: echo ::set-output name=VERSION::canary
 
       - name: build release
         uses: actions-rs/cargo@v1
@@ -38,6 +50,7 @@ jobs:
   crates:
     name: publish to crates.io
     runs-on: ubuntu-latest
+    if: github.event_name == 'release'
     steps:
       - uses: actions/checkout@v2
       - name: publish to crates.io
