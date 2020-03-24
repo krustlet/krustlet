@@ -32,7 +32,7 @@ pub struct WasiProvider {
 impl WasiProvider {
     /// Returns a new WASI provider configured to use the proper data directory
     /// (including creating it if necessary)
-    pub fn new<P: AsRef<Path>>(data_dir: P) -> anyhow::Result<Self> {
+    pub async fn new<P: AsRef<Path>>(data_dir: P) -> anyhow::Result<Self> {
         // Make sure we have a log dir and containers dir created
         let data_path = data_dir.as_ref().to_path_buf();
         // This is temporary as we should probably be passing in a ModuleStore
@@ -40,7 +40,7 @@ impl WasiProvider {
         // NOTE: We do not have to create the dir here as the FileModuleStore already does this
         let container_path = data_path.join("containers");
         let log_path = data_path.join(LOG_DIR_NAME);
-        std::fs::create_dir_all(&log_path)?;
+        tokio::fs::create_dir_all(&log_path).await?;
         let store = FileModuleStore::new(&container_path);
         Ok(Self {
             handles: Default::default(),
@@ -217,9 +217,11 @@ mod test {
     use k8s_openapi::api::core::v1::Pod as KubePod;
     use k8s_openapi::api::core::v1::PodSpec;
 
-    #[test]
-    fn test_can_schedule() {
-        let wp = WasiProvider::new("./foo").expect("unable to create new runtime");
+    #[tokio::test]
+    async fn test_can_schedule() {
+        let wp = WasiProvider::new("./foo")
+            .await
+            .expect("unable to create new runtime");
         let mock = Default::default();
         assert!(!wp.can_schedule(&mock));
 

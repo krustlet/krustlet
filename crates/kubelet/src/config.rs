@@ -39,7 +39,7 @@ impl Config {
             node_ip: default_node_ip(&mut hostname.clone(), preferred_ip_family)?,
             node_name: sanitize_hostname(&hostname),
             hostname,
-            data_dir: default_dir()?,
+            data_dir: default_data_dir()?,
             server_config: ServerConfig {
                 addr: match preferred_ip_family {
                     // Just unwrap these because they are programmer error if they
@@ -81,7 +81,7 @@ impl Config {
         let pfx_password = opts.pfx_password.unwrap_or_default();
         let data_dir = opts
             .data_dir
-            .unwrap_or_else(|| default_dir().expect("unable to get default directory"));
+            .unwrap_or_else(|| default_data_dir().expect("unable to get default directory"));
         Config {
             node_ip,
             node_name,
@@ -173,7 +173,7 @@ fn default_hostname() -> anyhow::Result<String> {
         .map_err(|_| anyhow::anyhow!("invalid utf-8 hostname string"))?)
 }
 
-fn default_dir() -> anyhow::Result<PathBuf> {
+fn default_data_dir() -> anyhow::Result<PathBuf> {
     Ok(dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("Unable to get home directory"))?
         .join(".krustlet"))
