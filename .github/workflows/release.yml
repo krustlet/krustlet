@@ -1,0 +1,81 @@
+name: release
+
+on:
+  push:
+    branches:
+      - master
+  release:
+    types:
+      - published
+
+jobs:
+  build:
+    name: build release assets
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+        arch: [amd64]
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: get the version
+        id: get_version
+        if: github.event_name == 'release'
+        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+
+      - name: get the version
+        id: get_version
+        if: github.event_name == 'push'
+        run: echo ::set-output name=VERSION::canary
+
+      - name: build release
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --all-features
+
+      - name: package release assets
+        run: |
+          mkdir _dist
+          cp README.md LICENSE target/release/krustlet-wasi target/release/krustlet-wascc _dist/
+          cd _dist
+          tar czf krustlet-${{ steps.get_version.outputs.VERSION }}-${{ runner.os }}-${{ matrix.arch }}.tar.gz README.md LICENSE krustlet-wasi krustlet-wascc
+
+      - uses: actions/upload-artifact@v1
+        with:
+          name: krustlet
+          path: _dist/krustlet-${{ steps.get_version.outputs.VERSION }}-${{ runner.os }}-${{ matrix.arch }}.tar.gz
+
+  crates:
+    name: publish to crates.io
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - uses: actions/checkout@v2
+      - name: publish to crates.io
+        uses: actions-rs/cargo@v1
+        with:
+          command: publish
+          args: --token ${{ secrets.CargoToken }}
+
+  publish:
+    name: publish release assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: download release assets
+        uses: actions/download-artifact@v1
+        with:
+          name: krustlet
+
+      - name: generate checksums
+        run: |
+          cd krustlet
+          sha256sum * > checksums.txt
+
+      - name: upload to azure
+        uses: bacongobbler/azure-blob-storage-upload@v1.0.0
+        with:
+          source_dir: krustlet
+          container_name: releases
+          connection_string: ${{ secrets.AzureStorageConnectionString }}
