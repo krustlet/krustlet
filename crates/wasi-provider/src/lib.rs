@@ -3,7 +3,7 @@ mod wasi_runtime;
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use kube::client::APIClient;
@@ -18,6 +18,7 @@ use handle::PodHandle;
 use wasi_runtime::WasiRuntime;
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
+const LOG_DIR_NAME: &str = "wasi-logs";
 
 /// WasiProvider provides a Kubelet runtime implementation that executes WASM
 /// binaries conforming to the WASI spec
@@ -25,15 +26,27 @@ const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 pub struct WasiProvider {
     handles: Arc<RwLock<HashMap<String, PodHandle<File>>>>,
     store: FileModuleStore,
+    log_path: PathBuf,
 }
 
 impl WasiProvider {
-    pub fn new() -> Self {
-        let store = FileModuleStore::new(&dirs::home_dir().expect("Cannot get home directory"));
-        Self {
+    /// Returns a new WASI provider configured to use the proper data directory
+    /// (including creating it if necessary)
+    pub async fn new<P: AsRef<Path>>(data_dir: P) -> anyhow::Result<Self> {
+        // Make sure we have a log dir and containers dir created
+        let data_path = data_dir.as_ref().to_path_buf();
+        // This is temporary as we should probably be passing in a ModuleStore
+        // as a parameter or the oci client as a whole
+        // NOTE: We do not have to create the dir here as the FileModuleStore already does this
+        let container_path = data_path.join("containers");
+        let log_path = data_path.join(LOG_DIR_NAME);
+        tokio::fs::create_dir_all(&log_path).await?;
+        let store = FileModuleStore::new(&container_path);
+        Ok(Self {
             handles: Default::default(),
             store,
-        }
+            log_path,
+        })
     }
 
     // Fetch all container modules for a given `Pod` storing the name of the
@@ -125,8 +138,7 @@ impl Provider for WasiProvider {
                 env,
                 Vec::default(),
                 HashMap::default(),
-                // TODO: Actual log path configuration
-                std::env::current_dir()?,
+                self.log_path.clone(),
             )
             .await?;
 
@@ -205,9 +217,11 @@ mod test {
     use k8s_openapi::api::core::v1::Pod as KubePod;
     use k8s_openapi::api::core::v1::PodSpec;
 
-    #[test]
-    fn test_can_schedule() {
-        let wp = WasiProvider::new();
+    #[tokio::test]
+    async fn test_can_schedule() {
+        let wp = WasiProvider::new("./foo")
+            .await
+            .expect("unable to create new runtime");
         let mock = Default::default();
         assert!(!wp.can_schedule(&mock));
 
@@ -231,11 +245,5 @@ mod test {
         });
         let mock = Pod::new(mock);
         assert!(!wp.can_schedule(&mock));
-    }
-
-    #[test]
-    fn test_logs() {
-        // TODO: Log testing will need to be done in a full integration test as
-        // it requires a kube client
     }
 }

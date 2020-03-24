@@ -17,11 +17,10 @@ async fn main() -> anyhow::Result<()> {
 
     // The provider is responsible for all the "back end" logic. If you are creating
     // a new Kubelet, all you need to implement is a provider.
-    let provider = WasiProvider::new();
-    let kubelet = Kubelet::new(
-        provider,
-        kubeconfig,
-        Config::new_from_flags(env!("CARGO_PKG_VERSION")),
-    );
+    let conf = Config::new_from_flags(env!("CARGO_PKG_VERSION"));
+    let provider = WasiProvider::new(&conf.data_dir)
+        .await
+        .expect("unable to create provider");
+    let kubelet = Kubelet::new(provider, kubeconfig, conf);
     kubelet.start().await
 }
