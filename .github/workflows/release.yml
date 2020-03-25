@@ -61,6 +61,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
+      - name: set the release version
+        if: startsWith(github.ref, 'refs/tags')
+        run: echo ::set-env name=RELEASE_VERSION::${GITHUB_REF/refs\/tags\//}
+
+      - name: set the release version
+        if: github.ref == 'refs/heads/master'
+        run: echo ::set-env name=RELEASE_VERSION::canary
+
       - name: download release assets
         uses: actions/download-artifact@v1
         with:
@@ -69,7 +77,7 @@ jobs:
       - name: generate checksums
         run: |
           cd krustlet
-          sha256sum * > checksums.txt
+          sha256sum * > checksums-${{ env.RELEASE_VERSION }}.txt
 
       - name: upload to azure
         uses: bacongobbler/azure-blob-storage-upload@v1.0.0
