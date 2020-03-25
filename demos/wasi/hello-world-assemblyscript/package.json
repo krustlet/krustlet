@@ -1,0 +1,11 @@
+{
+    "scripts": {
+        "asbuild:untouched": "asc assembly/index.ts -b build/untouched.wasm --validate --debug --use abort=wasi_abort",
+        "asbuild:optimized": "asc assembly/index.ts -b build/optimized.wasm --validate --optimize --use abort=wasi_abort",
+        "asbuild": "npm run asbuild:untouched && npm run asbuild:optimized"
+    },
+    "dependencies": {
+        "as-wasi": "0.0.1",
+        "assemblyscript": "^0.9.4"
+    }
+}

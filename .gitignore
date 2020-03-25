@@ -2,3 +2,4 @@ target/
 **/*.rs.bk
 /config
 _dist/
+node_modules/
