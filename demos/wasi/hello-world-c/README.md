@@ -1,5 +1,5 @@
-# Hello World AssemblyScript for WASI
-A simple hello world example in AssemblyScript that will print:
+# Hello World C for WASI
+A simple hello world example in C that will print:
 - The environment variables available to the process
 - Text to both stdout and stderr.
 - Any args passed to the process 
@@ -7,22 +7,27 @@ A simple hello world example in AssemblyScript that will print:
 It is meant to be a simple demo for the wasi-provider with Krustlet.
 
 ## Prerequisites
-You'll need `npm` installed in order to install and build the dependencies. This
-project is using the [as-wasi](https://github.com/jedisct1/as-wasi) dependency,
-which is a helpful set of wrappers around the low level wasi bindings provided
-in AssemblyScript. If you are interested in starting your own AssemblyScript
-project, visit the AssemblyScript [getting
-started](https://docs.assemblyscript.org/quick-start) guide.
+Building WASI in C is easiest with the custom [SDK]() from wasmtime. Feel free
+to go down the rabbit hole of figuring things out with vanilla `clang` for your
+own project should you so desire. To install the SDK, follow the steps below,
+replacing `$OS_NAME` with your OS (current choices are `linux` and `macos`):
+
+```shell
+$ wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-8/wasi-sysroot-8.0.tar.gz
+$ tar -xzf wasi-sysroot-8.0.tar.gz
+$ wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-8/wasi-sdk-8.0-${OS_NAME}.tar.gz
+$ tar -xzf wasi-sdk-8.0-${OS_NAME}.tar.gz
+```
 
 If you don't have Krustlet with the WASI provider running locally, see the
 instructions in the [tutorial](../../../docs/intro/tutorial03.md) for running
 locally.
 
 ## Building
-Simply run:
+Run:
 
 ```shell
-$ npm install && npm run asbuild
+$ ./wasi-sdk-8.0/bin/clang -v demo.c --sysroot ./wasi-sysroot -o demo.wasm
 ```
 
 ## Pushing
@@ -42,11 +47,11 @@ You should then be able to get the logs and see the output from the wasm module
 run:
 
 ```shell
-$ kubectl logs hello-world-wasi-assemblyscript                                                                                   
+$ kubectl logs hello-world-wasi-c
 hello from stdout!
 hello from stderr!
 FOO=bar
 CONFIG_MAP_VAL=cool stuff
-POD_NAME=hello-world-wasi-assemblyscript
-Args are: 
+POD_NAME=hello-world-wasi-c
+[]
 ```
