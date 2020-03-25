@@ -1,0 +1,4 @@
+wasi-sdk*/
+wasi-sysroot/
+demo.wasm
+*.tar.gz
