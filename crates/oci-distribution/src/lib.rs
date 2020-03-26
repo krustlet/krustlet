@@ -48,7 +48,10 @@ impl Client {
         }
     }
 
-    /// Pull an image and store it in a module store.    
+    /// Pull an image and return the bytes
+    ///
+    /// The client will check if it's already been authenticated and if
+    /// not will attempt to do.
     pub async fn pull_image(&mut self, image: &Reference) -> anyhow::Result<Vec<u8>> {
         if self.token.is_none() {
             self.auth(image, None).await?;
@@ -76,9 +79,7 @@ impl Client {
 
         Ok(result)
     }
-}
 
-impl Client {
     /// According to the v2 specification, 200 and 401 error codes MUST return the
     /// version. It appears that any other response code should be deemed non-v2.
     ///
