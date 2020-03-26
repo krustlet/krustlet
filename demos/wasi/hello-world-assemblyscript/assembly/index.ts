@@ -1,4 +1,4 @@
-import { Console, Environ, CommandLine } from "../node_modules/as-wasi/assembly";
+import { Console, Environ, CommandLine } from "as-wasi";
 
 export function _start(): void {
   Console.log("hello from stdout!");
