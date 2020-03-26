@@ -97,6 +97,17 @@ impl Config {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self::default_config(
+            &"127.0.0.1"
+                .parse()
+                .expect("Could not parse hardcoded address"),
+        )
+        .expect("Could not create default config")
+    }
+}
+
 // Opts contains the values that can be configured for kubelet
 #[derive(clap::Clap, Clone, Debug)]
 #[cfg(feature = "cli")]

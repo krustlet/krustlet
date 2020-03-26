@@ -1,11 +1,10 @@
 use async_trait::async_trait;
 use kube::client::APIClient;
-use kubelet::{pod::Pod, ContainerStatus, FileModuleStore, ModuleStore, Provider, Status};
+use kubelet::{pod::Pod, ContainerStatus, ModuleStore, Provider, Status};
 use log::{debug, info};
 use wascc_host::{host, Actor, NativeCapability};
 
 use std::collections::HashMap;
-use std::path::Path;
 
 const ACTOR_PUBLIC_KEY: &str = "deislabs.io/wascc-action-key";
 const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
@@ -31,20 +30,10 @@ pub struct WasccProvider<S> {
     store: S,
 }
 
-impl<C> WasccProvider<FileModuleStore<C>> {
-    /// Returns a new WASI provider configured to use the proper data directory
+impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
+    /// Returns a new wasCC provider configured to use the proper data directory
     /// (including creating it if necessary)
-    pub async fn new<P: AsRef<Path>>(client: C, data_dir: P) -> anyhow::Result<Self> {
-        // Make sure we have a log dir and containers dir created
-        let data_path = data_dir.as_ref().to_path_buf();
-        // This is temporary as we should probably be passing in a ModuleStore
-        // as a parameter or the oci client as a whole
-        // NOTE: We do not have to create the dir here as the FileModuleStore already does this
-        let mut container_path = data_path.join("containers");
-        container_path.push(".oci");
-        container_path.push("modules");
-
-        let store = FileModuleStore::new(client, &container_path);
+    pub async fn new(store: S, _config: &kubelet::config::Config) -> anyhow::Result<Self> {
         Ok(Self { store })
     }
 }

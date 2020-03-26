@@ -1,5 +1,6 @@
 use kube::config;
 use kubelet::config::Config;
+use kubelet::FileModuleStore;
 use kubelet::Kubelet;
 use wasi_provider::WasiProvider;
 
@@ -16,9 +17,14 @@ async fn main() -> anyhow::Result<()> {
 
     // The provider is responsible for all the "back end" logic. If you are creating
     // a new Kubelet, all you need to implement is a provider.
-    let conf = Config::new_from_flags(env!("CARGO_PKG_VERSION"));
+    let config = Config::new_from_flags(env!("CARGO_PKG_VERSION"));
+
     let client = oci_distribution::Client::default();
-    let provider = WasiProvider::new(client, &conf.data_dir).await?;
-    let kubelet = Kubelet::new(provider, kubeconfig, conf);
+    let mut module_store_path = config.data_dir.join(".oci");
+    module_store_path.push("modules");
+    let store = FileModuleStore::new(client, &module_store_path);
+
+    let provider = WasiProvider::new(store, &config).await?;
+    let kubelet = Kubelet::new(provider, kubeconfig, config);
     kubelet.start().await
 }

@@ -2,12 +2,12 @@ mod handle;
 mod wasi_runtime;
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use kube::client::APIClient;
 use kubelet::pod::Pod;
-use kubelet::{FileModuleStore, ModuleStore, Provider, ProviderError};
+use kubelet::{ModuleStore, Provider, ProviderError};
 use log::{debug, info};
 use tokio::fs::File;
 use tokio::sync::RwLock;
@@ -27,21 +27,10 @@ pub struct WasiProvider<S> {
     log_path: PathBuf,
 }
 
-impl<C> WasiProvider<FileModuleStore<C>> {
-    /// Returns a new WASI provider configured to use the proper data directory
-    /// (including creating it if necessary)
-    pub async fn new<P: AsRef<Path>>(client: C, data_dir: P) -> anyhow::Result<Self> {
-        // Make sure we have a log dir and containers dir created
-        let data_path = data_dir.as_ref().to_path_buf();
-        // This is temporary as we should probably be passing in a ModuleStore
-        // as a parameter or the oci client as a whole
-        // NOTE: We do not have to create the dir here as the FileModuleStore already does this
-        let mut container_path = data_path.join("containers");
-        container_path.push(".oci");
-        container_path.push("modules");
-        let log_path = data_path.join(LOG_DIR_NAME);
+impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
+    pub async fn new(store: S, config: &kubelet::config::Config) -> anyhow::Result<Self> {
+        let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
-        let store = FileModuleStore::new(client, &container_path);
         Ok(Self {
             handles: Default::default(),
             store,
@@ -190,11 +179,19 @@ mod test {
     use k8s_openapi::api::core::v1::Pod as KubePod;
     use k8s_openapi::api::core::v1::PodSpec;
 
+    struct TestStore;
+
+    #[async_trait::async_trait]
+    impl ModuleStore for TestStore {
+        async fn get(&self, _image_ref: &oci_distribution::Reference) -> anyhow::Result<Vec<u8>> {
+            unimplemented!()
+        }
+    }
+
     #[tokio::test]
     async fn test_can_schedule() {
-        // TODO: stop using actual client in unit tests.
-        let client = oci_distribution::Client::default();
-        let wp = WasiProvider::new(client, "./foo")
+        let store = TestStore;
+        let wp = WasiProvider::new(store, &Default::default())
             .await
             .expect("unable to create new runtime");
         let mock = Default::default();
