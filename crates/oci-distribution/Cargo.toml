@@ -22,4 +22,3 @@ www-authenticate = "0.3.0"
 hyperx = "0.13"
 chrono = { version = "0.4", features = ["serde"] }
 futures-util = "0.3.4"
-async-trait = "0.1.24"

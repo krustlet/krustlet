@@ -2,15 +2,13 @@ mod handle;
 mod wasi_runtime;
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use kube::client::APIClient;
 use kubelet::pod::Pod;
-use kubelet::{Provider, ProviderError};
+use kubelet::{ModuleStore, Provider, ProviderError};
 use log::{debug, info};
-use oci_distribution::{FileModuleStore, Reference};
 use tokio::fs::File;
 use tokio::sync::RwLock;
 
@@ -23,67 +21,26 @@ const LOG_DIR_NAME: &str = "wasi-logs";
 /// WasiProvider provides a Kubelet runtime implementation that executes WASM
 /// binaries conforming to the WASI spec
 #[derive(Clone)]
-pub struct WasiProvider {
+pub struct WasiProvider<S> {
     handles: Arc<RwLock<HashMap<String, PodHandle<File>>>>,
-    store: FileModuleStore,
+    store: S,
     log_path: PathBuf,
 }
 
-impl WasiProvider {
-    /// Returns a new WASI provider configured to use the proper data directory
-    /// (including creating it if necessary)
-    pub async fn new<P: AsRef<Path>>(data_dir: P) -> anyhow::Result<Self> {
-        // Make sure we have a log dir and containers dir created
-        let data_path = data_dir.as_ref().to_path_buf();
-        // This is temporary as we should probably be passing in a ModuleStore
-        // as a parameter or the oci client as a whole
-        // NOTE: We do not have to create the dir here as the FileModuleStore already does this
-        let container_path = data_path.join("containers");
-        let log_path = data_path.join(LOG_DIR_NAME);
+impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
+    pub async fn new(store: S, config: &kubelet::config::Config) -> anyhow::Result<Self> {
+        let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
-        let store = FileModuleStore::new(&container_path);
         Ok(Self {
             handles: Default::default(),
             store,
             log_path,
         })
     }
-
-    // Fetch all container modules for a given `Pod` storing the name of the
-    // container and the module's path on the file system as key/value pairs
-    // in a hashmap.
-    async fn fetch_container_modules(&self, pod: &Pod) -> HashMap<String, PathBuf> {
-        // Fetch all of the container modules in parallel
-        let container_module_futures = pod
-            .containers()
-            .iter()
-            .map(move |container| {
-                let mut c = oci_distribution::Client::default();
-                let image = container
-                    .image
-                    .clone()
-                    .expect("Container must have an image");
-                let image = Reference::try_from(image).unwrap();
-                let path = self.store.pull_file_path(&image);
-                debug!("Pulling image from store to {:?}", path);
-
-                async move {
-                    c.pull(&image, &self.store).await.unwrap();
-                    (container.name.clone(), path)
-                }
-            })
-            .collect::<Vec<_>>();
-
-        // Collect the container modules into a HashMap for quick lookup
-        futures::future::join_all(container_module_futures)
-            .await
-            .into_iter()
-            .collect::<HashMap<String, PathBuf>>()
-    }
 }
 
 #[async_trait::async_trait]
-impl Provider for WasiProvider {
+impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
     async fn init(&self) -> anyhow::Result<()> {
         Ok(())
     }
@@ -95,12 +52,13 @@ impl Provider for WasiProvider {
     fn can_schedule(&self, pod: &Pod) -> bool {
         // If there is a node selector and it has arch set to wasm32-wasi, we can
         // schedule it.
-        pod.node_selector()
-            .and_then(|i| {
-                i.get("beta.kubernetes.io/arch")
-                    .map(|v| v.eq(&TARGET_WASM32_WASI))
-            })
-            .unwrap_or(false)
+        match pod.node_selector() {
+            Some(node_selector) => node_selector
+                .get("beta.kubernetes.io/arch")
+                .map(|v| v == TARGET_WASM32_WASI)
+                .unwrap_or(false),
+            _ => false,
+        }
     }
 
     async fn add(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> {
@@ -129,12 +87,16 @@ impl Provider for WasiProvider {
         // Wrap this in a block so the write lock goes out of scope when we are done
         let mut container_handles = HashMap::new();
 
-        let mut module_paths = self.fetch_container_modules(&pod).await;
+        let mut modules = self.store.fetch_container_modules(&pod).await?;
 
         for container in pod.containers() {
             let env = self.env_vars(client.clone(), &container, &pod).await;
+            let module_data = modules
+                .remove(&container.name)
+                .expect("FATAL ERROR: module map not properly populated");
+
             let runtime = WasiRuntime::new(
-                module_paths.remove(&container.name).unwrap(),
+                module_data,
                 env,
                 Vec::default(),
                 HashMap::default(),
@@ -217,9 +179,19 @@ mod test {
     use k8s_openapi::api::core::v1::Pod as KubePod;
     use k8s_openapi::api::core::v1::PodSpec;
 
+    struct TestStore;
+
+    #[async_trait::async_trait]
+    impl ModuleStore for TestStore {
+        async fn get(&self, _image_ref: &oci_distribution::Reference) -> anyhow::Result<Vec<u8>> {
+            unimplemented!()
+        }
+    }
+
     #[tokio::test]
     async fn test_can_schedule() {
-        let wp = WasiProvider::new("./foo")
+        let store = TestStore;
+        let wp = WasiProvider::new(store, &Default::default())
             .await
             .expect("unable to create new runtime");
         let mock = Default::default();

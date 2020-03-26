@@ -26,4 +26,5 @@ chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
 k8s-openapi = { version = "0.7.1", features = ["v1_17"] }
+oci-distribution = { path = "../oci-distribution", version = "0.1.0" }
 

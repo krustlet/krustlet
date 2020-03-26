@@ -1230,6 +1230,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "kubelet",
+ "oci-distribution",
  "serde_derive",
  "serde_json",
  "tokio",
@@ -1284,6 +1285,7 @@ dependencies = [
  "lazy_static",
  "log",
  "native-tls",
+ "oci-distribution",
  "reqwest",
  "serde",
  "serde_json",
@@ -1592,7 +1594,6 @@ name = "oci-distribution"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "chrono",
  "futures-util",
  "hyperx",
@@ -2939,6 +2940,7 @@ dependencies = [
  "kube",
  "kubelet",
  "log",
+ "oci-distribution",
  "serde",
  "serde_derive",
  "tokio",
