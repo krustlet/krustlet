@@ -2,13 +2,12 @@ mod handle;
 mod wasi_runtime;
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use kube::client::APIClient;
 use kubelet::pod::Pod;
-use kubelet::{FileModuleStore, ModuleStore, Provider, ProviderError, Reference};
+use kubelet::{FileModuleStore, ModuleStore, Provider, ProviderError};
 use log::{debug, info};
 use tokio::fs::File;
 use tokio::sync::RwLock;
@@ -67,7 +66,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         match pod.node_selector() {
             Some(node_selector) => node_selector
                 .get("beta.kubernetes.io/arch")
-                .map(|v| v == &TARGET_WASM32_WASI)
+                .map(|v| v == TARGET_WASM32_WASI)
                 .unwrap_or(false),
             _ => false,
         }

@@ -136,7 +136,7 @@ fn node_definition(config: Config, arch: &str) -> serde_json::Value {
                 "beta.kubernetes.io/os": "linux",
                 "kubernetes.io/arch": arch,
                 "kubernetes.io/os": "linux",
-                "kubernetes.io/hostname": config.hostname.clone(),
+                "kubernetes.io/hostname": config.hostname,
                 "kubernetes.io/role":     "agent",
                 "type": "krustlet"
             },

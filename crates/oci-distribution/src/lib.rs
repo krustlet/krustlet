@@ -52,7 +52,7 @@ impl Client {
 impl ImageClient for Client {
     /// Pull an image and store it in a module store.    
     async fn pull(&mut self, image: &Reference) -> anyhow::Result<Vec<u8>> {
-        if let None = self.token {
+        if self.token.is_none() {
             self.auth(image, None).await?;
         }
         let manifest = self.pull_manifest(image).await?;
