@@ -1,13 +1,35 @@
-use crate::{ImageClient, Reference};
+use crate::{pod::Pod, ImageClient, Reference};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
+use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[async_trait]
 pub trait ModuleStore {
     async fn get(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>>;
+
+    // Fetch all container modules for a given `Pod` storing the name of the
+    // container and the module's data as key/value pairs in a hashmap.
+    async fn fetch_container_modules(&self, pod: &Pod) -> anyhow::Result<HashMap<String, Vec<u8>>> {
+        // Fetch all of the container modules in parallel
+        let container_module_futures = pod.containers().iter().map(move |container| {
+            let image = container
+                .image
+                .clone()
+                .expect("FATAL ERROR: container must have an image");
+            let reference = Reference::try_from(image).unwrap();
+            async move { Ok((container.name.clone(), self.get(&reference).await?)) }
+        });
+
+        // Collect the container modules into a HashMap for quick lookup
+        futures::future::join_all(container_module_futures)
+            .await
+            .into_iter()
+            .collect()
+    }
 }
 
 pub struct FileModuleStore<C> {

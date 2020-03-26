@@ -51,28 +51,6 @@ impl<C> WasiProvider<FileModuleStore<C>> {
     }
 }
 
-impl<S: ModuleStore> WasiProvider<S> {
-    // Fetch all container modules for a given `Pod` storing the name of the
-    // container and the module's data as key/value pairs in a hashmap.
-    async fn fetch_container_modules(&self, pod: &Pod) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        // Fetch all of the container modules in parallel
-        let container_module_futures = pod.containers().iter().map(move |container| {
-            let image = container
-                .image
-                .clone()
-                .expect("FATAL ERROR: container must have an image");
-            let reference = Reference::try_from(image).unwrap();
-            async move { Ok((container.name.clone(), self.store.get(&reference).await?)) }
-        });
-
-        // Collect the container modules into a HashMap for quick lookup
-        futures::future::join_all(container_module_futures)
-            .await
-            .into_iter()
-            .collect()
-    }
-}
-
 #[async_trait::async_trait]
 impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
     async fn init(&self) -> anyhow::Result<()> {
@@ -121,7 +99,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         // Wrap this in a block so the write lock goes out of scope when we are done
         let mut container_handles = HashMap::new();
 
-        let mut modules = self.fetch_container_modules(&pod).await?;
+        let mut modules = self.store.fetch_container_modules(&pod).await?;
 
         for container in pod.containers() {
             let env = self.env_vars(client.clone(), &container, &pod).await;

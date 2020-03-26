@@ -3,7 +3,7 @@ use std::convert::{Into, TryFrom};
 // currently, the library only accepts modules tagged in the following structure:
 // <registry>/<repository>:<tag>
 // for example: webassembly.azurecr.io/hello:v1
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Reference {
     whole: String,
     slash: usize,

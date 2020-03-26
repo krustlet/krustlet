@@ -17,11 +17,10 @@ async fn main() -> anyhow::Result<()> {
 
     // The provider is responsible for all the "back end" logic. If you are creating
     // a new Kubelet, all you need to implement is a provider.
-    let provider = WasccProvider {};
-    let kubelet = Kubelet::new(
-        provider,
-        kubeconfig,
-        Config::new_from_flags(env!("CARGO_PKG_VERSION")),
-    );
+    let conf = Config::new_from_flags(env!("CARGO_PKG_VERSION"));
+
+    let client = oci_distribution::Client::default();
+    let provider = WasccProvider::new(client, &conf.data_dir).await?;
+    let kubelet = Kubelet::new(provider, kubeconfig, conf);
     kubelet.start().await
 }

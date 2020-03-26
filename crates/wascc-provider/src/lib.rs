@@ -1,9 +1,11 @@
+use async_trait::async_trait;
 use kube::client::APIClient;
-use kubelet::{pod::Pod, ContainerStatus, Provider, Status};
+use kubelet::{pod::Pod, ContainerStatus, FileModuleStore, ModuleStore, Provider, Status};
 use log::{debug, info};
 use wascc_host::{host, Actor, NativeCapability};
 
 use std::collections::HashMap;
+use std::path::Path;
 
 const ACTOR_PUBLIC_KEY: &str = "deislabs.io/wascc-action-key";
 const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
@@ -25,10 +27,30 @@ type EnvVars = std::collections::HashMap<String, String>;
 /// TODO: In the future, we will look at loading capabilities using the "sidecar" metaphor
 /// from Kubernetes.
 #[derive(Clone)]
-pub struct WasccProvider {}
+pub struct WasccProvider<S> {
+    store: S,
+}
 
-#[async_trait::async_trait]
-impl Provider for WasccProvider {
+impl<C> WasccProvider<FileModuleStore<C>> {
+    /// Returns a new WASI provider configured to use the proper data directory
+    /// (including creating it if necessary)
+    pub async fn new<P: AsRef<Path>>(client: C, data_dir: P) -> anyhow::Result<Self> {
+        // Make sure we have a log dir and containers dir created
+        let data_path = data_dir.as_ref().to_path_buf();
+        // This is temporary as we should probably be passing in a ModuleStore
+        // as a parameter or the oci client as a whole
+        // NOTE: We do not have to create the dir here as the FileModuleStore already does this
+        let mut container_path = data_path.join("containers");
+        container_path.push(".oci");
+        container_path.push("modules");
+
+        let store = FileModuleStore::new(client, &container_path);
+        Ok(Self { store })
+    }
+}
+
+#[async_trait]
+impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
     async fn init(&self) -> anyhow::Result<()> {
         tokio::task::spawn_blocking(|| {
             let data = NativeCapability::from_file(HTTP_LIB).map_err(|e| {
@@ -94,15 +116,19 @@ impl Provider for WasccProvider {
         //   - bail if it errors
 
         info!("Starting containers for pod {:?}", pod.name());
+        let mut modules = self.store.fetch_container_modules(&pod).await?;
         for container in pod.containers() {
             let env = self.env_vars(client.clone(), &container, &pod).await;
 
             debug!("Starting container {} on thread", container.name);
             let pub_key = pub_key.to_owned();
-            // TODO: Replace with actual image store lookup when it is merged
-            let data = tokio::fs::read("./testdata/echo.wasm").await?;
+
+            let module_data = modules
+                .remove(&container.name)
+                .expect("FATAL ERROR: module map not properly populated");
             let http_result =
-                tokio::task::spawn_blocking(move || wascc_run_http(data, env, &pub_key)).await?;
+                tokio::task::spawn_blocking(move || wascc_run_http(module_data, env, &pub_key))
+                    .await?;
             match http_result {
                 Ok(_) => {
                     let mut container_statuses = HashMap::new();
@@ -227,6 +253,27 @@ mod test {
     use super::*;
     use k8s_openapi::api::core::v1::Pod as KubePod;
     use k8s_openapi::api::core::v1::PodSpec;
+    use kubelet::Reference;
+
+    pub struct TestStore {
+        modules: HashMap<Reference, Vec<u8>>,
+    }
+
+    impl TestStore {
+        fn new(modules: HashMap<Reference, Vec<u8>>) -> Self {
+            Self { modules }
+        }
+    }
+
+    #[async_trait]
+    impl ModuleStore for TestStore {
+        async fn get(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
+            self.modules
+                .get(image_ref)
+                .cloned()
+                .ok_or(anyhow::anyhow!("Failed to find module for reference"))
+        }
+    }
 
     #[cfg(target_os = "linux")]
     const ECHO_LIB: &str = "./testdata/libecho_provider.so";
@@ -235,7 +282,8 @@ mod test {
 
     #[tokio::test]
     async fn test_init() {
-        let provider = WasccProvider {};
+        let store = TestStore::new(Default::default());
+        let provider = WasccProvider { store };
         provider
             .init()
             .await
@@ -282,7 +330,9 @@ mod test {
 
     #[test]
     fn test_can_schedule() {
-        let wr = WasccProvider {};
+        let store = TestStore::new(Default::default());
+
+        let wr = WasccProvider { store };
         let mock = Default::default();
         assert!(!wr.can_schedule(&mock));
 
