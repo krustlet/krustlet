@@ -1,9 +1,9 @@
+use async_trait::async_trait;
 use chrono::prelude::{DateTime, Utc};
 use futures_util::future;
 use futures_util::stream::StreamExt;
 use hyperx::header::Header;
-use kubelet::ModuleStore;
-use kubelet::Reference;
+use kubelet::{ImageClient, ModuleStore, Reference};
 use reqwest::header::HeaderMap;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
@@ -50,9 +50,14 @@ impl Client {
     }
 }
 
-impl Client {
+#[async_trait]
+impl ImageClient for Client {
     /// Pull an image and store it in a module store.    
-    pub async fn pull<T: ModuleStore>(&mut self, image: &Reference, store: &T) -> OciResult<()> {
+    async fn pull<T: ModuleStore + Send + Sync>(
+        &mut self,
+        image: &Reference,
+        store: &T,
+    ) -> OciResult<()> {
         if let None = self.token {
             self.auth(image, None).await?;
         }
@@ -78,7 +83,9 @@ impl Client {
 
         Ok(())
     }
+}
 
+impl Client {
     /// According to the v2 specification, 200 and 401 error codes MUST return the
     /// version. It appears that any other response code should be deemed non-v2.
     ///
@@ -399,6 +406,7 @@ mod test {
 
     #[tokio::test]
     async fn test_pull() {
+        use kubelet::ImageClient;
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
         let mut c = Client::default();
 

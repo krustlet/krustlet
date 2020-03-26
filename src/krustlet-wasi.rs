@@ -9,8 +9,7 @@ async fn main() -> anyhow::Result<()> {
     // falls back on an in-cluster configuration.
     let kubeconfig = config::load_kube_config()
         .await
-        .or_else(|_| config::incluster_config())
-        .expect("kubeconfig failed to load");
+        .or_else(|_| config::incluster_config())?;
 
     // Initialize the logger
     env_logger::init();
@@ -18,9 +17,8 @@ async fn main() -> anyhow::Result<()> {
     // The provider is responsible for all the "back end" logic. If you are creating
     // a new Kubelet, all you need to implement is a provider.
     let conf = Config::new_from_flags(env!("CARGO_PKG_VERSION"));
-    let provider = WasiProvider::new(&conf.data_dir)
-        .await
-        .expect("unable to create provider");
+    let client = oci_distribution::Client::default();
+    let provider = WasiProvider::new(client, &conf.data_dir).await?;
     let kubelet = Kubelet::new(provider, kubeconfig, conf);
     kubelet.start().await
 }

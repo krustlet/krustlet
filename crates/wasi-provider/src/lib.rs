@@ -28,10 +28,10 @@ pub struct WasiProvider<S> {
     log_path: PathBuf,
 }
 
-impl WasiProvider<FileModuleStore> {
+impl<C> WasiProvider<FileModuleStore<C>> {
     /// Returns a new WASI provider configured to use the proper data directory
     /// (including creating it if necessary)
-    pub async fn new<P: AsRef<Path>>(data_dir: P) -> anyhow::Result<Self> {
+    pub async fn new<P: AsRef<Path>>(client: C, data_dir: P) -> anyhow::Result<Self> {
         // Make sure we have a log dir and containers dir created
         let data_path = data_dir.as_ref().to_path_buf();
         // This is temporary as we should probably be passing in a ModuleStore
@@ -42,7 +42,7 @@ impl WasiProvider<FileModuleStore> {
         container_path.push("modules");
         let log_path = data_path.join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
-        let store = FileModuleStore::new(&container_path);
+        let store = FileModuleStore::new(client, &container_path);
         Ok(Self {
             handles: Default::default(),
             store,
@@ -53,24 +53,16 @@ impl WasiProvider<FileModuleStore> {
 
 impl<S: ModuleStore> WasiProvider<S> {
     // Fetch all container modules for a given `Pod` storing the name of the
-    // container and the module's reference as key/value pairs in a hashmap.
-    async fn fetch_container_modules(&self, pod: &Pod) -> HashMap<String, Reference> {
+    // container and the module's data as key/value pairs in a hashmap.
+    async fn fetch_container_modules(&self, pod: &Pod) -> anyhow::Result<HashMap<String, Vec<u8>>> {
         // Fetch all of the container modules in parallel
         let container_module_futures = pod.containers().iter().map(move |container| {
             let image = container
                 .image
                 .clone()
-                .expect("Container must have an image");
-            let image = Reference::try_from(image).unwrap();
-
-            async move {
-                // TODO: don't create a client every time
-                oci_distribution::Client::default()
-                    .pull(&image, &self.store)
-                    .await
-                    .unwrap();
-                (container.name.clone(), image)
-            }
+                .expect("FATAL ERROR: container must have an image");
+            let reference = Reference::try_from(image).unwrap();
+            async move { Ok((container.name.clone(), self.store.get(&reference).await?)) }
         });
 
         // Collect the container modules into a HashMap for quick lookup
@@ -129,14 +121,14 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         // Wrap this in a block so the write lock goes out of scope when we are done
         let mut container_handles = HashMap::new();
 
-        let module_references = self.fetch_container_modules(&pod).await;
+        let mut modules = self.fetch_container_modules(&pod).await?;
 
         for container in pod.containers() {
             let env = self.env_vars(client.clone(), &container, &pod).await;
-            let reference = module_references
-                .get(&container.name)
-                .expect("FATAL ERROR: module reference map not properly populated");
-            let module_data = self.store.get(reference).await?;
+            let module_data = modules
+                .remove(&container.name)
+                .expect("FATAL ERROR: module map not properly populated");
+
             let runtime = WasiRuntime::new(
                 module_data,
                 env,
@@ -223,7 +215,9 @@ mod test {
 
     #[tokio::test]
     async fn test_can_schedule() {
-        let wp = WasiProvider::new("./foo")
+        // TODO: stop using actual client in unit tests.
+        let client = oci_distribution::Client::default();
+        let wp = WasiProvider::new(client, "./foo")
             .await
             .expect("unable to create new runtime");
         let mock = Default::default();

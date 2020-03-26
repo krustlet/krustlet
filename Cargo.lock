@@ -1230,6 +1230,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "kubelet",
+ "oci-distribution",
  "serde_derive",
  "serde_json",
  "tokio",
