@@ -44,24 +44,17 @@ impl WasiRuntime {
     ///     (e.g. /tmp/foo/myfile -> /app/config). If the optional value is not given,
     ///     the same path will be allowed in the runtime
     /// * `log_dir` - location for storing logs
-    pub async fn new<
-        M: AsRef<Path> + Send + Sync + 'static,
-        L: AsRef<Path> + Send + Sync + 'static,
-    >(
-        module_path: M,
+    pub async fn new<L: AsRef<Path> + Send + Sync + 'static>(
+        module_data: Vec<u8>,
         env: HashMap<String, String>,
         args: Vec<String>,
         dirs: HashMap<String, Option<String>>,
         log_dir: L,
     ) -> anyhow::Result<Self> {
-        let (module_data, temp) =
-            tokio::task::spawn_blocking(move || -> anyhow::Result<(Vec<u8>, NamedTempFile)> {
-                Ok((
-                    wat::parse_file(module_path)?,
-                    NamedTempFile::new_in(log_dir)?,
-                ))
-            })
-            .await??;
+        let temp = tokio::task::spawn_blocking(move || -> anyhow::Result<NamedTempFile> {
+            Ok(NamedTempFile::new_in(log_dir)?)
+        })
+        .await??;
 
         // We need to use named temp file because we need multiple file handles
         // and if we are running in the temp dir, we run the possibility of the
@@ -267,8 +260,11 @@ mod test {
 
     #[tokio::test]
     async fn test_run() {
+        let module_data = tokio::fs::read("./testdata/hello-world.wasm")
+            .await
+            .unwrap();
         let wr = WasiRuntime::new(
-            "./testdata/hello-world.wasm",
+            module_data,
             HashMap::default(),
             Vec::default(),
             HashMap::default(),

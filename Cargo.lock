@@ -1596,6 +1596,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "hyperx",
+ "kubelet",
  "reqwest",
  "serde",
  "serde_json",

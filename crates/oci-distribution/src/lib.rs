@@ -1,23 +1,20 @@
-use async_trait::async_trait;
 use chrono::prelude::{DateTime, Utc};
 use futures_util::future;
 use futures_util::stream::StreamExt;
 use hyperx::header::Header;
+use kubelet::ModuleStore;
+use kubelet::Reference;
 use reqwest::header::HeaderMap;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
 
 use crate::errors::*;
 pub use crate::manifest::*;
-pub use crate::reference::Reference;
-
-use std::path::{Path, PathBuf};
 
 const OCI_VERSION_KEY: &str = "Docker-Distribution-Api-Version";
 
 pub mod errors;
 pub mod manifest;
-pub mod reference;
 
 type OciResult<T> = anyhow::Result<T>;
 
@@ -56,24 +53,22 @@ impl Client {
 impl Client {
     /// Pull an image and store it in a module store.    
     pub async fn pull<T: ModuleStore>(&mut self, image: &Reference, store: &T) -> OciResult<()> {
-        self.auth(image, None).await?;
+        if let None = self.token {
+            self.auth(image, None).await?;
+        }
         let manifest = self.pull_manifest(image).await?;
 
-        let layers = manifest
-            .layers
-            .into_iter()
-            .map(|layer| {
-                // This avoids moving `self` which is &mut Self
-                // into the async block. We only want to capture
-                // as &Self
-                let this = &self;
-                async move {
-                    let mut out: Vec<u8> = Vec::new();
-                    this.pull_layer(image, &layer.digest, &mut out).await?;
-                    OciResult::Ok(out)
-                }
-            })
-            .collect::<Vec<_>>();
+        let layers = manifest.layers.into_iter().map(|layer| {
+            // This avoids moving `self` which is &mut Self
+            // into the async block. We only want to capture
+            // as &Self
+            let this = &self;
+            async move {
+                let mut out: Vec<u8> = Vec::new();
+                this.pull_layer(image, &layer.digest, &mut out).await?;
+                OciResult::Ok(out)
+            }
+        });
 
         let layers = future::try_join_all(layers).await?;
         for layer in layers {
@@ -227,45 +222,6 @@ impl Client {
             headers.insert("Authorization", bearer.bearer_token().parse().unwrap());
         }
         headers
-    }
-}
-
-#[async_trait]
-pub trait ModuleStore {
-    async fn store(&self, image_ref: &Reference, contents: Vec<u8>) -> std::io::Result<()>;
-}
-
-#[derive(Clone)]
-pub struct FileModuleStore {
-    root_dir: PathBuf,
-}
-
-impl FileModuleStore {
-    pub fn new(root_dir: &Path) -> Self {
-        Self {
-            root_dir: root_dir.join(".oci").join("modules"),
-        }
-    }
-
-    pub(crate) fn pull_path(&self, r: &Reference) -> PathBuf {
-        self.root_dir
-            .join(r.registry())
-            .join(r.repository())
-            .join(r.tag())
-    }
-
-    pub fn pull_file_path(&self, r: &Reference) -> PathBuf {
-        self.pull_path(r).join("module.wasm")
-    }
-}
-
-#[async_trait]
-impl ModuleStore for FileModuleStore {
-    async fn store(&self, image_ref: &Reference, contents: Vec<u8>) -> std::io::Result<()> {
-        tokio::fs::create_dir_all(self.pull_path(image_ref)).await?;
-        let path = self.pull_file_path(image_ref);
-        tokio::fs::write(&path, contents).await?;
-        Ok(())
     }
 }
 
@@ -425,16 +381,19 @@ mod test {
         assert_eq!(file.len(), layer0.size as usize);
     }
 
-    use std::sync::Mutex;
+    use tokio::sync::Mutex;
     struct InMemoryModuleStore {
         contents: Mutex<Vec<u8>>,
     }
 
-    #[async_trait]
+    #[async_trait::async_trait]
     impl ModuleStore for InMemoryModuleStore {
-        async fn store(&self, _image_ref: &Reference, contents: Vec<u8>) -> std::io::Result<()> {
-            std::mem::replace(&mut *self.contents.lock().unwrap(), contents);
+        async fn store(&self, _image_ref: &Reference, contents: Vec<u8>) -> anyhow::Result<()> {
+            std::mem::replace(&mut *self.contents.lock().await, contents);
             Ok(())
+        }
+        async fn get(&self, _image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
+            unimplemented!()
         }
     }
 
@@ -450,6 +409,6 @@ mod test {
             .await
             .expect("failed to pull manifest");
 
-        assert!(store.contents.lock().unwrap().len() != 0);
+        assert!(store.contents.lock().await.len() != 0);
     }
 }

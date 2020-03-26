@@ -57,13 +57,6 @@ impl Reference {
 impl TryFrom<String> for Reference {
     type Error = anyhow::Error;
     fn try_from(string: String) -> Result<Self, Self::Error> {
-        TryFrom::try_from(string.as_str())
-    }
-}
-
-impl TryFrom<&str> for Reference {
-    type Error = anyhow::Error;
-    fn try_from(string: &str) -> Result<Self, Self::Error> {
         let slash = string.find('/').ok_or_else(|| {
             anyhow::anyhow!(
                 "Failed to parse {}. Expected at least one slash (/)",
@@ -74,10 +67,17 @@ impl TryFrom<&str> for Reference {
             anyhow::anyhow!("failed to parse {}. Expected exactly one colon (:)", string)
         })?;
         Ok(Reference {
-            whole: string.to_owned(),
+            whole: string,
             slash,
             colon: slash + 1 + colon,
         })
+    }
+}
+
+impl TryFrom<&str> for Reference {
+    type Error = anyhow::Error;
+    fn try_from(string: &str) -> Result<Self, Self::Error> {
+        TryFrom::try_from(string.to_owned())
     }
 }
 

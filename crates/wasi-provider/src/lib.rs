@@ -8,9 +8,8 @@ use std::sync::Arc;
 
 use kube::client::APIClient;
 use kubelet::pod::Pod;
-use kubelet::{Provider, ProviderError};
+use kubelet::{FileModuleStore, ModuleStore, Provider, ProviderError, Reference};
 use log::{debug, info};
-use oci_distribution::{FileModuleStore, Reference};
 use tokio::fs::File;
 use tokio::sync::RwLock;
 
@@ -38,7 +37,9 @@ impl WasiProvider {
         // This is temporary as we should probably be passing in a ModuleStore
         // as a parameter or the oci client as a whole
         // NOTE: We do not have to create the dir here as the FileModuleStore already does this
-        let container_path = data_path.join("containers");
+        let mut container_path = data_path.join("containers");
+        container_path.push(".oci");
+        container_path.push("modules");
         let log_path = data_path.join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
         let store = FileModuleStore::new(&container_path);
@@ -50,35 +51,31 @@ impl WasiProvider {
     }
 
     // Fetch all container modules for a given `Pod` storing the name of the
-    // container and the module's path on the file system as key/value pairs
-    // in a hashmap.
-    async fn fetch_container_modules(&self, pod: &Pod) -> HashMap<String, PathBuf> {
+    // container and the module's reference as key/value pairs in a hashmap.
+    async fn fetch_container_modules(&self, pod: &Pod) -> HashMap<String, Reference> {
         // Fetch all of the container modules in parallel
-        let container_module_futures = pod
-            .containers()
-            .iter()
-            .map(move |container| {
-                let mut c = oci_distribution::Client::default();
-                let image = container
-                    .image
-                    .clone()
-                    .expect("Container must have an image");
-                let image = Reference::try_from(image).unwrap();
-                let path = self.store.pull_file_path(&image);
-                debug!("Pulling image from store to {:?}", path);
+        let container_module_futures = pod.containers().iter().map(move |container| {
+            let image = container
+                .image
+                .clone()
+                .expect("Container must have an image");
+            let image = Reference::try_from(image).unwrap();
 
-                async move {
-                    c.pull(&image, &self.store).await.unwrap();
-                    (container.name.clone(), path)
-                }
-            })
-            .collect::<Vec<_>>();
+            async move {
+                // TODO: don't create a client every time
+                oci_distribution::Client::default()
+                    .pull(&image, &self.store)
+                    .await
+                    .unwrap();
+                (container.name.clone(), image)
+            }
+        });
 
         // Collect the container modules into a HashMap for quick lookup
         futures::future::join_all(container_module_futures)
             .await
             .into_iter()
-            .collect::<HashMap<String, PathBuf>>()
+            .collect()
     }
 }
 
@@ -95,12 +92,13 @@ impl Provider for WasiProvider {
     fn can_schedule(&self, pod: &Pod) -> bool {
         // If there is a node selector and it has arch set to wasm32-wasi, we can
         // schedule it.
-        pod.node_selector()
-            .and_then(|i| {
-                i.get("beta.kubernetes.io/arch")
-                    .map(|v| v.eq(&TARGET_WASM32_WASI))
-            })
-            .unwrap_or(false)
+        match pod.node_selector() {
+            Some(node_selector) => node_selector
+                .get("beta.kubernetes.io/arch")
+                .map(|v| v == &TARGET_WASM32_WASI)
+                .unwrap_or(false),
+            _ => false,
+        }
     }
 
     async fn add(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> {
@@ -129,12 +127,16 @@ impl Provider for WasiProvider {
         // Wrap this in a block so the write lock goes out of scope when we are done
         let mut container_handles = HashMap::new();
 
-        let mut module_paths = self.fetch_container_modules(&pod).await;
+        let module_references = self.fetch_container_modules(&pod).await;
 
         for container in pod.containers() {
             let env = self.env_vars(client.clone(), &container, &pod).await;
+            let reference = module_references
+                .get(&container.name)
+                .expect("FATAL ERROR: module reference map not properly populated");
+            let module_data = self.store.get(reference).await?;
             let runtime = WasiRuntime::new(
-                module_paths.remove(&container.name).unwrap(),
+                module_data,
                 env,
                 Vec::default(),
                 HashMap::default(),
