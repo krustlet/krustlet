@@ -22,13 +22,13 @@ const LOG_DIR_NAME: &str = "wasi-logs";
 /// WasiProvider provides a Kubelet runtime implementation that executes WASM
 /// binaries conforming to the WASI spec
 #[derive(Clone)]
-pub struct WasiProvider {
+pub struct WasiProvider<S> {
     handles: Arc<RwLock<HashMap<String, PodHandle<File>>>>,
-    store: FileModuleStore,
+    store: S,
     log_path: PathBuf,
 }
 
-impl WasiProvider {
+impl WasiProvider<FileModuleStore> {
     /// Returns a new WASI provider configured to use the proper data directory
     /// (including creating it if necessary)
     pub async fn new<P: AsRef<Path>>(data_dir: P) -> anyhow::Result<Self> {
@@ -49,7 +49,9 @@ impl WasiProvider {
             log_path,
         })
     }
+}
 
+impl<S: ModuleStore> WasiProvider<S> {
     // Fetch all container modules for a given `Pod` storing the name of the
     // container and the module's reference as key/value pairs in a hashmap.
     async fn fetch_container_modules(&self, pod: &Pod) -> HashMap<String, Reference> {
@@ -80,7 +82,7 @@ impl WasiProvider {
 }
 
 #[async_trait::async_trait]
-impl Provider for WasiProvider {
+impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
     async fn init(&self) -> anyhow::Result<()> {
         Ok(())
     }
