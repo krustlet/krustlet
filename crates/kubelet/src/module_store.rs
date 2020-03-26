@@ -1,5 +1,6 @@
-use crate::{pod::Pod, ImageClient, Reference};
+use crate::{pod::Pod, ImageClient};
 use async_trait::async_trait;
+use oci_distribution::Reference;
 use tokio::sync::Mutex;
 
 use std::collections::HashMap;

@@ -1,9 +1,7 @@
-use async_trait::async_trait;
 use chrono::prelude::{DateTime, Utc};
 use futures_util::future;
 use futures_util::stream::StreamExt;
 use hyperx::header::Header;
-use kubelet::{ImageClient, Reference};
 use reqwest::header::HeaderMap;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
@@ -15,6 +13,9 @@ const OCI_VERSION_KEY: &str = "Docker-Distribution-Api-Version";
 
 pub mod errors;
 pub mod manifest;
+mod reference;
+
+pub use reference::Reference;
 
 /// The OCI client connects to an OCI registry and fetches OCI images.
 ///
@@ -46,12 +47,9 @@ impl Client {
             client: reqwest::Client::new(),
         }
     }
-}
 
-#[async_trait]
-impl ImageClient for Client {
     /// Pull an image and store it in a module store.    
-    async fn pull(&mut self, image: &Reference) -> anyhow::Result<Vec<u8>> {
+    pub async fn pull_image(&mut self, image: &Reference) -> anyhow::Result<Vec<u8>> {
         if self.token.is_none() {
             self.auth(image, None).await?;
         }
@@ -310,7 +308,6 @@ impl Challenge for BearerChallenge {
 #[cfg(test)]
 mod test {
     use super::*;
-    use kubelet::ModuleStore;
     use std::convert::TryFrom;
 
     const HELLO_IMAGE: &str = "webassembly.azurecr.io/hello-wasm:v1";
@@ -385,12 +382,11 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_pull() {
-        use kubelet::ImageClient;
+    async fn test_pull_image() {
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
         let mut c = Client::default();
 
-        let contents = c.pull(&image).await.expect("failed to pull manifest");
+        let contents = c.pull_image(&image).await.expect("failed to pull manifest");
 
         assert!(contents.len() != 0);
     }

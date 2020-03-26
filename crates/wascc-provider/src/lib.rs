@@ -253,7 +253,7 @@ mod test {
     use super::*;
     use k8s_openapi::api::core::v1::Pod as KubePod;
     use k8s_openapi::api::core::v1::PodSpec;
-    use kubelet::Reference;
+    use oci_distribution::Reference;
 
     pub struct TestStore {
         modules: HashMap<Reference, Vec<u8>>,
