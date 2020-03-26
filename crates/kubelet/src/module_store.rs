@@ -8,7 +8,6 @@ use std::sync::Arc;
 #[async_trait]
 pub trait ModuleStore {
     async fn get(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>>;
-    async fn store(&self, image_ref: &Reference, contents: Vec<u8>) -> anyhow::Result<()>;
 }
 
 pub struct FileModuleStore<C> {
@@ -25,14 +24,21 @@ impl<C> FileModuleStore<C> {
     }
 
     fn pull_path(&self, r: &Reference) -> PathBuf {
-        self.root_dir
-            .join(r.registry())
-            .join(r.repository())
-            .join(r.tag())
+        let mut path = self.root_dir.join(r.registry());
+        path.push(r.repository());
+        path.push(r.tag());
+        path
     }
 
     fn pull_file_path(&self, r: &Reference) -> PathBuf {
         self.pull_path(r).join("module.wasm")
+    }
+
+    async fn store(&self, image_ref: &Reference, contents: &Vec<u8>) -> anyhow::Result<()> {
+        tokio::fs::create_dir_all(self.pull_path(image_ref)).await?;
+        let path = self.pull_file_path(image_ref);
+        tokio::fs::write(&path, contents).await?;
+        Ok(())
     }
 }
 
@@ -41,16 +47,12 @@ impl<C: ImageClient + Sync + Send> ModuleStore for FileModuleStore<C> {
     async fn get(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
         let path = self.pull_file_path(image_ref);
         if !path.exists() {
-            self.client.lock().await.pull(image_ref, self).await?;
+            let contents = self.client.lock().await.pull(image_ref).await?;
+            self.store(image_ref, &contents).await?;
+            return Ok(contents);
         }
-        Ok(tokio::fs::read(path).await?)
-    }
 
-    async fn store(&self, image_ref: &Reference, contents: Vec<u8>) -> anyhow::Result<()> {
-        tokio::fs::create_dir_all(self.pull_path(image_ref)).await?;
-        let path = self.pull_file_path(image_ref);
-        tokio::fs::write(&path, contents).await?;
-        Ok(())
+        Ok(tokio::fs::read(path).await?)
     }
 }
 

@@ -3,7 +3,7 @@ use chrono::prelude::{DateTime, Utc};
 use futures_util::future;
 use futures_util::stream::StreamExt;
 use hyperx::header::Header;
-use kubelet::{ImageClient, ModuleStore, Reference};
+use kubelet::{ImageClient, Reference};
 use reqwest::header::HeaderMap;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
@@ -15,8 +15,6 @@ const OCI_VERSION_KEY: &str = "Docker-Distribution-Api-Version";
 
 pub mod errors;
 pub mod manifest;
-
-type OciResult<T> = anyhow::Result<T>;
 
 /// The OCI client connects to an OCI registry and fetches OCI images.
 ///
@@ -53,11 +51,7 @@ impl Client {
 #[async_trait]
 impl ImageClient for Client {
     /// Pull an image and store it in a module store.    
-    async fn pull<T: ModuleStore + Send + Sync>(
-        &mut self,
-        image: &Reference,
-        store: &T,
-    ) -> OciResult<()> {
+    async fn pull(&mut self, image: &Reference) -> anyhow::Result<Vec<u8>> {
         if let None = self.token {
             self.auth(image, None).await?;
         }
@@ -71,17 +65,18 @@ impl ImageClient for Client {
             async move {
                 let mut out: Vec<u8> = Vec::new();
                 this.pull_layer(image, &layer.digest, &mut out).await?;
-                OciResult::Ok(out)
+                Ok::<_, anyhow::Error>(out)
             }
         });
 
         let layers = future::try_join_all(layers).await?;
+        let mut result = Vec::new();
         for layer in layers {
             // TODO: this simply overwrites previous layers with the latest one
-            store.store(image, layer).await?;
+            result = layer;
         }
 
-        Ok(())
+        Ok(result)
     }
 }
 
@@ -92,7 +87,7 @@ impl Client {
     /// For this implementation, it will return v2 or an error result. If the error is a
     /// `reqwest` error, the request itself failed. All other error messages mean that
     /// v2 is not supported.
-    pub async fn version(&self, host: &str) -> OciResult<String> {
+    pub async fn version(&self, host: &str) -> anyhow::Result<String> {
         let url = format!("{}://{}/v2/", self.config.protocol.as_str(), host);
         let res = self.client.get(&url).send().await?;
         let dist_hdr = res.headers().get(OCI_VERSION_KEY);
@@ -107,7 +102,7 @@ impl Client {
     ///
     /// This performs authorization and then stores the token internally to be used
     /// on other requests.
-    pub async fn auth(&mut self, image: &Reference, _secret: Option<&str>) -> OciResult<()> {
+    pub async fn auth(&mut self, image: &Reference, _secret: Option<&str>) -> anyhow::Result<()> {
         // The version request will tell us where to go.
         let url = format!(
             "{}://{}/v2/",
@@ -161,7 +156,7 @@ impl Client {
     ///
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
-    pub async fn pull_manifest(&self, image: &Reference) -> OciResult<OciManifest> {
+    pub async fn pull_manifest(&self, image: &Reference) -> anyhow::Result<OciManifest> {
         let url = image.to_v2_manifest_url(self.config.protocol.as_str());
         let request = self.client.get(&url);
 
@@ -199,7 +194,7 @@ impl Client {
         image: &Reference,
         digest: &str,
         mut out: T,
-    ) -> OciResult<()> {
+    ) -> anyhow::Result<()> {
         let url = image.to_v2_blob_url(self.config.protocol.as_str(), digest);
         let mut stream = self
             .client
@@ -315,6 +310,7 @@ impl Challenge for BearerChallenge {
 #[cfg(test)]
 mod test {
     use super::*;
+    use kubelet::ModuleStore;
     use std::convert::TryFrom;
 
     const HELLO_IMAGE: &str = "webassembly.azurecr.io/hello-wasm:v1";
@@ -388,35 +384,14 @@ mod test {
         assert_eq!(file.len(), layer0.size as usize);
     }
 
-    use tokio::sync::Mutex;
-    struct InMemoryModuleStore {
-        contents: Mutex<Vec<u8>>,
-    }
-
-    #[async_trait::async_trait]
-    impl ModuleStore for InMemoryModuleStore {
-        async fn store(&self, _image_ref: &Reference, contents: Vec<u8>) -> anyhow::Result<()> {
-            std::mem::replace(&mut *self.contents.lock().await, contents);
-            Ok(())
-        }
-        async fn get(&self, _image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
-            unimplemented!()
-        }
-    }
-
     #[tokio::test]
     async fn test_pull() {
         use kubelet::ImageClient;
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
         let mut c = Client::default();
 
-        let store = InMemoryModuleStore {
-            contents: Mutex::new(Vec::new()),
-        };
-        c.pull(&image, &store)
-            .await
-            .expect("failed to pull manifest");
+        let contents = c.pull(&image).await.expect("failed to pull manifest");
 
-        assert!(store.contents.lock().await.len() != 0);
+        assert!(contents.len() != 0);
     }
 }
