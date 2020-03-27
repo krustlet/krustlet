@@ -15,9 +15,7 @@
 //! // Implement the `Provider` trait for that type
 //! #[async_trait::async_trait]
 //! impl Provider for MyProvider {
-//!     fn arch(&self) -> String {
-//!         "my-arch".to_string()
-//!     }
+//!    const ARCH: &'static str = "my-arch";
 //!
 //!    async fn add(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> {
 //!        todo!("Implement Provider::add")

@@ -84,9 +84,7 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
 
 #[async_trait]
 impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
-    fn arch(&self) -> String {
-        TARGET_WASM32_WASCC.to_string()
-    }
+    const ARCH: &'static str = TARGET_WASM32_WASCC;
 
     fn can_schedule(&self, pod: &Pod) -> bool {
         // If there is a node selector and it has arch set to wasm32-wascc, we can

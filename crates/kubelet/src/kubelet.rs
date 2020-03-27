@@ -50,7 +50,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
         let client = APIClient::new(self.kube_config.clone());
         // Create the node. If it already exists, "adopt" the node definition
         let conf = self.config.clone();
-        let arch = self.provider.lock().await.arch();
+        let arch = T::ARCH;
         // Get the node name for use in the update loop
         let node_name = conf.node_name.clone();
         create_node(&client, conf, &arch).await;
@@ -148,11 +148,9 @@ mod test {
 
     #[async_trait::async_trait]
     impl Provider for MockProvider {
+        const ARCH: &'static str = "mock";
         fn can_schedule(&self, _pod: &Pod) -> bool {
             true
-        }
-        fn arch(&self) -> String {
-            "mock".to_string()
         }
         async fn add(&self, _pod: Pod, _client: APIClient) -> anyhow::Result<()> {
             Ok(())

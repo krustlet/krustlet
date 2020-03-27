@@ -76,9 +76,7 @@ impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
 
 #[async_trait::async_trait]
 impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
-    fn arch(&self) -> String {
-        TARGET_WASM32_WASI.to_string()
-    }
+    const ARCH: &'static str = TARGET_WASM32_WASI;
 
     fn can_schedule(&self, pod: &Pod) -> bool {
         // If there is a node selector and it has arch set to wasm32-wasi, we can
