@@ -1,3 +1,36 @@
+//! A custom kubelet backend that can run [WASI](https://wasi.dev/) based workloads
+//!
+//! The crate provides the [`WasiProvider`] type which can be used
+//! as a provider with [`kubelet`].
+//!
+//! # Example
+//! ```rust,no_run
+//! use kubelet::{Kubelet, config::Config};
+//! use kubelet::module_store::FileModuleStore;
+//! use wasi_provider::WasiProvider;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     // Get a configuration for the Kubelet
+//!     let kubelet_config = Config::default();
+//!     let client = oci_distribution::Client::default();
+//!     let store = FileModuleStore::new(client, &std::path::PathBuf::from(""));
+//!
+//!     // Instantiate the provider type
+//!     let provider = WasiProvider::new(store, &kubelet_config).await.unwrap();
+//!
+//!     // Load a kubernetes configuration
+//!     let kubeconfig = kube::config::load_kube_config().await.unwrap();
+//!     
+//!     // Instantiate the Kubelet
+//!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config);
+//!     // Start the Kubelet and block on it
+//!     kubelet.start().await.unwrap();
+//! }
+//! ```
+
+#![warn(missing_docs)]
+
 mod handle;
 mod wasi_runtime;
 
@@ -6,8 +39,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use kube::client::APIClient;
-use kubelet::pod::Pod;
-use kubelet::{ModuleStore, Provider, ProviderError};
+use kubelet::module_store::ModuleStore;
+use kubelet::provider::ProviderError;
+use kubelet::{Pod, Provider};
 use log::{debug, info};
 use tokio::fs::File;
 use tokio::sync::RwLock;
@@ -28,6 +62,7 @@ pub struct WasiProvider<S> {
 }
 
 impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
+    /// Create a new wasi provider from a module store and a kubelet config
     pub async fn new(store: S, config: &kubelet::config::Config) -> anyhow::Result<Self> {
         let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
@@ -41,10 +76,6 @@ impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
 
 #[async_trait::async_trait]
 impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
-    async fn init(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-
     fn arch(&self) -> String {
         TARGET_WASM32_WASI.to_string()
     }
@@ -87,7 +118,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         // Wrap this in a block so the write lock goes out of scope when we are done
         let mut container_handles = HashMap::new();
 
-        let mut modules = self.store.fetch_container_modules(&pod).await?;
+        let mut modules = self.store.fetch_pod_modules(&pod).await?;
 
         for container in pod.containers() {
             let env = self.env_vars(client.clone(), &container, &pod).await;

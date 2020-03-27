@@ -14,6 +14,7 @@ test:
     cargo fmt --all -- --check
     cargo clippy --workspace
     cargo test --workspace --lib
+    cargo test --doc --all
 
 test-e2e:
     cargo test --test integration_tests

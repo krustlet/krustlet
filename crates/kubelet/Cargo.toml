@@ -38,3 +38,8 @@ oci-distribution = { path = "../oci-distribution", version = "0.1.0" }
 
 [features]
 cli = ["clap"]
+docs = ["cli"]
+
+[package.metadata.docs.rs]
+
+rustdoc-args = ["--cfg", "feature=\"docs\""]

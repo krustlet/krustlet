@@ -1,6 +1,42 @@
+//! A custom kubelet backend that can run [waSCC](https://wascc.dev/) based workloads
+//!
+//! The crate provides the [`WasccProvider`] type which can be used
+//! as a provider with [`kubelet`].
+//!
+//! # Example
+//! ```rust,no_run
+//! use kubelet::{Kubelet, config::Config};
+//! use kubelet::module_store::FileModuleStore;
+//! use wascc_provider::WasccProvider;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     // Get a configuration for the Kubelet
+//!     let kubelet_config = Config::default();
+//!     let client = oci_distribution::Client::default();
+//!     let store = FileModuleStore::new(client, &std::path::PathBuf::from(""));
+//!
+//!     // Instantiate the provider type
+//!     let provider = WasccProvider::new(store, &kubelet_config).await.unwrap();
+//!
+//!     // Load a kubernetes configuration
+//!     let kubeconfig = kube::config::load_kube_config().await.unwrap();
+//!     
+//!     // Instantiate the Kubelet
+//!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config);
+//!     // Start the Kubelet and block on it
+//!     kubelet.start().await.unwrap();
+//! }
+//! ```
+
+#![warn(missing_docs)]
+
 use async_trait::async_trait;
 use kube::client::APIClient;
-use kubelet::{pod::Pod, ContainerStatus, ModuleStore, Provider, Status};
+use kubelet::module_store::ModuleStore;
+use kubelet::provider::NotImplementedError;
+use kubelet::status::{ContainerStatus, Status};
+use kubelet::{Pod, Provider};
 use log::{debug, info};
 use wascc_host::{host, Actor, NativeCapability};
 
@@ -34,13 +70,6 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
     /// Returns a new wasCC provider configured to use the proper data directory
     /// (including creating it if necessary)
     pub async fn new(store: S, _config: &kubelet::config::Config) -> anyhow::Result<Self> {
-        Ok(Self { store })
-    }
-}
-
-#[async_trait]
-impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
-    async fn init(&self) -> anyhow::Result<()> {
         tokio::task::spawn_blocking(|| {
             let data = NativeCapability::from_file(HTTP_LIB).map_err(|e| {
                 anyhow::anyhow!("Failed to read HTTP capability {}: {}", HTTP_LIB, e)
@@ -48,9 +77,13 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
             host::add_native_capability(data)
                 .map_err(|e| anyhow::anyhow!("Failed to load HTTP capability: {}", e))
         })
-        .await?
+        .await??;
+        Ok(Self { store })
     }
+}
 
+#[async_trait]
+impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
     fn arch(&self) -> String {
         TARGET_WASM32_WASCC.to_string()
     }
@@ -105,7 +138,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         //   - bail if it errors
 
         info!("Starting containers for pod {:?}", pod.name());
-        let mut modules = self.store.fetch_container_modules(&pod).await?;
+        let mut modules = self.store.fetch_pod_modules(&pod).await?;
         for container in pod.containers() {
             let env = self.env_vars(client.clone(), &container, &pod).await;
 
@@ -179,6 +212,15 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
             .map(String::as_str)
             .unwrap_or_default();
         wascc_stop(&pub_key).map_err(|e| anyhow::anyhow!("Failed to stop wascc actor: {}", e))
+    }
+
+    async fn logs(
+        &self,
+        _namespace: String,
+        _pod_name: String,
+        _container_name: String,
+    ) -> anyhow::Result<Vec<u8>> {
+        Err(NotImplementedError.into())
     }
 }
 
@@ -269,16 +311,6 @@ mod test {
     #[cfg(target_os = "macos")]
     const ECHO_LIB: &str = "./testdata/libecho_provider.dylib";
 
-    #[tokio::test]
-    async fn test_init() {
-        let store = TestStore::new(Default::default());
-        let provider = WasccProvider { store };
-        provider
-            .init()
-            .await
-            .expect("HTTP capability is registered");
-    }
-
     #[test]
     fn test_wascc_run() {
         // Open file
@@ -317,11 +349,13 @@ mod test {
         .expect("completed echo run")
     }
 
-    #[test]
-    fn test_can_schedule() {
+    #[tokio::test]
+    async fn test_can_schedule() {
         let store = TestStore::new(Default::default());
 
-        let wr = WasccProvider { store };
+        let wr = WasccProvider::new(store, &Default::default())
+            .await
+            .unwrap();
         let mock = Default::default();
         assert!(!wr.can_schedule(&mock));
 

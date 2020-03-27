@@ -1,4 +1,7 @@
-use crate::{pod::Pod, ImageClient};
+//! Stores of container module images
+use crate::image_client::ImageClient;
+use crate::pod::Pod;
+
 use async_trait::async_trait;
 use oci_distribution::Reference;
 use tokio::sync::Mutex;
@@ -8,13 +11,47 @@ use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// A store of container modules.
+///
+/// This provides the ability to get a module's bytes given an image [`Reference`].
+///
+/// # Example
+///  ```rust
+/// use async_trait::async_trait;
+/// use oci_distribution::Reference;
+/// use kubelet::module_store::ModuleStore;
+/// use std::collections::HashMap;
+///
+/// struct InMemoryStore {
+///     modules: HashMap<Reference, Vec<u8>>,
+/// };
+///
+/// #[async_trait]
+/// impl ModuleStore for InMemoryStore {
+///     async fn get(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
+///         match self.modules.get(image_ref) {
+///             Some(bytes) => Ok(bytes.clone()),
+///             None => todo!("Fetch the bytes from some sort of remore store (e.g., OCI Distribution)")
+///         }
+///     }
+/// }
+/// ```
 #[async_trait]
 pub trait ModuleStore {
+    /// Get a module's data given its image `Reference`.
+    ///
+    /// It is up to the implementation to establish caching and network fetching policies.
     async fn get(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>>;
 
-    // Fetch all container modules for a given `Pod` storing the name of the
-    // container and the module's data as key/value pairs in a hashmap.
-    async fn fetch_container_modules(&self, pod: &Pod) -> anyhow::Result<HashMap<String, Vec<u8>>> {
+    /// Fetch all container modules for a given `Pod` storing the name of the
+    /// container and the module's data as key/value pairs in a hashmap.
+    ///
+    /// This will fetch all of the container modules in parallel.
+    ///
+    /// # Panics
+    ///
+    /// This panics if any of the pod's containers do not have an image associated with them
+    async fn fetch_pod_modules(&self, pod: &Pod) -> anyhow::Result<HashMap<String, Vec<u8>>> {
         // Fetch all of the container modules in parallel
         let container_module_futures = pod.containers().iter().map(move |container| {
             let image = container
@@ -33,12 +70,18 @@ pub trait ModuleStore {
     }
 }
 
+/// A module store that keeps modules cached on the file system
+///
+/// This type is generic over the type of Kubernetes client used
+/// to fetch modules from a remote store. This client is expected
+/// to be an [`ImageClient`]
 pub struct FileModuleStore<C> {
     root_dir: PathBuf,
     client: Arc<Mutex<C>>,
 }
 
 impl<C> FileModuleStore<C> {
+    /// Create a new `FileModuleStore`
     pub fn new<T: AsRef<Path>>(client: C, root_dir: T) -> Self {
         Self {
             root_dir: root_dir.as_ref().into(),

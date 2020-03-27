@@ -1,11 +1,16 @@
+//! Errors related to interacting with an OCI compliant remote store
+
 /// The OCI specification defines a specific error format.
 ///
 /// This struct represents that error format, which is formally described here:
 /// https://github.com/opencontainers/distribution-spec/blob/master/spec.md#errors-2
 #[derive(serde::Deserialize, Debug)]
 pub struct OciError {
+    /// The error code
     pub code: OciErrorCode,
+    /// A message associated with the error
     pub message: String,
+    /// Unstructured data associated with the error
     pub detail: serde_json::Value,
 }
 
@@ -21,10 +26,13 @@ impl std::fmt::Display for OciError {
 }
 
 #[derive(serde::Deserialize)]
-pub struct OciEnvelope {
-    pub errors: Vec<OciError>,
+pub(crate) struct OciEnvelope {
+    pub(crate) errors: Vec<OciError>,
 }
 
+/// OCI error codes
+///
+/// Outlined here: https://github.com/opencontainers/distribution-spec/blob/master/spec.md#errors-2
 #[derive(serde::Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OciErrorCode {
@@ -61,13 +69,13 @@ pub enum OciErrorCode {
     NameInvalid,
     /// Repository name is not known
     NameUnknown,
-    // Provided length did not match content length
+    /// Provided length did not match content length
     SizeInvalid,
     /// Manifest tag did not match URI
     TagInvalid,
     /// Authentication required.
     Unauthorized,
-    // Requested access to the resource is denied
+    /// Requested access to the resource is denied
     Denied,
     /// This operation is unsupported
     Unsupported,

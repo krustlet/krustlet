@@ -126,7 +126,7 @@ async fn update_lease(node_uid: &str, node_name: &str, client: &APIClient) {
 /// use seems like a misstep. Ideally, we'll be able to support multiple runtimes.
 fn node_definition(config: Config, arch: &str) -> serde_json::Value {
     let ts = Time(Utc::now());
-    json!({
+    serde_json::json!({
         "apiVersion": "v1",
         "kind": "Node",
         "metadata": {
@@ -220,7 +220,7 @@ fn node_definition(config: Config, arch: &str) -> serde_json::Value {
 /// longer. And then tells Kubernetes how long it should wait before
 /// expecting a new lease.
 fn lease_definition(node_uid: &str, node_name: &str) -> serde_json::Value {
-    json!(
+    serde_json::json!(
         {
             "apiVersion": "coordination.k8s.io/v1",
             "kind": "Lease",
@@ -248,7 +248,7 @@ fn lease_spec_definition(node_name: &str) -> serde_json::Value {
     // In the future, use LeaseSpec rather than a JSON value
     let now = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
 
-    json!(
+    serde_json::json!(
         {
             "holderIdentity": node_name,
             "acquireTime": now,

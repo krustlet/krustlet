@@ -17,7 +17,7 @@ use tokio::sync::Mutex;
 use std::sync::Arc;
 
 use crate::config::ServerConfig;
-use crate::kubelet::{NotImplementedError, Provider};
+use crate::provider::{NotImplementedError, Provider};
 
 /// Start the Krustlet HTTP(S) server
 ///
