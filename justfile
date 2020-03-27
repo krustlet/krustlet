@@ -39,9 +39,6 @@ bootstrap-ssl:
     @test -f $(eval echo $KEY_DIR)/certificate.pfx || openssl pkcs12 -export -out  $(eval echo $KEY_DIR)/certificate.pfx -inkey  $(eval echo $KEY_DIR)/host.key -in  $(eval echo $KEY_DIR)/host.cert -password "pass:${PFX_PASSWORD}"
     @chmod 400 $(eval echo $KEY_DIR)/*
 
-docs: 	
-    cargo +nightly  doc --features docs --open
-
 _cleanup_kube:
     kubectl delete node krustlet-wasi krustlet-wascc || true
     kubectl delete --all pods --namespace=default || true

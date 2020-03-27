@@ -1,8 +1,10 @@
 use std::convert::{Into, TryFrom};
 
-// currently, the library only accepts modules tagged in the following structure:
-// <registry>/<repository>:<tag>
-// for example: webassembly.azurecr.io/hello:v1
+/// An OCI image reference
+///
+/// currently, the library only accepts modules tagged in the following structure:
+/// <registry>/<repository>:<tag>
+/// for example: webassembly.azurecr.io/hello:v1
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Reference {
     whole: String,

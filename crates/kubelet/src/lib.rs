@@ -9,8 +9,10 @@
 //! use kubelet::{Provider, Pod, Kubelet, config::Config};
 //! use kube::client::APIClient;
 //!
+//! // Create some type that will act as your provider
 //! struct MyProvider;
 //!
+//! // Implement the `Provider` trait for that type
 //! #[async_trait::async_trait]
 //! impl Provider for MyProvider {
 //!     fn arch(&self) -> String {
@@ -30,11 +32,17 @@
 //!
 //! #[tokio::main]
 //! async fn main() {
+//!     // Instantiate your provider type
 //!     let provider = MyProvider;
-//!     let kubeconfig = kube::config::load_kube_config().await.unwrap();
-//!     let kubelet_config = Config::default();
-//!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config);
 //!
+//!     // Load a kubernetes configuration
+//!     let kubeconfig = kube::config::load_kube_config().await.unwrap();
+//!     // Get a configuration for the Kubelet
+//!     let kubelet_config = Config::default();
+//!
+//!     // Instantiate the Kubelet
+//!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config);
+//!     // Start the Kubelet and block on it
 //!     kubelet.start().await.unwrap();
 //! }
 //! ```
@@ -42,19 +50,18 @@
 #![warn(missing_docs)]
 #![cfg_attr(feature = "docs", feature(doc_cfg))]
 
-pub mod config;
-pub mod image_client;
 mod kubelet;
-pub mod module_store;
 mod node;
 mod pod;
-pub mod provider;
 mod server;
+
+pub mod config;
+pub mod image_client;
+pub mod module_store;
+pub mod provider;
 pub mod status;
 
 pub use self::kubelet::Kubelet;
-
-#[doc(inline)]
 pub use pod::Pod;
 #[doc(inline)]
 pub use provider::Provider;
