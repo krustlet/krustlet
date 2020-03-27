@@ -61,12 +61,15 @@ impl TryFrom<String> for Reference {
     fn try_from(string: String) -> Result<Self, Self::Error> {
         let slash = string.find('/').ok_or_else(|| {
             anyhow::anyhow!(
-                "Failed to parse {}. Expected at least one slash (/)",
+                "Failed to parse reference string '{}'. Expected at least one slash (/)",
                 string
             )
         })?;
         let colon = string[slash + 1..].find(':').ok_or_else(|| {
-            anyhow::anyhow!("failed to parse {}. Expected exactly one colon (:)", string)
+            anyhow::anyhow!(
+                "Failed to parse reference string {}. Expected exactly one colon (:)",
+                string
+            )
         })?;
         Ok(Reference {
             whole: string,
