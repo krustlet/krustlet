@@ -1,4 +1,4 @@
-//! Oci Manifest
+//! OCI Manifest
 use std::collections::HashMap;
 
 /// The mediatype for WASM layers.

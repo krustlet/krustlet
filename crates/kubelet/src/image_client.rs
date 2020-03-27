@@ -1,12 +1,16 @@
-//! Container module image clients that can fetch images from remote stores
+//! Clients for fetching container module images from a storage location
+//!
+//! These clients are usually used together with some module store
+//! in order to fetch module an image when the module store does not
+//! contain it
 use async_trait::async_trait;
 
 use oci_distribution::Reference;
 
-/// An image client capable of fetching images from a remote store
+/// An image client capable of fetching images from a storage location
 #[async_trait]
 pub trait ImageClient {
-    /// Given a certain image reference pull the image data from the remote store
+    /// Given a certain image reference pull the image data from a storage location
     ///
     /// # Example
     /// ```rust

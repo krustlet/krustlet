@@ -1,4 +1,7 @@
 //! OCI distribution client
+//!
+//! *Note*: This client is very feature poor. We hope to expand this to be a complete
+//! OCI distribution client in the future.
 
 use crate::errors::*;
 use crate::manifest::OciManifest;

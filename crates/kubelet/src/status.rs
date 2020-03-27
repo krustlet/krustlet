@@ -9,10 +9,6 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 use std::collections::HashMap;
 
 /// Describe the status of a workload.
-///
-/// Phase captures the lifecycle aspect of the workload, while
-/// the message provides a human-readable description of the
-/// state of the workload.
 #[derive(Clone, Debug, Default)]
 pub struct Status {
     /// Allows a provider to set a custom message, otherwise, kubelet will infer

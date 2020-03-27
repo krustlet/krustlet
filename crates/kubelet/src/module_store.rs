@@ -1,4 +1,4 @@
-//! Module stores that store container modules
+//! Stores of container module images
 use crate::image_client::ImageClient;
 use crate::pod::Pod;
 
@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 /// A store of container modules.
 ///
-/// This provides the ability to get a module's bytes given an image `Reference`.
+/// This provides the ability to get a module's bytes given an image [`Reference`].
 ///
 /// # Example
 ///  ```rust
@@ -72,7 +72,7 @@ pub trait ModuleStore {
 
 /// A module store that keeps modules cached on the file system
 ///
-/// This type eis generic over the type of Kubernetes client used
+/// This type is generic over the type of Kubernetes client used
 /// to fetch modules from a remote store. This client is expected
 /// to be an [`ImageClient`]
 pub struct FileModuleStore<C> {

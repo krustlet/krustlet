@@ -1,4 +1,4 @@
-//! Backend providers for kubelets
+//! Traits and types need to create backend providers for a Kubelet
 use async_trait::async_trait;
 use k8s_openapi::api::core::v1::{ConfigMap, Container, EnvVarSource, Pod as KubePod, Secret};
 use kube::api::{Api, WatchEvent};
@@ -12,13 +12,11 @@ use std::collections::HashMap;
 
 /// A back-end for a Kubelet.
 ///
-/// The primary responsibility of a Provider is to execut a workload (or schedule it on an external executor)
+/// The primary responsibility of a Provider is to execute a workload (or schedule it on an external executor)
 /// and then monitor it, exposing details back upwards into the Kubelet.
 ///
-/// In most cases, a Provider will not need to directly interact with Kubernetes at all.
-/// That is the responsibility of the Kubelet. However, we pass in the client to facilitate
-/// cases where a provider may be middleware for another Kubernetes object, or where a
-/// provider may require supplemental Kubernetes objects such as Secrets, ConfigMaps, or CRDs.
+/// We pass in the client to facilitate cases where a provider may be middleware for another Kubernetes object,
+/// or where a provider may require supplemental Kubernetes objects such as Secrets, ConfigMaps, or CRDs.
 ///
 /// **Note**: this trait is defined using [async-trait](https://crates.io/crates/async-trait) which
 /// allows for the use of async methods on traits. The documentation reflects the generated code. It is
@@ -53,7 +51,6 @@ use std::collections::HashMap;
 #[async_trait]
 pub trait Provider {
     /// Arch returns a string specifying what architecture this provider supports
-    // TODO: Perhaps we need a NodeConfig or other struct that a Provider should return instead
     fn arch(&self) -> String;
 
     /// Given a Pod definition, this function determines whether or not the workload is schedulable on this provider.
@@ -161,7 +158,6 @@ pub trait Provider {
     /// custom Downward API fields.
     ///
     /// It is safe to call from within your own providers.
-    // TODO: Finish secrets, configmaps, and resource fields
     async fn env_vars(
         &self,
         client: APIClient,
