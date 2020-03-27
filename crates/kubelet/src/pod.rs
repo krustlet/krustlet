@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{Phase, Status};
+use crate::status::{Phase, Status};
 use k8s_openapi::api::core::v1::Container as KubeContainer;
 use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 use k8s_openapi::api::core::v1::Pod as KubePod;
@@ -19,8 +19,8 @@ pub struct Pod(KubePod);
 
 impl Pod {
     /// Construct a new Pod
-    pub fn new(inner: KubePod) -> Pod {
-        Pod(inner)
+    pub fn new(inner: KubePod) -> Self {
+        Self(inner)
     }
 
     /// Get the name of the pod

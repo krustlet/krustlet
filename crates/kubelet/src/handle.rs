@@ -9,8 +9,9 @@ use tokio::sync::watch::Receiver;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use kubelet::pod::Pod;
-use kubelet::{ContainerStatus, ProviderError, Status};
+use crate::provider::ProviderError;
+use crate::status::{ContainerStatus, Status};
+use crate::Pod;
 
 /// Represents a handle to a running WASI instance. Right now, this is
 /// experimental and just for use with the [crate::WasiProvider]. If we like
@@ -31,7 +32,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<R> {
         handle: JoinHandle<anyhow::Result<()>>,
         status_channel: Receiver<ContainerStatus>,
     ) -> Self {
-        RuntimeHandle {
+        Self {
             output: BufReader::new(output),
             handle,
             status_channel,
@@ -112,7 +113,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> PodHandle<R> {
                 cloned_pod.patch_status(client.clone(), status).await;
             }
         });
-        Ok(PodHandle {
+        Ok(Self {
             container_handles: RwLock::new(container_handles),
             status_handle,
             pod,

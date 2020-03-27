@@ -1,3 +1,8 @@
+//! Configuration for a Kubelet
+//!
+//! The best way to configure the kubelet is by using [`Config::default_config`]
+//! or by turning on the "cli" feature and using [`Config::new_from_flags`].
+
 #[cfg(feature = "cli")]
 use clap::derive::{FromArgMatches, IntoApp};
 use std::net::IpAddr;
@@ -6,31 +11,44 @@ use std::path::PathBuf;
 
 const DEFAULT_PORT: u16 = 3000;
 
-/// The configuration needed for a kubelet to run properly. This can be
-/// configured manually in your code or if you are exposing a CLI, use the
-/// [get_from_flags method](get_from_flags) (this requires the `cli` feature to
-/// be enabled). Use [default_config](Config::default_config) to generate a
-/// config with all of the default values set.
+/// The configuration needed for a kubelet to run properly.
+///
+/// This can be configured manually in your code or if you are exposing a CLI, use the
+/// [`Config::new_from_flags`] (this requires the "cli" feature to
+/// be enabled).
+///
+/// Use [`Config::default_config`] to generate a config with all
+/// of the default values set.
 #[derive(Clone, Debug)]
 pub struct Config {
+    /// The ip address the node is exposed on
     pub node_ip: IpAddr,
+    /// The hostname of the node
     pub hostname: String,
+    /// The node's name
     pub node_name: String,
+    /// The Kubelet server configuration
     pub server_config: ServerConfig,
+    /// The directory where the Kubelet will store data
     pub data_dir: PathBuf,
 }
-
+/// The configuration for the Kubelet server.
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
+    /// The ip address the Kubelet server is running on
     pub addr: IpAddr,
+    /// The port the Kubelet server is running on
     pub port: u16,
+    /// The path to a pfx file needed for TLS
     pub pfx_path: PathBuf,
+    /// The password for decrypting the pfx file
     pub pfx_password: String,
 }
 
 impl Config {
-    /// Returns a Config object set with all of the defaults. Useful for cases
-    /// when you don't want to set most of the values yourself. The
+    /// Returns a Config object set with all of the defaults.
+    ///
+    /// Useful for cases when you don't want to set most of the values yourself. The
     /// preferred_ip_family argument takes an IpAddr that is either V4 or V6 to
     /// indicate the preferred IP family to use for defaults
     pub fn default_config(preferred_ip_family: &IpAddr) -> anyhow::Result<Self> {
@@ -53,10 +71,11 @@ impl Config {
             },
         })
     }
+
     /// Parses all command line flags and sets the proper defaults. The version
-    /// of your application should be passed to set the proper version for the
-    /// CLI
-    #[cfg(feature = "cli")]
+    /// of your application should be passed to set the proper version for the CLI
+    #[cfg(any(feature = "cli", feature = "docs"))]
+    #[cfg_attr(feature = "docs", doc(cfg(feature = "cli")))]
     pub fn new_from_flags(version: &str) -> Self {
         // TODO: Support config files too. config-rs and clap don't just work
         // together, so there is no easy way to merge together everything right
@@ -97,9 +116,23 @@ impl Config {
     }
 }
 
-// Opts contains the values that can be configured for kubelet
+impl Default for Config {
+    fn default() -> Self {
+        Self::default_config(
+            &"127.0.0.1"
+                .parse()
+                .expect("Could not parse hardcoded address"),
+        )
+        .expect("Could not create default config")
+    }
+}
+
+/// CLI options that can be configured for Kubelet
+///
+/// These can be parsed from args using `Opts::into_app()`
 #[derive(clap::Clap, Clone, Debug)]
-#[cfg(feature = "cli")]
+#[cfg(any(feature = "cli", feature = "docs"))]
+#[cfg_attr(feature = "docs", doc(cfg(feature = "cli")))]
 #[clap(
     name = "krustlet",
     about = "A kubelet for running WebAssembly workloads"

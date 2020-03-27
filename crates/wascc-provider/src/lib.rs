@@ -1,5 +1,42 @@
+//! A custom kubelet backend that can run [waSCC](https://wascc.dev/) based workloads
+//!
+//! The crate provides the [`WasccProvider`] type which can be used
+//! as a provider with [`kubelet`].
+//!
+//! # Example
+//! ```rust,no_run
+//! use kubelet::{Kubelet, config::Config};
+//! use kubelet::module_store::FileModuleStore;
+//! use wascc_provider::WasccProvider;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     // Get a configuration for the Kubelet
+//!     let kubelet_config = Config::default();
+//!     let client = oci_distribution::Client::default();
+//!     let store = FileModuleStore::new(client, &std::path::PathBuf::from(""));
+//!
+//!     // Instantiate the provider type
+//!     let provider = WasccProvider::new(store, &kubelet_config).await.unwrap();
+//!
+//!     // Load a kubernetes configuration
+//!     let kubeconfig = kube::config::load_kube_config().await.unwrap();
+//!     
+//!     // Instantiate the Kubelet
+//!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config);
+//!     // Start the Kubelet and block on it
+//!     kubelet.start().await.unwrap();
+//! }
+//! ```
+
+#![warn(missing_docs)]
+
+use async_trait::async_trait;
 use kube::client::APIClient;
-use kubelet::{pod::Pod, ContainerStatus, Provider, Status};
+use kubelet::module_store::ModuleStore;
+use kubelet::provider::NotImplementedError;
+use kubelet::status::{ContainerStatus, Status};
+use kubelet::{Pod, Provider};
 use log::{debug, info};
 use wascc_host::{host, Actor, NativeCapability};
 
@@ -25,11 +62,14 @@ type EnvVars = std::collections::HashMap<String, String>;
 /// TODO: In the future, we will look at loading capabilities using the "sidecar" metaphor
 /// from Kubernetes.
 #[derive(Clone)]
-pub struct WasccProvider {}
+pub struct WasccProvider<S> {
+    store: S,
+}
 
-#[async_trait::async_trait]
-impl Provider for WasccProvider {
-    async fn init(&self) -> anyhow::Result<()> {
+impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
+    /// Returns a new wasCC provider configured to use the proper data directory
+    /// (including creating it if necessary)
+    pub async fn new(store: S, _config: &kubelet::config::Config) -> anyhow::Result<Self> {
         tokio::task::spawn_blocking(|| {
             let data = NativeCapability::from_file(HTTP_LIB).map_err(|e| {
                 anyhow::anyhow!("Failed to read HTTP capability {}: {}", HTTP_LIB, e)
@@ -37,9 +77,13 @@ impl Provider for WasccProvider {
             host::add_native_capability(data)
                 .map_err(|e| anyhow::anyhow!("Failed to load HTTP capability: {}", e))
         })
-        .await?
+        .await??;
+        Ok(Self { store })
     }
+}
 
+#[async_trait]
+impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
     fn arch(&self) -> String {
         TARGET_WASM32_WASCC.to_string()
     }
@@ -94,15 +138,19 @@ impl Provider for WasccProvider {
         //   - bail if it errors
 
         info!("Starting containers for pod {:?}", pod.name());
+        let mut modules = self.store.fetch_pod_modules(&pod).await?;
         for container in pod.containers() {
             let env = self.env_vars(client.clone(), &container, &pod).await;
 
             debug!("Starting container {} on thread", container.name);
             let pub_key = pub_key.to_owned();
-            // TODO: Replace with actual image store lookup when it is merged
-            let data = tokio::fs::read("./testdata/echo.wasm").await?;
+
+            let module_data = modules
+                .remove(&container.name)
+                .expect("FATAL ERROR: module map not properly populated");
             let http_result =
-                tokio::task::spawn_blocking(move || wascc_run_http(data, env, &pub_key)).await?;
+                tokio::task::spawn_blocking(move || wascc_run_http(module_data, env, &pub_key))
+                    .await?;
             match http_result {
                 Ok(_) => {
                     let mut container_statuses = HashMap::new();
@@ -164,6 +212,15 @@ impl Provider for WasccProvider {
             .map(String::as_str)
             .unwrap_or_default();
         wascc_stop(&pub_key).map_err(|e| anyhow::anyhow!("Failed to stop wascc actor: {}", e))
+    }
+
+    async fn logs(
+        &self,
+        _namespace: String,
+        _pod_name: String,
+        _container_name: String,
+    ) -> anyhow::Result<Vec<u8>> {
+        Err(NotImplementedError.into())
     }
 }
 
@@ -227,20 +284,32 @@ mod test {
     use super::*;
     use k8s_openapi::api::core::v1::Pod as KubePod;
     use k8s_openapi::api::core::v1::PodSpec;
+    use oci_distribution::Reference;
+
+    pub struct TestStore {
+        modules: HashMap<Reference, Vec<u8>>,
+    }
+
+    impl TestStore {
+        fn new(modules: HashMap<Reference, Vec<u8>>) -> Self {
+            Self { modules }
+        }
+    }
+
+    #[async_trait]
+    impl ModuleStore for TestStore {
+        async fn get(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
+            self.modules
+                .get(image_ref)
+                .cloned()
+                .ok_or(anyhow::anyhow!("Failed to find module for reference"))
+        }
+    }
 
     #[cfg(target_os = "linux")]
     const ECHO_LIB: &str = "./testdata/libecho_provider.so";
     #[cfg(target_os = "macos")]
     const ECHO_LIB: &str = "./testdata/libecho_provider.dylib";
-
-    #[tokio::test]
-    async fn test_init() {
-        let provider = WasccProvider {};
-        provider
-            .init()
-            .await
-            .expect("HTTP capability is registered");
-    }
 
     #[test]
     fn test_wascc_run() {
@@ -280,9 +349,13 @@ mod test {
         .expect("completed echo run")
     }
 
-    #[test]
-    fn test_can_schedule() {
-        let wr = WasccProvider {};
+    #[tokio::test]
+    async fn test_can_schedule() {
+        let store = TestStore::new(Default::default());
+
+        let wr = WasccProvider::new(store, &Default::default())
+            .await
+            .unwrap();
         let mock = Default::default();
         assert!(!wr.can_schedule(&mock));
 

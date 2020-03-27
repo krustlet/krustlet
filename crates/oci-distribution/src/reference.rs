@@ -1,9 +1,11 @@
 use std::convert::{Into, TryFrom};
 
-// currently, the library only accepts modules tagged in the following structure:
-// <registry>/<repository>:<tag>
-// for example: webassembly.azurecr.io/hello:v1
-#[derive(Clone, Debug)]
+/// An OCI image reference
+///
+/// currently, the library only accepts modules tagged in the following structure:
+/// <registry>/<repository>:<tag>
+/// for example: webassembly.azurecr.io/hello:v1
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Reference {
     whole: String,
     slash: usize,
@@ -57,27 +59,30 @@ impl Reference {
 impl TryFrom<String> for Reference {
     type Error = anyhow::Error;
     fn try_from(string: String) -> Result<Self, Self::Error> {
-        TryFrom::try_from(string.as_str())
+        let slash = string.find('/').ok_or_else(|| {
+            anyhow::anyhow!(
+                "Failed to parse reference string '{}'. Expected at least one slash (/)",
+                string
+            )
+        })?;
+        let colon = string[slash + 1..].find(':').ok_or_else(|| {
+            anyhow::anyhow!(
+                "Failed to parse reference string {}. Expected exactly one colon (:)",
+                string
+            )
+        })?;
+        Ok(Reference {
+            whole: string,
+            slash,
+            colon: slash + 1 + colon,
+        })
     }
 }
 
 impl TryFrom<&str> for Reference {
     type Error = anyhow::Error;
     fn try_from(string: &str) -> Result<Self, Self::Error> {
-        let slash = string.find('/').ok_or_else(|| {
-            anyhow::anyhow!(
-                "Failed to parse {}. Expected at least one slash (/)",
-                string
-            )
-        })?;
-        let colon = string[slash + 1..].find(':').ok_or_else(|| {
-            anyhow::anyhow!("failed to parse {}. Expected exactly one colon (:)", string)
-        })?;
-        Ok(Reference {
-            whole: string.to_owned(),
-            slash,
-            colon: slash + 1 + colon,
-        })
+        TryFrom::try_from(string.to_owned())
     }
 }
 
