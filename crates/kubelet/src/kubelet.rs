@@ -35,7 +35,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
     /// Create a new Kubelet with a provider, a kubernetes configuration,
     /// and a kubelet configuration
     pub fn new(provider: T, kube_config: kube::config::Configuration, config: Config) -> Self {
-        Kubelet {
+        Self {
             provider: Arc::new(Mutex::new(provider)),
             kube_config,
             config,
@@ -136,13 +136,13 @@ mod test {
         })
     }
 
-    struct MockProvider {}
+    struct MockProvider;
 
     // We use a constructor so that as we update the tests, we don't
     // have to modify a bunch of struct literals with base mock data.
     impl MockProvider {
         fn new() -> Self {
-            MockProvider {}
+            Self
         }
     }
 

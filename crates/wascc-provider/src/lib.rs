@@ -1,3 +1,36 @@
+//! A custom kubelet backend that can run [waSCC](https://wascc.dev/) based workloads
+//!
+//! The crate provides the [`WasccProvider`] type which can be used
+//! as a provider with [`kubelet`].
+//!
+//! # Example
+//! ```rust,no_run
+//! use kubelet::{Kubelet, config::Config};
+//! use kubelet::module_store::FileModuleStore;
+//! use wascc_provider::WasccProvider;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     // Get a configuration for the Kubelet
+//!     let kubelet_config = Config::default();
+//!     let client = oci_distribution::Client::default();
+//!     let store = FileModuleStore::new(client, &std::path::PathBuf::from(""));
+//!
+//!     // Instantiate the provider type
+//!     let provider = WasccProvider::new(store, &kubelet_config).await.unwrap();
+//!
+//!     // Load a kubernetes configuration
+//!     let kubeconfig = kube::config::load_kube_config().await.unwrap();
+//!     
+//!     // Instantiate the Kubelet
+//!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config);
+//!     // Start the Kubelet and block on it
+//!     kubelet.start().await.unwrap();
+//! }
+//! ```
+
+#![warn(missing_docs)]
+
 use async_trait::async_trait;
 use kube::client::APIClient;
 use kubelet::module_store::ModuleStore;

@@ -32,7 +32,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<R> {
         handle: JoinHandle<anyhow::Result<()>>,
         status_channel: Receiver<ContainerStatus>,
     ) -> Self {
-        RuntimeHandle {
+        Self {
             output: BufReader::new(output),
             handle,
             status_channel,
@@ -113,7 +113,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> PodHandle<R> {
                 cloned_pod.patch_status(client.clone(), status).await;
             }
         });
-        Ok(PodHandle {
+        Ok(Self {
             container_handles: RwLock::new(container_handles),
             status_handle,
             pod,

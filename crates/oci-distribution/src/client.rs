@@ -38,7 +38,7 @@ pub struct Client {
 impl Client {
     /// Create a new client with the supplied config
     pub fn new(config: ClientConfig) -> Self {
-        Client {
+        Self {
             config,
             token: None,
             client: reqwest::Client::new(),
