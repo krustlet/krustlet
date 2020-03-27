@@ -1233,6 +1233,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tokio",
+ "wascc-logging",
  "wascc-provider",
  "wasi-provider",
 ]
@@ -1339,6 +1340,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "14b6052be84e6b71ab17edffc2eeabf5c2c3ae1fdb464aae35ac50c67a44e1f7"
 dependencies = [
  "cfg-if",
+ "serde",
 ]
 
 [[package]]
@@ -2898,10 +2900,11 @@ dependencies = [
 
 [[package]]
 name = "wascc-codec"
-version = "0.5.0"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1477019e4e1de84d0e77380859906e132bdd1e8dbf73f3dd81dc27eeeb554ace"
+checksum = "f5a3e2762c043198fa179eeb9e34f4ec9072f5570562c7aaca24254396cefc35"
 dependencies = [
+ "log",
  "rmp-serde",
  "serde",
  "serde_derive",
@@ -2925,6 +2928,15 @@ dependencies = [
  "uuid",
  "wapc",
  "wascap",
+ "wascc-codec",
+]
+
+[[package]]
+name = "wascc-logging"
+version = "0.1.0"
+dependencies = [
+ "env_logger 0.7.1",
+ "log",
  "wascc-codec",
 ]
 
