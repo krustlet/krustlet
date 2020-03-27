@@ -1,0 +1,23 @@
+[package]
+name = "wascc-logging"
+version = "0.1.0"
+authors = [
+    "Matt Butcher <matt.butcher@microsoft.com>",
+    "Matthew Fisher <matt.fisher@microsoft.com>",
+    "Radu Matei <radu.matei@microsoft.com>",
+    "Taylor Thomas <taylor.thomas@microsoft.com>",
+    "Brian Ketelsen <Brian.Ketelsen@microsoft.com>",
+    "Brian Hardock <Brian.Hardock@microsoft.com>",
+    "Ryan Levick <rylevick@microsoft.com>",
+]
+edition = "2018"
+
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wascc-codec = "0.5.2"
+log = "0.4.8"
+env_logger = "0.7.1"
+tempfile = "3.1"

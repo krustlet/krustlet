@@ -1218,7 +1218,6 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tokio",
- "wascc-logging",
  "wascc-provider",
  "wasi-provider",
 ]
@@ -2876,6 +2875,7 @@ version = "0.1.0"
 dependencies = [
  "env_logger 0.7.1",
  "log",
+ "tempfile",
  "wascc-codec",
 ]
 
@@ -2895,6 +2895,7 @@ dependencies = [
  "serde_derive",
  "tokio",
  "wascc-host",
+ "wascc-logging",
 ]
 
 [[package]]

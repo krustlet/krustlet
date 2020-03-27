@@ -39,14 +39,22 @@ use kubelet::status::{ContainerStatus, Status};
 use kubelet::{Pod, Provider};
 use log::{debug, info};
 use wascc_host::{host, Actor, NativeCapability};
+use tokio::sync::RwLock;
+
+use wascc_logging::{LOG_PATH_KEY};
 
 use std::collections::HashMap;
+use std::path::{PathBuf, Path};
+use std::sync::Arc;
 
 const ACTOR_PUBLIC_KEY: &str = "deislabs.io/wascc-action-key";
 const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
 
 /// The name of the HTTP capability.
 const HTTP_CAPABILITY: &str = "wascc:http_server";
+const LOG_CAPABILITY: &str = "wascc:logging";
+
+const LOG_DIR_NAME: &str = "wascc-logs";
 
 #[cfg(target_os = "linux")]
 const HTTP_LIB: &str = "./lib/libwascc_httpsrv.so";
@@ -63,13 +71,18 @@ type EnvVars = std::collections::HashMap<String, String>;
 /// from Kubernetes.
 #[derive(Clone)]
 pub struct WasccProvider<S> {
+    handles: Arc<RwLock<HashMap<String, PodHandle<File>>>>,
     store: S,
+    log_path: PathBuf,
 }
 
 impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
     /// Returns a new wasCC provider configured to use the proper data directory
     /// (including creating it if necessary)
-    pub async fn new(store: S, _config: &kubelet::config::Config) -> anyhow::Result<Self> {
+    pub async fn new(store: S, config: &kubelet::config::Config) -> anyhow::Result<Self> {
+        let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
+        tokio::fs::create_dir_all(&log_path).await?;
+
         tokio::task::spawn_blocking(|| {
             let data = NativeCapability::from_file(HTTP_LIB).map_err(|e| {
                 anyhow::anyhow!("Failed to read HTTP capability {}: {}", HTTP_LIB, e)
@@ -78,7 +91,11 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
                 .map_err(|e| anyhow::anyhow!("Failed to load HTTP capability: {}", e))
         })
         .await??;
-        Ok(Self { store })
+        Ok(Self {
+            handles: Default::default(),
+            store,
+            log_path,
+        })
     }
 }
 
@@ -227,15 +244,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
 /// Run a WasCC module inside of the host, configuring it to handle HTTP requests.
 ///
 /// This bootstraps an HTTP host, using the value of the env's `PORT` key to expose a port.
-fn wascc_run_http(data: Vec<u8>, env: EnvVars, key: &str) -> anyhow::Result<()> {
-    let mut httpenv: HashMap<String, String> = HashMap::new();
-    httpenv.insert(
-        "PORT".into(),
-        env.get("PORT")
-            .map(|a| a.to_string())
-            .unwrap_or_else(|| "80".to_string()),
-    );
-
+fn wascc_run_http(data: Vec<u8>, env: EnvVars, key: &str, log_path: &Path) -> anyhow::Result<()> {
     wascc_run(
         data,
         key,
@@ -265,8 +274,14 @@ struct Capability {
 ///
 /// The provided capabilities will be configured for this actor, but the capabilities
 /// must first be loaded into the host by some other process, such as register_native_capabilities().
-fn wascc_run(data: Vec<u8>, key: &str, capabilities: Vec<Capability>) -> anyhow::Result<()> {
+fn wascc_run(data: Vec<u8>, key: &str, capabilities: &mut Vec<Capability>, log_path: &Path) -> anyhow::Result<()> {
     info!("wascc run");
+    let mut logenv: HashMap<String, String> = HashMap::new();
+    logenv.insert(LOG_PATH_KEY, log_path.to_str().unwrap().to_owned());
+    capabilities.push(Capability {
+        name: LOG_CAPABILITY,
+        env: logenv,
+    });
     let load = Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
     host::add_actor(load).map_err(|e| anyhow::anyhow!("Error adding actor: {}", e))?;
 
