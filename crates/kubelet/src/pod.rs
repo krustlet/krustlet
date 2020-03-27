@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{Phase, Status};
+use crate::status::{Phase, Status};
 use k8s_openapi::api::core::v1::Container as KubeContainer;
 use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 use k8s_openapi::api::core::v1::Pod as KubePod;

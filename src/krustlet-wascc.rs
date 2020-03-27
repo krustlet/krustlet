@@ -1,6 +1,6 @@
 use kube::config;
 use kubelet::config::Config;
-use kubelet::FileModuleStore;
+use kubelet::module_store::FileModuleStore;
 use kubelet::Kubelet;
 use wascc_provider::WasccProvider;
 

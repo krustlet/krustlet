@@ -14,6 +14,7 @@ test:
     cargo fmt --all -- --check
     cargo clippy --workspace
     cargo test --workspace --lib
+    cargo test --doc --all
 
 test-e2e:
     cargo test --test integration_tests
@@ -37,6 +38,9 @@ bootstrap-ssl:
     @test -f  $(eval echo $KEY_DIR)/host.key && test -f $(eval echo $KEY_DIR)/host.cert || openssl req -x509 -sha256 -newkey rsa:2048 -keyout $(eval echo $KEY_DIR)/host.key -out $(eval echo $KEY_DIR)/host.cert -days 365 -nodes -subj "/C=AU/ST=./L=./O=./OU=./CN=."
     @test -f $(eval echo $KEY_DIR)/certificate.pfx || openssl pkcs12 -export -out  $(eval echo $KEY_DIR)/certificate.pfx -inkey  $(eval echo $KEY_DIR)/host.key -in  $(eval echo $KEY_DIR)/host.cert -password "pass:${PFX_PASSWORD}"
     @chmod 400 $(eval echo $KEY_DIR)/*
+
+docs: 	
+    cargo +nightly  doc --features docs --open
 
 _cleanup_kube:
     kubectl delete node krustlet-wasi krustlet-wascc || true

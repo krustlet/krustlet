@@ -12,7 +12,7 @@ use wasmtime_wasi::old::snapshot_0::Wasi as WasiUnstable;
 use wasmtime_wasi::{Wasi, WasiCtxBuilder};
 
 use crate::handle::RuntimeHandle;
-use kubelet::ContainerStatus;
+use kubelet::status::ContainerStatus;
 
 /// WasiRuntime provides a WASI compatible runtime. A runtime should be used for
 /// each "instance" of a process and can be passed to a thread pool for running

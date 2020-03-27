@@ -9,8 +9,9 @@ use tokio::sync::watch::Receiver;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use kubelet::pod::Pod;
-use kubelet::{ContainerStatus, ProviderError, Status};
+use kubelet::provider::ProviderError;
+use kubelet::status::{ContainerStatus, Status};
+use kubelet::Pod;
 
 /// Represents a handle to a running WASI instance. Right now, this is
 /// experimental and just for use with the [crate::WasiProvider]. If we like

@@ -6,8 +6,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use kube::client::APIClient;
-use kubelet::pod::Pod;
-use kubelet::{ModuleStore, Provider, ProviderError};
+use kubelet::module_store::ModuleStore;
+use kubelet::provider::ProviderError;
+use kubelet::{Pod, Provider};
 use log::{debug, info};
 use tokio::fs::File;
 use tokio::sync::RwLock;
@@ -41,10 +42,6 @@ impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
 
 #[async_trait::async_trait]
 impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
-    async fn init(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-
     fn arch(&self) -> String {
         TARGET_WASM32_WASI.to_string()
     }
@@ -87,7 +84,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         // Wrap this in a block so the write lock goes out of scope when we are done
         let mut container_handles = HashMap::new();
 
-        let mut modules = self.store.fetch_container_modules(&pod).await?;
+        let mut modules = self.store.fetch_pod_modules(&pod).await?;
 
         for container in pod.containers() {
             let env = self.env_vars(client.clone(), &container, &pod).await;
