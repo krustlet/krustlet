@@ -1,7 +1,7 @@
 # Krustlet: Kubernetes Kubelet in Rust for running WASM
 
-**This project is highly experimental.** It is just a proof of concept, and you
-should not use it in production.
+**This project is highly experimental.** It is not yet fully ready for
+production, so you should use it in production at your own risk
 
 Krustlet acts as a Kubelet by listening on the event stream for new pod requests
 that match a particular set of node selectors.
@@ -15,7 +15,11 @@ instead of a container runtime.
 If you're new to the project, get started with [the introduction](docs/intro/README.md). For more in-depth information
 about Krustlet, plunge right into the [topic guides](docs/topics/README.md).
 
-Looking for the developer guide? [Start here](docs/community/developers.md).
+Looking for the developer guide? [Start here](docs/community/developers.md). If
+you are interested in the project, please feel free to join us in our weekly
+public call [on
+Zoom](https://zoom.us/j/200921512?pwd=N3hBblRaUE1FL3luVkJ6ZzZsM0NIUT09) at 9:00
+am Pacific Time every Monday
 
 ## Code of Conduct
 
