@@ -33,9 +33,7 @@ use std::collections::HashMap;
 ///
 /// #[async_trait]
 /// impl Provider for MyProvider {
-///     fn arch(&self) -> String {
-///         "my-arch".to_string()
-///     }
+///     const ARCH: &'static str = "my-arch";
 ///
 ///     async fn add(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> {
 ///         todo!("Implement Provider::add")
@@ -51,7 +49,7 @@ use std::collections::HashMap;
 #[async_trait]
 pub trait Provider {
     /// Arch returns a string specifying what architecture this provider supports
-    fn arch(&self) -> String;
+    const ARCH: &'static str;
 
     /// Given a Pod definition, this function determines whether or not the workload is schedulable on this provider.
     ///
