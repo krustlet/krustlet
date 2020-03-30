@@ -49,12 +49,10 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
     pub async fn start(&self) -> anyhow::Result<()> {
         let client = APIClient::new(self.kube_config.clone());
         // Create the node. If it already exists, "adopt" the node definition
-        let conf = self.config.clone();
-        let arch = T::ARCH;
-        // Get the node name for use in the update loop
-        let node_name = conf.node_name.clone();
-        create_node(&client, conf, &arch).await;
+        create_node(&client, &self.config, T::ARCH).await;
 
+        // Get the node name for use in the update loop
+        let node_name = self.config.node_name.clone();
         // Start updating the node lease periodically
         let update_client = client.clone();
         let node_updater = tokio::task::spawn(async move {

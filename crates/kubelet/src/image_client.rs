@@ -26,7 +26,6 @@ pub trait ImageClient {
     ///         let image = self
     ///             .0
     ///             .get(image)
-    ///             .clone()
     ///             .ok_or(anyhow::anyhow!("Couldn't find image"))?;
     ///         Ok(image.clone())
     ///     }
