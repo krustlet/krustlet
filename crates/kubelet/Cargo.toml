@@ -30,7 +30,6 @@ clap = { git = "https://github.com/clap-rs/clap", features = ["wrap_help"], opti
 hostname = "^0.3"
 native-tls = "0.2.4"
 tokio-tls = "0.3.0"
-async-stream = "0.2.1"
 thiserror = "1.0"
 lazy_static = "1.4.0"
 oci-distribution = { path = "../oci-distribution", version = "0.1.0" }
