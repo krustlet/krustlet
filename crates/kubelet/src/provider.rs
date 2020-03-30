@@ -146,10 +146,9 @@ pub trait Provider {
     ///
     /// It is safe to call from within your own providers.
     async fn env_vars(
-        &self,
-        client: APIClient,
         container: &Container,
         pod: &Pod,
+        client: &APIClient,
     ) -> HashMap<String, String> {
         let mut env = HashMap::new();
         let vars = match container.env.as_ref() {
@@ -163,8 +162,8 @@ pub trait Provider {
                 Some(v) => v,
                 None => {
                     on_missing_env_value(
-                        client.clone(),
                         env_var.value_from,
+                        client,
                         pod.namespace(),
                         &field_map(pod),
                     )
@@ -182,8 +181,8 @@ pub trait Provider {
 /// This follows the env_var_source to get the value
 #[doc(hidden)]
 async fn on_missing_env_value(
-    client: APIClient,
     env_var_source: Option<EnvVarSource>,
+    client: &APIClient,
     ns: &str,
     fields: &HashMap<String, String>,
 ) -> String {
@@ -195,7 +194,10 @@ async fn on_missing_env_value(
     // ConfigMaps
     if let Some(cfkey) = env_src.config_map_key_ref.as_ref() {
         let name = cfkey.name.as_deref().unwrap_or_default();
-        match Api::<ConfigMap>::namespaced(client, ns).get(name).await {
+        match Api::<ConfigMap>::namespaced(client.clone(), ns)
+            .get(name)
+            .await
+        {
             Ok(cfgmap) => {
                 // I am not totally clear on what the outcome should
                 // be of a cfgmap key miss. So for now just return an
@@ -216,7 +218,10 @@ async fn on_missing_env_value(
     // Secrets
     if let Some(seckey) = env_src.secret_key_ref.as_ref() {
         let name = seckey.name.as_deref().unwrap_or_default();
-        match Api::<Secret>::namespaced(client, ns).get(name).await {
+        match Api::<Secret>::namespaced(client.clone(), ns)
+            .get(name)
+            .await
+        {
             Ok(secret) => {
                 // I am not totally clear on what the outcome should
                 // be of a secret key miss. So for now just return an

@@ -122,7 +122,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         // of env vars, which is to communicate _into_ the runtime, not to
         // configure the runtime.
         let pub_key = pod.get_annotation(ACTOR_PUBLIC_KEY).unwrap_or_default();
-        debug!("{:?}", pub_key);
+        debug!("Using public key: {:?}", pub_key);
 
         // TODO: Implement this for real.
         //
@@ -140,12 +140,11 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         //   - run it to completion
         //   - bail if it errors
 
-        info!("Starting containers for pod {:?}", pod.name());
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
-        // TODO: Is there value in keeping one client and cloning it?
         let client = APIClient::new(self.kubeconfig.clone());
+        info!("Starting containers for pod {:?}", pod.name());
         for container in pod.containers() {
-            let env = self.env_vars(client.clone(), &container, &pod).await;
+            let env = Self::env_vars(&container, &pod, &client).await;
 
             debug!("Starting container {} on thread", container.name);
             let pub_key = pub_key.to_owned();

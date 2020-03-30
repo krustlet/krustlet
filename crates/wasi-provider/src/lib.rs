@@ -117,16 +117,14 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         //   - mount any volumes (popen)
         //   - run it to completion
         //   - bail if it errors
-        let pod_name = pod.name().to_owned();
-        info!("Starting containers for pod {:?}", pod_name);
-        // Wrap this in a block so the write lock goes out of scope when we are done
+        let pod_name = pod.name();
         let mut container_handles = HashMap::new();
 
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
-        // TODO: Is there value in keeping one client and cloning it?
         let client = APIClient::new(self.kubeconfig.clone());
+        info!("Starting containers for pod {:?}", pod_name);
         for container in pod.containers() {
-            let env = self.env_vars(client.clone(), &container, &pod).await;
+            let env = Self::env_vars(&container, &pod, &client).await;
             let module_data = modules
                 .remove(&container.name)
                 .expect("FATAL ERROR: module map not properly populated");
@@ -144,6 +142,12 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
             let handle = runtime.start().await?;
             container_handles.insert(container.name.clone(), handle);
         }
+        info!(
+            "All containers started for pod {:?}. Updating status",
+            pod_name
+        );
+
+        // Wrap this in a block so the write lock goes out of scope when we are done
         {
             // Grab the entry while we are creating things
             let mut handles = self.handles.write().await;
@@ -152,10 +156,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
                 PodHandle::new(container_handles, pod, client)?,
             );
         }
-        info!(
-            "All containers started for pod {:?}. Updating status",
-            pod_name
-        );
+
         Ok(())
     }
 
