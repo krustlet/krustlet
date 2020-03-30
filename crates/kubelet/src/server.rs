@@ -2,15 +2,11 @@
 ///
 /// Logs and exec calls are the main things that a server should handle.
 use anyhow::Context;
-use async_stream::stream;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{
-    server::{conn::Http, Builder},
-    Body, Error, Method, Request, Response, StatusCode,
-};
+use hyper::service::service_fn;
+use hyper::{server::conn::Http, Body, Method, Request, Response, StatusCode};
 use log::{debug, error, info};
 use native_tls::{Identity, TlsAcceptor};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::stream::StreamExt;
 use tokio::sync::Mutex;
 
@@ -33,63 +29,81 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
     let identity = Identity::from_pkcs12(&identity, &config.pfx_password)?;
 
     let acceptor = tokio_tls::TlsAcceptor::from(TlsAcceptor::new(identity)?);
+
     let acceptor = Arc::new(acceptor);
-    let service = make_service_fn(move |_| {
-        let provider = provider.clone();
-        async {
-            Ok::<_, Error>(service_fn(move |req: Request<Body>| {
-                let provider = provider.clone();
-
-                async move {
-                    let path: Vec<&str> = req.uri().path().split('/').collect();
-
-                    let response = match (req.method(), path.as_slice()) {
-                        (_, path) if path.len() <= 2 => get_ping(),
-                        (&Method::GET, [_, "containerLogs", namespace, pod, container]) => {
-                            get_container_logs(
-                                &*provider.lock().await,
-                                &req,
-                                (*namespace).to_string(),
-                                (*pod).to_string(),
-                                (*container).to_string(),
-                            )
-                            .await
-                        }
-                        (&Method::POST, [_, "exec", _, _, _]) => {
-                            post_exec(&*provider.lock().await, &req)
-                        }
-                        _ => Response::builder()
-                            .status(StatusCode::NOT_FOUND)
-                            .body(Body::from("Not Found"))
-                            .unwrap(),
-                    };
-                    Ok::<_, Error>(response)
-                }
-            }))
-        }
-    });
 
     let address = std::net::SocketAddr::new(config.addr, config.port);
     let mut listener = TcpListener::bind(&address).await.unwrap();
-    let mut incoming = listener.incoming();
-    let accept = hyper::server::accept::from_stream(stream! {
-        loop {
-            match incoming.next().await {
-                Some(Ok(stream)) => match acceptor.clone().accept(stream).await {
-                    result @ Ok(_) => yield result,
-                    Err(e) => error!("error accepting ssl connection: {}", e),
-                },
-                _ => break,
-            }
-        }
-    });
-    let server = Builder::new(accept, Http::new()).serve(service);
 
     info!("starting webserver at: {:?}", address);
 
-    server.await?;
+    let mut incoming = listener.incoming();
+
+    while let Some(conn) = incoming.try_next().await? {
+        let acceptor = acceptor.clone();
+        let provider = provider.clone();
+
+        tokio::spawn(async move {
+            if let Err(e) = handle_connection(conn, acceptor, provider).await {
+                error!("error handling connection: {}", e);
+            }
+        });
+    }
 
     Ok(())
+}
+
+async fn handle_connection<T>(
+    conn: TcpStream,
+    acceptor: Arc<tokio_tls::TlsAcceptor>,
+    provider: Arc<Mutex<T>>,
+) -> anyhow::Result<()>
+where
+    T: Provider + Send + Sync + 'static,
+{
+    let io = acceptor.accept(conn).await?;
+    Http::new()
+        .serve_connection(
+            io,
+            service_fn(move |req| {
+                let provider = provider.clone();
+                async move { handle_request(req, provider).await }
+            }),
+        )
+        .await?;
+
+    Ok(())
+}
+
+async fn handle_request<T>(
+    req: Request<Body>,
+    provider: Arc<Mutex<T>>,
+) -> anyhow::Result<Response<Body>>
+where
+    T: Provider + Send + Sync + 'static,
+{
+    let path: Vec<&str> = req.uri().path().split('/').collect();
+
+    let response = match (req.method(), path.as_slice()) {
+        (_, path) if path.len() <= 2 => get_ping(),
+        (&Method::GET, [_, "containerLogs", namespace, pod, container]) => {
+            get_container_logs(
+                &*provider.lock().await,
+                &req,
+                (*namespace).to_string(),
+                (*pod).to_string(),
+                (*container).to_string(),
+            )
+            .await
+        }
+        (&Method::POST, [_, "exec", _, _, _]) => post_exec(&*provider.lock().await, &req),
+        _ => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("Not Found"))
+            .unwrap(),
+    };
+
+    Ok(response)
 }
 
 /// Return a simple status message

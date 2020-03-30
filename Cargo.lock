@@ -1280,6 +1280,7 @@ dependencies = [
  "futures",
  "hostname",
  "hyper",
+ "hyper-tls",
  "k8s-openapi",
  "kube",
  "lazy_static",
