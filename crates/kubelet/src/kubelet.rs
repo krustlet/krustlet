@@ -7,7 +7,7 @@ use crate::Provider;
 
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::Pod as KubePod;
-use kube::{api::ListParams, client::APIClient, runtime::Informer, Resource};
+use kube::{api::ListParams, runtime::Informer, Resource};
 use log::{debug, error};
 use tokio::sync::Mutex;
 
@@ -47,7 +47,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
     /// This will listen on the given address, and will also begin watching for Pod
     /// events, which it will handle.
     pub async fn start(&self) -> anyhow::Result<()> {
-        let client = APIClient::new(self.kube_config.clone());
+        let client = kube::Client::from(self.kube_config.clone());
         // Create the node. If it already exists, "adopt" the node definition
         create_node(&client, &self.config, T::ARCH).await;
 
@@ -117,26 +117,18 @@ mod test {
         Container, EnvVar, EnvVarSource, ObjectFieldSelector, PodSpec, PodStatus,
     };
     use kube::api::ObjectMeta;
-    use kube::client::APIClient;
     use std::collections::BTreeMap;
 
-    fn mock_client() -> APIClient {
-        APIClient::new(kube::config::Configuration {
+    fn mock_client() -> kube::Client {
+        kube::config::Configuration {
             base_path: ".".to_string(),
             client: reqwest::Client::new(),
             default_ns: " ".to_string(),
-        })
+        }
+        .into()
     }
 
     struct MockProvider;
-
-    // We use a constructor so that as we update the tests, we don't
-    // have to modify a bunch of struct literals with base mock data.
-    impl MockProvider {
-        fn new() -> Self {
-            Self
-        }
-    }
 
     #[async_trait::async_trait]
     impl Provider for MockProvider {
@@ -144,13 +136,13 @@ mod test {
         fn can_schedule(&self, _pod: &Pod) -> bool {
             true
         }
-        async fn add(&self, _pod: Pod, _client: APIClient) -> anyhow::Result<()> {
+        async fn add(&self, _pod: Pod) -> anyhow::Result<()> {
             Ok(())
         }
-        async fn modify(&self, _pod: Pod, _client: APIClient) -> anyhow::Result<()> {
+        async fn modify(&self, _pod: Pod) -> anyhow::Result<()> {
             Ok(())
         }
-        async fn delete(&self, _pod: Pod, _client: APIClient) -> anyhow::Result<()> {
+        async fn delete(&self, _pod: Pod) -> anyhow::Result<()> {
             Ok(())
         }
         async fn logs(
@@ -265,8 +257,7 @@ mod test {
                 ..Default::default()
             }),
         });
-        let prov = MockProvider::new();
-        let env = prov.env_vars(mock_client(), &container, &pod).await;
+        let env = MockProvider::env_vars(&container, &pod, &mock_client()).await;
 
         assert_eq!(
             "value",

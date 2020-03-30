@@ -4,10 +4,7 @@ use crate::status::{Phase, Status};
 use k8s_openapi::api::core::v1::Container as KubeContainer;
 use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 use k8s_openapi::api::core::v1::Pod as KubePod;
-use kube::{
-    api::{Api, PatchParams},
-    client::APIClient,
-};
+use kube::api::{Api, PatchParams};
 use log::{debug, error};
 
 /// A Kubernetes Pod
@@ -89,7 +86,7 @@ impl Pod {
     }
 
     /// Patch the pod status using the given status information.
-    pub async fn patch_status(&self, client: APIClient, status: Status) {
+    pub async fn patch_status(&self, client: kube::Client, status: Status) {
         let name = self.name();
         let api: Api<KubePod> = Api::namespaced(client, self.namespace());
         let current_status = match api.get(name).await {

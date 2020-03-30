@@ -19,7 +19,7 @@ wascc-host = "0.5.2"
 log = "0.4"
 serde = "1.0"
 serde_derive = "1.0"
-kube =  "0.29.0" 
+kube = "0.31.0" 
 kubelet = { path = "../kubelet", version = "0.1.0" }
 tokio = { version = "0.2.11", features = ["fs", "macros"] }
 chrono = { version = "0.4", features = ["serde"] }

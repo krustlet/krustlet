@@ -2,7 +2,6 @@
 use async_trait::async_trait;
 use k8s_openapi::api::core::v1::{ConfigMap, Container, EnvVarSource, Pod as KubePod, Secret};
 use kube::api::{Api, WatchEvent};
-use kube::client::APIClient;
 use log::{debug, error, info};
 use thiserror::Error;
 
@@ -26,7 +25,6 @@ use std::collections::HashMap;
 /// # Example
 /// ```rust
 /// use async_trait::async_trait;
-/// use kube::client::APIClient;
 /// use kubelet::{Provider, Pod};
 ///
 /// struct MyProvider;
@@ -35,14 +33,14 @@ use std::collections::HashMap;
 /// impl Provider for MyProvider {
 ///     const ARCH: &'static str = "my-arch";
 ///
-///     async fn add(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> {
+///     async fn add(&self, pod: Pod) -> anyhow::Result<()> {
 ///         todo!("Implement Provider::add")
 ///     }
 ///     
 ///     // Implement the rest of the methods using `async` for the ones that return futures ...
 ///     # fn can_schedule(&self, pod: &Pod) -> bool { todo!() }
-///     # async fn modify(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> { todo!() }
-///     # async fn delete(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> { todo!() }
+///     # async fn modify(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
+///     # async fn delete(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
 ///     # async fn logs(&self, namespace: String, pod: String, container: String) -> anyhow::Result<Vec<u8>> { todo!() }
 /// }
 /// ```
@@ -148,7 +146,7 @@ pub trait Provider {
     async fn env_vars(
         container: &Container,
         pod: &Pod,
-        client: &APIClient,
+        client: &kube::Client,
     ) -> HashMap<String, String> {
         let mut env = HashMap::new();
         let vars = match container.env.as_ref() {
@@ -182,7 +180,7 @@ pub trait Provider {
 #[doc(hidden)]
 async fn on_missing_env_value(
     env_var_source: Option<EnvVarSource>,
-    client: &APIClient,
+    client: &kube::Client,
     ns: &str,
     fields: &HashMap<String, String>,
 ) -> String {

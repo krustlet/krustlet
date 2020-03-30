@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::io::SeekFrom;
 
-use kube::client::APIClient;
 use log::{debug, error, info};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader};
 use tokio::stream::{StreamExt, StreamMap};
@@ -85,7 +84,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> PodHandle<R> {
     pub fn new(
         container_handles: HashMap<String, RuntimeHandle<R>>,
         pod: Pod,
-        client: APIClient,
+        client: kube::Client,
     ) -> anyhow::Result<Self> {
         let mut channel_map = StreamMap::with_capacity(container_handles.len());
         for (name, handle) in container_handles.iter() {
