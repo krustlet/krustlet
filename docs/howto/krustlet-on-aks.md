@@ -1,4 +1,4 @@
-# Running Krustlet in AKS
+# Running Krustlet on Azure Kubernetes Service (AKS)
 
 These are steps for running a krustlet node in an AKS cluster. Ideally, we will
 want to simplify this process in the future so you do not have to do a bunch of

@@ -1,4 +1,4 @@
-# Installing Krustlet
+# Install Krustlet
 
 This guide shows how to install Krustlet.
 

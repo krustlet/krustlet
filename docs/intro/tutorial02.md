@@ -116,8 +116,7 @@ $ wasm-to-oci push demo.wasm mycontainerregistry007.azurecr.io/krustlet-tutorial
 you are publishing the Rust example, use `target/wasm32-wasi/debug/demo.wasm` instead.
 
 When you’re comfortable with publishing your application with wasm-to-oci, read [part 3 of this tutorial](tutorial03.md)
-to learn about running a Kubernetes cluster for development purposes. You will also learn how to install Krustlet on
-that cluster.
+to install your application.
 
 
 [wasm-to-oci]: https://github.com/engineerd/wasm-to-oci

@@ -5,11 +5,10 @@ Let’s learn by example.
 Throughout this tutorial, we’ll walk you through the creation of a basic WASI application. Once ready, we will package
 that application and install it onto the Kubernetes cluster using krustlet.
 
-The tutorial will consist of four parts:
+The tutorial will consist of three parts:
 
 - Building the application
 - Publishing the application to a registry
-- Running a Kubernetes cluster for development
 - Running the application with Krustlet
 
 ## Prerequisites
@@ -26,12 +25,8 @@ their own solutions, and if you're feeling particularly brave, you can
 [run your own registry on your own infrastructure](https://github.com/docker/distribution). You'll also need
 [wasm-to-oci](https://github.com/engineerd/wasm-to-oci) (a tool for publishing WebAssembly modules to a registry).
 
-Part 3 will demonstrate how to start a Kubernetes cluster for development and install Krustlet. You'll need
-[Docker](https://docs.docker.com/install/), [kind](https://github.com/kubernetes-sigs/kind#installation-and-usage), and
-[kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/).
-
-We’ll assume you have Krustlet installed already. See [Installing Krustlet](../install.md) for advice on how to install
-Krustlet.
+We’ll assume you have Krustlet installed already. See [the quickstart guide](quickstart.md) for advice on how to boot
+a Kubernetes cluster and install Krustlet.
 
 If you're having trouble going through this tutorial, please post an issue to
 [deislabs/krustlet](https://github.com/deislabs/krustlet) to chat with other Krustlet users who might be able to help.
