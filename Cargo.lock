@@ -2322,6 +2322,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "simplelog"
+version = "0.7.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bcacac97349a890d437921dfb23cbec52ab5b4752551cb637df2721371acd467"
+dependencies = [
+ "chrono",
+ "log",
+ "term",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2469,6 +2480,16 @@ dependencies = [
  "rand 0.7.3",
  "redox_syscall",
  "remove_dir_all",
+ "winapi 0.3.8",
+]
+
+[[package]]
+name = "term"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0863a3345e70f61d613eab32ee046ccd1bcc5f9105fe402c61fcd0c13eeb8b5"
+dependencies = [
+ "dirs",
  "winapi 0.3.8",
 ]
 
@@ -2873,8 +2894,8 @@ dependencies = [
 name = "wascc-logging"
 version = "0.1.0"
 dependencies = [
- "env_logger 0.7.1",
  "log",
+ "simplelog",
  "tempfile",
  "wascc-codec",
 ]

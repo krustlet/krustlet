@@ -24,32 +24,40 @@ use codec::{
 
 #[macro_use]
 extern crate log;
+use log::Log;
 
+use std::collections::HashMap;
 use std::error::Error;
+use std::fs::File;
 use std::sync::RwLock;
+
+use simplelog::{Config, LevelFilter, WriteLogger};
 
 capability_provider!(LoggingProvider, LoggingProvider::new);
 
 pub const LOG_PATH_KEY: &str = "LOG_PATH";
 const CAPABILITY_ID: &str = "wascc:logging";
 
-const ERROR: usize = 1;
-const WARN: usize = 2;
-const INFO: usize = 3;
-const DEBUG: usize = 4;
-const TRACE: usize = 5;
+enum LogLevel {
+    ERROR = 1,
+    WARN,
+    INFO,
+    DEBUG,
+    TRACE,
+}
+
 /// LoggingProvider provides an implementation of the wascc:logging capability
 /// that keeps separate log output for each actor.
 pub struct LoggingProvider {
     dispatcher: RwLock<Box<dyn Dispatcher>>,
+    output_map: RwLock<HashMap<String, Box<WriteLogger<File>>>>,
 }
 
 impl Default for LoggingProvider {
     fn default() -> Self {
-        env_logger::init();
-
         LoggingProvider {
             dispatcher: RwLock::new(Box::new(NullDispatcher::new())),
+            output_map: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -59,12 +67,17 @@ impl LoggingProvider {
         Self::default()
     }
 
-    fn configure(
-        &self,
-        config: CapabilityConfiguration,
-    ) -> Result<Vec<u8>, Box<dyn Error>> {
-        // let conf: CapabilityConfiguration = config.into();
+    fn configure(&self, config: CapabilityConfiguration) -> Result<Vec<u8>, Box<dyn Error>> {
         trace!("configuring {} for {:?}", CAPABILITY_ID, config.module);
+        let file = File::open(
+            config
+                .values
+                .get(LOG_PATH_KEY)
+                .ok_or("log file path was unspecified")?,
+        )?;
+        let logger = WriteLogger::new(LevelFilter::Info, Config::default(), file);
+        let mut output_map = self.output_map.write().unwrap();
+        output_map.insert(config.module, logger);
         Ok(vec![])
     }
 }
@@ -102,14 +115,23 @@ impl CapabilityProvider for LoggingProvider {
             Ok(vec![])
         } else if op == OP_LOG {
             let log_msg = deserialize::<WriteLogRequest>(msg)?;
-            match log_msg.level {
-                ERROR => error!("[{}] {}", actor, log_msg.body),
-                WARN => warn!("[{}] {}", actor, log_msg.body),
-                INFO => info!("[{}] {}", actor, log_msg.body),
-                DEBUG => debug!("[{}] {}", actor, log_msg.body),
-                TRACE => trace!("[{}] {}", actor, log_msg.body),
-                _ => error!("Unknown log level: {}", log_msg.level),
-            }
+            let output_map = self.output_map.read().unwrap();
+            let logger = output_map
+                .get(actor)
+                .ok_or(format!("unable to find logger for actor {}", actor))?;
+            logger.log(
+                &log::Record::builder()
+                    .args(format_args!("[{}] {}", actor, log_msg.body))
+                    .level(match log_msg.level {
+                        x if x == LogLevel::ERROR as usize => log::Level::Error,
+                        x if x == LogLevel::WARN as usize => log::Level::Warn,
+                        x if x == LogLevel::INFO as usize => log::Level::Info,
+                        x if x == LogLevel::DEBUG as usize => log::Level::Debug,
+                        x if x == LogLevel::TRACE as usize => log::Level::Trace,
+                        _ => return Err(format!("Unknown log level {}", log_msg.level).into()),
+                    })
+                    .build(),
+            );
             Ok(vec![])
         } else {
             Err(format!("Unknown operation: {}", op).into())

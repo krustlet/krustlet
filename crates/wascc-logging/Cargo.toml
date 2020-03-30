@@ -19,5 +19,5 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 wascc-codec = "0.5.2"
 log = "0.4.8"
-env_logger = "0.7.1"
+simplelog = "0.7"
 tempfile = "3.1"
