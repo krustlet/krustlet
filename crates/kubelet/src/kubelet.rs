@@ -65,7 +65,6 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
 
         // This informer listens for pod events.
         let provider = self.provider.clone();
-        let config = self.kube_config.clone();
 
         let pod_informer = tokio::task::spawn(async move {
             // Create our informer and start listening.
@@ -73,12 +72,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
             loop {
                 let mut stream = informer.poll().await.expect("informer poll failed").boxed();
                 while let Some(event) = stream.try_next().await.unwrap() {
-                    match provider
-                        .lock()
-                        .await
-                        .handle_event(event, config.clone())
-                        .await
-                    {
+                    match provider.lock().await.handle_event(event).await {
                         Ok(_) => debug!("Handled event successfully"),
                         Err(e) => error!("Error handling event: {}", e),
                     };

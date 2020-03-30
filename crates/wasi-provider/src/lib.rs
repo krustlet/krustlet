@@ -59,17 +59,23 @@ pub struct WasiProvider<S> {
     handles: Arc<RwLock<HashMap<String, PodHandle<File>>>>,
     store: S,
     log_path: PathBuf,
+    kubeconfig: kube::config::Configuration,
 }
 
 impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
     /// Create a new wasi provider from a module store and a kubelet config
-    pub async fn new(store: S, config: &kubelet::config::Config) -> anyhow::Result<Self> {
+    pub async fn new(
+        store: S,
+        config: &kubelet::config::Config,
+        kubeconfig: kube::config::Configuration,
+    ) -> anyhow::Result<Self> {
         let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
         Ok(Self {
             handles: Default::default(),
             store,
             log_path,
+            kubeconfig,
         })
     }
 }
@@ -90,7 +96,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         }
     }
 
-    async fn add(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> {
+    async fn add(&self, pod: Pod) -> anyhow::Result<()> {
         // To run an Add event, we load the WASM, update the pod status to Running,
         // and then execute the WASM, passing in the relevant data.
         // When the pod finishes, we update the status to Succeeded unless it
@@ -117,7 +123,8 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         let mut container_handles = HashMap::new();
 
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
-
+        // TODO: Is there value in keeping one client and cloning it?
+        let client = APIClient::new(self.kubeconfig.clone());
         for container in pod.containers() {
             let env = self.env_vars(client.clone(), &container, &pod).await;
             let module_data = modules
@@ -152,7 +159,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         Ok(())
     }
 
-    async fn modify(&self, pod: Pod, _client: APIClient) -> anyhow::Result<()> {
+    async fn modify(&self, pod: Pod) -> anyhow::Result<()> {
         // Modify will be tricky. Not only do we need to handle legitimate modifications, but we
         // need to sift out modifications that simply alter the status. For the time being, we
         // just ignore them, which is the wrong thing to do... except that it demos better than
@@ -165,7 +172,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         Ok(())
     }
 
-    async fn delete(&self, pod: Pod, _client: APIClient) -> anyhow::Result<()> {
+    async fn delete(&self, pod: Pod) -> anyhow::Result<()> {
         // There is currently no way to stop a long running instance, so we are
         // SOL here until there is support for it. See
         // https://github.com/bytecodealliance/wasmtime/issues/860 for more
