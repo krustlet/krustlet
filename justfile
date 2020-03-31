@@ -7,6 +7,9 @@ run: run-wascc
 build:
     cargo build
 
+build-logging:
+    cd crates/wascc-logging && cargo build
+
 prefetch:
     cargo fetch --manifest-path ./Cargo.toml
 
@@ -19,7 +22,7 @@ test:
 test-e2e:
     cargo test --test integration_tests
 
-run-wascc: _copy_log_lib _cleanup_kube bootstrap-ssl
+run-wascc: build build-logging _copy_log_lib _cleanup_kube bootstrap-ssl
     @# Change directories so we have access to the ./lib dir
     cd ./crates/wascc-provider && cargo run --bin krustlet-wascc --manifest-path ../../Cargo.toml -- --node-name krustlet-wascc --port 3000
 

@@ -154,6 +154,8 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         // vars and suck it out of there. But that violates the intention
         // of env vars, which is to communicate _into_ the runtime, not to
         // configure the runtime.
+        // TODO: This isn't the pub-key you're looking for, remove annotations from the pod spec
+        // pull it from the actor
         let pub_key = pod.get_annotation(ACTOR_PUBLIC_KEY).unwrap_or_default();
         debug!("{:?}", pub_key);
 
@@ -301,14 +303,19 @@ struct Capability {
 /// must first be loaded into the host by some other process, such as register_native_capabilities().
 fn wascc_run(data: Vec<u8>, key: &str, capabilities: &mut Vec<Capability>, log_path: &Path) -> anyhow::Result<()> {
     info!("wascc run");
+    let load = Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
+    let pk = load.public_key();
+
     let mut logenv: HashMap<String, String> = HashMap::new();
-    logenv.insert(LOG_PATH_KEY.to_string(), log_path.to_str().unwrap().to_owned());
+    let actor_path = log_path.join(pk.clone());
+    std::fs::create_dir_all(&actor_path).map_err(|e| anyhow::anyhow!("error creating directory: {}", e))?;
+    let actor_log_path = log_path.join(pk.clone()).join("log.txt");
+    let _ = std::fs::File::create(&actor_log_path).map_err(|e| anyhow::anyhow!("error creating directory: {}", e))?;
+    logenv.insert(LOG_PATH_KEY.to_string(), actor_log_path.to_str().unwrap().to_owned());
     capabilities.push(Capability {
         name: LOG_CAPABILITY,
         env: logenv,
     });
-    let load = Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
-    let pk = load.public_key();
     host::add_actor(load).map_err(|e| anyhow::anyhow!("Error adding actor: {}", e))?;
 
     capabilities.iter().try_for_each(|cap| {
