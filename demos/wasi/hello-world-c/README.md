@@ -1,42 +1,14 @@
 # Hello World C for WASI
+
 A simple hello world example in C that will print:
 - The environment variables available to the process
 - Text to both stdout and stderr.
-- Any args passed to the process 
+- Any args passed to the process
 
 It is meant to be a simple demo for the wasi-provider with Krustlet.
 
-## Prerequisites
-Building WASI in C is easiest with the custom [SDK]() from wasmtime. Feel free
-to go down the rabbit hole of figuring things out with vanilla `clang` for your
-own project should you so desire. To install the SDK, follow the steps below,
-replacing `$OS_NAME` with your OS (current choices are `linux` and `macos`):
-
-```shell
-$ wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-8/wasi-sysroot-8.0.tar.gz
-$ tar -xzf wasi-sysroot-8.0.tar.gz
-$ wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-8/wasi-sdk-8.0-${OS_NAME}.tar.gz
-$ tar -xzf wasi-sdk-8.0-${OS_NAME}.tar.gz
-```
-
-If you don't have Krustlet with the WASI provider running locally, see the
-instructions in the [tutorial](../../../docs/intro/tutorial03.md) for running
-locally.
-
-## Building
-Run:
-
-```shell
-$ ./wasi-sdk-8.0/bin/clang -v demo.c --sysroot ./wasi-sysroot -o demo.wasm
-```
-
-## Pushing
-Detailed instructions for pushing a module can be found
-[here](../../../docs/intro/tutorial02.md). We hope to improve and streamline the
-build and push process in the future. However, for test purposes, the image has
-been pushed to the `webassembly` Azure Container Registry
-
 ## Running the example
+
 First create the pod and configmap:
 
 ```shell
@@ -55,3 +27,39 @@ CONFIG_MAP_VAL=cool stuff
 POD_NAME=hello-world-wasi-c
 []
 ```
+
+## Building from Source
+
+If you want to compile the demo and inspect it, you'll need to do the following.
+
+### Prerequisites
+
+Building WASI in C is easiest with the custom [SDK](https://github.com/WebAssembly/wasi-sdk) from wasmtime. Feel free to
+go down the rabbit hole of figuring things out with vanilla `clang` for your own project should you so desire.
+
+To install the SDK, follow the steps below, replacing `$OS_NAME` with your OS (current choices are `linux` and `macos`):
+
+```shell
+$ wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-8/wasi-sysroot-8.0.tar.gz
+$ tar -xzf wasi-sysroot-8.0.tar.gz
+$ wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-8/wasi-sdk-8.0-${OS_NAME}.tar.gz
+$ tar -xzf wasi-sdk-8.0-${OS_NAME}.tar.gz
+```
+
+If you don't have Krustlet with the WASI provider running locally, see the instructions in the
+[tutorial](../../../docs/intro/tutorial03.md) for running locally.
+
+### Building
+
+Run:
+
+```shell
+$ ./wasi-sdk-8.0/bin/clang -v demo.c --sysroot ./wasi-sysroot -o demo.wasm
+```
+
+### Pushing
+
+Detailed instructions for pushing a module can be found [here](../../../docs/intro/tutorial02.md).
+
+We hope to improve and streamline the build and push process in the future. However, for test purposes, the image has
+been pushed to the `webassembly` Azure Container Registry.
