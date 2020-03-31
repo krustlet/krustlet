@@ -9,24 +9,23 @@
 //! use kubelet::module_store::FileModuleStore;
 //! use wasi_provider::WasiProvider;
 //!
-//! #[tokio::main]
-//! async fn main() {
+//! async {
 //!     // Get a configuration for the Kubelet
 //!     let kubelet_config = Config::default();
 //!     let client = oci_distribution::Client::default();
 //!     let store = FileModuleStore::new(client, &std::path::PathBuf::from(""));
 //!
-//!     // Instantiate the provider type
-//!     let provider = WasiProvider::new(store, &kubelet_config).await.unwrap();
-//!
 //!     // Load a kubernetes configuration
 //!     let kubeconfig = kube::config::load_kube_config().await.unwrap();
+//!
+//!     // Instantiate the provider type
+//!     let provider = WasiProvider::new(store, &kubelet_config, kubeconfig.clone()).await.unwrap();
 //!     
 //!     // Instantiate the Kubelet
 //!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config);
 //!     // Start the Kubelet and block on it
 //!     kubelet.start().await.unwrap();
-//! }
+//! };
 //! ```
 
 #![warn(missing_docs)]
@@ -38,7 +37,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use kube::client::APIClient;
 use kubelet::module_store::ModuleStore;
 use kubelet::provider::ProviderError;
 use kubelet::{Pod, Provider};
@@ -59,17 +57,23 @@ pub struct WasiProvider<S> {
     handles: Arc<RwLock<HashMap<String, PodHandle<File>>>>,
     store: S,
     log_path: PathBuf,
+    kubeconfig: kube::config::Configuration,
 }
 
 impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
     /// Create a new wasi provider from a module store and a kubelet config
-    pub async fn new(store: S, config: &kubelet::config::Config) -> anyhow::Result<Self> {
+    pub async fn new(
+        store: S,
+        config: &kubelet::config::Config,
+        kubeconfig: kube::config::Configuration,
+    ) -> anyhow::Result<Self> {
         let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
         Ok(Self {
             handles: Default::default(),
             store,
             log_path,
+            kubeconfig,
         })
     }
 }
@@ -90,7 +94,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         }
     }
 
-    async fn add(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> {
+    async fn add(&self, pod: Pod) -> anyhow::Result<()> {
         // To run an Add event, we load the WASM, update the pod status to Running,
         // and then execute the WASM, passing in the relevant data.
         // When the pod finishes, we update the status to Succeeded unless it
@@ -111,15 +115,14 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         //   - mount any volumes (popen)
         //   - run it to completion
         //   - bail if it errors
-        let pod_name = pod.name().to_owned();
-        info!("Starting containers for pod {:?}", pod_name);
-        // Wrap this in a block so the write lock goes out of scope when we are done
+        let pod_name = pod.name();
         let mut container_handles = HashMap::new();
 
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
-
+        let client = kube::Client::from(self.kubeconfig.clone());
+        info!("Starting containers for pod {:?}", pod_name);
         for container in pod.containers() {
-            let env = self.env_vars(client.clone(), &container, &pod).await;
+            let env = Self::env_vars(&container, &pod, &client).await;
             let module_data = modules
                 .remove(&container.name)
                 .expect("FATAL ERROR: module map not properly populated");
@@ -137,6 +140,12 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
             let handle = runtime.start().await?;
             container_handles.insert(container.name.clone(), handle);
         }
+        info!(
+            "All containers started for pod {:?}. Updating status",
+            pod_name
+        );
+
+        // Wrap this in a block so the write lock goes out of scope when we are done
         {
             // Grab the entry while we are creating things
             let mut handles = self.handles.write().await;
@@ -145,14 +154,11 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
                 PodHandle::new(container_handles, pod, client)?,
             );
         }
-        info!(
-            "All containers started for pod {:?}. Updating status",
-            pod_name
-        );
+
         Ok(())
     }
 
-    async fn modify(&self, pod: Pod, _client: APIClient) -> anyhow::Result<()> {
+    async fn modify(&self, pod: Pod) -> anyhow::Result<()> {
         // Modify will be tricky. Not only do we need to handle legitimate modifications, but we
         // need to sift out modifications that simply alter the status. For the time being, we
         // just ignore them, which is the wrong thing to do... except that it demos better than
@@ -165,7 +171,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         Ok(())
     }
 
-    async fn delete(&self, pod: Pod, _client: APIClient) -> anyhow::Result<()> {
+    async fn delete(&self, pod: Pod) -> anyhow::Result<()> {
         // There is currently no way to stop a long running instance, so we are
         // SOL here until there is support for it. See
         // https://github.com/bytecodealliance/wasmtime/issues/860 for more
@@ -220,31 +226,39 @@ mod test {
     #[tokio::test]
     async fn test_can_schedule() {
         let store = TestStore;
-        let wp = WasiProvider::new(store, &Default::default())
-            .await
-            .expect("unable to create new runtime");
-        let mock = Default::default();
-        assert!(!wp.can_schedule(&mock));
+        let provider = WasiProvider::new(
+            store,
+            &Default::default(),
+            kube::config::Configuration {
+                base_path: String::new(),
+                client: Default::default(),
+                default_ns: String::new(),
+            },
+        )
+        .await
+        .expect("unable to create new runtime");
+        let mock = Pod::default();
+        assert!(!provider.can_schedule(&mock));
 
         let mut selector = std::collections::BTreeMap::new();
         selector.insert(
             "beta.kubernetes.io/arch".to_string(),
             "wasm32-wasi".to_string(),
         );
-        let mut mock: KubePod = mock.into();
+        let mut mock = KubePod::default();
         mock.spec = Some(PodSpec {
             node_selector: Some(selector.clone()),
             ..Default::default()
         });
-        let mock = Pod::new(mock);
-        assert!(wp.can_schedule(&mock));
+
+        assert!(provider.can_schedule(&mock.into()));
         selector.insert("beta.kubernetes.io/arch".to_string(), "amd64".to_string());
-        let mut mock: KubePod = mock.into();
+        let mut mock = KubePod::default();
         mock.spec = Some(PodSpec {
             node_selector: Some(selector),
             ..Default::default()
         });
-        let mock = Pod::new(mock);
-        assert!(!wp.can_schedule(&mock));
+
+        assert!(!provider.can_schedule(&mock.into()));
     }
 }

@@ -9,30 +9,28 @@
 //! use kubelet::module_store::FileModuleStore;
 //! use wascc_provider::WasccProvider;
 //!
-//! #[tokio::main]
-//! async fn main() {
+//! async {
 //!     // Get a configuration for the Kubelet
 //!     let kubelet_config = Config::default();
 //!     let client = oci_distribution::Client::default();
 //!     let store = FileModuleStore::new(client, &std::path::PathBuf::from(""));
 //!
-//!     // Instantiate the provider type
-//!     let provider = WasccProvider::new(store, &kubelet_config).await.unwrap();
-//!
 //!     // Load a kubernetes configuration
 //!     let kubeconfig = kube::config::load_kube_config().await.unwrap();
-//!     
+//!
+//!     // Instantiate the provider type
+//!     let provider = WasccProvider::new(store, &kubelet_config, kubeconfig.clone()).await.unwrap();
+//!
 //!     // Instantiate the Kubelet
 //!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config);
 //!     // Start the Kubelet and block on it
 //!     kubelet.start().await.unwrap();
-//! }
+//! };
 //! ```
 
 #![warn(missing_docs)]
 
 use async_trait::async_trait;
-use kube::client::APIClient;
 use kubelet::module_store::ModuleStore;
 use kubelet::provider::NotImplementedError;
 use kubelet::status::{ContainerStatus, Status};
@@ -63,13 +61,18 @@ type EnvVars = std::collections::HashMap<String, String>;
 /// from Kubernetes.
 #[derive(Clone)]
 pub struct WasccProvider<S> {
+    kubeconfig: kube::config::Configuration,
     store: S,
 }
 
 impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
     /// Returns a new wasCC provider configured to use the proper data directory
     /// (including creating it if necessary)
-    pub async fn new(store: S, _config: &kubelet::config::Config) -> anyhow::Result<Self> {
+    pub async fn new(
+        store: S,
+        _config: &kubelet::config::Config,
+        kubeconfig: kube::config::Configuration,
+    ) -> anyhow::Result<Self> {
         tokio::task::spawn_blocking(|| {
             let data = NativeCapability::from_file(HTTP_LIB).map_err(|e| {
                 anyhow::anyhow!("Failed to read HTTP capability {}: {}", HTTP_LIB, e)
@@ -78,7 +81,7 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
                 .map_err(|e| anyhow::anyhow!("Failed to load HTTP capability: {}", e))
         })
         .await??;
-        Ok(Self { store })
+        Ok(Self { store, kubeconfig })
     }
 }
 
@@ -97,7 +100,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
             .unwrap_or(false)
     }
 
-    async fn add(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> {
+    async fn add(&self, pod: Pod) -> anyhow::Result<()> {
         // To run an Add event, we load the WASM, update the pod status to Running,
         // and then execute the WASM, passing in the relevant data.
         // When the pod finishes, we update the status to Succeeded unless it
@@ -117,7 +120,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         // of env vars, which is to communicate _into_ the runtime, not to
         // configure the runtime.
         let pub_key = pod.get_annotation(ACTOR_PUBLIC_KEY).unwrap_or_default();
-        debug!("{:?}", pub_key);
+        debug!("Using public key: {:?}", pub_key);
 
         // TODO: Implement this for real.
         //
@@ -135,10 +138,12 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         //   - run it to completion
         //   - bail if it errors
 
-        info!("Starting containers for pod {:?}", pod.name());
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
+        let client = kube::Client::from(self.kubeconfig.clone());
+
+        info!("Starting containers for pod {:?}", pod.name());
         for container in pod.containers() {
-            let env = self.env_vars(client.clone(), &container, &pod).await;
+            let env = Self::env_vars(&container, &pod, &client).await;
 
             debug!("Starting container {} on thread", container.name);
             let pub_key = pub_key.to_owned();
@@ -190,7 +195,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         Ok(())
     }
 
-    async fn modify(&self, pod: Pod, _client: APIClient) -> anyhow::Result<()> {
+    async fn modify(&self, pod: Pod) -> anyhow::Result<()> {
         // Modify will be tricky. Not only do we need to handle legitimate modifications, but we
         // need to sift out modifications that simply alter the status. For the time being, we
         // just ignore them, which is the wrong thing to do... except that it demos better than
@@ -203,7 +208,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         Ok(())
     }
 
-    async fn delete(&self, pod: Pod, _client: APIClient) -> anyhow::Result<()> {
+    async fn delete(&self, pod: Pod) -> anyhow::Result<()> {
         let pub_key = pod
             .annotations()
             .get(ACTOR_PUBLIC_KEY)
@@ -351,9 +356,17 @@ mod test {
     async fn test_can_schedule() {
         let store = TestStore::new(Default::default());
 
-        let wr = WasccProvider::new(store, &Default::default())
-            .await
-            .unwrap();
+        let wr = WasccProvider::new(
+            store,
+            &Default::default(),
+            kube::config::Configuration {
+                base_path: String::new(),
+                client: Default::default(),
+                default_ns: String::new(),
+            },
+        )
+        .await
+        .unwrap();
         let mock = Default::default();
         assert!(!wr.can_schedule(&mock));
 

@@ -1,4 +1,3 @@
-use kube::config;
 use kubelet::config::Config;
 use kubelet::module_store::FileModuleStore;
 use kubelet::Kubelet;
@@ -12,9 +11,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Read the environment. Note that this tries a KubeConfig file first, then
     // falls back on an in-cluster configuration.
-    let kubeconfig = config::load_kube_config()
+    let kubeconfig = kube::config::load_kube_config()
         .await
-        .or_else(|_| config::incluster_config())?;
+        .or_else(|_| kube::config::incluster_config())?;
 
     // Initialize the logger
     env_logger::init();
@@ -24,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
     module_store_path.push("modules");
     let store = FileModuleStore::new(client, &module_store_path);
 
-    let provider = WasiProvider::new(store, &config).await?;
+    let provider = WasiProvider::new(store, &config, kubeconfig.clone()).await?;
     let kubelet = Kubelet::new(provider, kubeconfig, config);
     kubelet.start().await
 }
