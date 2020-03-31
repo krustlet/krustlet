@@ -29,14 +29,6 @@ We use `just` to build our programs, but you can use `cargo` if you want:
 $ just build
 ```
 
-Building a Docker image is easy, too:
-
-```console
-$ just dockerize
-```
-
-That will take a LOOONG time the first build, but the layer cache will make it much faster from then on.
-
 ## Running
 
 There are two different runtimes available for Krustlet: `wascc` or `wasi`.
