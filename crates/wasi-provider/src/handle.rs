@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::SeekFrom;
 
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader};
 use tokio::stream::{StreamExt, StreamMap};
 use tokio::sync::watch::Receiver;
@@ -54,7 +54,8 @@ impl<R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<R> {
     /// nothing
     pub(crate) async fn stop(&mut self) -> anyhow::Result<()> {
         // TODO: Send an actual stop signal once there is support in wasmtime
-        unimplemented!("There is currently no way to stop a running wasmtime instance")
+        warn!("There is currently no way to stop a running wasmtime instance. The pod will be deleted, but any long running processes will keep running");
+        Ok(())
     }
 
     pub(crate) fn status(&self) -> Receiver<ContainerStatus> {
@@ -62,6 +63,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<R> {
     }
 
     pub(crate) async fn wait(&mut self) -> anyhow::Result<()> {
+        // Uncomment this and actually wait for the process to finish once we have a way to stop
         (&mut self.handle).await.unwrap()
     }
 }
@@ -156,15 +158,16 @@ impl<R: AsyncRead + AsyncSeek + Unpin> PodHandle<R> {
         }
         self.wait().await?;
         (&mut self.status_handle).await?;
-        unimplemented!("There is currently no way to stop a running wasmtime instance")
+        Ok(())
     }
 
     /// Wait for all containers in the pod to complete
     pub async fn wait(&mut self) -> anyhow::Result<()> {
         let mut handles = self.container_handles.write().await;
-        for (name, handle) in handles.iter_mut() {
+        for (name, _handle) in handles.iter_mut() {
             debug!("Waiting for container {} to terminate", name);
-            handle.stop().await?;
+            // Uncomment this once we have the ability to stop a running process
+            // handle.wait().await?;
         }
         Ok(())
     }
