@@ -5,6 +5,7 @@ want to simplify this process in the future so you do not have to do a bunch of
 configuration to connect a node to the cluster
 
 ## Prerequisites
+
 A running AKS cluster (the steps below assume a non-custom vnet, though they are
 easily adaptable to custom vnets) and `kubectl` installed. See the [AKS
 docs](https://docs.microsoft.com/en-us/azure/aks/tutorial-kubernetes-deploy-cluster)
@@ -22,6 +23,7 @@ accessible from the Kubernetes control plane.
 ## Instructions
 
 ### Step 1: Create a service account user for the node
+
 We will need to create a Kubernetes configuration file (known as the kubeconfig)
 and service account for krustlet to use to register nodes and access specific
 secrets.
@@ -56,6 +58,7 @@ Either way, it will output a file called `kubeconfig-sa` in your current
 directory. Save this for later
 
 ### Step 2: Create Certificate
+
 Krustlet requires a certificate for securing communication with the Kubernetes
 API. Because Kubernetes has its own certificates, we'll need to get a signed
 certificate from the Kubernetes API that we can use. First things first, let's
@@ -109,6 +112,7 @@ $ openssl pkcs12 -export -out krustlet.pfx -inkey krustlet.key -in krustlet.crt 
 ```
 
 ### Step 3: Creating and accessing a new VM
+
 Now we need to create a VM in the same resource group as the AKS cluster. In
 order for the kubernetes master to be able to access the node, we'll need to do
 some additional legwork. The node will need to be in the same vnet, subnet, and
@@ -172,6 +176,7 @@ $ ssh -i id_rsa krustlet@<private IP from above>
 However, before doing so, go to the next step.
 
 ### Step 4: Copy assets to VM
+
 The first thing we'll need to do is copy up the assets we generated in steps 1
 and 2. This is a two step process because we need to copy them to the pod and
 then copy them to the server. So first open another terminal in the same
@@ -195,6 +200,7 @@ $ ssh -i id_rsa krustlet@<private IP from above>
 ```
 
 ### Step 5: Install and configure Krustlet
+
 Whew, ok...that was a lot. Now let's actually configure stuff. First we'll
 create the config directory for Krustlet and place all of our assets there:
 
@@ -233,6 +239,7 @@ krustlet                            Ready    agent   11s     v1.17.0   10.240.0.
 ```
 
 ### Step 6: Test that things work
+
 Now you can see things work! Feel free to give any of the demos a try like so:
 
 ```shell
