@@ -243,6 +243,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
     }
 
     async fn delete(&self, pod: Pod, _client: APIClient) -> anyhow::Result<()> {
+        // TODO: this isn't the correct public key
         let pub_key = pod
             .annotations()
             .get(ACTOR_PUBLIC_KEY)
@@ -307,11 +308,12 @@ fn wascc_run(data: Vec<u8>, key: &str, capabilities: &mut Vec<Capability>, log_p
         env: logenv,
     });
     let load = Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
+    let pk = load.public_key();
     host::add_actor(load).map_err(|e| anyhow::anyhow!("Error adding actor: {}", e))?;
 
     capabilities.iter().try_for_each(|cap| {
         info!("configuring capability {}", cap.name);
-        host::configure(key, cap.name, cap.env.clone())
+        host::configure(&pk, cap.name, cap.env.clone())
             .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
     })?;
     info!("Instance executing");

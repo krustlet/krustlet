@@ -6,7 +6,7 @@ metadata:
     deislabs.io/wascc-action-key: MB4OLDIC3TCZ4Q4TGGOVAZC43VXFE2JQVRAXQMQFXUCREOOFEKOKZTY2
 spec:
   containers:
-    - image: webassembly.azurecr.io/hello-wasm:v1 
+    - image: webassembly.azurecr.io/greet-wascc:v0.2 
       imagePullPolicy: Always
       name: greet
       ports:
