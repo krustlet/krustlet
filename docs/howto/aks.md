@@ -30,26 +30,26 @@ This can be done by using the Kubernetes manifest in the [assets](./assets)
 directory:
 
 ```shell
-$ kubectl apply -n kube-system -f ./docs/how-to/assets/krustlet-service-account.yaml
+$ kubectl apply -n kube-system -f ./docs/howto/assets/krustlet-service-account.yaml
 ```
 
 You can also do this by using the manifest straight from GitHub:
 
 ```shell
-$ kubectl apply -n kube-system -f https://raw.githubusercontent.com/deislabs/krustlet/master/docs/how-to/assets/krustlet-service-account.yaml
+$ kubectl apply -n kube-system -f https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/krustlet-service-account.yaml
 ```
 
 Now that things are all set up, we need to generate the kubeconfig. You can do
 this by running (assuming you are in the root of the krustlet repo):
 
 ```shell
-$ ./docs/how-to/assets/generate-kubeconfig.sh
+$ ./docs/howto/assets/generate-kubeconfig.sh
 ```
 
 Or if you are feeling a bit more trusting, you can run it straight from the
 repo:
 ```shell
-bash <(curl https://raw.githubusercontent.com/deislabs/krustlet/master/docs/how-to/assets/generate-kubeconfig.sh)
+bash <(curl https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/generate-kubeconfig.sh)
 ```
 
 Either way, it will output a file called `kubeconfig-sa` in your current
