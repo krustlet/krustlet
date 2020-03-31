@@ -7,9 +7,6 @@ run: run-wascc
 build:
     cargo build
 
-prefetch:
-    cargo fetch --manifest-path ./Cargo.toml
-
 test:
     cargo fmt --all -- --check
     cargo clippy --workspace
@@ -25,12 +22,6 @@ run-wascc: _cleanup_kube bootstrap-ssl
 
 run-wasi: _cleanup_kube bootstrap-ssl
     cargo run --bin krustlet-wasi -- --node-name krustlet-wasi --port 3001
-
-dockerize:
-    docker build -t technosophos/krustlet:latest .
-
-push:
-    docker push technosophos/krustlet:latest
 
 bootstrap-ssl:
     @# This is to get around an issue with the default function returning a string that gets escaped
