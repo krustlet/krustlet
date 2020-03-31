@@ -40,7 +40,7 @@ use std::sync::Arc;
 use kubelet::module_store::ModuleStore;
 use kubelet::provider::ProviderError;
 use kubelet::{Pod, Provider};
-use log::{debug, info};
+use log::{debug, error, info};
 use tokio::fs::File;
 use tokio::sync::RwLock;
 
@@ -177,8 +177,25 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         // https://github.com/bytecodealliance/wasmtime/issues/860 for more
         // information. For now, just delete the handle from the map
         let mut handles = self.handles.write().await;
-        handles.remove(&key_from_pod(&pod));
-        unimplemented!("cannot stop a running wasmtime instance")
+        if let Some(mut h) = handles.remove(&key_from_pod(&pod)) {
+            h.stop().await.unwrap_or_else(|e| {
+                error!(
+                    "unable to stop pod {} in namespace {}: {:?}",
+                    pod.name(),
+                    pod.namespace(),
+                    e
+                );
+                // Insert the pod back in to our store if we failed to delete it
+                handles.insert(key_from_pod(&pod), h);
+            })
+        } else {
+            info!(
+                "unable to find pod {} in namespace {}, it was likely already deleted",
+                pod.name(),
+                pod.namespace()
+            );
+        }
+        Ok(())
     }
 
     async fn logs(
