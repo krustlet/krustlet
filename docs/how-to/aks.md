@@ -16,7 +16,8 @@ $ az aks get-credentials --name $CLUSTER_NAME --resource-group $RESOURCE_GROUP
 ```
 
 This specific tutorial will be running krustlet on another Azure VM; however,
-you can follow these steps from any device that can access the internet.
+you can follow these steps from any device that can start a web server on an IP
+accessible from the Kubernetes control plane.
 
 ## Instructions
 
