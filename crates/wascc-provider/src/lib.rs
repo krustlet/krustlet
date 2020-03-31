@@ -37,9 +37,11 @@ use kubelet::module_store::ModuleStore;
 use kubelet::provider::NotImplementedError;
 use kubelet::status::{ContainerStatus, Status};
 use kubelet::{Pod, Provider};
-use log::{debug, info};
+use kubelet::PodHandle;
+use log::{debug, info, warn};
 use wascc_host::{host, Actor, NativeCapability};
 use tokio::sync::RwLock;
+use tokio::fs::File;
 
 use wascc_logging::{LOG_PATH_KEY};
 
@@ -58,8 +60,15 @@ const LOG_DIR_NAME: &str = "wascc-logs";
 
 #[cfg(target_os = "linux")]
 const HTTP_LIB: &str = "./lib/libwascc_httpsrv.so";
+
+#[cfg(target_os = "linux")]
+const LOG_LIB: &str = "./lib/libwascc_logging.so";
+
 #[cfg(target_os = "macos")]
 const HTTP_LIB: &str = "./lib/libwascc_httpsrv.dylib";
+
+#[cfg(target_os = "macos")]
+const LOG_LIB: &str = "./lib/libwascc_logging.dylib";
 
 /// Kubernetes' view of environment variables is an unordered map of string to string.
 type EnvVars = std::collections::HashMap<String, String>;
@@ -84,11 +93,21 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
         tokio::fs::create_dir_all(&log_path).await?;
 
         tokio::task::spawn_blocking(|| {
+            warn!("Loading HTTP Capability");
             let data = NativeCapability::from_file(HTTP_LIB).map_err(|e| {
                 anyhow::anyhow!("Failed to read HTTP capability {}: {}", HTTP_LIB, e)
             })?;
             host::add_native_capability(data)
-                .map_err(|e| anyhow::anyhow!("Failed to load HTTP capability: {}", e))
+                .map_err(|e| {
+                    anyhow::anyhow!("Failed to load HTTP capability: {}", e)
+            })?;
+
+            warn!("Loading LOG Capability");
+            let logdata = NativeCapability::from_file(LOG_LIB).map_err(|e| {
+                anyhow::anyhow!("Failed to read LOG capability {}: {}", LOG_LIB, e)
+            })?;
+            host::add_native_capability(logdata)
+                .map_err(|e| anyhow::anyhow!("Failed to load LOG capability: {}", e))
         })
         .await??;
         Ok(Self {
@@ -165,8 +184,9 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
             let module_data = modules
                 .remove(&container.name)
                 .expect("FATAL ERROR: module map not properly populated");
+            let lp = self.log_path.clone();
             let http_result =
-                tokio::task::spawn_blocking(move || wascc_run_http(module_data, env, &pub_key))
+                tokio::task::spawn_blocking(move || wascc_run_http(module_data, env, &pub_key, &lp))
                     .await?;
             match http_result {
                 Ok(_) => {
@@ -245,13 +265,17 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
 ///
 /// This bootstraps an HTTP host, using the value of the env's `PORT` key to expose a port.
 fn wascc_run_http(data: Vec<u8>, env: EnvVars, key: &str, log_path: &Path) -> anyhow::Result<()> {
+    let mut caps: Vec<Capability> = Vec::new();
+
+    caps.push(Capability {
+        name: HTTP_CAPABILITY,
+        env: env,
+    });
     wascc_run(
         data,
         key,
-        vec![Capability {
-            name: HTTP_CAPABILITY,
-            env,
-        }],
+        &mut caps,
+        log_path,
     )
 }
 
@@ -277,7 +301,7 @@ struct Capability {
 fn wascc_run(data: Vec<u8>, key: &str, capabilities: &mut Vec<Capability>, log_path: &Path) -> anyhow::Result<()> {
     info!("wascc run");
     let mut logenv: HashMap<String, String> = HashMap::new();
-    logenv.insert(LOG_PATH_KEY, log_path.to_str().unwrap().to_owned());
+    logenv.insert(LOG_PATH_KEY.to_string(), log_path.to_str().unwrap().to_owned());
     capabilities.push(Capability {
         name: LOG_CAPABILITY,
         env: logenv,
@@ -328,13 +352,19 @@ mod test {
 
     #[test]
     fn test_wascc_run() {
+
+        use std::path::PathBuf;
         // Open file
         let data = std::fs::read("./testdata/echo.wasm").expect("read the wasm file");
+
+        let log_path = PathBuf::from(r"~/.krustlet");
+        
         // Send into wascc_run
         wascc_run_http(
             data,
             EnvVars::new(),
             "MB4OLDIC3TCZ4Q4TGGOVAZC43VXFE2JQVRAXQMQFXUCREOOFEKOKZTY2",
+           &log_path,
         )
         .expect("successfully executed a WASM");
 
@@ -351,15 +381,17 @@ mod test {
 
         let key = "MDAYLDTOZEHQFPB3CL5PAFY5UTNCW32P54XGWYX3FOM2UBRYNCP3I3BF";
 
+        let log_path = PathBuf::from(r"~/.krustlet");
         let wasm = std::fs::read("./testdata/echo_actor_s.wasm").expect("load echo WASM");
         // TODO: use wascc_run to execute echo_actor
         wascc_run(
             wasm,
             key,
-            vec![Capability {
+            &mut vec![Capability {
                 name: "wok:echoProvider",
                 env: EnvVars::new(),
             }],
+            &log_path,
         )
         .expect("completed echo run")
     }
