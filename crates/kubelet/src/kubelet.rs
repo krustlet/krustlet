@@ -65,10 +65,14 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
 
         // This informer listens for pod events.
         let provider = self.provider.clone();
-
+        let node_name = self.config.node_name.clone();
         let pod_informer = tokio::task::spawn(async move {
             // Create our informer and start listening.
-            let informer = Informer::new(client, ListParams::default(), Resource::all::<KubePod>());
+            let params = ListParams {
+                field_selector: Some(format!("spec.nodeName={}", node_name)),
+                ..Default::default()
+            };
+            let informer = Informer::new(client, params, Resource::all::<KubePod>());
             loop {
                 let mut stream = informer.poll().await.expect("informer poll failed").boxed();
                 while let Some(event) = stream.try_next().await.unwrap() {
@@ -133,9 +137,6 @@ mod test {
     #[async_trait::async_trait]
     impl Provider for MockProvider {
         const ARCH: &'static str = "mock";
-        fn can_schedule(&self, _pod: &Pod) -> bool {
-            true
-        }
         async fn add(&self, _pod: Pod) -> anyhow::Result<()> {
             Ok(())
         }

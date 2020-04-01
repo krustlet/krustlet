@@ -21,7 +21,6 @@
 //!     }
 //!
 //!     // Implement the rest of the methods
-//!     # fn can_schedule(&self, pod: &Pod) -> bool { todo!() }
 //!     # async fn modify(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
 //!     # async fn delete(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
 //!     # async fn logs(&self, namespace: String, pod: String, container: String) -> anyhow::Result<Vec<u8>> { todo!() }

@@ -25,5 +25,8 @@ spec:
             configMapKeyRef:
               key: myval
               name: hello-world-wasi-c
-  nodeSelector:
-    beta.kubernetes.io/arch: wasm32-wasi
+  tolerations:
+    - key: "krustlet/arch"
+      operator: "Equal"
+      value: "wasm32-wasi"
+      effect: "NoExecute"

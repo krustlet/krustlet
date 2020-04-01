@@ -89,17 +89,6 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
 impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
     const ARCH: &'static str = TARGET_WASM32_WASCC;
 
-    fn can_schedule(&self, pod: &Pod) -> bool {
-        // If there is a node selector and it has arch set to wasm32-wascc, we can
-        // schedule it.
-        pod.node_selector()
-            .and_then(|i| {
-                i.get("beta.kubernetes.io/arch")
-                    .map(|v| v.eq(&TARGET_WASM32_WASCC))
-            })
-            .unwrap_or(false)
-    }
-
     async fn add(&self, pod: Pod) -> anyhow::Result<()> {
         // To run an Add event, we load the WASM, update the pod status to Running,
         // and then execute the WASM, passing in the relevant data.
@@ -285,29 +274,6 @@ fn wascc_run(data: Vec<u8>, key: &str, capabilities: Vec<Capability>) -> anyhow:
 #[cfg(test)]
 mod test {
     use super::*;
-    use k8s_openapi::api::core::v1::Pod as KubePod;
-    use k8s_openapi::api::core::v1::PodSpec;
-    use oci_distribution::Reference;
-
-    pub struct TestStore {
-        modules: HashMap<Reference, Vec<u8>>,
-    }
-
-    impl TestStore {
-        fn new(modules: HashMap<Reference, Vec<u8>>) -> Self {
-            Self { modules }
-        }
-    }
-
-    #[async_trait]
-    impl ModuleStore for TestStore {
-        async fn get(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
-            self.modules
-                .get(image_ref)
-                .cloned()
-                .ok_or(anyhow::anyhow!("Failed to find module for reference"))
-        }
-    }
 
     #[cfg(target_os = "linux")]
     const ECHO_LIB: &str = "./testdata/libecho_provider.so";
@@ -316,6 +282,8 @@ mod test {
 
     #[test]
     fn test_wascc_run() {
+        let data = NativeCapability::from_file(HTTP_LIB).expect("loaded http library");
+        host::add_native_capability(data).expect("added http capability");
         // Open file
         let data = std::fs::read("./testdata/echo.wasm").expect("read the wasm file");
         // Send into wascc_run
@@ -350,45 +318,5 @@ mod test {
             }],
         )
         .expect("completed echo run")
-    }
-
-    #[tokio::test]
-    async fn test_can_schedule() {
-        let store = TestStore::new(Default::default());
-
-        let wr = WasccProvider::new(
-            store,
-            &Default::default(),
-            kube::config::Configuration {
-                base_path: String::new(),
-                client: Default::default(),
-                default_ns: String::new(),
-            },
-        )
-        .await
-        .unwrap();
-        let mock = Default::default();
-        assert!(!wr.can_schedule(&mock));
-
-        let mut selector = std::collections::BTreeMap::new();
-        selector.insert(
-            "beta.kubernetes.io/arch".to_string(),
-            "wasm32-wascc".to_string(),
-        );
-        let mut mock: KubePod = mock.into();
-        mock.spec = Some(PodSpec {
-            node_selector: Some(selector.clone()),
-            ..Default::default()
-        });
-        let mock = Pod::new(mock);
-        assert!(wr.can_schedule(&mock));
-        selector.insert("beta.kubernetes.io/arch".to_string(), "amd64".to_string());
-        let mut mock: KubePod = mock.into();
-        mock.spec = Some(PodSpec {
-            node_selector: Some(selector),
-            ..Default::default()
-        });
-        let mock = Pod::new(mock);
-        assert!(!wr.can_schedule(&mock));
     }
 }
