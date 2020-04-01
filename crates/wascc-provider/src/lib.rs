@@ -36,17 +36,17 @@ use kube::client::APIClient;
 use kubelet::module_store::ModuleStore;
 use kubelet::provider::NotImplementedError;
 use kubelet::status::{ContainerStatus, Status};
-use kubelet::{Pod, Provider};
 use kubelet::PodHandle;
+use kubelet::{Pod, Provider};
 use log::{debug, info, warn};
-use wascc_host::{host, Actor, NativeCapability};
-use tokio::sync::RwLock;
 use tokio::fs::File;
+use tokio::sync::RwLock;
+use wascc_host::{host, Actor, NativeCapability};
 
-use wascc_logging::{LOG_PATH_KEY};
+use wascc_logging::LOG_PATH_KEY;
 
 use std::collections::HashMap;
-use std::path::{PathBuf, Path};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 const ACTOR_PUBLIC_KEY: &str = "deislabs.io/wascc-action-key";
@@ -98,14 +98,11 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
                 anyhow::anyhow!("Failed to read HTTP capability {}: {}", HTTP_LIB, e)
             })?;
             host::add_native_capability(data)
-                .map_err(|e| {
-                    anyhow::anyhow!("Failed to load HTTP capability: {}", e)
-            })?;
+                .map_err(|e| anyhow::anyhow!("Failed to load HTTP capability: {}", e))?;
 
             warn!("Loading LOG Capability");
-            let logdata = NativeCapability::from_file(LOG_LIB).map_err(|e| {
-                anyhow::anyhow!("Failed to read LOG capability {}: {}", LOG_LIB, e)
-            })?;
+            let logdata = NativeCapability::from_file(LOG_LIB)
+                .map_err(|e| anyhow::anyhow!("Failed to read LOG capability {}: {}", LOG_LIB, e))?;
             host::add_native_capability(logdata)
                 .map_err(|e| anyhow::anyhow!("Failed to load LOG capability: {}", e))
         })
@@ -187,9 +184,10 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
                 .remove(&container.name)
                 .expect("FATAL ERROR: module map not properly populated");
             let lp = self.log_path.clone();
-            let http_result =
-                tokio::task::spawn_blocking(move || wascc_run_http(module_data, env, &pub_key, &lp))
-                    .await?;
+            let http_result = tokio::task::spawn_blocking(move || {
+                wascc_run_http(module_data, env, &pub_key, &lp)
+            })
+            .await?;
             match http_result {
                 Ok(_) => {
                     let mut container_statuses = HashMap::new();
@@ -274,12 +272,7 @@ fn wascc_run_http(data: Vec<u8>, env: EnvVars, key: &str, log_path: &Path) -> an
         name: HTTP_CAPABILITY,
         env: env,
     });
-    wascc_run(
-        data,
-        key,
-        &mut caps,
-        log_path,
-    )
+    wascc_run(data, key, &mut caps, log_path)
 }
 
 /// Stop a running waSCC actor.
@@ -301,17 +294,27 @@ struct Capability {
 ///
 /// The provided capabilities will be configured for this actor, but the capabilities
 /// must first be loaded into the host by some other process, such as register_native_capabilities().
-fn wascc_run(data: Vec<u8>, key: &str, capabilities: &mut Vec<Capability>, log_path: &Path) -> anyhow::Result<()> {
+fn wascc_run(
+    data: Vec<u8>,
+    key: &str,
+    capabilities: &mut Vec<Capability>,
+    log_path: &Path,
+) -> anyhow::Result<()> {
     info!("wascc run");
     let load = Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
     let pk = load.public_key();
 
     let mut logenv: HashMap<String, String> = HashMap::new();
     let actor_path = log_path.join(pk.clone());
-    std::fs::create_dir_all(&actor_path).map_err(|e| anyhow::anyhow!("error creating directory: {}", e))?;
+    std::fs::create_dir_all(&actor_path)
+        .map_err(|e| anyhow::anyhow!("error creating directory: {}", e))?;
     let actor_log_path = log_path.join(pk.clone()).join("log.txt");
-    let _ = std::fs::File::create(&actor_log_path).map_err(|e| anyhow::anyhow!("error creating directory: {}", e))?;
-    logenv.insert(LOG_PATH_KEY.to_string(), actor_log_path.to_str().unwrap().to_owned());
+    let _ = std::fs::File::create(&actor_log_path)
+        .map_err(|e| anyhow::anyhow!("error creating directory: {}", e))?;
+    logenv.insert(
+        LOG_PATH_KEY.to_string(),
+        actor_log_path.to_str().unwrap().to_owned(),
+    );
     capabilities.push(Capability {
         name: LOG_CAPABILITY,
         env: logenv,
@@ -361,19 +364,18 @@ mod test {
 
     #[test]
     fn test_wascc_run() {
-
         use std::path::PathBuf;
         // Open file
         let data = std::fs::read("./testdata/echo.wasm").expect("read the wasm file");
 
         let log_path = PathBuf::from(r"~/.krustlet");
-        
+
         // Send into wascc_run
         wascc_run_http(
             data,
             EnvVars::new(),
             "MB4OLDIC3TCZ4Q4TGGOVAZC43VXFE2JQVRAXQMQFXUCREOOFEKOKZTY2",
-           &log_path,
+            &log_path,
         )
         .expect("successfully executed a WASM");
 
