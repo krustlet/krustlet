@@ -1,11 +1,12 @@
 # Running Kubernetes on Kubernetes in Docker (KinD)
 
-This tutorial will focus on using a tool called [kind](https://github.com/kubernetes-sigs/kind), also known as
-"Kubernetes IN Docker".
+This tutorial will focus on using a tool called [kind](https://github.com/kubernetes-sigs/kind),
+also known as "Kubernetes IN Docker".
 
-If you haven't installed them already, go ahead and [install Docker](https://docs.docker.com/install/),
-[install kind](https://github.com/kubernetes-sigs/kind#installation-and-usage), and
-[install kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/).
+If you haven't installed them already, go ahead and [install
+Docker](https://docs.docker.com/install/), [install
+kind](https://github.com/kubernetes-sigs/kind#installation-and-usage), and [install
+kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/).
 
 You'll need `kubectl` to interact with the cluster once it's created.
 
