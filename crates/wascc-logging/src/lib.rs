@@ -1,3 +1,7 @@
+// This library was adapted from the original wascc logging
+// implementation contributed by Brian Ketelsen to wascc.
+// Original license below:
+
 // Copyright 2015-2019 Capital One Services, LLC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,7 +32,7 @@ use log::Log;
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::fs::{OpenOptions, File};
+use std::fs::{File, OpenOptions};
 use std::sync::RwLock;
 
 use simplelog::{Config, LevelFilter, WriteLogger};
@@ -69,17 +73,15 @@ impl LoggingProvider {
 
     fn configure(&self, config: CapabilityConfiguration) -> Result<Vec<u8>, Box<dyn Error>> {
         println!("CONFIGURE");
-        println!("{}",config.module);
+        println!("{}", config.module);
         println!("configuring {} for {:?}", CAPABILITY_ID, config.module);
-         let fp = config 
-                .values
-                .get(LOG_PATH_KEY)
-                .ok_or("log file path was unspecified")?;
+        let fp = config
+            .values
+            .get(LOG_PATH_KEY)
+            .ok_or("log file path was unspecified")?;
 
-        println!("file path{}", fp); 
-        let file = OpenOptions::new()
-        .write(true)
-        .open(fp)?;
+        println!("file path{}", fp);
+        let file = OpenOptions::new().write(true).open(fp)?;
         println!("Opened log file {}", fp);
         let logger = WriteLogger::new(LevelFilter::Trace, Config::default(), file);
         let mut output_map = self.output_map.write().unwrap();

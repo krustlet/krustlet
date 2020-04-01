@@ -36,9 +36,13 @@ use kubelet::provider::NotImplementedError;
 use kubelet::status::{ContainerStatus, Status};
 use kubelet::PodHandle;
 use kubelet::{Pod, Provider};
+use kubelet::handle::{RuntimeHandle, Stop};
+
 use log::{debug, info, warn};
 use tokio::fs::File;
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
+
 use wascc_host::{host, Actor, NativeCapability};
 
 use wascc_logging::LOG_PATH_KEY;
@@ -70,32 +74,25 @@ const LOG_LIB: &str = "./lib/libwascc_logging.dylib";
 
 /// Kubernetes' view of environment variables is an unordered map of string to string.
 type EnvVars = std::collections::HashMap<String, String>;
-
-/// WasccProvider provides a Kubelet runtime implementation that executes WASM binaries.
-///
-/// Currently, this runtime uses WASCC as a host, loading the primary container as an actor.
-/// TODO: In the future, we will look at loading capabilities using the "sidecar" metaphor
-/// from Kubernetes.
+/// WasccProvider provides a Kubelet runtime implementation that executes WASM
+/// binaries conforming to the waSCC spec
 #[derive(Clone)]
 pub struct WasccProvider<S> {
-    handles: Arc<RwLock<HashMap<String, PodHandle<File>>>>,
-    kubeconfig: kube::config::Configuration,
+    handles: Arc<RwLock<HashMap<String, PodHandle<File, HandleStopper>>>>,
     store: S,
     log_path: PathBuf,
+    kubeconfig: kube::config::Configuration,
 }
 
 impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
-    /// Returns a new wasCC provider configured to use the proper data directory
-    /// (including creating it if necessary)
-
+    /// Create a new wasi provider from a module store and a kubelet config
     pub async fn new(
         store: S,
-        _config: &kubelet::config::Config,
+        config: &kubelet::config::Config,
         kubeconfig: kube::config::Configuration,
     ) -> anyhow::Result<Self> {
-let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
-tokio::fs::create_dir_all(&log_path).await?;
-
+        let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
+        tokio::fs::create_dir_all(&log_path).await?;
         tokio::task::spawn_blocking(|| {
             warn!("Loading HTTP Capability");
             let data = NativeCapability::from_file(HTTP_LIB).map_err(|e| {
@@ -111,7 +108,12 @@ tokio::fs::create_dir_all(&log_path).await?;
                 .map_err(|e| anyhow::anyhow!("Failed to load LOG capability: {}", e))
         })
         .await??;
-        Ok(Self { store, kubeconfig })
+        Ok(Self {
+            handles: Default::default(),
+            store,
+            log_path,
+            kubeconfig,
+        })
     }
 }
 
@@ -259,6 +261,26 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         _container_name: String,
     ) -> anyhow::Result<Vec<u8>> {
         Err(NotImplementedError.into())
+    }
+}
+
+
+pub struct HandleStopper {
+    pub handle: JoinHandle<anyhow::Result<()>>,
+}
+
+#[async_trait::async_trait]
+impl Stop for HandleStopper {
+    async fn stop(&mut self) -> anyhow::Result<()> {
+        // TODO: Send an actual stop signal once there is support in wasmtime
+        warn!("There is currently no way to stop a running wasmtime instance. The pod will be deleted, but any long running processes will keep running");
+        Ok(())
+    }
+
+    async fn wait(&mut self) -> anyhow::Result<()> {
+        // Uncomment this and actually wait for the process to finish once we have a way to stop
+        // (&mut self.handle).await.unwrap()
+        Ok(())
     }
 }
 

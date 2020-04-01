@@ -56,11 +56,10 @@ pub mod handle;
 pub mod image_client;
 pub mod module_store;
 pub mod provider;
-pub mod handle;
 pub mod status;
 
 pub use self::kubelet::Kubelet;
+pub use handle::{PodHandle, RuntimeHandle};
 pub use pod::Pod;
-pub use handle::{RuntimeHandle, PodHandle};
 #[doc(inline)]
 pub use provider::Provider;
