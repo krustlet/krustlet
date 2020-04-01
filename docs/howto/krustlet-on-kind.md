@@ -76,6 +76,32 @@ We can use this IP address from the guest Operating System (the KinD host) to co
 Operating System (where Krustlet is running). If this was changed, check `ip addr show docker0` from
 the host OS to determine the default gateway.
 
+### Special note: Docker Desktop for Mac
+
+For Docker Desktop for Mac users, [the `docker0` bridge network is unreachable from the host
+network](https://docs.docker.com/docker-for-mac/networking/#use-cases-and-workarounds) (and vice
+versa). However, the `en0` host network is accessible from within the container.
+
+Because the `en0` network is the default network, Krustlet will bind to this IP address
+automatically. You should not need to pass a `--node-ip` flag to Krustlet.
+
+In the event this does not appear to be the case (for example, when the hostname cannot resolve to
+this address), check which IP address you have for the `en0` network:
+
+```console
+$ ifconfig en0
+en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+        options=400<CHANNEL_IO>
+        ether 78:4f:43:8d:4f:55 
+        inet6 fe80::1c20:1e66:6322:6ae9%en0 prefixlen 64 secured scopeid 0x5 
+        inet 192.168.1.167 netmask 0xffffff00 broadcast 192.168.1.255
+        nd6 options=201<PERFORMNUD,DAD>
+        media: autoselect
+        status: active
+```
+
+In this example, I should use `192.168.1.167`.
+
 ## Step 3: Install and run Krustlet
 
 First, install the latest release of Krustlet following [the install guide](../intro/install.md).
