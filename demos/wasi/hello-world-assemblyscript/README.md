@@ -10,7 +10,8 @@ It is meant to be a simple demo for the wasi-provider with Krustlet.
 
 ## Running the example
 
-This example has already been pre-built, so you only need to install it into your Kubernetes cluster.
+This example has already been pre-built, so you only need to install it into your Kubernetes
+cluster.
 
 Create the pod and configmap with `kubectl`:
 
@@ -36,12 +37,12 @@ If you want to compile the demo and inspect it, you'll need to do the following.
 
 ### Prerequisites
 
-You'll need `npm` installed in order to install and build the dependencies. This project is using the
-[as-wasi](https://github.com/jedisct1/as-wasi) dependency, which is a helpful set of wrappers around the low level
-WASI bindings provided in AssemblyScript.
+You'll need `npm` installed in order to install and build the dependencies. This project is using
+the [as-wasi](https://github.com/jedisct1/as-wasi) dependency, which is a helpful set of wrappers
+around the low level WASI bindings provided in AssemblyScript.
 
-If you are interested in starting your own AssemblyScript project, visit the AssemblyScript
-[getting started guide](https://docs.assemblyscript.org/quick-start).
+If you are interested in starting your own AssemblyScript project, visit the AssemblyScript [getting
+started guide](https://docs.assemblyscript.org/quick-start).
 
 If you don't have Krustlet with the WASI provider running locally, see the instructions in the
 [tutorial](../../../docs/intro/tutorial03.md) for running locally.
@@ -56,4 +57,5 @@ $ npm install && npm run asbuild
 
 ### Pushing
 
-Detailed instructions for pushing a module can be found in the [tutorial](../../../docs/intro/tutorial02.md).
+Detailed instructions for pushing a module can be found in the
+[tutorial](../../../docs/intro/tutorial02.md).

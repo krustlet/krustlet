@@ -1,29 +1,29 @@
 # Krustlet: Kubernetes Kubelet in Rust for running WASM
 
-**This project is highly experimental.** It is not yet fully ready for
-production, so you should use it in production at your own risk
+**This project is highly experimental.** It is not yet fully ready for production, so you should use
+it in production at your own risk
 
-Krustlet acts as a Kubelet by listening on the event stream for new pod requests
-that match a particular set of node selectors.
+Krustlet acts as a Kubelet by listening on the event stream for new pod requests that match a
+particular set of node selectors.
 
-The default implementation of Krustlet listens for the architecture
-`wasm32-wasi` and schedules those workloads to run in a `wasmtime`-based runtime
-instead of a container runtime.
+The default implementation of Krustlet listens for the architecture `wasm32-wasi` and schedules
+those workloads to run in a `wasmtime`-based runtime instead of a container runtime.
 
 ## Documentation
 
-If you're new to the project, get started with [the introduction](docs/intro/README.md). For more in-depth information
-about Krustlet, plunge right into the [topic guides](docs/topics/README.md).
+If you're new to the project, get started with [the introduction](docs/intro/README.md). For more
+in-depth information about Krustlet, plunge right into the [topic guides](docs/topics/README.md).
 
-Looking for the developer guide? [Start here](docs/community/developers.md). If
-you are interested in the project, please feel free to join us in our weekly
-public call [on
-Zoom](https://zoom.us/j/200921512?pwd=N3hBblRaUE1FL3luVkJ6ZzZsM0NIUT09) at 9:00
-am Pacific Time every Monday
+Looking for the developer guide? [Start here](docs/community/developers.md). If you are interested
+in the project, please feel free to join us in our weekly public call [on
+Zoom](https://zoom.us/j/200921512?pwd=N3hBblRaUE1FL3luVkJ6ZzZsM0NIUT09) at 9:00 am Pacific Time
+every Monday
 
 ## Code of Conduct
 
-This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
+This project has adopted the [Microsoft Open Source Code of
+Conduct](https://opensource.microsoft.com/codeofconduct/).
 
-For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/)
-or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+For more information see the [Code of Conduct
+FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact
+[opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.

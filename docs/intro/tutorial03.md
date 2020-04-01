@@ -1,15 +1,17 @@
 # Writing your first app, part 3
 
-This tutorial begins where [Tutorial 2](tutorial02.md) left off. We’ll walk through the process for installing your
-first application written in WebAssembly into your Kubernetes cluster, then test our application using `kubectl`.
+This tutorial begins where [Tutorial 2](tutorial02.md) left off. We’ll walk through the process for
+installing your first application written in WebAssembly into your Kubernetes cluster, then test our
+application using `kubectl`.
 
 ## Scheduling pods on the Krustlet
 
-In Kubernetes, Pods are the smallest deployable units of compute that can be created and managed in Kubernetes. In other
-words, your application runs inside a Pod, and we can inspect the status of the application by inspecting the Pod.
+In Kubernetes, Pods are the smallest deployable units of compute that can be created and managed in
+Kubernetes. In other words, your application runs inside a Pod, and we can inspect the status of the
+application by inspecting the Pod.
 
-Krustlet listens for pods requesting a node with the `wasm32-wasi` architecture. To schedule a Pod that Krustlet
-understands, we need to provide Kubernetes with a YAML file describing our Pod.
+Krustlet listens for pods requesting a node with the `wasm32-wasi` architecture. To schedule a Pod
+that Krustlet understands, we need to provide Kubernetes with a YAML file describing our Pod.
 
 Create a new file and call it `krustlet-tutorial.yaml`:
 
@@ -41,8 +43,8 @@ To deploy this workload to Kubernetes, we use `kubectl`.
 $ kubectl create -f krustlet-tutorial.yaml
 ```
 
-Now that the workload has been scheduled, Krustlet should start spewing out some logs in its terminal window, reporting
-updates on the workload that was scheduled.
+Now that the workload has been scheduled, Krustlet should start spewing out some logs in its
+terminal window, reporting updates on the workload that was scheduled.
 
 We can check the status of our pod:
 
@@ -83,6 +85,7 @@ $ az group delete --name myResourceGroup
 
 This concludes the basic tutorial. Congratulations!
 
-If you are familiar with Krustlet and are interested in more in-depth topics, check out the [Topic Guides](../topics/README.md).
+If you are familiar with Krustlet and are interested in more in-depth topics, check out the [Topic
+Guides](../topics/README.md).
 
 You might also be scratching your head on what to [read next](readnext.md).

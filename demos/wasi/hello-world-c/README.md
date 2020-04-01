@@ -15,8 +15,7 @@ First create the pod and configmap:
 $ kubectl apply -f k8s.yaml
 ```
 
-You should then be able to get the logs and see the output from the wasm module
-run:
+You should then be able to get the logs and see the output from the wasm module run:
 
 ```shell
 $ kubectl logs hello-world-wasi-c
@@ -34,10 +33,12 @@ If you want to compile the demo and inspect it, you'll need to do the following.
 
 ### Prerequisites
 
-Building WASI in C is easiest with the custom [SDK](https://github.com/WebAssembly/wasi-sdk) from wasmtime. Feel free to
-go down the rabbit hole of figuring things out with vanilla `clang` for your own project should you so desire.
+Building WASI in C is easiest with the custom [SDK](https://github.com/WebAssembly/wasi-sdk) from
+wasmtime. Feel free to go down the rabbit hole of figuring things out with vanilla `clang` for your
+own project should you so desire.
 
-To install the SDK, follow the steps below, replacing `$OS_NAME` with your OS (current choices are `linux` and `macos`):
+To install the SDK, follow the steps below, replacing `$OS_NAME` with your OS (current choices are
+`linux` and `macos`):
 
 ```shell
 $ wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-8/wasi-sysroot-8.0.tar.gz
@@ -61,5 +62,5 @@ $ ./wasi-sdk-8.0/bin/clang -v demo.c --sysroot ./wasi-sysroot -o demo.wasm
 
 Detailed instructions for pushing a module can be found [here](../../../docs/intro/tutorial02.md).
 
-We hope to improve and streamline the build and push process in the future. However, for test purposes, the image has
-been pushed to the `webassembly` Azure Container Registry.
+We hope to improve and streamline the build and push process in the future. However, for test
+purposes, the image has been pushed to the `webassembly` Azure Container Registry.
