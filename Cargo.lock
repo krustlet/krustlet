@@ -2886,6 +2886,7 @@ dependencies = [
  "oci-distribution",
  "serde",
  "serde_derive",
+ "tempfile",
  "tokio",
  "wascc-host",
  "wascc-logging",
