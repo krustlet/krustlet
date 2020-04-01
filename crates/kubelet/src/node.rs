@@ -28,17 +28,23 @@ pub async fn create_node(client: &kube::Client, config: &Config, arch: &str) {
         .await
     {
         Ok(node) => {
-            info!("created node just fine");
+            info!("successfully created node");
             let node_uid = node.metadata.unwrap_or_default().uid.unwrap_or_default();
             create_lease(&node_uid, &config.node_name, &client).await
         }
         Err(e) => {
-            error!("Error creating node: {}", e);
-            info!("Looking up node to see if it exists already");
+            info!(
+                "Unable to create node: {:?}, looking up node to see if it exists already",
+                e
+            );
             match node_client.get(&config.node_name).await {
                 Ok(node) => {
-                    let node_uid = node.metadata.unwrap_or_default().uid.unwrap_or_default();
-                    create_lease(&node_uid, &config.node_name, &client).await
+                    info!("node found, updating current node definition");
+                    update_node(
+                        client,
+                        &node.metadata.unwrap_or_default().name.unwrap_or_default(),
+                    )
+                    .await
                 }
                 Err(e) => error!("Error fetching node after failed create: {}", e),
             }
@@ -107,8 +113,8 @@ async fn update_lease(node_uid: &str, node_name: &str, client: &kube::Client) {
         .patch(node_name, &PatchParams::default(), lease_data)
         .await;
     match resp {
-        Ok(_) => info!("Created lease"),
-        Err(e) => error!("Failed to create lease: {}", e),
+        Ok(_) => debug!("Lease updated"),
+        Err(e) => error!("Failed to update lease: {}", e),
     }
 }
 
