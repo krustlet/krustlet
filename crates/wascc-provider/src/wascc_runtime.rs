@@ -56,8 +56,6 @@ pub struct WasccRuntime {
     module_data: Arc<Vec<u8>>,
     /// key/value environment variables made available to the wasm process
     env: HashMap<String, String>,
-    /// the arguments passed as the command-line arguments list
-    args: Vec<String>,
     /// The tempfile that output from the wasmtime process writes to
     output: Arc<NamedTempFile>,
 }
@@ -77,7 +75,6 @@ impl WasccRuntime {
     pub async fn new<L: AsRef<Path> + Send + Sync + 'static>(
         module_data: Vec<u8>,
         env: HashMap<String, String>,
-        args: Vec<String>,
         log_dir: L,
     ) -> anyhow::Result<Self> {
         let temp = tokio::task::spawn_blocking(move || -> anyhow::Result<NamedTempFile> {
@@ -109,7 +106,6 @@ impl WasccRuntime {
         Ok(WasccRuntime {
             module_data: Arc::new(module_data),
             env,
-            args,
             output: Arc::new(temp),
         })
     }
@@ -129,7 +125,7 @@ impl WasccRuntime {
             timestamp: chrono::Utc::now(),
             message: "No status has been received from the process".into(),
         });
-        let handle = self.spawn_wascc(status_sender);
+        let handle = self.spawn_wascc(self.module_data.to_vec(),self.env.clone(),status_sender).await;
 
         Ok(RuntimeHandle::new(
             tokio::fs::File::from_std(output_read),
@@ -143,52 +139,18 @@ impl WasccRuntime {
         host::remove_actor(key)
     }
     
-    fn wascc_run(
-        &self,
-        data: Vec<u8>,
-        key: &str,
-        capabilities: &mut Vec<Capability>,
-    ) -> anyhow::Result<()> {
-        info!("wascc run");
-        let load =
-            Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
-        let pk = load.public_key();
-
-        let mut logenv: HashMap<String, String> = HashMap::new();
-        /*let actor_path = log_path.join(pk.clone());
-        std::fs::create_dir_all(&actor_path)
-            .map_err(|e| anyhow::anyhow!("error creating directory: {}", e))?;
-            */
-        /*logenv.insert(
-            LOG_PATH_KEY.to_string(),
-            actor_log_path.to_str().unwrap().to_owned(),
-        );
-        */
-        capabilities.push(Capability {
-            name: LOG_CAPABILITY,
-            env: logenv,
-        });
-        host::add_actor(load).map_err(|e| anyhow::anyhow!("Error adding actor: {}", e))?;
-
-        capabilities.iter().try_for_each(|cap| {
-            info!("configuring capability {}", cap.name);
-            host::configure(&pk, cap.name, cap.env.clone())
-                .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
-        })?;
-        info!("Instance executing");
-        Ok(())
-    }
 
     // Spawns a running wasmtime instance with the given context and status
     // channel. Due to the Instance type not being Send safe, all of the logic
     // needs to be done within the spawned task
-    fn spawn_wascc(
+    async fn spawn_wascc(
         &self,
+        data: Vec<u8>,
+        env: HashMap<String,String>,
         status_sender: Sender<ContainerStatus>,
     ) -> JoinHandle<anyhow::Result<()>> {
         // Clone the module data Arc so it can be moved
 
-        let module_data = self.module_data.clone();
         let mut caps: Vec<Capability> = Vec::new();
 
         caps.push(Capability {
@@ -196,15 +158,41 @@ impl WasccRuntime {
             env: self.env.clone(),
         });
 
-        let load = Actor::from_bytes(self.module_data.to_vec())
+        let load = Actor::from_bytes(data.to_vec())
             .map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))
             .unwrap();
         let pk = load.public_key();
 
-        self.wascc_run(module_data.to_vec(), &pk, &mut caps).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e)).unwrap();
+      //.unwrap()  self.wascc_run(module_data.to_vec(), &pk, &mut caps).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e)).unwrap();
 
         tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-
+            info!("wascc run");
+            let load =
+                Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
+            let pk = load.public_key();
+    
+            let mut logenv: HashMap<String, String> = HashMap::new();
+            /*let actor_path = log_path.join(pk.clone());
+            std::fs::create_dir_all(&actor_path)
+                .map_err(|e| anyhow::anyhow!("error creating directory: {}", e))?;
+                */
+            /*logenv.insert(
+                LOG_PATH_KEY.to_string(),
+                actor_log_path.to_str().unwrap().to_owned(),
+            );
+            */
+            caps.push(Capability {
+                name: LOG_CAPABILITY,
+                env: logenv,
+            });
+            host::add_actor(load).map_err(|e| anyhow::anyhow!("Error adding actor: {}", e))?;
+    
+            caps.iter().try_for_each(|cap| {
+                info!("configuring capability {}", cap.name);
+                host::configure(&pk, cap.name, cap.env.clone())
+                    .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
+            })?;
+            info!("Instance executing");
             info!("module run complete");
             status_sender
                 .broadcast(ContainerStatus::Terminated {

@@ -116,7 +116,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
                 .expect("FATAL ERROR: module map not properly populated");
 
             let runtime =
-                WasccRuntime::new(module_data, env, Vec::default(), self.log_path.clone()).await?;
+                WasccRuntime::new(module_data, env, self.log_path.clone()).await?;
 
             debug!("Starting container {} on thread", container.name);
             let handle = runtime.start().await?;
