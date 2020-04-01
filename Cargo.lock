@@ -1219,7 +1219,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "thiserror",
- "time 0.2.8",
+ "time 0.2.9",
  "tokio",
  "url 2.1.1",
 ]
