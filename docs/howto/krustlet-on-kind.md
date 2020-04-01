@@ -76,6 +76,9 @@ We can use this IP address from the guest Operating System (the KinD host) to co
 Operating System (where Krustlet is running). If this was changed, check `ip addr show docker0` from
 the host OS to determine the default gateway.
 
+For Mac, if you are running Krustlet on the host, the default gateway should be the `en0` interface IP.
+You can get it with `ifconfig en0 | grep "inet " | cut -d " " -f2`
+
 ## Step 3: Install and run Krustlet
 
 First, install the latest release of Krustlet following [the install guide](../intro/install.md).
@@ -84,6 +87,12 @@ Once you have done that, run the following commands to run Krustlet's WASI provi
 
 ```shell
 $ krustlet-wasi --node-ip 172.17.0.1 --pfx-password password
+```
+
+Or for Mac:
+
+```shell
+$ krustlet-wasi --node-ip $(ifconfig en0 | grep "inet " | cut -d " " -f2) --pfx-password password
 ```
 
 In another terminal, run `kubectl get nodes -o wide` and you should see output that looks similar to
