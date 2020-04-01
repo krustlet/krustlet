@@ -1,39 +1,58 @@
+//! A convenience handle type for providers
+//!
+//! A collection of handle types for use in providers. These are entirely
+//! optional, but abstract away much of the logic around managing logging,
+//! status updates, and stopping pods
+
 use std::collections::HashMap;
 use std::io::SeekFrom;
 
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader};
 use tokio::stream::{StreamExt, StreamMap};
 use tokio::sync::watch::Receiver;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use kubelet::provider::ProviderError;
-use kubelet::status::{ContainerStatus, Status};
-use kubelet::Pod;
+use crate::provider::ProviderError;
+use crate::status::{ContainerStatus, Status};
+use crate::Pod;
 
-/// Represents a handle to a running WASI instance. Right now, this is
-/// experimental and just for use with the [crate::WasiProvider]. If we like
-/// this pattern, we will expose it as part of the kubelet crate
-pub struct RuntimeHandle<R: AsyncRead + AsyncSeek + Unpin> {
+/// Any provider wanting to use the [crate::RuntimeHandle] and
+/// [crate::PodHandle] will need to have some sort of "stopper" that implement
+/// this Trait. Because the logic for stopping a running "container" can vary
+/// from provider to provider, this allows for flexibility in implementing how
+/// to stop each runtime
+#[async_trait::async_trait]
+pub trait Stop {
+    /// Should send a signal for the running process to stop. It should not wait
+    /// for the process to complete
+    async fn stop(&mut self) -> anyhow::Result<()>;
+    /// Wait for the running process to complete.
+    async fn wait(&mut self) -> anyhow::Result<()>;
+}
+
+/// Represents a handle to a running "container" (whatever that might be). This
+/// can be used on its own, however, it is generally better to use it as a part
+/// of a [crate::PodHandle], which manages a group of containers in a Kubernetes
+/// Pod
+pub struct RuntimeHandle<R, S> {
     output: BufReader<R>,
-    handle: JoinHandle<anyhow::Result<()>>,
+    stopper: S,
     status_channel: Receiver<ContainerStatus>,
 }
 
-impl<R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<R> {
-    /// Create a new handle with the given reader for log output and a handle to
-    /// the running tokio task. The sender part of the channel should be given
-    /// to the running process and the receiver half passed to this constructor
-    /// to be used for reporting current status
-    pub fn new(
-        output: R,
-        handle: JoinHandle<anyhow::Result<()>>,
-        status_channel: Receiver<ContainerStatus>,
-    ) -> Self {
+impl<R: AsyncRead + AsyncSeek + Unpin, S: Stop> RuntimeHandle<R, S> {
+    /// Create a new handle with the given reader for log output and a stopper
+    /// for stopping the runtime. The status_channel is a [Tokio watch
+    /// receiver](https://docs.rs/tokio/0.2.13/tokio/sync/watch/struct.Receiver.html).
+    /// The sender part of the channel should be given to the running process
+    /// and the receiver half passed to this constructor to be used for
+    /// reporting current status
+    pub fn new(output: R, stopper: S, status_channel: Receiver<ContainerStatus>) -> Self {
         Self {
             output: BufReader::new(output),
-            handle,
+            stopper,
             status_channel,
         }
     }
@@ -49,42 +68,43 @@ impl<R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<R> {
         Ok(bytes_written)
     }
 
-    /// Signal the running instance to stop and wait for it to complete. As of
-    /// right now, there is not a way to do this in wasmtime, so this does
-    /// nothing
-    pub(crate) async fn stop(&mut self) -> anyhow::Result<()> {
-        // TODO: Send an actual stop signal once there is support in wasmtime
-        warn!("There is currently no way to stop a running wasmtime instance. The pod will be deleted, but any long running processes will keep running");
-        Ok(())
+    /// Signal the running instance to stop. Use [RuntimeHandle::wait] to wait for the process to exit. This
+    /// uses the underlying [crate::Stop] implementation passed to the
+    /// constructor
+    pub async fn stop(&mut self) -> anyhow::Result<()> {
+        self.stopper.stop().await
     }
 
+    /// Returns a clone of the status_channel for use in reporting the status to
+    /// another process
     pub(crate) fn status(&self) -> Receiver<ContainerStatus> {
         self.status_channel.clone()
     }
 
+    /// Wait for the running process to complete. Generally speaking,
+    /// [RuntimeHandle::stop] should be called first. This uses the underlying
+    /// [crate::Stop] implementation passed to the constructor
     pub(crate) async fn wait(&mut self) -> anyhow::Result<()> {
-        // Uncomment this and actually wait for the process to finish once we have a way to stop
-        (&mut self.handle).await.unwrap()
+        self.stopper.wait().await
     }
 }
 
 /// PodHandle is the top level handle into managing a pod. It manages updating
 /// statuses for the containers in the pod and can be used to stop the pod and
 /// access logs
-pub struct PodHandle<R: AsyncRead + AsyncSeek + Unpin> {
-    container_handles: RwLock<HashMap<String, RuntimeHandle<R>>>,
-    // The channel for sending a stop signal to the status updater tasks
+pub struct PodHandle<R, S> {
+    container_handles: RwLock<HashMap<String, RuntimeHandle<R, S>>>,
     status_handle: JoinHandle<()>,
     pod: Pod,
 }
 
-impl<R: AsyncRead + AsyncSeek + Unpin> PodHandle<R> {
+impl<R: AsyncRead + AsyncSeek + Unpin, S: Stop> PodHandle<R, S> {
     /// Creates a new pod handle that manages the given map of container names
     /// to [crate::RuntimeHandle]s. The given pod and client are used to
     /// maintain a reference to the kubernetes object and to be able to update
     /// the status of that object
     pub fn new(
-        container_handles: HashMap<String, RuntimeHandle<R>>,
+        container_handles: HashMap<String, RuntimeHandle<R, S>>,
         pod: Pod,
         client: kube::Client,
     ) -> anyhow::Result<Self> {
@@ -156,19 +176,17 @@ impl<R: AsyncRead + AsyncSeek + Unpin> PodHandle<R> {
                 }
             }
         }
-        self.wait().await?;
-        (&mut self.status_handle).await?;
         Ok(())
     }
 
     /// Wait for all containers in the pod to complete
     pub async fn wait(&mut self) -> anyhow::Result<()> {
         let mut handles = self.container_handles.write().await;
-        for (name, _handle) in handles.iter_mut() {
+        for (name, handle) in handles.iter_mut() {
             debug!("Waiting for container {} to terminate", name);
-            // Uncomment this once we have the ability to stop a running process
-            // handle.wait().await?;
+            handle.wait().await?;
         }
+        (&mut self.status_handle).await?;
         Ok(())
     }
 }

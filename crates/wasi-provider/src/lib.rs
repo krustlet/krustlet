@@ -30,7 +30,6 @@
 
 #![warn(missing_docs)]
 
-mod handle;
 mod wasi_runtime;
 
 use std::collections::HashMap;
@@ -44,8 +43,8 @@ use log::{debug, error, info};
 use tokio::fs::File;
 use tokio::sync::RwLock;
 
-use handle::PodHandle;
-use wasi_runtime::WasiRuntime;
+use kubelet::handle::PodHandle;
+use wasi_runtime::{HandleStopper, WasiRuntime};
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 const LOG_DIR_NAME: &str = "wasi-logs";
@@ -54,7 +53,7 @@ const LOG_DIR_NAME: &str = "wasi-logs";
 /// binaries conforming to the WASI spec
 #[derive(Clone)]
 pub struct WasiProvider<S> {
-    handles: Arc<RwLock<HashMap<String, PodHandle<File>>>>,
+    handles: Arc<RwLock<HashMap<String, PodHandle<File, HandleStopper>>>>,
     store: S,
     log_path: PathBuf,
     kubeconfig: kube::config::Configuration,

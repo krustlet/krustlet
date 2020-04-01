@@ -52,6 +52,7 @@ mod pod;
 mod server;
 
 pub mod config;
+pub mod handle;
 pub mod image_client;
 pub mod module_store;
 pub mod provider;
