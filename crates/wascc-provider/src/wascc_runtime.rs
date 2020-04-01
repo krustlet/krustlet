@@ -1,19 +1,18 @@
-
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::bail;
-use log::{error,debug, info, warn};
+use log::{debug, error, info, warn};
 use tempfile::NamedTempFile;
 use tokio::sync::watch::{self, Sender};
 use tokio::task::JoinHandle;
 
 use wascc_host::{host, Actor, NativeCapability};
 
-use wascc_logging::LOG_PATH_KEY;
 use kubelet::handle::{RuntimeHandle, Stop};
 use kubelet::status::ContainerStatus;
+use wascc_logging::LOG_PATH_KEY;
 
 /// The name of the HTTP capability.
 const HTTP_CAPABILITY: &str = "wascc:http_server";
@@ -30,7 +29,6 @@ const HTTP_LIB: &str = "./lib/libwascc_httpsrv.dylib";
 
 #[cfg(target_os = "macos")]
 const LOG_LIB: &str = "./lib/libwascc_logging.dylib";
-
 
 pub struct HandleStopper {
     pub handle: JoinHandle<anyhow::Result<()>>,
@@ -127,12 +125,11 @@ impl WasccRuntime {
         )
         .await??;
 
-
         let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
             timestamp: chrono::Utc::now(),
             message: "No status has been received from the process".into(),
         });
-        let handle = self.spawn_wascc(status_sender );
+        let handle = self.spawn_wascc(status_sender);
 
         Ok(RuntimeHandle::new(
             tokio::fs::File::from_std(output_read),
@@ -147,9 +144,10 @@ impl WasccRuntime {
         capabilities: &mut Vec<Capability>,
     ) -> anyhow::Result<()> {
         info!("wascc run");
-        let load = Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
+        let load =
+            Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
         let pk = load.public_key();
-    
+
         let mut logenv: HashMap<String, String> = HashMap::new();
         /*let actor_path = log_path.join(pk.clone());
         std::fs::create_dir_all(&actor_path)
@@ -165,7 +163,7 @@ impl WasccRuntime {
             env: logenv,
         });
         host::add_actor(load).map_err(|e| anyhow::anyhow!("Error adding actor: {}", e))?;
-    
+
         capabilities.iter().try_for_each(|cap| {
             info!("configuring capability {}", cap.name);
             host::configure(&pk, cap.name, cap.env.clone())
@@ -174,11 +172,10 @@ impl WasccRuntime {
         info!("Instance executing");
         Ok(())
     }
-    
 
-fn wascc_stop(key: &str) -> anyhow::Result<(), wascc_host::errors::Error> {
-    host::remove_actor(key)
-}
+    fn wascc_stop(key: &str) -> anyhow::Result<(), wascc_host::errors::Error> {
+        host::remove_actor(key)
+    }
     // Spawns a running wasmtime instance with the given context and status
     // channel. Due to the Instance type not being Send safe, all of the logic
     // needs to be done within the spawned task
@@ -189,16 +186,18 @@ fn wascc_stop(key: &str) -> anyhow::Result<(), wascc_host::errors::Error> {
         // Clone the module data Arc so it can be moved
         let module_data = self.module_data.clone();
 
-    let mut caps: Vec<Capability> = Vec::new();
+        let mut caps: Vec<Capability> = Vec::new();
 
-    caps.push(Capability {
-        name: HTTP_CAPABILITY,
-        env: self.env.clone(),
-    });
+        caps.push(Capability {
+            name: HTTP_CAPABILITY,
+            env: self.env.clone(),
+        });
 
-    let load = Actor::from_bytes(self.module_data.to_vec()).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e)).unwrap();
-    let pk = load.public_key();
-    self.wascc_run(self.module_data.to_vec(), &pk, &mut caps );
+        let load = Actor::from_bytes(self.module_data.to_vec())
+            .map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))
+            .unwrap();
+        let pk = load.public_key();
+        self.wascc_run(self.module_data.to_vec(), &pk, &mut caps);
         tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
             info!("module run complete");
             status_sender
@@ -211,7 +210,6 @@ fn wascc_stop(key: &str) -> anyhow::Result<(), wascc_host::errors::Error> {
             Ok(())
         })
     }
-    
 }
 
 /// Capability describes a waSCC capability.
@@ -229,80 +227,80 @@ type EnvVars = std::collections::HashMap<String, String>;
 /*
 
 
- let http_result = tokio::task::spawn_blocking(move || {
-                wascc_run_http(module_data, env, &pub_key, &lp)
-            })
-            .await?;
-            match http_result {
-                Ok(_) => {
-                    let mut container_statuses = HashMap::new();
-                    container_statuses.insert(
-                        container.name.clone(),
-                        ContainerStatus::Running {
-                            timestamp: chrono::Utc::now(),
-                        },
-                    );
-                    let status = Status {
-                        container_statuses,
-                        ..Default::default()
-                    };
-                    pod.patch_status(client.clone(), status).await;
-                }
-                Err(e) => {
-                    let mut container_statuses = HashMap::new();
-                    container_statuses.insert(
-                        container.name.clone(),
-                        ContainerStatus::Terminated {
-                            timestamp: chrono::Utc::now(),
-                            failed: true,
-                            message: "Error while starting container".to_string(),
-                        },
-                    );
-                    let status = Status {
-                        container_statuses,
-                        ..Default::default()
-                    };
-                    pod.patch_status(client, status).await;
-                    return Err(anyhow::anyhow!("Failed to run pod: {}", e));
-                }
-            }
-        }
- let http_result = tokio::task::spawn_blocking(move || {
-                wascc_run_http(module_data, env, &pub_key, &lp)
-            })
-            .await?;
-            match http_result {
-                Ok(_) => {
-                    let mut container_statuses = HashMap::new();
-                    container_statuses.insert(
-                        container.name.clone(),
-                        ContainerStatus::Running {
-                            timestamp: chrono::Utc::now(),
-                        },
-                    );
-                    let status = Status {
-                        container_statuses,
-                        ..Default::default()
-                    };
-                    pod.patch_status(client.clone(), status).await;
-                }
-                Err(e) => {
-                    let mut container_statuses = HashMap::new();
-                    container_statuses.insert(
-                        container.name.clone(),
-                        ContainerStatus::Terminated {
-                            timestamp: chrono::Utc::now(),
-                            failed: true,
-                            message: "Error while starting container".to_string(),
-                        },
-                    );
-                    let status = Status {
-                        container_statuses,
-                        ..Default::default()
-                    };
-                    pod.patch_status(client, status).await;
-                    return Err(anyhow::anyhow!("Failed to run pod: {}", e));
-                }
-            }
-        }
-        */
+let http_result = tokio::task::spawn_blocking(move || {
+               wascc_run_http(module_data, env, &pub_key, &lp)
+           })
+           .await?;
+           match http_result {
+               Ok(_) => {
+                   let mut container_statuses = HashMap::new();
+                   container_statuses.insert(
+                       container.name.clone(),
+                       ContainerStatus::Running {
+                           timestamp: chrono::Utc::now(),
+                       },
+                   );
+                   let status = Status {
+                       container_statuses,
+                       ..Default::default()
+                   };
+                   pod.patch_status(client.clone(), status).await;
+               }
+               Err(e) => {
+                   let mut container_statuses = HashMap::new();
+                   container_statuses.insert(
+                       container.name.clone(),
+                       ContainerStatus::Terminated {
+                           timestamp: chrono::Utc::now(),
+                           failed: true,
+                           message: "Error while starting container".to_string(),
+                       },
+                   );
+                   let status = Status {
+                       container_statuses,
+                       ..Default::default()
+                   };
+                   pod.patch_status(client, status).await;
+                   return Err(anyhow::anyhow!("Failed to run pod: {}", e));
+               }
+           }
+       }
+let http_result = tokio::task::spawn_blocking(move || {
+               wascc_run_http(module_data, env, &pub_key, &lp)
+           })
+           .await?;
+           match http_result {
+               Ok(_) => {
+                   let mut container_statuses = HashMap::new();
+                   container_statuses.insert(
+                       container.name.clone(),
+                       ContainerStatus::Running {
+                           timestamp: chrono::Utc::now(),
+                       },
+                   );
+                   let status = Status {
+                       container_statuses,
+                       ..Default::default()
+                   };
+                   pod.patch_status(client.clone(), status).await;
+               }
+               Err(e) => {
+                   let mut container_statuses = HashMap::new();
+                   container_statuses.insert(
+                       container.name.clone(),
+                       ContainerStatus::Terminated {
+                           timestamp: chrono::Utc::now(),
+                           failed: true,
+                           message: "Error while starting container".to_string(),
+                       },
+                   );
+                   let status = Status {
+                       container_statuses,
+                       ..Default::default()
+                   };
+                   pod.patch_status(client, status).await;
+                   return Err(anyhow::anyhow!("Failed to run pod: {}", e));
+               }
+           }
+       }
+       */

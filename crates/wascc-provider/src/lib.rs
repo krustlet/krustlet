@@ -32,23 +32,21 @@
 
 mod wascc_runtime;
 use async_trait::async_trait;
+use kubelet::handle::{RuntimeHandle, Stop};
 use kubelet::module_store::ModuleStore;
 use kubelet::provider::NotImplementedError;
 use kubelet::status::{ContainerStatus, Status};
 use kubelet::PodHandle;
 use kubelet::{Pod, Provider};
-use kubelet::handle::{RuntimeHandle, Stop};
 
 use log::{debug, info, warn};
 use tokio::fs::File;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use wascc_host::{host, Actor };
-
+use wascc_host::{host, Actor};
 
 use wascc_runtime::{HandleStopper, WasccRuntime};
-
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -58,7 +56,6 @@ const ACTOR_PUBLIC_KEY: &str = "deislabs.io/wascc-action-key";
 const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
 
 const LOG_DIR_NAME: &str = "wascc-logs";
-
 
 /// WasccProvider provides a Kubelet runtime implementation that executes WASM
 /// binaries conforming to the waSCC spec
@@ -104,14 +101,12 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
     }
 
     async fn add(&self, pod: Pod) -> anyhow::Result<()> {
-
         let pod_name = pod.name();
         let mut container_handles = HashMap::new();
 
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
         let client = kube::Client::from(self.kubeconfig.clone());
         info!("Starting containers for pod {:?}", pod_name);
-
 
         for container in pod.containers() {
             let env = Self::env_vars(&container, &pod, &client).await;
@@ -120,34 +115,27 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
                 .remove(&container.name)
                 .expect("FATAL ERROR: module map not properly populated");
 
-            let runtime = WasccRuntime::new(
-                module_data,
-                env,
-                Vec::default(),
-                self.log_path.clone(),
-            )
-            .await?;
+            let runtime =
+                WasccRuntime::new(module_data, env, Vec::default(), self.log_path.clone()).await?;
 
             debug!("Starting container {} on thread", container.name);
             let handle = runtime.start().await?;
             container_handles.insert(container.name.clone(), handle);
         }
-                info!(
+        info!(
             "All containers started for pod {:?}. Updating status",
             pod_name
         );
 
-                // Wrap this in a block so the write lock goes out of scope when we are done
-                {
-                    // Grab the entry while we are creating things
-                    let mut handles = self.handles.write().await;
-                    handles.insert(
-                        key_from_pod(&pod),
-                        PodHandle::new(container_handles, pod, client)?,
-                    );
-                }
-        
-           
+        // Wrap this in a block so the write lock goes out of scope when we are done
+        {
+            // Grab the entry while we are creating things
+            let mut handles = self.handles.write().await;
+            handles.insert(
+                key_from_pod(&pod),
+                PodHandle::new(container_handles, pod, client)?,
+            );
+        }
 
         Ok(())
     }
@@ -185,7 +173,6 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
     }
 }
 
-
 /// Generates a unique human readable key for storing a handle to a pod
 fn key_from_pod(pod: &Pod) -> String {
     pod_key(pod.namespace(), pod.name())
@@ -199,7 +186,6 @@ fn pod_key<N: AsRef<str>, T: AsRef<str>>(namespace: N, pod_name: T) -> String {
 fn wascc_stop(key: &str) -> anyhow::Result<(), wascc_host::errors::Error> {
     host::remove_actor(key)
 }
-
 
 /// Run the given WASM data as a waSCC actor with the given public key.
 ///
