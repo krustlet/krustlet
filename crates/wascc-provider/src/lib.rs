@@ -196,47 +196,7 @@ fn pod_key<N: AsRef<str>, T: AsRef<str>>(namespace: N, pod_name: T) -> String {
     format!("{}:{}", namespace.as_ref(), pod_name.as_ref())
 }
 
-/// Run the given WASM data as a waSCC actor with the given public key.
-///
-/// The provided capabilities will be configured for this actor, but the capabilities
-/// must first be loaded into the host by some other process, such as register_native_capabilities().
-/*
-fn wascc_run(
-    data: Vec<u8>,
-    key: &str,
-    capabilities: &mut Vec<Capability>,
-    log_path: &Path,
-) -> anyhow::Result<()> {
-    info!("wascc run");
-    let load = Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
-    let pk = load.public_key();
 
-    let mut logenv: HashMap<String, String> = HashMap::new();
-    let actor_path = log_path.join(pk.clone());
-    std::fs::create_dir_all(&actor_path)
-        .map_err(|e| anyhow::anyhow!("error creating directory: {}", e))?;
-    let actor_log_path = log_path.join(pk.clone()).join("log.txt");
-    let _ = std::fs::File::create(&actor_log_path)
-        .map_err(|e| anyhow::anyhow!("error creating directory: {}", e))?;
-    logenv.insert(
-        LOG_PATH_KEY.to_string(),
-        actor_log_path.to_str().unwrap().to_owned(),
-    );
-    capabilities.push(Capability {
-        name: LOG_CAPABILITY,
-        env: logenv,
-    });
-    host::add_actor(load).map_err(|e| anyhow::anyhow!("Error adding actor: {}", e))?;
-
-    capabilities.iter().try_for_each(|cap| {
-        info!("configuring capability {}", cap.name);
-        host::configure(&pk, cap.name, cap.env.clone())
-            .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
-    })?;
-    info!("Instance executing");
-    Ok(())
-}
-*/
 
 #[cfg(test)]
 mod test {
