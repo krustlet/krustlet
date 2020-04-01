@@ -39,7 +39,7 @@ use kubelet::status::{ContainerStatus, Status};
 use kubelet::PodHandle;
 use kubelet::{Pod, Provider};
 
-use log::{debug, info, warn};
+use log::{error,debug, info, warn};
 use tokio::fs::File;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
@@ -155,12 +155,26 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
 
     async fn delete(&self, pod: Pod) -> anyhow::Result<()> {
         // TODO: this isn't the correct public key
-        let pub_key = pod
-            .annotations()
-            .get(ACTOR_PUBLIC_KEY)
-            .map(String::as_str)
-            .unwrap_or_default();
-        wascc_stop(&pub_key).map_err(|e| anyhow::anyhow!("Failed to stop wascc actor: {}", e))
+        let mut handles = self.handles.write().await;
+        if let Some(mut h) = handles.remove(&key_from_pod(&pod)) {
+            h.stop().await.unwrap_or_else(|e| {
+                error!(
+                    "unable to stop pod {} in namespace {}: {:?}",
+                    pod.name(),
+                    pod.namespace(),
+                    e
+                );
+                // Insert the pod back in to our store if we failed to delete it
+                handles.insert(key_from_pod(&pod), h);
+            })
+        } else {
+            info!(
+                "unable to find pod {} in namespace {}, it was likely already deleted",
+                pod.name(),
+                pod.namespace()
+            );
+        }
+        Ok(())
     }
 
     async fn logs(
@@ -180,11 +194,6 @@ fn key_from_pod(pod: &Pod) -> String {
 
 fn pod_key<N: AsRef<str>, T: AsRef<str>>(namespace: N, pod_name: T) -> String {
     format!("{}:{}", namespace.as_ref(), pod_name.as_ref())
-}
-
-/// Stop a running waSCC actor.
-fn wascc_stop(key: &str) -> anyhow::Result<(), wascc_host::errors::Error> {
-    host::remove_actor(key)
 }
 
 /// Run the given WASM data as a waSCC actor with the given public key.

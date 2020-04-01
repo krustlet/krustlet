@@ -137,6 +137,12 @@ impl WasccRuntime {
             status_recv,
         ))
     }
+
+    /// Stop a running waSCC actor.
+    pub fn stop(key: &str) -> anyhow::Result<(), wascc_host::errors::Error> {
+        host::remove_actor(key)
+    }
+    
     fn wascc_run(
         &self,
         data: Vec<u8>,
@@ -173,9 +179,6 @@ impl WasccRuntime {
         Ok(())
     }
 
-    fn wascc_stop(key: &str) -> anyhow::Result<(), wascc_host::errors::Error> {
-        host::remove_actor(key)
-    }
     // Spawns a running wasmtime instance with the given context and status
     // channel. Due to the Instance type not being Send safe, all of the logic
     // needs to be done within the spawned task
@@ -184,8 +187,8 @@ impl WasccRuntime {
         status_sender: Sender<ContainerStatus>,
     ) -> JoinHandle<anyhow::Result<()>> {
         // Clone the module data Arc so it can be moved
-        let module_data = self.module_data.clone();
 
+        let module_data = self.module_data.clone();
         let mut caps: Vec<Capability> = Vec::new();
 
         caps.push(Capability {
@@ -197,8 +200,11 @@ impl WasccRuntime {
             .map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))
             .unwrap();
         let pk = load.public_key();
-        self.wascc_run(self.module_data.to_vec(), &pk, &mut caps);
+
+        self.wascc_run(module_data.to_vec(), &pk, &mut caps).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e)).unwrap();
+
         tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+
             info!("module run complete");
             status_sender
                 .broadcast(ContainerStatus::Terminated {
