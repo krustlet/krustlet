@@ -66,27 +66,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-stream"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22068c0c19514942eefcfd4daf8976ef1aad84e61539f95cd200c35202f80af5"
-dependencies = [
- "async-stream-impl",
- "futures-core",
-]
-
-[[package]]
-name = "async-stream-impl"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25f9db3b38af870bf7e5cc649167533b493928e50744e2c30ae350230b414670"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "async-trait"
 version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -882,12 +861,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b0a34e53cf6cdcd0178aa573aed466b646eb3db769570841fda0c7ede375a27"
 
 [[package]]
-name = "futures-timer"
-version = "3.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e64b03909df88034c26dc1547e8970b91f98bdb65165d6a4e9110d94263dbb2c"
-
-[[package]]
 name = "futures-util"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1224,9 +1197,9 @@ dependencies = [
 
 [[package]]
 name = "kube"
-version = "0.29.0"
+version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6958dfbcdf8abe62b404d5d347b05c7c7c5a3bd428125f59f75c76f860d98523"
+checksum = "66be960d78ad587c7f89b24eb5f85a2b83da0e11d0fd7ffb000ce7bc01c52514"
 dependencies = [
  "Inflector",
  "base64 0.11.0",
@@ -1235,7 +1208,6 @@ dependencies = [
  "dirs",
  "either",
  "futures",
- "futures-timer",
  "futures-util",
  "http 0.2.1",
  "k8s-openapi",
@@ -1247,7 +1219,8 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "thiserror",
- "time 0.2.9",
+ "time 0.2.8",
+ "tokio",
  "url 2.1.1",
 ]
 
@@ -1256,7 +1229,6 @@ name = "kubelet"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-stream",
  "async-trait",
  "chrono",
  "clap",

@@ -109,7 +109,7 @@ impl<C> FileModuleStore<C> {
 }
 
 #[async_trait]
-impl<C: ImageClient + Sync + Send> ModuleStore for FileModuleStore<C> {
+impl<C: ImageClient + Send> ModuleStore for FileModuleStore<C> {
     async fn get(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
         let path = self.pull_file_path(image_ref);
         if !path.exists() {

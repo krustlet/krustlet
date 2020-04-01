@@ -3,10 +3,7 @@ use chrono::prelude::*;
 use k8s_openapi::api::coordination::v1::Lease;
 use k8s_openapi::api::core::v1::Node;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
-use kube::{
-    api::{Api, PatchParams, PostParams},
-    client::APIClient,
-};
+use kube::api::{Api, PatchParams, PostParams};
 use log::{debug, error, info};
 
 /// Create a node
@@ -18,9 +15,8 @@ use log::{debug, error, info};
 /// A node comes with a lease, and we maintain the lease to tell Kubernetes that the
 /// node remains alive and functional. Note that this will not work in
 /// versions of Kubernetes prior to 1.14.
-pub async fn create_node(client: &APIClient, config: Config, arch: &str) {
+pub async fn create_node(client: &kube::Client, config: &Config, arch: &str) {
     let node_client: Api<Node> = Api::all(client.clone());
-    let node_name = config.node_name.clone();
     let node = node_definition(config, arch);
 
     match node_client
@@ -34,15 +30,15 @@ pub async fn create_node(client: &APIClient, config: Config, arch: &str) {
         Ok(node) => {
             info!("created node just fine");
             let node_uid = node.metadata.unwrap_or_default().uid.unwrap_or_default();
-            create_lease(&node_uid, &node_name, &client).await
+            create_lease(&node_uid, &config.node_name, &client).await
         }
         Err(e) => {
             error!("Error creating node: {}", e);
             info!("Looking up node to see if it exists already");
-            match node_client.get(&node_name).await {
+            match node_client.get(&config.node_name).await {
                 Ok(node) => {
                     let node_uid = node.metadata.unwrap_or_default().uid.unwrap_or_default();
-                    create_lease(&node_uid, &node_name, &client).await
+                    create_lease(&node_uid, &config.node_name, &client).await
                 }
                 Err(e) => error!("Error fetching node after failed create: {}", e),
             }
@@ -57,7 +53,7 @@ pub async fn create_node(client: &APIClient, config: Config, arch: &str) {
 /// We trap errors because... well... quite frankly there is nothing useful
 /// to do if the Kubernetes API is unavailable, and we can merrily continue
 /// doing our processing of the pod queue.
-pub async fn update_node(client: &APIClient, node_name: &str) {
+pub async fn update_node(client: &kube::Client, node_name: &str) {
     let node_client: Api<Node> = Api::all(client.clone());
     // Get me a node
     let node_res = node_client.get(node_name).await;
@@ -81,7 +77,7 @@ pub async fn update_node(client: &APIClient, node_name: &str) {
 ///
 /// As far as I can tell, leases ALWAYS go in the 'kube-node-lease'
 /// namespace, no exceptions.
-async fn create_lease(node_uid: &str, node_name: &str, client: &APIClient) {
+async fn create_lease(node_uid: &str, node_name: &str, client: &kube::Client) {
     let leases: Api<Lease> = Api::namespaced(client.clone(), "kube-node-lease");
 
     let lease = lease_definition(node_uid, node_name);
@@ -100,7 +96,7 @@ async fn create_lease(node_uid: &str, node_name: &str, client: &APIClient) {
 ///
 /// TODO: Our patch is overzealous right now. We just need to update the
 /// timestamp.
-async fn update_lease(node_uid: &str, node_name: &str, client: &APIClient) {
+async fn update_lease(node_uid: &str, node_name: &str, client: &kube::Client) {
     let leases: Api<Lease> = Api::namespaced(client.clone(), "kube-node-lease");
 
     let lease = lease_definition(node_uid, node_name);
@@ -124,7 +120,7 @@ async fn update_lease(node_uid: &str, node_name: &str, client: &APIClient) {
 /// the OS field. I have seen 'emscripten' used for this field, but in our case
 /// the runtime is not emscripten, and besides... specifying which runtime we
 /// use seems like a misstep. Ideally, we'll be able to support multiple runtimes.
-fn node_definition(config: Config, arch: &str) -> serde_json::Value {
+fn node_definition(config: &Config, arch: &str) -> serde_json::Value {
     let ts = Time(Utc::now());
     serde_json::json!({
         "apiVersion": "v1",

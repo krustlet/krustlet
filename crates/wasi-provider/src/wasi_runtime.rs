@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::bail;
-use log::{error, info};
+use log::{error, info, warn};
 use tempfile::NamedTempFile;
 use tokio::sync::watch::{self, Sender};
 use tokio::task::JoinHandle;
@@ -11,8 +11,27 @@ use wasi_common::preopen_dir;
 use wasmtime_wasi::old::snapshot_0::Wasi as WasiUnstable;
 use wasmtime_wasi::{Wasi, WasiCtxBuilder};
 
-use kubelet::RuntimeHandle;
+use kubelet::handle::{RuntimeHandle, Stop};
 use kubelet::status::ContainerStatus;
+
+pub struct HandleStopper {
+    pub handle: JoinHandle<anyhow::Result<()>>,
+}
+
+#[async_trait::async_trait]
+impl Stop for HandleStopper {
+    async fn stop(&mut self) -> anyhow::Result<()> {
+        // TODO: Send an actual stop signal once there is support in wasmtime
+        warn!("There is currently no way to stop a running wasmtime instance. The pod will be deleted, but any long running processes will keep running");
+        Ok(())
+    }
+
+    async fn wait(&mut self) -> anyhow::Result<()> {
+        // Uncomment this and actually wait for the process to finish once we have a way to stop
+        // (&mut self.handle).await.unwrap()
+        Ok(())
+    }
+}
 
 /// WasiRuntime provides a WASI compatible runtime. A runtime should be used for
 /// each "instance" of a process and can be passed to a thread pool for running
@@ -71,7 +90,7 @@ impl WasiRuntime {
         })
     }
 
-    pub async fn start(&self) -> anyhow::Result<RuntimeHandle<tokio::fs::File>> {
+    pub async fn start(&self) -> anyhow::Result<RuntimeHandle<tokio::fs::File, HandleStopper>> {
         let temp = self.output.clone();
         // Because a reopen is blocking, run in a blocking task to get new
         // handles to the tempfile
@@ -112,7 +131,7 @@ impl WasiRuntime {
 
         Ok(RuntimeHandle::new(
             tokio::fs::File::from_std(output_read),
-            handle,
+            HandleStopper { handle },
             status_recv,
         ))
     }
@@ -251,43 +270,5 @@ impl WasiRuntime {
                 .expect("status should be able to send");
             Ok(())
         })
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_run() {
-        let module_data = tokio::fs::read("./testdata/hello-world.wasm")
-            .await
-            .unwrap();
-        let wr = WasiRuntime::new(
-            module_data,
-            HashMap::default(),
-            Vec::default(),
-            HashMap::default(),
-            std::env::current_dir().unwrap(),
-        )
-        .await
-        .expect("wasi runtime init");
-        let mut handle = wr.start().await.expect("runtime handle");
-        handle.wait().await.expect("successful run");
-
-        let mut output = Vec::new();
-        handle.output(&mut output).await.unwrap();
-        assert_eq!("Hello, world!\n".to_string().into_bytes(), output);
-
-        let status = handle.status().recv().await.unwrap();
-        assert!(match status {
-            ContainerStatus::Terminated { .. } => true,
-            _ => false,
-        });
-
-        // TODO: Once we add args support and other things that could actually
-        // cause a failure on start, we can test the intermediate state. Same
-        // thing when we get a longer running module we can test for running
-        // state
     }
 }

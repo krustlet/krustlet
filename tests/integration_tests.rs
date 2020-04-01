@@ -2,7 +2,6 @@ use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::{Node, Pod};
 use kube::{
     api::{Api, DeleteParams, ListParams, LogParams, PostParams, Resource, WatchEvent},
-    client::APIClient,
     config,
     runtime::Informer,
 };
@@ -16,7 +15,7 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .or_else(|_| config::incluster_config())?;
 
-    let client = APIClient::new(kubeconfig);
+    let client = kube::Client::from(kubeconfig);
 
     let nodes: Api<Node> = Api::all(client.clone());
 
@@ -115,7 +114,7 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .or_else(|_| config::incluster_config())?;
 
-    let client = APIClient::new(kubeconfig);
+    let client = kube::Client::from(kubeconfig);
 
     let nodes: Api<Node> = Api::all(client.clone());
 
@@ -203,17 +202,14 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
 
     let pod = pods.get("hello-wasi").await?;
 
-    let state = pod
-        .status
-        .expect("pod status")
-        .container_statuses
-        .expect("container_status")[0]
-        .state
-        .as_ref()
-        .expect("state")
-        .terminated
-        .clone()
-        .expect("terminated state");
+    let state = (|| {
+        pod.status?.container_statuses?[0]
+            .state
+            .as_ref()?
+            .terminated
+            .clone()
+    })()
+    .expect("Could not fetch terminated states");
     assert_eq!(state.exit_code, 0);
 
     // cleanup

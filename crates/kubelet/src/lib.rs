@@ -7,7 +7,6 @@
 //! # Example
 //! ```rust,no_run
 //! use kubelet::{Provider, Pod, Kubelet, config::Config};
-//! use kube::client::APIClient;
 //!
 //! // Create some type that will act as your provider
 //! struct MyProvider;
@@ -15,23 +14,20 @@
 //! // Implement the `Provider` trait for that type
 //! #[async_trait::async_trait]
 //! impl Provider for MyProvider {
-//!     fn arch(&self) -> String {
-//!         "my-arch".to_string()
-//!     }
+//!    const ARCH: &'static str = "my-arch";
 //!
-//!    async fn add(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> {
+//!    async fn add(&self, pod: Pod) -> anyhow::Result<()> {
 //!        todo!("Implement Provider::add")
 //!     }
 //!
 //!     // Implement the rest of the methods
 //!     # fn can_schedule(&self, pod: &Pod) -> bool { todo!() }
-//!     # async fn modify(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> { todo!() }
-//!     # async fn delete(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> { todo!() }
+//!     # async fn modify(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
+//!     # async fn delete(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
 //!     # async fn logs(&self, namespace: String, pod: String, container: String) -> anyhow::Result<Vec<u8>> { todo!() }
 //! }
 //!
-//! #[tokio::main]
-//! async fn main() {
+//! async {
 //!     // Instantiate your provider type
 //!     let provider = MyProvider;
 //!
@@ -44,7 +40,7 @@
 //!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config);
 //!     // Start the Kubelet and block on it
 //!     kubelet.start().await.unwrap();
-//! }
+//! };
 //! ```
 
 #![warn(missing_docs)]
@@ -56,6 +52,7 @@ mod pod;
 mod server;
 
 pub mod config;
+pub mod handle;
 pub mod image_client;
 pub mod module_store;
 pub mod provider;

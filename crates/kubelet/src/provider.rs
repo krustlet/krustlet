@@ -2,7 +2,6 @@
 use async_trait::async_trait;
 use k8s_openapi::api::core::v1::{ConfigMap, Container, EnvVarSource, Pod as KubePod, Secret};
 use kube::api::{Api, WatchEvent};
-use kube::client::APIClient;
 use log::{debug, error, info};
 use thiserror::Error;
 
@@ -26,32 +25,29 @@ use std::collections::HashMap;
 /// # Example
 /// ```rust
 /// use async_trait::async_trait;
-/// use kube::client::APIClient;
 /// use kubelet::{Provider, Pod};
 ///
 /// struct MyProvider;
 ///
 /// #[async_trait]
 /// impl Provider for MyProvider {
-///     fn arch(&self) -> String {
-///         "my-arch".to_string()
-///     }
+///     const ARCH: &'static str = "my-arch";
 ///
-///     async fn add(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> {
+///     async fn add(&self, pod: Pod) -> anyhow::Result<()> {
 ///         todo!("Implement Provider::add")
 ///     }
 ///     
 ///     // Implement the rest of the methods using `async` for the ones that return futures ...
 ///     # fn can_schedule(&self, pod: &Pod) -> bool { todo!() }
-///     # async fn modify(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> { todo!() }
-///     # async fn delete(&self, pod: Pod, client: APIClient) -> anyhow::Result<()> { todo!() }
+///     # async fn modify(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
+///     # async fn delete(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
 ///     # async fn logs(&self, namespace: String, pod: String, container: String) -> anyhow::Result<Vec<u8>> { todo!() }
 /// }
 /// ```
 #[async_trait]
 pub trait Provider {
     /// Arch returns a string specifying what architecture this provider supports
-    fn arch(&self) -> String;
+    const ARCH: &'static str;
 
     /// Given a Pod definition, this function determines whether or not the workload is schedulable on this provider.
     ///
@@ -64,19 +60,19 @@ pub trait Provider {
     fn can_schedule(&self, pod: &Pod) -> bool;
 
     /// Given a Pod definition, execute the workload.
-    async fn add(&self, pod: Pod, client: APIClient) -> anyhow::Result<()>;
+    async fn add(&self, pod: Pod) -> anyhow::Result<()>;
 
     /// Given an updated Pod definition, update the given workload.
     ///
     /// Pods that are sent to this function have already met certain criteria for modification.
     /// For example, updates to the `status` of a Pod will not be sent into this function.
-    async fn modify(&self, pod: Pod, client: APIClient) -> anyhow::Result<()>;
+    async fn modify(&self, pod: Pod) -> anyhow::Result<()>;
 
     /// Given the definition of a deleted Pod, remove the workload from the runtime.
     ///
     /// This does not need to actually delete the Pod definition -- just destroy the
     /// associated workload.
-    async fn delete(&self, pod: Pod, client: APIClient) -> anyhow::Result<()>;
+    async fn delete(&self, pod: Pod) -> anyhow::Result<()>;
 
     /// Given a Pod, get back the logs for the associated workload.
     async fn logs(
@@ -90,12 +86,7 @@ pub trait Provider {
     ///
     /// The default implementation of this returns a message that this feature is
     /// not available. Override this only when there is an implementation.
-    async fn exec(
-        &self,
-        _pod: Pod,
-        _client: APIClient,
-        _command: String,
-    ) -> anyhow::Result<Vec<String>> {
+    async fn exec(&self, _pod: Pod, _command: String) -> anyhow::Result<Vec<String>> {
         Err(NotImplementedError.into())
     }
 
@@ -103,13 +94,7 @@ pub trait Provider {
     ///
     /// In most cases, this should not be overridden. It is exposed for rare cases when
     /// the underlying event handling needs to change.
-    async fn handle_event(
-        &self,
-        event: WatchEvent<KubePod>,
-        config: kube::config::Configuration,
-    ) -> anyhow::Result<()> {
-        // TODO: Is there value in keeping one client and cloning it?
-        let client = APIClient::new(config);
+    async fn handle_event(&self, event: WatchEvent<KubePod>) -> anyhow::Result<()> {
         match event {
             WatchEvent::Added(pod) => {
                 let pod = pod.into();
@@ -120,7 +105,7 @@ pub trait Provider {
                     return Ok(());
                 };
                 // Step 3: DO IT!
-                self.add(pod, client).await
+                self.add(pod).await
             }
             WatchEvent::Modified(pod) => {
                 let pod = pod.into();
@@ -132,7 +117,7 @@ pub trait Provider {
                 };
                 // TODO: Step 2: Is this a real modification, or just status?
                 // Step 3: DO IT!
-                self.modify(pod, client).await
+                self.modify(pod).await
             }
             WatchEvent::Deleted(pod) => {
                 let pod = pod.into();
@@ -142,7 +127,7 @@ pub trait Provider {
                     return Ok(());
                 };
                 // Step 2: DO IT!
-                self.delete(pod, client).await
+                self.delete(pod).await
             }
             WatchEvent::Error(e) => {
                 error!("Event error: {}", e);
@@ -159,10 +144,9 @@ pub trait Provider {
     ///
     /// It is safe to call from within your own providers.
     async fn env_vars(
-        &self,
-        client: APIClient,
         container: &Container,
         pod: &Pod,
+        client: &kube::Client,
     ) -> HashMap<String, String> {
         let mut env = HashMap::new();
         let vars = match container.env.as_ref() {
@@ -176,8 +160,8 @@ pub trait Provider {
                 Some(v) => v,
                 None => {
                     on_missing_env_value(
-                        client.clone(),
                         env_var.value_from,
+                        client,
                         pod.namespace(),
                         &field_map(pod),
                     )
@@ -195,8 +179,8 @@ pub trait Provider {
 /// This follows the env_var_source to get the value
 #[doc(hidden)]
 async fn on_missing_env_value(
-    client: APIClient,
     env_var_source: Option<EnvVarSource>,
+    client: &kube::Client,
     ns: &str,
     fields: &HashMap<String, String>,
 ) -> String {
@@ -208,7 +192,10 @@ async fn on_missing_env_value(
     // ConfigMaps
     if let Some(cfkey) = env_src.config_map_key_ref.as_ref() {
         let name = cfkey.name.as_deref().unwrap_or_default();
-        match Api::<ConfigMap>::namespaced(client, ns).get(name).await {
+        match Api::<ConfigMap>::namespaced(client.clone(), ns)
+            .get(name)
+            .await
+        {
             Ok(cfgmap) => {
                 // I am not totally clear on what the outcome should
                 // be of a cfgmap key miss. So for now just return an
@@ -229,7 +216,10 @@ async fn on_missing_env_value(
     // Secrets
     if let Some(seckey) = env_src.secret_key_ref.as_ref() {
         let name = seckey.name.as_deref().unwrap_or_default();
-        match Api::<Secret>::namespaced(client, ns).get(name).await {
+        match Api::<Secret>::namespaced(client.clone(), ns)
+            .get(name)
+            .await
+        {
             Ok(secret) => {
                 // I am not totally clear on what the outcome should
                 // be of a secret key miss. So for now just return an
