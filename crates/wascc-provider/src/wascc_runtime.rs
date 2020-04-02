@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::bail;
@@ -7,6 +6,8 @@ use log::{debug, error, info, warn};
 use tempfile::NamedTempFile;
 use tokio::sync::watch::{self, Sender};
 use tokio::task::JoinHandle;
+
+use std::path::{Path, PathBuf};
 
 use wascc_host::{host, Actor, NativeCapability};
 
@@ -56,6 +57,7 @@ pub struct WasccRuntime {
     module_data: Arc<Vec<u8>>,
     /// key/value environment variables made available to the wasm process
     env: HashMap<String, String>,
+    log_path: PathBuf,
     /// The tempfile that output from the wasmtime process writes to
     output: Arc<NamedTempFile>,
 }
@@ -75,10 +77,11 @@ impl WasccRuntime {
     pub async fn new<L: AsRef<Path> + Send + Sync + 'static>(
         module_data: Vec<u8>,
         env: HashMap<String, String>,
+        log_path: PathBuf,
         log_dir: L,
     ) -> anyhow::Result<Self> {
         let temp = tokio::task::spawn_blocking(move || -> anyhow::Result<NamedTempFile> {
-            Ok(NamedTempFile::new_in(log_dir)?)
+            Ok(NamedTempFile::new_in(log_path)?)
         })
         .await??;
 
@@ -106,6 +109,7 @@ impl WasccRuntime {
         Ok(WasccRuntime {
             module_data: Arc::new(module_data),
             env,
+            log_path,
             output: Arc::new(temp),
         })
     }
@@ -125,7 +129,7 @@ impl WasccRuntime {
             timestamp: chrono::Utc::now(),
             message: "No status has been received from the process".into(),
         });
-        let handle = self.spawn_wascc(self.module_data.to_vec(),self.env.clone(),status_sender).await;
+        let handle = spawn_wascc(self.module_data.to_vec(),self.env.clone(),status_sender).await;
 
         Ok(RuntimeHandle::new(
             tokio::fs::File::from_std(output_read),
@@ -144,7 +148,6 @@ impl WasccRuntime {
     // channel. Due to the Instance type not being Send safe, all of the logic
     // needs to be done within the spawned task
     async fn spawn_wascc(
-        &self,
         data: Vec<u8>,
         env: HashMap<String,String>,
         status_sender: Sender<ContainerStatus>,
@@ -155,7 +158,7 @@ impl WasccRuntime {
 
         caps.push(Capability {
             name: HTTP_CAPABILITY,
-            env: self.env.clone(),
+            env: env.clone(),
         });
 
         let load = Actor::from_bytes(data.to_vec())
@@ -172,15 +175,16 @@ impl WasccRuntime {
             let pk = load.public_key();
     
             let mut logenv: HashMap<String, String> = HashMap::new();
-            /*let actor_path = log_path.join(pk.clone());
+            let actor_path = self.log_path.join(pk.clone());
+
+            let actor_log_path = actor_path.join("log.txt");
             std::fs::create_dir_all(&actor_path)
                 .map_err(|e| anyhow::anyhow!("error creating directory: {}", e))?;
-                */
-            /*logenv.insert(
+            logenv.insert(
                 LOG_PATH_KEY.to_string(),
                 actor_log_path.to_str().unwrap().to_owned(),
             );
-            */
+            
             caps.push(Capability {
                 name: LOG_CAPABILITY,
                 env: logenv,
