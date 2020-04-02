@@ -23,7 +23,7 @@ wasi-common = "0.12"
 tempfile = "3.1"
 kubelet = { path = "../kubelet", version = "0.1.0" }
 wat = "1.0"
-tokio = { version = "0.2.13", features = ["fs", "stream", "macros", "io-util", "sync"] }
+tokio = { version = "0.2.14", features = ["fs", "stream", "macros", "io-util", "sync"] }
 k8s-openapi = { version = "0.7.1", default-features = false, features = ["v1_17"] }
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3.4"
