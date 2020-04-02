@@ -26,7 +26,6 @@ use codec::{
     logging::{WriteLogRequest, OP_LOG},
 };
 
-#[macro_use]
 extern crate log;
 use log::Log;
 
@@ -72,17 +71,12 @@ impl LoggingProvider {
     }
 
     fn configure(&self, config: CapabilityConfiguration) -> Result<Vec<u8>, Box<dyn Error>> {
-        println!("CONFIGURE");
-        println!("{}", config.module);
-        println!("configuring {} for {:?}", CAPABILITY_ID, config.module);
         let fp = config
             .values
             .get(LOG_PATH_KEY)
             .ok_or("log file path was unspecified")?;
 
-        println!("file path{}", fp);
         let file = OpenOptions::new().write(true).open(fp)?;
-        println!("Opened log file {}", fp);
         let logger = WriteLogger::new(LevelFilter::Trace, Config::default(), file);
         let mut output_map = self.output_map.write().unwrap();
         output_map.insert(config.module, logger);
@@ -114,19 +108,14 @@ impl CapabilityProvider for LoggingProvider {
         // TIP: do not allow individual modules to attempt to send configuration,
         // only accept it from the host runtime
         if op == OP_CONFIGURE && actor == "system" {
-            println!("Received configure call {}", actor);
             let cfg_vals = deserialize::<CapabilityConfiguration>(msg)?;
             self.configure(cfg_vals)
         } else if op == OP_REMOVE_ACTOR && actor == "system" {
-            let cfg_vals = deserialize::<CapabilityConfiguration>(msg)?;
-            println!("Removing actor configuration for {}", cfg_vals.module);
             // tear down stuff here
             Ok(vec![])
         } else if op == OP_LOG {
-            println!("Received log call {}", actor);
             let log_msg = deserialize::<WriteLogRequest>(msg)?;
 
-            println!("[Level:{}] {}", log_msg.level, log_msg.body);
             let output_map = self.output_map.read().unwrap();
             let logger = output_map
                 .get(actor)
