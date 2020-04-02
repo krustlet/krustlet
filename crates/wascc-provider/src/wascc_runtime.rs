@@ -31,21 +31,19 @@ const HTTP_LIB: &str = "./lib/libwascc_httpsrv.dylib";
 #[cfg(target_os = "macos")]
 const LOG_LIB: &str = "./lib/libwascc_logging.dylib";
 
-pub struct HandleStopper {
-    pub handle: JoinHandle<anyhow::Result<()>>,
+pub struct ActorStopper {
+    pub key: String,
 }
 
 #[async_trait::async_trait]
-impl Stop for HandleStopper {
+impl Stop for ActorStopper {
     async fn stop(&mut self) -> anyhow::Result<()> {
-        // TODO: Send an actual stop signal once there is support in wasmtime
-        warn!("There is currently no way to stop a running wasmtime instance. The pod will be deleted, but any long running processes will keep running");
-        Ok(())
+        debug!("stopping wascc instance {}", self.key);
+        host::remove_actor(self.key)
     }
 
     async fn wait(&mut self) -> anyhow::Result<()> {
-        // Uncomment this and actually wait for the process to finish once we have a way to stop
-        // (&mut self.handle).await.unwrap()
+        // TODO: Figure out if there is a way to wait for an actor to be removed
         Ok(())
     }
 }
@@ -129,7 +127,7 @@ impl WasccRuntime {
             timestamp: chrono::Utc::now(),
             message: "No status has been received from the process".into(),
         });
-        let handle = spawn_wascc(self.module_data.to_vec(),self.env.clone(),status_sender).await;
+        let handle = self.spawn_wascc(self.module_data.to_vec(),self.env.clone(),status_sender).await;
 
         Ok(RuntimeHandle::new(
             tokio::fs::File::from_std(output_read),
@@ -148,10 +146,11 @@ impl WasccRuntime {
     // channel. Due to the Instance type not being Send safe, all of the logic
     // needs to be done within the spawned task
     async fn spawn_wascc(
+        &self,
         data: Vec<u8>,
         env: HashMap<String,String>,
         status_sender: Sender<ContainerStatus>,
-    ) -> JoinHandle<anyhow::Result<()>> {
+    ) -> anyhow::Result<()> {
         // Clone the module data Arc so it can be moved
 
         let mut caps: Vec<Capability> = Vec::new();
@@ -166,47 +165,44 @@ impl WasccRuntime {
             .unwrap();
         let pk = load.public_key();
 
-      //.unwrap()  self.wascc_run(module_data.to_vec(), &pk, &mut caps).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e)).unwrap();
+        //.unwrap()  self.wascc_run(module_data.to_vec(), &pk, &mut caps).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e)).unwrap();
+        let load =
+        Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e)).unwrap();
+        let pk = load.public_key();
 
-        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-            info!("wascc run");
-            let load =
-                Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
-            let pk = load.public_key();
-    
-            let mut logenv: HashMap<String, String> = HashMap::new();
-            let actor_path = self.log_path.join(pk.clone());
-
-            let actor_log_path = actor_path.join("log.txt");
-            std::fs::create_dir_all(&actor_path)
+        let mut logenv: HashMap<String, String> = HashMap::new();
+        let actor_log_path = self.log_path.join(pk.clone()).join("log.txt");
+        tokio::fs::create_dir_all(&actor_log_path).await
                 .map_err(|e| anyhow::anyhow!("error creating directory: {}", e))?;
-            logenv.insert(
-                LOG_PATH_KEY.to_string(),
-                actor_log_path.to_str().unwrap().to_owned(),
-            );
-            
-            caps.push(Capability {
-                name: LOG_CAPABILITY,
-                env: logenv,
-            });
-            host::add_actor(load).map_err(|e| anyhow::anyhow!("Error adding actor: {}", e))?;
-    
-            caps.iter().try_for_each(|cap| {
-                info!("configuring capability {}", cap.name);
-                host::configure(&pk, cap.name, cap.env.clone())
-                    .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
-            })?;
-            info!("Instance executing");
-            info!("module run complete");
-            status_sender
-                .broadcast(ContainerStatus::Terminated {
-                    failed: false,
-                    message: "Module run completed".into(),
-                    timestamp: chrono::Utc::now(),
-                })
-                .expect("status should be able to send");
-            Ok(())
-        })
+        logenv.insert(
+            LOG_PATH_KEY.to_string(),
+            actor_log_path.to_str().unwrap().to_owned(),
+        );
+        
+        caps.push(Capability {
+            name: LOG_CAPABILITY,
+            env: logenv,
+        });
+
+        info!("beginning wascc run for: {}", pk);
+        
+        host::add_actor(load).map_err(|e| anyhow::anyhow!("Error adding actor: {}", e))?;
+
+        caps.iter().try_for_each(|cap| {
+            info!("configuring capability {}", cap.name);
+            host::configure(&pk, cap.name, cap.env.clone())
+                .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
+        })?;
+        info!("Instance executing");
+        info!("module run complete");
+        status_sender
+            .broadcast(ContainerStatus::Terminated {
+                failed: false,
+                message: "Module run completed".into(),
+                timestamp: chrono::Utc::now(),
+            })
+            .expect("status should be able to send");
+        Ok(())
     }
 }
 

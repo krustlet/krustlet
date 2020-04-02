@@ -43,7 +43,7 @@ use log::{debug, error, info};
 use tokio::fs::File;
 use tokio::sync::RwLock;
 
-use kubelet::handle::PodHandle;
+use kubelet::handle::{PodHandle, key_from_pod, pod_key};
 use wasi_runtime::{HandleStopper, WasiRuntime};
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
@@ -213,15 +213,6 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         handle.output(&container_name, &mut output).await?;
         Ok(output)
     }
-}
-
-/// Generates a unique human readable key for storing a handle to a pod
-fn key_from_pod(pod: &Pod) -> String {
-    pod_key(pod.namespace(), pod.name())
-}
-
-fn pod_key<N: AsRef<str>, T: AsRef<str>>(namespace: N, pod_name: T) -> String {
-    format!("{}:{}", namespace.as_ref(), pod_name.as_ref())
 }
 
 #[cfg(test)]
