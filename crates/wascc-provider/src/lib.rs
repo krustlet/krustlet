@@ -32,10 +32,9 @@
 #![warn(missing_docs)]
 
 use async_trait::async_trait;
-use kube::client::Client;
 use kubelet::module_store::ModuleStore;
 use kubelet::provider::ProviderError;
-use kubelet::status::{ContainerStatus, Status};
+use kubelet::status::{ContainerStatus};
 use kubelet::{Pod, Provider};
 use kubelet::handle::{PodHandle, RuntimeHandle, Stop, key_from_pod, pod_key};
 use log::{error,debug, info, warn};
@@ -51,13 +50,16 @@ use std::collections::HashMap;
 use std::path::{PathBuf, Path};
 use std::sync::Arc;
 
-const ACTOR_PUBLIC_KEY: &str = "deislabs.io/wascc-action-key";
+/// The architecture that the pod targets.
 const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
 
 /// The name of the HTTP capability.
 const HTTP_CAPABILITY: &str = "wascc:http_server";
+
+/// The name of the Logging capability.
 const LOG_CAPABILITY: &str = "wascc:logging";
 
+/// The root directory of waSCC logs.
 const LOG_DIR_NAME: &str = "wascc-logs";
 
 #[cfg(target_os = "linux")]
@@ -77,6 +79,7 @@ type EnvVars = std::collections::HashMap<String, String>;
 
 /// A [kubelet::handle::Stop] implementation for a wascc actor
 pub struct ActorStopper {
+    /// The public key of the wascc Actor that will be stopped
     pub key: String,
 }
 
@@ -113,8 +116,13 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
         let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
 
+        // wascc has native capabilities which are dynamic libraries (.so, .dylib, .dll)
+        // and portable capabilities which are WASM modules.  Portable capabilities
+        // don't fully work, and won't until the WASI spec has matured.  We load
+        // logging and http serving capabilities here, by first loading the library
+        // then adding the capability to the host.
         tokio::task::spawn_blocking(|| {
-            warn!("Loading HTTP Capability");
+            info!("Loading HTTP Capability");
             let data = NativeCapability::from_file(HTTP_LIB).map_err(|e| {
                 anyhow::anyhow!("Failed to read HTTP capability {}: {}", HTTP_LIB, e)
             })?;
@@ -123,7 +131,7 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
                     anyhow::anyhow!("Failed to load HTTP capability: {}", e)
             })?;
 
-            warn!("Loading LOG Capability");
+            info!("Loading LOG Capability");
             let logdata = NativeCapability::from_file(LOG_LIB).map_err(|e| {
                 anyhow::anyhow!("Failed to read LOG capability {}: {}", LOG_LIB, e)
             })?;
@@ -155,40 +163,11 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
     }
 
     async fn add(&self, pod: Pod) -> anyhow::Result<()> {
-        // To run an Add event, we load the WASM, update the pod status to Running,
-        // and then execute the WASM, passing in the relevant data.
+        // To run an Add event, we load the actor, and update the pod status 
+        // to Running.  The wascc runtime takes care of starting the actor.
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
         debug!("Pod added {:?}", pod.name());
-        // This would lock us into one wascc actor per pod. I don't know if
-        // that is a good thing. Other containers would then be limited
-        // to acting as components... which largely follows the sidecar
-        // pattern.
-        //
-        // Another possibility is to embed the key in the image reference
-        // (image/foo.wasm@ed25519:PUBKEY). That might work best, but it is
-        // not terribly useable.
-        //
-        // A really icky one would be to just require the pubkey in the env
-        // vars and suck it out of there. But that violates the intention
-        // of env vars, which is to communicate _into_ the runtime, not to
-        // configure the runtime.
-
-        // TODO: Implement this for real.
-        //
-        // What it should do:
-        // - for each volume
-        //   - set up the volume map
-        // - for each init container:
-        //   - set up the runtime
-        //   - mount any volumes (popen)
-        //   - run it to completion
-        //   - bail with an error if it fails
-        // - for each container and ephemeral_container
-        //   - set up the runtime
-        //   - mount any volumes (popen)
-        //   - run it to completion
-        //   - bail if it errors
 
         info!("Starting containers for pod {:?}", pod.name());
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
@@ -330,8 +309,7 @@ struct Capability {
 /// The provided capabilities will be configured for this actor, but the capabilities
 /// must first be loaded into the host by some other process, such as register_native_capabilities().
 fn wascc_run(data: Vec<u8>, capabilities: &mut Vec<Capability>, log_path: &Path, status_recv: Receiver<ContainerStatus>) -> anyhow::Result<RuntimeHandle<File, ActorStopper>> {
-    info!("wascc run");
-
+    info!("sending actor to wascc host");
     let log_output = NamedTempFile::new_in(log_path)?;
     let mut logenv: HashMap<String, String> = HashMap::new();
     logenv.insert(LOG_PATH_KEY.to_string(), log_output.path().to_str().unwrap().to_owned());
@@ -349,7 +327,7 @@ fn wascc_run(data: Vec<u8>, capabilities: &mut Vec<Capability>, log_path: &Path,
         host::configure(&pk, cap.name, cap.env.clone())
             .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
     })?;
-    info!("Instance executing");
+    info!("wascc actor executing");
     Ok(RuntimeHandle::new(tokio::fs::File::from_std(log_output.reopen()?), ActorStopper{key: pk}, status_recv))
 }
 
