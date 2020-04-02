@@ -53,7 +53,7 @@ const LOG_DIR_NAME: &str = "wasi-logs";
 /// binaries conforming to the WASI spec
 #[derive(Clone)]
 pub struct WasiProvider<S> {
-    handles: Arc<RwLock<HashMap<String, PodHandle<File, HandleStopper>>>>,
+    handles: Arc<RwLock<HashMap<String, PodHandle<HandleStopper, File>>>>,
     store: S,
     log_path: PathBuf,
     kubeconfig: kube::config::Configuration,

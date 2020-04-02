@@ -90,7 +90,7 @@ impl WasiRuntime {
         })
     }
 
-    pub async fn start(&self) -> anyhow::Result<RuntimeHandle<tokio::fs::File, HandleStopper>> {
+    pub async fn start(&self) -> anyhow::Result<RuntimeHandle<HandleStopper, tokio::fs::File>> {
         let temp = self.output.clone();
         // Because a reopen is blocking, run in a blocking task to get new
         // handles to the tempfile
@@ -130,8 +130,8 @@ impl WasiRuntime {
         let handle = self.spawn_wasmtime(status_sender, wasi_ctx_snapshot, wasi_ctx_unstable);
 
         Ok(RuntimeHandle::new(
-            tokio::fs::File::from_std(output_read),
             HandleStopper { handle },
+            tokio::fs::File::from_std(output_read),
             status_recv,
         ))
     }
