@@ -197,13 +197,8 @@ $ sudo mkdir -p /etc/krustlet && sudo chown krustlet:krustlet /etc/krustlet
 $ mv {krustlet.pfx,kubeconfig-sa} /etc/krustlet && chmod 600 /etc/krustlet/*
 ```
 
-Once that is in place, we'll download the latest release of krustlet and install it:
-
-<!-- TODO: Add 0.1 link when released -->
-```shell
-$ curl -LO https://krustlet.blob.core.windows.net/releases/krustlet-canary-Linux-amd64.tar.gz && tar -xzf krustlet-canary-Linux-amd64.tar.gz
-$ sudo mv krustlet-wa* /usr/local/bin/
-```
+Once that is in place, we'll install the latest release of krustlet following [the install
+guide](../intro/install.md).
 
 Next we'll enable krustlet as a systemd service. There is an example
 [`krustlet.service`](./assets/krustlet.service) that you can either copy to the box, but it is
