@@ -66,10 +66,7 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
         "apiVersion": "v1",
         "kind": "Pod",
         "metadata": {
-            "name": "hello-wascc",
-            "annotations": {
-                "deislabs.io/wascc-action-key": "MB4OLDIC3TCZ4Q4TGGOVAZC43VXFE2JQVRAXQMQFXUCREOOFEKOKZTY2"
-            }
+            "name": "hello-wascc"
         },
         "spec": {
             "containers": [
@@ -118,13 +115,14 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let mut logs = pods
-        .log_stream("hello-wascc", &LogParams::default())
-        .await?;
-
-    while let Some(line) = logs.try_next().await? {
-        assert_eq!("{\"kind\":\"Status\",\"apiVersion\":\"v1\",\"metadata\":{},\"status\":\"Failure\",\"message\":\"an error on the server (\\\"Not Implemented\\\") has prevented the request from succeeding ( pods/log hello-wascc)\",\"reason\":\"InternalError\",\"details\":{\"name\":\"hello-wascc\",\"kind\":\"pods/log\"},\"code\":501}\n", String::from_utf8_lossy(&line));
-    }
+    let logs = pods
+        .logs("hello-wascc", &LogParams::default())
+        .await
+        .expect("unable to get logs");
+    assert!(logs.contains("warn something"));
+    assert!(logs.contains("info something"));
+    assert!(logs.contains("raw msg I'm a Body!"));
+    assert!(logs.contains("error body"));
 
     // cleanup
     pods.delete("hello-wascc", &DeleteParams::default()).await?;

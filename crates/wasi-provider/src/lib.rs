@@ -43,7 +43,7 @@ use log::{debug, error, info};
 use tokio::fs::File;
 use tokio::sync::RwLock;
 
-use kubelet::handle::{PodHandle, key_from_pod, pod_key};
+use kubelet::handle::{key_from_pod, pod_key, PodHandle};
 use wasi_runtime::{HandleStopper, WasiRuntime};
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
@@ -202,4 +202,3 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         Ok(output)
     }
 }
-

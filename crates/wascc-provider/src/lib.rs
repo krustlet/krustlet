@@ -16,11 +16,11 @@
 //!     let client = oci_distribution::Client::default();
 //!     let store = FileModuleStore::new(client, &std::path::PathBuf::from(""));
 //!
-//!     // Instantiate the provider type
-//!     let provider = WasccProvider::new(store, &kubelet_config).await.unwrap();
-//!
 //!     // Load a kubernetes configuration
 //!     let kubeconfig = kube::config::load_kube_config().await.unwrap();
+//!
+//!     // Instantiate the provider type
+//!     let provider = WasccProvider::new(store, &kubelet_config, kubeconfig.clone()).await.unwrap();
 //!     
 //!     // Instantiate the Kubelet
 //!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config);
@@ -35,7 +35,7 @@ use async_trait::async_trait;
 use kubelet::handle::{key_from_pod, pod_key, PodHandle, RuntimeHandle, Stop};
 use kubelet::module_store::ModuleStore;
 use kubelet::provider::ProviderError;
-use kubelet::status::ContainerStatus;
+use kubelet::status::{ContainerStatus, Status};
 use kubelet::{Pod, Provider};
 use log::{debug, error, info, warn};
 use tempfile::NamedTempFile;
@@ -192,13 +192,22 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
                         .expect("status should be able to send");
                 }
                 Err(e) => {
-                    status_sender
-                        .broadcast(ContainerStatus::Terminated {
+                    // We can't broadcast here because the receiver has been dropped at this point
+                    // (it was never used in creating a runtime handle)
+                    let mut container_statuses = HashMap::new();
+                    container_statuses.insert(
+                        container.name.clone(),
+                        ContainerStatus::Terminated {
                             timestamp: chrono::Utc::now(),
                             failed: true,
                             message: format!("Error while starting container: {:?}", e),
-                        })
-                        .expect("status should be able to send");
+                        },
+                    );
+                    let status = Status {
+                        message: None,
+                        container_statuses,
+                    };
+                    pod.patch_status(client.clone(), status).await;
                     return Err(anyhow::anyhow!("Failed to run pod: {}", e));
                 }
             }
@@ -359,19 +368,14 @@ mod test {
 
         let log_path = PathBuf::from(r"~/.krustlet");
 
+        let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
+            timestamp: chrono::Utc::now(),
+            message: "No status has been received from the process".into(),
+        });
         // Send into wascc_run
-        wascc_run_http(
-            data,
-            EnvVars::new(),
-            "MB4OLDIC3TCZ4Q4TGGOVAZC43VXFE2JQVRAXQMQFXUCREOOFEKOKZTY2",
-            &log_path,
-        )
-        .expect("successfully executed a WASM");
-
+        let handle = wascc_run_http(data, EnvVars::new(), &log_path, status_recv);
         // Give the webserver a chance to start up.
         std::thread::sleep(std::time::Duration::from_secs(3));
-        wascc_stop("MB4OLDIC3TCZ4Q4TGGOVAZC43VXFE2JQVRAXQMQFXUCREOOFEKOKZTY2")
-            .expect("Removed the actor");
     }
 
     #[test]
@@ -383,16 +387,20 @@ mod test {
 
         let log_path = PathBuf::from(r"~/.krustlet");
         let wasm = std::fs::read("./testdata/echo_actor_s.wasm").expect("load echo WASM");
+
+        let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
+            timestamp: chrono::Utc::now(),
+            message: "No status has been received from the process".into(),
+        });
         // TODO: use wascc_run to execute echo_actor
-        wascc_run(
+        let handle = wascc_run(
             wasm,
-            key,
             &mut vec![Capability {
                 name: "wok:echoProvider",
                 env: EnvVars::new(),
             }],
             &log_path,
-        )
-        .expect("completed echo run")
+            status_recv,
+        );
     }
 }

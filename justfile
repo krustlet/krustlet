@@ -33,6 +33,5 @@ bootstrap-ssl:
     @test -f $(eval echo $KEY_DIR)/certificate.pfx || openssl pkcs12 -export -out  $(eval echo $KEY_DIR)/certificate.pfx -inkey  $(eval echo $KEY_DIR)/host.key -in  $(eval echo $KEY_DIR)/host.cert -password "pass:${PFX_PASSWORD}"
     @chmod 400 $(eval echo $KEY_DIR)/*
 
-
 _cleanup_kube:
     kubectl delete --all pods --namespace=default || true

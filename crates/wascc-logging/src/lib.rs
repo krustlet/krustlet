@@ -46,7 +46,7 @@ const SYSTEM_ACTOR: &str = "system";
 const CAPABILITY_ID: &str = "wascc:logging";
 enum LogLevel {
     NONE = 0,
-    ERROR, 
+    ERROR,
     WARN,
     INFO,
     DEBUG,
@@ -134,13 +134,13 @@ impl CapabilityProvider for LoggingProvider {
             let logger = output_map
                 .get(actor)
                 .ok_or(format!("unable to find logger for actor {}", actor))?;
-                logger.log(
-                    &log::Record::builder()
-                        .args(format_args!("[{}] {}", actor, log_msg.body))
-                        .level(level)
-                        .build(),
-                );
-                Ok(vec![])
+            logger.log(
+                &log::Record::builder()
+                    .args(format_args!("[{}] {}", actor, log_msg.body))
+                    .level(level)
+                    .build(),
+            );
+            Ok(vec![])
         } else {
             Err(format!("Unknown operation: {}", op).into())
         }
