@@ -65,11 +65,11 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
 
         // This informer listens for pod events.
         let provider = self.provider.clone();
-        let node_name = self.config.node_name.clone();
+        let node_selector = format!("spec.nodeName={}", self.config.node_name);
         let pod_informer = tokio::task::spawn(async move {
             // Create our informer and start listening.
             let params = ListParams {
-                field_selector: Some(format!("spec.nodeName={}", node_name)),
+                field_selector: Some(node_selector),
                 ..Default::default()
             };
             let informer = Informer::new(client, params, Resource::all::<KubePod>());
