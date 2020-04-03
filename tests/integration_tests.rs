@@ -54,7 +54,7 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
             "containers": [
                 {
                     "name": "hello-wascc",
-                    "image": "webassembly.azurecr.io/hello-wasm:v1",
+                    "image": "webassembly.azurecr.io/hello-wascc:v0.3",
                 },
             ],
             "nodeSelector": {
