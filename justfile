@@ -19,7 +19,7 @@ test:
 test-e2e:
     cargo test --test integration_tests
 
-run-wascc: build build-logging _copy_log_lib _cleanup_kube bootstrap-ssl
+run-wascc: build build-logging _cleanup_kube bootstrap-ssl
     @# Change directories so we have access to the ./lib dir
     cd ./crates/wascc-provider && cargo run --bin krustlet-wascc --manifest-path ../../Cargo.toml -- --node-name krustlet-wascc --port 3000
 
@@ -33,9 +33,6 @@ bootstrap-ssl:
     @test -f $(eval echo $KEY_DIR)/certificate.pfx || openssl pkcs12 -export -out  $(eval echo $KEY_DIR)/certificate.pfx -inkey  $(eval echo $KEY_DIR)/host.key -in  $(eval echo $KEY_DIR)/host.cert -password "pass:${PFX_PASSWORD}"
     @chmod 400 $(eval echo $KEY_DIR)/*
 
-_copy_log_lib:
-    cp target/debug/libwascc_logging.so crates/wascc-provider/lib/
-    #cp target/debug/libwascc_logging.dylib crates/wascc-provider/lib/
 
 _cleanup_kube:
     kubectl delete --all pods --namespace=default || true
