@@ -192,7 +192,7 @@ impl<R: AsyncRead + AsyncSeek + Unpin, S: Stop> PodHandle<R, S> {
 }
 
 /// Generates a unique human readable key for storing a handle to a pod in a
-/// hash. This is a convenience wrapper around [crate::pod_key].
+/// hash. This is a convenience wrapper around [pod_key].
 pub fn key_from_pod(pod: &Pod) -> String {
     pod_key(pod.namespace(), pod.name())
 }

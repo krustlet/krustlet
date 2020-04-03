@@ -39,6 +39,10 @@ use simplelog::{Config, LevelFilter, WriteLogger};
 capability_provider!(LoggingProvider, LoggingProvider::new);
 
 pub const LOG_PATH_KEY: &str = "LOG_PATH";
+
+/// Origin of messages coming from wascc host
+const SYSTEM_ACTOR: &str = "system";
+
 const CAPABILITY_ID: &str = "wascc:logging";
 
 enum LogLevel {
@@ -107,10 +111,10 @@ impl CapabilityProvider for LoggingProvider {
     fn handle_call(&self, actor: &str, op: &str, msg: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
         // TIP: do not allow individual modules to attempt to send configuration,
         // only accept it from the host runtime
-        if op == OP_CONFIGURE && actor == "system" {
+        if op == OP_CONFIGURE && actor == SYSTEM_ACTOR {
             let cfg_vals = deserialize::<CapabilityConfiguration>(msg)?;
             self.configure(cfg_vals)
-        } else if op == OP_REMOVE_ACTOR && actor == "system" {
+        } else if op == OP_REMOVE_ACTOR && actor == SYSTEM_ACTOR {
             // tear down stuff here
             Ok(vec![])
         } else if op == OP_LOG {
