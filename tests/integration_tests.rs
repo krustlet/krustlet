@@ -94,17 +94,18 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
         client,
         ListParams::default()
             .fields("metadata.name=greet-wascc")
-            .timeout(10),
+            .timeout(30),
         Resource::namespaced::<Pod>("default"),
     );
 
     let mut watcher = inf.poll().await?.boxed();
-
+    let mut went_ready = false;
     while let Some(event) = watcher.try_next().await? {
         match event {
             WatchEvent::Modified(o) => {
                 let phase = o.status.unwrap().phase.unwrap();
                 if phase == "Running" {
+                    went_ready = true;
                     break;
                 }
             }
@@ -114,6 +115,8 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
             _ => {}
         }
     }
+
+    assert!(went_ready, "pod never went ready");
 
     // Send a request to the pod to trigger some logging
     reqwest::get("http://127.0.0.1:8080")
@@ -223,20 +226,20 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
         client,
         ListParams::default()
             .fields("metadata.name=hello-wasi")
-            .timeout(10),
+            .timeout(30),
         Resource::namespaced::<Pod>("default"),
     );
 
     let mut watcher = inf.poll().await?.boxed();
-    let mut found_running = false;
+    let mut went_ready = false;
     while let Some(event) = watcher.try_next().await? {
         match event {
             WatchEvent::Modified(o) => {
                 let phase = o.status.unwrap().phase.unwrap();
                 if phase == "Running" {
-                    found_running = true;
+                    went_ready = true;
                 }
-                if phase == "Succeeded" && !found_running {
+                if phase == "Succeeded" && !went_ready {
                     panic!("Reached completed phase before receiving Running phase")
                 } else if phase == "Succeeded" {
                     break;
@@ -248,6 +251,8 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
             _ => {}
         }
     }
+
+    assert!(went_ready, "pod never went ready");
 
     let mut logs = pods.log_stream("hello-wasi", &LogParams::default()).await?;
 
