@@ -3,8 +3,9 @@
 **This project is highly experimental.** It is not yet fully ready for production, so you should use
 it in production at your own risk
 
-Krustlet acts as a Kubelet by listening on the event stream for new pod requests that match a
-particular set of node selectors.
+Krustlet acts as a Kubelet by listening on the event stream for new pods that
+the scheduler assigns to it based on specific Kubernetes
+[tolerations](https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/).
 
 The default implementation of Krustlet listens for the architecture `wasm32-wasi` and schedules
 those workloads to run in a `wasmtime`-based runtime instead of a container runtime.

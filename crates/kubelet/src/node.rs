@@ -3,7 +3,7 @@ use chrono::prelude::*;
 use k8s_openapi::api::coordination::v1::Lease;
 use k8s_openapi::api::core::v1::Node;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
-use kube::api::{Api, PatchParams, PostParams};
+use kube::api::{Api, DeleteParams, PatchParams, PostParams};
 use log::{debug, error, info};
 
 /// Create a node
@@ -38,11 +38,28 @@ pub async fn create_node(client: &kube::Client, config: &Config, arch: &str) {
                 e
             );
             match node_client.get(&config.node_name).await {
-                Ok(node) => {
+                Ok(_) => {
+                    // HACK WARNING: So it turns out we need to have the proper
+                    // permissions in order to update the node status, so this
+                    // is a hacky workaround for now where we delete and
+                    // recreate the node. This is being tracked in https://github.com/deislabs/krustlet/issues/150
                     info!("node found, updating current node definition");
-                    update_node(
-                        client,
-                        &node.metadata.unwrap_or_default().name.unwrap_or_default(),
+                    node_client
+                        .delete(&config.node_name, &DeleteParams::default())
+                        .await
+                        .expect("Unable to recreate node...aborting");
+                    let node = node_client
+                        .create(
+                            &PostParams::default(),
+                            &serde_json::from_value(node_definition(config, arch))
+                                .expect("failed to deserialize node from node definition JSON"),
+                        )
+                        .await
+                        .expect("Unable to recreate node...aborting");
+                    create_lease(
+                        &node.metadata.unwrap_or_default().uid.unwrap_or_default(),
+                        &config.node_name,
+                        &client,
                     )
                     .await
                 }
@@ -62,13 +79,11 @@ pub async fn create_node(client: &kube::Client, config: &Config, arch: &str) {
 pub async fn update_node(client: &kube::Client, node_name: &str) {
     let node_client: Api<Node> = Api::all(client.clone());
     // Get me a node
-    let node_res = node_client.get(node_name).await;
-    match node_res {
+    match node_client.get(node_name).await {
         Err(e) => {
             error!("Failed to get node: {:?}", e);
         }
         Ok(node) => {
-            debug!("node update complete, beginning lease update");
             let uid = node.metadata.unwrap_or_default().uid.unwrap_or_default();
             update_lease(&uid, node_name, client).await;
         }
@@ -148,7 +163,14 @@ fn node_definition(config: &Config, arch: &str) -> serde_json::Value {
             }
         },
         "spec": {
-            "podCIDR": "10.244.0.0/24"
+            "podCIDR": "10.244.0.0/24",
+            "taints": [
+                {
+                    "effect": "NoExecute",
+                    "key": "krustlet/arch",
+                    "value": arch
+                }
+            ]
         },
         "status": {
             "nodeInfo": {
@@ -171,7 +193,7 @@ fn node_definition(config: &Config, arch: &str) -> serde_json::Value {
                 "memory": "4032800Ki",
                 "pods": "30"
             },
-            "alocatable": {
+            "allocatable": {
                 "cpu": "4",
                 "ephemeral-storage": "61255492Ki",
                 "hugepages-1Gi": "0",

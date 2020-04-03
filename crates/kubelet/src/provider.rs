@@ -2,7 +2,7 @@
 use async_trait::async_trait;
 use k8s_openapi::api::core::v1::{ConfigMap, Container, EnvVarSource, Pod as KubePod, Secret};
 use kube::api::{Api, WatchEvent};
-use log::{debug, error, info};
+use log::{error, info};
 use thiserror::Error;
 
 use crate::pod::Pod;
@@ -38,7 +38,6 @@ use std::collections::HashMap;
 ///     }
 ///     
 ///     // Implement the rest of the methods using `async` for the ones that return futures ...
-///     # fn can_schedule(&self, pod: &Pod) -> bool { todo!() }
 ///     # async fn modify(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
 ///     # async fn delete(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
 ///     # async fn logs(&self, namespace: String, pod: String, container: String) -> anyhow::Result<Vec<u8>> { todo!() }
@@ -48,16 +47,6 @@ use std::collections::HashMap;
 pub trait Provider {
     /// Arch returns a string specifying what architecture this provider supports
     const ARCH: &'static str;
-
-    /// Given a Pod definition, this function determines whether or not the workload is schedulable on this provider.
-    ///
-    /// This determines _only_ if the pod, as described, meets the node requirements (e.g. the node selector).
-    /// It is not responsible for determining whether the underlying provider has resources to schedule.
-    /// That happens later when `add()` is called.
-    ///
-    /// It is paramount that this function be fast, as every newly created Pod will come through this
-    /// function.
-    fn can_schedule(&self, pod: &Pod) -> bool;
 
     /// Given a Pod definition, execute the workload.
     async fn add(&self, pod: Pod) -> anyhow::Result<()>;
@@ -98,35 +87,15 @@ pub trait Provider {
         match event {
             WatchEvent::Added(pod) => {
                 let pod = pod.into();
-                // Step 1: Is this legit?
-                // Step 2: Can the provider handle this?
-                if !self.can_schedule(&pod) {
-                    debug!("Provider cannot schedule {}", pod.name());
-                    return Ok(());
-                };
-                // Step 3: DO IT!
                 self.add(pod).await
             }
             WatchEvent::Modified(pod) => {
                 let pod = pod.into();
-                // Step 1: Can the provider handle this? (This should be the faster function,
-                // so we can weed out negatives quickly.)
-                if !self.can_schedule(&pod) {
-                    debug!("Provider cannot schedule {}", pod.name());
-                    return Ok(());
-                };
-                // TODO: Step 2: Is this a real modification, or just status?
-                // Step 3: DO IT!
+                // TODO: Is this a real modification, or just status?
                 self.modify(pod).await
             }
             WatchEvent::Deleted(pod) => {
                 let pod = pod.into();
-                // Step 1: Can the provider handle this?
-                if !self.can_schedule(&pod) {
-                    debug!("Provider cannot schedule {}", pod.name());
-                    return Ok(());
-                };
-                // Step 2: DO IT!
                 self.delete(pod).await
             }
             WatchEvent::Error(e) => {

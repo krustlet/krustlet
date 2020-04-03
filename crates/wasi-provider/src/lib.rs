@@ -81,18 +81,6 @@ impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
 impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
     const ARCH: &'static str = TARGET_WASM32_WASI;
 
-    fn can_schedule(&self, pod: &Pod) -> bool {
-        // If there is a node selector and it has arch set to wasm32-wasi, we can
-        // schedule it.
-        match pod.node_selector() {
-            Some(node_selector) => node_selector
-                .get("beta.kubernetes.io/arch")
-                .map(|v| v == TARGET_WASM32_WASI)
-                .unwrap_or(false),
-            _ => false,
-        }
-    }
-
     async fn add(&self, pod: Pod) -> anyhow::Result<()> {
         // To run an Add event, we load the WASM, update the pod status to Running,
         // and then execute the WASM, passing in the relevant data.
@@ -222,59 +210,4 @@ fn key_from_pod(pod: &Pod) -> String {
 
 fn pod_key<N: AsRef<str>, T: AsRef<str>>(namespace: N, pod_name: T) -> String {
     format!("{}:{}", namespace.as_ref(), pod_name.as_ref())
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use k8s_openapi::api::core::v1::Pod as KubePod;
-    use k8s_openapi::api::core::v1::PodSpec;
-
-    struct TestStore;
-
-    #[async_trait::async_trait]
-    impl ModuleStore for TestStore {
-        async fn get(&self, _image_ref: &oci_distribution::Reference) -> anyhow::Result<Vec<u8>> {
-            unimplemented!()
-        }
-    }
-
-    #[tokio::test]
-    async fn test_can_schedule() {
-        let store = TestStore;
-        let provider = WasiProvider::new(
-            store,
-            &Default::default(),
-            kube::config::Configuration {
-                base_path: String::new(),
-                client: Default::default(),
-                default_ns: String::new(),
-            },
-        )
-        .await
-        .expect("unable to create new runtime");
-        let mock = Pod::default();
-        assert!(!provider.can_schedule(&mock));
-
-        let mut selector = std::collections::BTreeMap::new();
-        selector.insert(
-            "beta.kubernetes.io/arch".to_string(),
-            "wasm32-wasi".to_string(),
-        );
-        let mut mock = KubePod::default();
-        mock.spec = Some(PodSpec {
-            node_selector: Some(selector.clone()),
-            ..Default::default()
-        });
-
-        assert!(provider.can_schedule(&mock.into()));
-        selector.insert("beta.kubernetes.io/arch".to_string(), "amd64".to_string());
-        let mut mock = KubePod::default();
-        mock.spec = Some(PodSpec {
-            node_selector: Some(selector),
-            ..Default::default()
-        });
-
-        assert!(!provider.can_schedule(&mock.into()));
-    }
 }

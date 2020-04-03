@@ -6,16 +6,16 @@ metadata:
     deislabs.io/wascc-action-key: MB4OLDIC3TCZ4Q4TGGOVAZC43VXFE2JQVRAXQMQFXUCREOOFEKOKZTY2
 spec:
   containers:
-    - image: webassembly.azurecr.io/hello-wasm:v1 
+    - image: webassembly.azurecr.io/hello-wasm:v1
       imagePullPolicy: Always
       name: greet
       ports:
         - containerPort: 80
-  nodeSelector:
-    kubernetes.io/role: agent
-    beta.kubernetes.io/os: linux
-    beta.kubernetes.io/arch: wasm32-wascc
   tolerations:
     - key: "node.kubernetes.io/network-unavailable"
       operator: "Exists"
       effect: "NoSchedule"
+    - key: "krustlet/arch"
+      operator: "Equal"
+      value: "wasm32-wascc"
+      effect: "NoExecute"
