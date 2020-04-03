@@ -66,13 +66,13 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
         "apiVersion": "v1",
         "kind": "Pod",
         "metadata": {
-            "name": "hello-wascc"
+            "name": "greet-wascc"
         },
         "spec": {
             "containers": [
                 {
-                    "name": "hello-wascc",
-                    "image": "webassembly.azurecr.io/hello-wascc:v0.3",
+                    "name": "greet-wascc",
+                    "image": "webassembly.azurecr.io/greet-wascc:v0.3",
                 },
             ],
             "tolerations": [
@@ -93,7 +93,7 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     let inf: Informer<Pod> = Informer::new(
         client,
         ListParams::default()
-            .fields("metadata.name=hello-wascc")
+            .fields("metadata.name=greet-wascc")
             .timeout(10),
         Resource::namespaced::<Pod>("default"),
     );
@@ -116,7 +116,7 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let logs = pods
-        .logs("hello-wascc", &LogParams::default())
+        .logs("greet-wascc", &LogParams::default())
         .await
         .expect("unable to get logs");
     assert!(logs.contains("warn something"));
@@ -125,7 +125,7 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     assert!(logs.contains("error body"));
 
     // cleanup
-    pods.delete("hello-wascc", &DeleteParams::default()).await?;
+    pods.delete("greet-wascc", &DeleteParams::default()).await?;
 
     Ok(())
 }
