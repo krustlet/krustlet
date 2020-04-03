@@ -32,22 +32,22 @@
 #![warn(missing_docs)]
 
 use async_trait::async_trait;
+use kubelet::handle::{key_from_pod, pod_key, PodHandle, RuntimeHandle, Stop};
 use kubelet::module_store::ModuleStore;
 use kubelet::provider::ProviderError;
-use kubelet::status::{ContainerStatus};
+use kubelet::status::ContainerStatus;
 use kubelet::{Pod, Provider};
-use kubelet::handle::{PodHandle, RuntimeHandle, Stop, key_from_pod, pod_key};
-use log::{error,debug, info, warn};
-use wascc_host::{host, Actor, NativeCapability};
-use tokio::sync::RwLock;
+use log::{debug, error, info, warn};
+use tempfile::NamedTempFile;
 use tokio::fs::File;
 use tokio::sync::watch::{self, Receiver};
-use tempfile::NamedTempFile;
+use tokio::sync::RwLock;
+use wascc_host::{host, Actor, NativeCapability};
 
-use wascc_logging::{LOG_PATH_KEY};
+use wascc_logging::LOG_PATH_KEY;
 
 use std::collections::HashMap;
-use std::path::{PathBuf, Path};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// The architecture that the pod targets.
@@ -87,7 +87,8 @@ pub struct ActorStopper {
 impl Stop for ActorStopper {
     async fn stop(&mut self) -> anyhow::Result<()> {
         debug!("stopping wascc instance {}", self.key);
-        host::remove_actor(&self.key).map_err(|e| anyhow::anyhow!("unable to remove actor: {:?}", e))
+        host::remove_actor(&self.key)
+            .map_err(|e| anyhow::anyhow!("unable to remove actor: {:?}", e))
     }
 
     async fn wait(&mut self) -> anyhow::Result<()> {
@@ -112,7 +113,11 @@ pub struct WasccProvider<S> {
 impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
     /// Returns a new wasCC provider configured to use the proper data directory
     /// (including creating it if necessary)
-    pub async fn new(store: S, config: &kubelet::config::Config, kubeconfig: kube::config::Configuration) -> anyhow::Result<Self> {
+    pub async fn new(
+        store: S,
+        config: &kubelet::config::Config,
+        kubeconfig: kube::config::Configuration,
+    ) -> anyhow::Result<Self> {
         let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
 
@@ -127,14 +132,11 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
                 anyhow::anyhow!("Failed to read HTTP capability {}: {}", HTTP_LIB, e)
             })?;
             host::add_native_capability(data)
-                .map_err(|e| {
-                    anyhow::anyhow!("Failed to load HTTP capability: {}", e)
-            })?;
+                .map_err(|e| anyhow::anyhow!("Failed to load HTTP capability: {}", e))?;
 
             info!("Loading LOG Capability");
-            let logdata = NativeCapability::from_file(LOG_LIB).map_err(|e| {
-                anyhow::anyhow!("Failed to read LOG capability {}: {}", LOG_LIB, e)
-            })?;
+            let logdata = NativeCapability::from_file(LOG_LIB)
+                .map_err(|e| anyhow::anyhow!("Failed to read LOG capability {}: {}", LOG_LIB, e))?;
             host::add_native_capability(logdata)
                 .map_err(|e| anyhow::anyhow!("Failed to load LOG capability: {}", e))
         })
@@ -153,7 +155,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
     const ARCH: &'static str = TARGET_WASM32_WASCC;
 
     async fn add(&self, pod: Pod) -> anyhow::Result<()> {
-        // To run an Add event, we load the actor, and update the pod status 
+        // To run an Add event, we load the actor, and update the pod status
         // to Running.  The wascc runtime takes care of starting the actor.
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
@@ -176,22 +178,27 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
                 timestamp: chrono::Utc::now(),
                 message: "No status has been received from the process".into(),
             });
-            let http_result =
-                tokio::task::spawn_blocking(move || wascc_run_http(module_data, env, &lp, status_recv))
-                    .await?;
+            let http_result = tokio::task::spawn_blocking(move || {
+                wascc_run_http(module_data, env, &lp, status_recv)
+            })
+            .await?;
             match http_result {
                 Ok(handle) => {
                     container_handles.insert(container.name.clone(), handle);
-                    status_sender.broadcast(ContainerStatus::Running {
-                        timestamp: chrono::Utc::now(),
-                    }).expect("status should be able to send");
+                    status_sender
+                        .broadcast(ContainerStatus::Running {
+                            timestamp: chrono::Utc::now(),
+                        })
+                        .expect("status should be able to send");
                 }
                 Err(e) => {
-                    status_sender.broadcast(ContainerStatus::Terminated {
-                        timestamp: chrono::Utc::now(),
-                        failed: true,
-                        message: format!("Error while starting container: {:?}", e),
-                    }).expect("status should be able to send");
+                    status_sender
+                        .broadcast(ContainerStatus::Terminated {
+                            timestamp: chrono::Utc::now(),
+                            failed: true,
+                            message: format!("Error while starting container: {:?}", e),
+                        })
+                        .expect("status should be able to send");
                     return Err(anyhow::anyhow!("Failed to run pod: {}", e));
                 }
             }
@@ -269,19 +276,19 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
 /// Run a WasCC module inside of the host, configuring it to handle HTTP requests.
 ///
 /// This bootstraps an HTTP host, using the value of the env's `PORT` key to expose a port.
-fn wascc_run_http(data: Vec<u8>, env: EnvVars, log_path: &Path, status_recv: Receiver<ContainerStatus>) -> anyhow::Result<RuntimeHandle<ActorStopper, File>> {
+fn wascc_run_http(
+    data: Vec<u8>,
+    env: EnvVars,
+    log_path: &Path,
+    status_recv: Receiver<ContainerStatus>,
+) -> anyhow::Result<RuntimeHandle<ActorStopper, File>> {
     let mut caps: Vec<Capability> = Vec::new();
 
     caps.push(Capability {
         name: HTTP_CAPABILITY,
         env: env,
     });
-    wascc_run(
-        data,
-        &mut caps,
-        log_path,
-        status_recv,
-    )
+    wascc_run(data, &mut caps, log_path, status_recv)
 }
 
 /// Capability describes a waSCC capability.
@@ -298,11 +305,19 @@ struct Capability {
 ///
 /// The provided capabilities will be configured for this actor, but the capabilities
 /// must first be loaded into the host by some other process, such as register_native_capabilities().
-fn wascc_run(data: Vec<u8>, capabilities: &mut Vec<Capability>, log_path: &Path, status_recv: Receiver<ContainerStatus>) -> anyhow::Result<RuntimeHandle<ActorStopper, File>> {
+fn wascc_run(
+    data: Vec<u8>,
+    capabilities: &mut Vec<Capability>,
+    log_path: &Path,
+    status_recv: Receiver<ContainerStatus>,
+) -> anyhow::Result<RuntimeHandle<ActorStopper, File>> {
     info!("sending actor to wascc host");
     let log_output = NamedTempFile::new_in(log_path)?;
     let mut logenv: HashMap<String, String> = HashMap::new();
-    logenv.insert(LOG_PATH_KEY.to_string(), log_output.path().to_str().unwrap().to_owned());
+    logenv.insert(
+        LOG_PATH_KEY.to_string(),
+        log_output.path().to_str().unwrap().to_owned(),
+    );
     capabilities.push(Capability {
         name: LOG_CAPABILITY,
         env: logenv,
@@ -318,7 +333,11 @@ fn wascc_run(data: Vec<u8>, capabilities: &mut Vec<Capability>, log_path: &Path,
             .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
     })?;
     info!("wascc actor executing");
-    Ok(RuntimeHandle::new(ActorStopper{key: pk}, tokio::fs::File::from_std(log_output.reopen()?), status_recv))
+    Ok(RuntimeHandle::new(
+        ActorStopper { key: pk },
+        tokio::fs::File::from_std(log_output.reopen()?),
+        status_recv,
+    ))
 }
 
 #[cfg(test)]
@@ -332,7 +351,6 @@ mod test {
 
     #[test]
     fn test_wascc_run() {
-
         use std::path::PathBuf;
         let data = NativeCapability::from_file(HTTP_LIB).expect("loaded http library");
         host::add_native_capability(data).expect("added http capability");
@@ -340,13 +358,13 @@ mod test {
         let data = std::fs::read("./testdata/echo.wasm").expect("read the wasm file");
 
         let log_path = PathBuf::from(r"~/.krustlet");
-        
+
         // Send into wascc_run
         wascc_run_http(
             data,
             EnvVars::new(),
             "MB4OLDIC3TCZ4Q4TGGOVAZC43VXFE2JQVRAXQMQFXUCREOOFEKOKZTY2",
-           &log_path,
+            &log_path,
         )
         .expect("successfully executed a WASM");
 
