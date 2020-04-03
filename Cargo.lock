@@ -1188,6 +1188,7 @@ dependencies = [
  "kube",
  "kubelet",
  "oci-distribution",
+ "reqwest",
  "serde_derive",
  "serde_json",
  "tokio",

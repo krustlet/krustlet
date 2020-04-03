@@ -295,7 +295,7 @@ fn wascc_run_http(
 
     caps.push(Capability {
         name: HTTP_CAPABILITY,
-        env: env,
+        env,
     });
     wascc_run(data, &mut caps, log_path, status_recv)
 }
@@ -358,8 +358,8 @@ mod test {
     #[cfg(target_os = "macos")]
     const ECHO_LIB: &str = "./testdata/libecho_provider.dylib";
 
-    #[test]
-    fn test_wascc_run() {
+    #[tokio::test]
+    async fn test_wascc_run() {
         use std::path::PathBuf;
         let data = NativeCapability::from_file(HTTP_LIB).expect("loaded http library");
         host::add_native_capability(data).expect("added http capability");
@@ -368,14 +368,16 @@ mod test {
 
         let log_path = PathBuf::from(r"~/.krustlet");
 
-        let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
+        let (_status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
             timestamp: chrono::Utc::now(),
             message: "No status has been received from the process".into(),
         });
         // Send into wascc_run
-        let handle = wascc_run_http(data, EnvVars::new(), &log_path, status_recv);
+        let mut handle = wascc_run_http(data, EnvVars::new(), &log_path, status_recv)
+            .expect("successfully executed a WASM");
         // Give the webserver a chance to start up.
         std::thread::sleep(std::time::Duration::from_secs(3));
+        handle.stop().await.expect("Removed the actor")
     }
 
     #[test]
@@ -383,17 +385,15 @@ mod test {
         let data = NativeCapability::from_file(ECHO_LIB).expect("loaded echo library");
         host::add_native_capability(data).expect("added echo capability");
 
-        let key = "MDAYLDTOZEHQFPB3CL5PAFY5UTNCW32P54XGWYX3FOM2UBRYNCP3I3BF";
-
         let log_path = PathBuf::from(r"~/.krustlet");
         let wasm = std::fs::read("./testdata/echo_actor_s.wasm").expect("load echo WASM");
 
-        let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
+        let (_status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
             timestamp: chrono::Utc::now(),
             message: "No status has been received from the process".into(),
         });
-        // TODO: use wascc_run to execute echo_actor
-        let handle = wascc_run(
+
+        wascc_run(
             wasm,
             &mut vec![Capability {
                 name: "wok:echoProvider",
@@ -401,6 +401,7 @@ mod test {
             }],
             &log_path,
             status_recv,
-        );
+        )
+        .expect("completed echo run");
     }
 }

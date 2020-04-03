@@ -115,6 +115,11 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Send a request to the pod to trigger some logging
+    reqwest::get("http://127.0.0.1:8080")
+        .await
+        .expect("unable to perform request to test pod");
+
     let logs = pods
         .logs("greet-wascc", &LogParams::default())
         .await
