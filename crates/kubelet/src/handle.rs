@@ -194,8 +194,8 @@ pub fn key_from_pod(pod: &Pod) -> String {
     pod_key(pod.namespace(), pod.name())
 }
 
-// Generates a unique human readable key for storing a handle to a pod if you
-// already have the namespace and pod name.
+/// Generates a unique human readable key for storing a handle to a pod if you
+/// already have the namespace and pod name.
 pub fn pod_key<N: AsRef<str>, T: AsRef<str>>(namespace: N, pod_name: T) -> String {
     format!("{}:{}", namespace.as_ref(), pod_name.as_ref())
 }

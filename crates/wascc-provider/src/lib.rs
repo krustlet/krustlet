@@ -103,7 +103,7 @@ impl Stop for ActorStopper {
 /// from Kubernetes.
 #[derive(Clone)]
 pub struct WasccProvider<S> {
-    handles: Arc<RwLock<HashMap<String, PodHandle<File, ActorStopper>>>>,
+    handles: Arc<RwLock<HashMap<String, PodHandle<ActorStopper, File>>>>,
     store: S,
     log_path: PathBuf,
     kubeconfig: kube::config::Configuration,
@@ -269,7 +269,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
 /// Run a WasCC module inside of the host, configuring it to handle HTTP requests.
 ///
 /// This bootstraps an HTTP host, using the value of the env's `PORT` key to expose a port.
-fn wascc_run_http(data: Vec<u8>, env: EnvVars, log_path: &Path, status_recv: Receiver<ContainerStatus>) -> anyhow::Result<RuntimeHandle<File, ActorStopper>> {
+fn wascc_run_http(data: Vec<u8>, env: EnvVars, log_path: &Path, status_recv: Receiver<ContainerStatus>) -> anyhow::Result<RuntimeHandle<ActorStopper, File>> {
     let mut caps: Vec<Capability> = Vec::new();
 
     caps.push(Capability {
@@ -298,7 +298,7 @@ struct Capability {
 ///
 /// The provided capabilities will be configured for this actor, but the capabilities
 /// must first be loaded into the host by some other process, such as register_native_capabilities().
-fn wascc_run(data: Vec<u8>, capabilities: &mut Vec<Capability>, log_path: &Path, status_recv: Receiver<ContainerStatus>) -> anyhow::Result<RuntimeHandle<File, ActorStopper>> {
+fn wascc_run(data: Vec<u8>, capabilities: &mut Vec<Capability>, log_path: &Path, status_recv: Receiver<ContainerStatus>) -> anyhow::Result<RuntimeHandle<ActorStopper, File>> {
     info!("sending actor to wascc host");
     let log_output = NamedTempFile::new_in(log_path)?;
     let mut logenv: HashMap<String, String> = HashMap::new();
@@ -318,7 +318,7 @@ fn wascc_run(data: Vec<u8>, capabilities: &mut Vec<Capability>, log_path: &Path,
             .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
     })?;
     info!("wascc actor executing");
-    Ok(RuntimeHandle::new(tokio::fs::File::from_std(log_output.reopen()?), ActorStopper{key: pk}, status_recv))
+    Ok(RuntimeHandle::new(ActorStopper{key: pk}, tokio::fs::File::from_std(log_output.reopen()?), status_recv))
 }
 
 #[cfg(test)]

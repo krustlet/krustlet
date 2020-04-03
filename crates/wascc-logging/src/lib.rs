@@ -120,6 +120,16 @@ impl CapabilityProvider for LoggingProvider {
         } else if op == OP_LOG {
             let log_msg = deserialize::<WriteLogRequest>(msg)?;
 
+            let level = match log_msg.level {
+                x if x == LogLevel::ERROR as usize => log::Level::Error,
+                x if x == LogLevel::WARN as usize => log::Level::Warn,
+                x if x == LogLevel::INFO as usize => log::Level::Info,
+                x if x == LogLevel::DEBUG as usize => log::Level::Debug,
+                x if x == LogLevel::TRACE as usize => log::Level::Trace,
+                x if x == LogLevel::NONE as usize => return Ok(vec![]),
+                _ => return Err(format!("Unknown log level {}", log_msg.level).into()),
+            };
+
             let output_map = self.output_map.read().unwrap();
             let logger = output_map
                 .get(actor)
@@ -127,14 +137,7 @@ impl CapabilityProvider for LoggingProvider {
                 logger.log(
                     &log::Record::builder()
                         .args(format_args!("[{}] {}", actor, log_msg.body))
-                        .level(match log_msg.level {
-                            x if x == LogLevel::ERROR as usize => log::Level::Error,
-                            x if x == LogLevel::WARN as usize => log::Level::Warn,
-                            x if x == LogLevel::INFO as usize => log::Level::Info,
-                            x if x == LogLevel::DEBUG as usize => log::Level::Debug,
-                            x if x == LogLevel::TRACE as usize => log::Level::Trace,
-                            _ => return Err(format!("Unknown log level {}", log_msg.level).into()),
-                        })
+                        .level(level)
                         .build(),
                 );
                 Ok(vec![])
