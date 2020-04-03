@@ -44,9 +44,9 @@ pub const LOG_PATH_KEY: &str = "LOG_PATH";
 const SYSTEM_ACTOR: &str = "system";
 
 const CAPABILITY_ID: &str = "wascc:logging";
-
 enum LogLevel {
-    ERROR = 1,
+    NONE = 0,
+    ERROR, 
     WARN,
     INFO,
     DEBUG,
@@ -124,20 +124,20 @@ impl CapabilityProvider for LoggingProvider {
             let logger = output_map
                 .get(actor)
                 .ok_or(format!("unable to find logger for actor {}", actor))?;
-            logger.log(
-                &log::Record::builder()
-                    .args(format_args!("[{}] {}", actor, log_msg.body))
-                    .level(match log_msg.level {
-                        x if x == LogLevel::ERROR as usize => log::Level::Error,
-                        x if x == LogLevel::WARN as usize => log::Level::Warn,
-                        x if x == LogLevel::INFO as usize => log::Level::Info,
-                        x if x == LogLevel::DEBUG as usize => log::Level::Debug,
-                        x if x == LogLevel::TRACE as usize => log::Level::Trace,
-                        _ => return Err(format!("Unknown log level {}", log_msg.level).into()),
-                    })
-                    .build(),
-            );
-            Ok(vec![])
+                logger.log(
+                    &log::Record::builder()
+                        .args(format_args!("[{}] {}", actor, log_msg.body))
+                        .level(match log_msg.level {
+                            x if x == LogLevel::ERROR as usize => log::Level::Error,
+                            x if x == LogLevel::WARN as usize => log::Level::Warn,
+                            x if x == LogLevel::INFO as usize => log::Level::Info,
+                            x if x == LogLevel::DEBUG as usize => log::Level::Debug,
+                            x if x == LogLevel::TRACE as usize => log::Level::Trace,
+                            _ => return Err(format!("Unknown log level {}", log_msg.level).into()),
+                        })
+                        .build(),
+                );
+                Ok(vec![])
         } else {
             Err(format!("Unknown operation: {}", op).into())
         }
