@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::io::SeekFrom;
 
 use log::{debug, error, info};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
 use tokio::stream::{StreamExt, StreamMap};
 use tokio::sync::watch::Receiver;
 use tokio::sync::RwLock;
@@ -18,8 +18,8 @@ use crate::provider::ProviderError;
 use crate::status::{ContainerStatus, Status};
 use crate::Pod;
 
-/// Any provider wanting to use the [crate::RuntimeHandle] and
-/// [crate::PodHandle] will need to have some sort of "stopper" that implement
+/// Any provider wanting to use the [`RuntimeHandle`] and
+/// [`PodHandle`] will need to have some sort of "stopper" that implement
 /// this Trait. Because the logic for stopping a running "container" can vary
 /// from provider to provider, this allows for flexibility in implementing how
 /// to stop each runtime
@@ -34,25 +34,25 @@ pub trait Stop {
 
 /// Represents a handle to a running "container" (whatever that might be). This
 /// can be used on its own, however, it is generally better to use it as a part
-/// of a [crate::PodHandle], which manages a group of containers in a Kubernetes
+/// of a [`PodHandle`], which manages a group of containers in a Kubernetes
 /// Pod
-pub struct RuntimeHandle<R, S> {
-    output: BufReader<R>,
+pub struct RuntimeHandle<S, R> {
     stopper: S,
+    output: R,
     status_channel: Receiver<ContainerStatus>,
 }
 
-impl<R: AsyncRead + AsyncSeek + Unpin, S: Stop> RuntimeHandle<R, S> {
-    /// Create a new handle with the given reader for log output and a stopper
-    /// for stopping the runtime. The status_channel is a [Tokio watch
-    /// receiver](https://docs.rs/tokio/0.2.13/tokio/sync/watch/struct.Receiver.html).
-    /// The sender part of the channel should be given to the running process
-    /// and the receiver half passed to this constructor to be used for
-    /// reporting current status
-    pub fn new(output: R, stopper: S, status_channel: Receiver<ContainerStatus>) -> Self {
+impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<S, R> {
+    /// Create a new handle with the given stopper for stopping the runtime,
+    /// a reader for log output and status channel.
+    ///
+    /// The status channel is a [Tokio watch `Receiver`][Receiver]. The sender part
+    /// of the channel should be given to the running process and the receiver half
+    /// passed to this constructor to be used for reporting current status
+    pub fn new(stopper: S, output: R, status_channel: Receiver<ContainerStatus>) -> Self {
         Self {
-            output: BufReader::new(output),
             stopper,
+            output,
             status_channel,
         }
     }
@@ -61,15 +61,12 @@ impl<R: AsyncRead + AsyncSeek + Unpin, S: Stop> RuntimeHandle<R, S> {
     /// Returns the number of bytes written to the buffer
     pub(crate) async fn output(&mut self, buf: &mut Vec<u8>) -> anyhow::Result<usize> {
         let bytes_written = self.output.read_to_end(buf).await?;
-        // Reset the seek location for the next call to read from the file
-        // NOTE: The Tokio BufReader does not implement seek, so we need to get
-        // a mutable ref to the inner file and perform the seek
-        self.output.get_mut().seek(SeekFrom::Start(0)).await?;
+        self.output.seek(SeekFrom::Start(0)).await?;
         Ok(bytes_written)
     }
 
-    /// Signal the running instance to stop. Use [RuntimeHandle::wait] to wait for the process to exit. This
-    /// uses the underlying [crate::Stop] implementation passed to the
+    /// Signal the running instance to stop. Use [`RuntimeHandle::wait`] to wait for the process to exit. This
+    /// uses the underlying [`Stop`] implementation passed to the
     /// constructor
     pub async fn stop(&mut self) -> anyhow::Result<()> {
         self.stopper.stop().await
@@ -82,8 +79,8 @@ impl<R: AsyncRead + AsyncSeek + Unpin, S: Stop> RuntimeHandle<R, S> {
     }
 
     /// Wait for the running process to complete. Generally speaking,
-    /// [RuntimeHandle::stop] should be called first. This uses the underlying
-    /// [crate::Stop] implementation passed to the constructor
+    /// [`RuntimeHandle::stop`] should be called first. This uses the underlying
+    /// [`Stop`] implementation passed to the constructor
     pub(crate) async fn wait(&mut self) -> anyhow::Result<()> {
         self.stopper.wait().await
     }
@@ -92,19 +89,19 @@ impl<R: AsyncRead + AsyncSeek + Unpin, S: Stop> RuntimeHandle<R, S> {
 /// PodHandle is the top level handle into managing a pod. It manages updating
 /// statuses for the containers in the pod and can be used to stop the pod and
 /// access logs
-pub struct PodHandle<R, S> {
-    container_handles: RwLock<HashMap<String, RuntimeHandle<R, S>>>,
+pub struct PodHandle<S, R> {
+    container_handles: RwLock<HashMap<String, RuntimeHandle<S, R>>>,
     status_handle: JoinHandle<()>,
     pod: Pod,
 }
 
-impl<R: AsyncRead + AsyncSeek + Unpin, S: Stop> PodHandle<R, S> {
+impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> PodHandle<S, R> {
     /// Creates a new pod handle that manages the given map of container names
-    /// to [crate::RuntimeHandle]s. The given pod and client are used to
+    /// to [`RuntimeHandle`]s. The given pod and client are used to
     /// maintain a reference to the kubernetes object and to be able to update
     /// the status of that object
     pub fn new(
-        container_handles: HashMap<String, RuntimeHandle<R, S>>,
+        container_handles: HashMap<String, RuntimeHandle<S, R>>,
         pod: Pod,
         client: kube::Client,
     ) -> anyhow::Result<Self> {

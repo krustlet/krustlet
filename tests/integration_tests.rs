@@ -1,5 +1,5 @@
 use futures::{StreamExt, TryStreamExt};
-use k8s_openapi::api::core::v1::{Node, Pod};
+use k8s_openapi::api::core::v1::{Node, Pod, Taint};
 use kube::{
     api::{Api, DeleteParams, ListParams, LogParams, PostParams, Resource, WatchEvent},
     config,
@@ -40,6 +40,27 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
         "wasm32-wascc"
     );
 
+    let taints = node
+        .spec
+        .expect("node had no spec")
+        .taints
+        .expect("node had no taints");
+    let taint = taints
+        .iter()
+        .find(|t| t.key == "krustlet/arch")
+        .expect("did not find krustlet/arch taint");
+    // There is no "operator" field in the type for the crate for some reason,
+    // so we can't compare it here
+    assert_eq!(
+        taint,
+        &Taint {
+            effect: "NoExecute".to_owned(),
+            key: "krustlet/arch".to_owned(),
+            value: Some("wasm32-wascc".to_owned()),
+            ..Default::default()
+        }
+    );
+
     let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
@@ -57,9 +78,14 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
                     "image": "webassembly.azurecr.io/hello-wascc:v0.3",
                 },
             ],
-            "nodeSelector": {
-                "beta.kubernetes.io/arch": "wasm32-wascc",
-            },
+            "tolerations": [
+                {
+                    "effect": "NoExecute",
+                    "key": "krustlet/arch",
+                    "operator": "Equal",
+                    "value": "wasm32-wascc"
+                },
+            ]
         }
     }))?;
 
@@ -140,6 +166,27 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
         "wasm32-wasi"
     );
 
+    let taints = node
+        .spec
+        .expect("node had no spec")
+        .taints
+        .expect("node had no taints");
+    let taint = taints
+        .iter()
+        .find(|t| t.key == "krustlet/arch")
+        .expect("did not find krustlet/arch taint");
+    // There is no "operator" field in the type for the crate for some reason,
+    // so we can't compare it here
+    assert_eq!(
+        taint,
+        &Taint {
+            effect: "NoExecute".to_owned(),
+            key: "krustlet/arch".to_owned(),
+            value: Some("wasm32-wasi".to_owned()),
+            ..Default::default()
+        }
+    );
+
     let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
@@ -154,9 +201,14 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
                     "image": "webassembly.azurecr.io/hello-wasm:v1",
                 },
             ],
-            "nodeSelector": {
-                "beta.kubernetes.io/arch": "wasm32-wasi",
-            },
+            "tolerations": [
+                {
+                    "effect": "NoExecute",
+                    "key": "krustlet/arch",
+                    "operator": "Equal",
+                    "value": "wasm32-wasi"
+                },
+            ]
         }
     }))?;
 

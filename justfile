@@ -38,5 +38,4 @@ _copy_log_lib:
     #cp target/debug/libwascc_logging.dylib crates/wascc-provider/lib/
 
 _cleanup_kube:
-    kubectl delete node krustlet-wasi krustlet-wascc || true
     kubectl delete --all pods --namespace=default || true

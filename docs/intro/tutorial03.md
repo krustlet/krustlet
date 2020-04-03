@@ -24,8 +24,11 @@ spec:
   containers:
     - name: krustlet-tutorial
       image: mycontainerregistry007.azurecr.io/krustlet-tutorial:v1.0.0
-  nodeSelector:
-    beta.kubernetes.io/arch: wasm32-wasi
+  tolerations:
+    - key: "krustlet/arch"
+      operator: "Equal"
+      value: "wasm32-wasi"
+      effect: "NoExecute"
 ```
 
 Let's break this file down:
@@ -35,7 +38,7 @@ Let's break this file down:
 - `metadata.name`: what is the name of our workload?
 - `spec.containers[0].name`: what should I name this module?
 - `spec.containers[0].image`: where can I find the module?
-- `spec.nodeSelector.beta.kubernetes.io/arch`: what chip architecture can run this workload?
+- `spec.tolerations`: what kind of node am I allowed to run on?
 
 To deploy this workload to Kubernetes, we use `kubectl`.
 
