@@ -58,6 +58,7 @@ pub mod provider;
 pub mod status;
 
 pub use self::kubelet::Kubelet;
+pub use handle::{PodHandle, RuntimeHandle};
 pub use pod::Pod;
 #[doc(inline)]
 pub use provider::Provider;

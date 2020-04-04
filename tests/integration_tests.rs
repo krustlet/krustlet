@@ -66,16 +66,13 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
         "apiVersion": "v1",
         "kind": "Pod",
         "metadata": {
-            "name": "hello-wascc",
-            "annotations": {
-                "deislabs.io/wascc-action-key": "MB4OLDIC3TCZ4Q4TGGOVAZC43VXFE2JQVRAXQMQFXUCREOOFEKOKZTY2"
-            }
+            "name": "greet-wascc"
         },
         "spec": {
             "containers": [
                 {
-                    "name": "hello-wascc",
-                    "image": "webassembly.azurecr.io/hello-wasm:v1",
+                    "name": "greet-wascc",
+                    "image": "webassembly.azurecr.io/greet-wascc:v0.3",
                 },
             ],
             "tolerations": [
@@ -96,18 +93,19 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     let inf: Informer<Pod> = Informer::new(
         client,
         ListParams::default()
-            .fields("metadata.name=hello-wascc")
-            .timeout(10),
+            .fields("metadata.name=greet-wascc")
+            .timeout(30),
         Resource::namespaced::<Pod>("default"),
     );
 
     let mut watcher = inf.poll().await?.boxed();
-
+    let mut went_ready = false;
     while let Some(event) = watcher.try_next().await? {
         match event {
             WatchEvent::Modified(o) => {
                 let phase = o.status.unwrap().phase.unwrap();
                 if phase == "Running" {
+                    went_ready = true;
                     break;
                 }
             }
@@ -118,16 +116,24 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let mut logs = pods
-        .log_stream("hello-wascc", &LogParams::default())
-        .await?;
+    assert!(went_ready, "pod never went ready");
 
-    while let Some(line) = logs.try_next().await? {
-        assert_eq!("{\"kind\":\"Status\",\"apiVersion\":\"v1\",\"metadata\":{},\"status\":\"Failure\",\"message\":\"an error on the server (\\\"Not Implemented\\\") has prevented the request from succeeding ( pods/log hello-wascc)\",\"reason\":\"InternalError\",\"details\":{\"name\":\"hello-wascc\",\"kind\":\"pods/log\"},\"code\":501}\n", String::from_utf8_lossy(&line));
-    }
+    // Send a request to the pod to trigger some logging
+    reqwest::get("http://127.0.0.1:8080")
+        .await
+        .expect("unable to perform request to test pod");
+
+    let logs = pods
+        .logs("greet-wascc", &LogParams::default())
+        .await
+        .expect("unable to get logs");
+    assert!(logs.contains("warn something"));
+    assert!(logs.contains("info something"));
+    assert!(logs.contains("raw msg I'm a Body!"));
+    assert!(logs.contains("error body"));
 
     // cleanup
-    pods.delete("hello-wascc", &DeleteParams::default()).await?;
+    pods.delete("greet-wascc", &DeleteParams::default()).await?;
 
     Ok(())
 }
@@ -220,20 +226,20 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
         client,
         ListParams::default()
             .fields("metadata.name=hello-wasi")
-            .timeout(10),
+            .timeout(30),
         Resource::namespaced::<Pod>("default"),
     );
 
     let mut watcher = inf.poll().await?.boxed();
-    let mut found_running = false;
+    let mut went_ready = false;
     while let Some(event) = watcher.try_next().await? {
         match event {
             WatchEvent::Modified(o) => {
                 let phase = o.status.unwrap().phase.unwrap();
                 if phase == "Running" {
-                    found_running = true;
+                    went_ready = true;
                 }
-                if phase == "Succeeded" && !found_running {
+                if phase == "Succeeded" && !went_ready {
                     panic!("Reached completed phase before receiving Running phase")
                 } else if phase == "Succeeded" {
                     break;
@@ -245,6 +251,8 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
             _ => {}
         }
     }
+
+    assert!(went_ready, "pod never went ready");
 
     let mut logs = pods.log_stream("hello-wasi", &LogParams::default()).await?;
 
