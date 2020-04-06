@@ -121,13 +121,10 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
         let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
 
-        println!("{:?}", config.data_dir);
         let mut http_lib = config.data_dir.clone();
         http_lib.push(HTTP_LIB);
         let mut log_lib = config.data_dir.clone();
         log_lib.push(LOG_LIB);
-
-        println!("{:?}", http_lib);
 
         // wascc has native capabilities which are dynamic libraries (.so, .dylib, .dll)
         // and portable capabilities which are WASM modules.  Portable capabilities
