@@ -19,9 +19,11 @@ test:
 test-e2e:
     cargo test --test integration_tests
 
-run-wascc: build build-logging _cleanup_kube bootstrap-ssl
+run-wascc: _cleanup_kube bootstrap-ssl
     @# Change directories so we have access to the ./lib dir
-    cd ./crates/wascc-provider && cargo run --bin krustlet-wascc --manifest-path ../../Cargo.toml -- --node-name krustlet-wascc --port 3000
+    mkdir -p $HOME/.krustlet/lib
+    cp ./crates/wascc-provider/lib/*.{so,dylib} $HOME/.krustlet/lib/
+    cargo run --bin krustlet-wascc -- --node-name krustlet-wascc --port 3000
 
 run-wasi: _cleanup_kube bootstrap-ssl
     cargo run --bin krustlet-wasi -- --node-name krustlet-wasi --port 3001
