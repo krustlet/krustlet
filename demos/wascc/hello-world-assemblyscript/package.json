@@ -1,0 +1,35 @@
+{
+    "scripts": {
+        "graphql-lint": "graphql-schema-linter",
+        "gql2as": "wapc-gql2as schema.gql > assembly/module.ts && prettier --write assembly/module.ts",
+        "codegen": "npm run graphql-lint && npm run gql2as",
+        "asbuild:untouched": "asc assembly/index.ts -b build/untouched.wasm -t build/untouched.wat --use abort=wasi_abort --validate --debug",
+        "asbuild:optimized": "asc assembly/index.ts -b build/optimized.wasm -t build/optimized.wat --use abort=wasi_abort --validate --optimize",
+        "asbuild": "npm run asbuild:untouched && npm run asbuild:optimized"
+    },
+    "graphql-schema-linter": {
+        "rules": [
+            "deprecations-have-a-reason",
+            "enum-values-all-caps",
+            "enum-values-have-descriptions",
+            "enum-values-sorted-alphabetically",
+            "fields-have-descriptions",
+            "input-object-values-have-descriptions",
+            "types-are-capitalized",
+            "types-have-descriptions"
+        ],
+        "schemaPaths": [
+            "schema.gql"
+        ]
+    },
+    "dependencies": {
+        "as-wasi": "0.0.1",
+        "wapc-guest-as": "https://github.com/wapc/wapc-guest-as.git",
+        "as-msgpack": "git+https://github.com/wapc/as-msgpack#v0.1.5"
+    },
+    "devDependencies": {
+        "graphql-schema-linter": "^0.2.0",
+        "prettier": "^2.0.2",
+        "assemblyscript": "^0.9.4"
+    }
+}
