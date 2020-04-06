@@ -63,16 +63,16 @@ const LOG_CAPABILITY: &str = "wascc:logging";
 const LOG_DIR_NAME: &str = "wascc-logs";
 
 #[cfg(target_os = "linux")]
-const HTTP_LIB: &str = "./lib/libwascc_httpsrv.so";
+const HTTP_LIB: &str = "lib/libwascc_httpsrv.so";
 
 #[cfg(target_os = "linux")]
-const LOG_LIB: &str = "./lib/libwascc_logging.so";
+const LOG_LIB: &str = "lib/libwascc_logging.so";
 
 #[cfg(target_os = "macos")]
-const HTTP_LIB: &str = "./lib/libwascc_httpsrv.dylib";
+const HTTP_LIB: &str = "lib/libwascc_httpsrv.dylib";
 
 #[cfg(target_os = "macos")]
-const LOG_LIB: &str = "./lib/libwascc_logging.dylib";
+const LOG_LIB: &str = "lib/libwascc_logging.dylib";
 
 /// Kubernetes' view of environment variables is an unordered map of string to string.
 type EnvVars = std::collections::HashMap<String, String>;
@@ -121,6 +121,14 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
         let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
 
+        println!("{:?}", config.data_dir);
+        let mut http_lib = config.data_dir.clone();
+        http_lib.push(HTTP_LIB);
+        let mut log_lib = config.data_dir.clone();
+        log_lib.push(LOG_LIB);
+
+        println!("{:?}", http_lib);
+
         // wascc has native capabilities which are dynamic libraries (.so, .dylib, .dll)
         // and portable capabilities which are WASM modules.  Portable capabilities
         // don't fully work, and won't until the WASI spec has matured.  We load
@@ -128,14 +136,14 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
         // then adding the capability to the host.
         tokio::task::spawn_blocking(|| {
             info!("Loading HTTP Capability");
-            let data = NativeCapability::from_file(HTTP_LIB).map_err(|e| {
+            let data = NativeCapability::from_file(http_lib).map_err(|e| {
                 anyhow::anyhow!("Failed to read HTTP capability {}: {}", HTTP_LIB, e)
             })?;
             host::add_native_capability(data)
                 .map_err(|e| anyhow::anyhow!("Failed to load HTTP capability: {}", e))?;
 
             info!("Loading LOG Capability");
-            let logdata = NativeCapability::from_file(LOG_LIB)
+            let logdata = NativeCapability::from_file(log_lib)
                 .map_err(|e| anyhow::anyhow!("Failed to read LOG capability {}: {}", LOG_LIB, e))?;
             host::add_native_capability(logdata)
                 .map_err(|e| anyhow::anyhow!("Failed to load LOG capability: {}", e))
