@@ -47,7 +47,12 @@ For testing/development environments:
 
 ## Step 3: Deploy your First Application
 
-Last but not least, [follow through the tutorial](tutorial01.md) to deploy your first application.
+If you just want to get started and see something running, go checkout any one of the
+[demos](../../demos). Each of them has a prebuilt WebAssembly module stored in a registry and a Kubernetes
+manifest that you can `kubectl apply`.
+
+If you'd like to learn how to write your own simple module in Rust and deploy it, [follow through
+the tutorial](tutorial01.md) to deploy your first application.
 
 
 [development guide]: ../community/developers.md
