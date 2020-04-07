@@ -50,5 +50,9 @@ guide](../community/developers.md).
 
 ## Next Steps
 
-After installing Krustlet, you can go through [the tutorial](tutorial01.md) to learn how to start
-using Krustlet.
+After installing Krustlet, if you'd like to get started and see something running, go checkout any
+one of the [demos](../../demos). Each of them has a prebuilt WebAssembly module stored in a registry
+and a Kubernetes manifest that you can `kubectl apply`.
+
+If you'd like to learn how to write your own simple module in Rust and deploy it, [follow through
+the tutorial](tutorial01.md) to deploy your first application.
