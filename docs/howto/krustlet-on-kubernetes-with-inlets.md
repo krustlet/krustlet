@@ -12,13 +12,9 @@ The tunnel has two components. A client which runs on your local machine, and a 
 
 * [inlets - "The Cloud Native Tunnel"](https://docs.inlets.dev/)
 
-Run without `sudo` to download the binary to your local directory, then move it to your `PATH`.
+Download the latest release of the inlets binary from the [project release page](https://github.com/inlets/inlets/releases).
 
-```shell
-curl -sLS https://get.inlets.dev | sh
-chmod +x inlets
-sudo mv inlets /usr/local/bin/
-```
+Move the binary to `/usr/local/bin`, or place it in `$PATH`.
 
 ## Step 1: Create a service account user for the node
 
@@ -236,7 +232,7 @@ export NODE_IP=$(kubectl get service inlets -o jsonpath="{.spec.clusterIP}")
 krustlet-wasi --node-ip $NODE_IP --pfx-password password
 ```
 
-* Show that the krustlet node has joined the cluster
+Show that the krustlet node has joined the cluster
 
 ```shell
 $ kubectl get nodes -o wide
