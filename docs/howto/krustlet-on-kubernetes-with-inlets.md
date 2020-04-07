@@ -176,7 +176,7 @@ spec:
             secretName: inlets-token
       containers:
       - name: inlets
-        image: inlets/inlets:2.6.3
+        image: inlets/inlets:2.7.0
         imagePullPolicy: Always
         command: ["inlets"]
         args:
