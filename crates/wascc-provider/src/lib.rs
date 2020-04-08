@@ -29,7 +29,7 @@
 //! }
 //! ```
 
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 
 use async_trait::async_trait;
 use kubelet::handle::{key_from_pod, pod_key, PodHandle, RuntimeHandle, Stop};
@@ -37,18 +37,18 @@ use kubelet::module_store::ModuleStore;
 use kubelet::provider::ProviderError;
 use kubelet::status::{ContainerStatus, Status};
 use kubelet::{Pod, Provider};
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use tempfile::NamedTempFile;
 use tokio::fs::File;
 use tokio::sync::watch::{self, Receiver};
 use tokio::sync::RwLock;
-use wascc_host::{host, Actor, NativeCapability};
+use wascc_host::{Actor, NativeCapability, WasccHost};
 
 use wascc_logging::LOG_PATH_KEY;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// The architecture that the pod targets.
 const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
@@ -81,14 +81,22 @@ type EnvVars = std::collections::HashMap<String, String>;
 pub struct ActorStopper {
     /// The public key of the wascc Actor that will be stopped
     pub key: String,
+    host: Arc<Mutex<WasccHost>>,
 }
 
 #[async_trait::async_trait]
 impl Stop for ActorStopper {
     async fn stop(&mut self) -> anyhow::Result<()> {
         debug!("stopping wascc instance {}", self.key);
-        host::remove_actor(&self.key)
-            .map_err(|e| anyhow::anyhow!("unable to remove actor: {:?}", e))
+        let host = self.host.clone();
+        let key = self.key.clone();
+        tokio::task::spawn_blocking(move || {
+            host.lock()
+                .unwrap()
+                .remove_actor(&key)
+                .map_err(|e| anyhow::anyhow!("unable to remove actor: {:?}", e))
+        })
+        .await?
     }
 
     async fn wait(&mut self) -> anyhow::Result<()> {
@@ -108,6 +116,7 @@ pub struct WasccProvider<S> {
     store: S,
     log_path: PathBuf,
     kubeconfig: kube::config::Configuration,
+    host: Arc<Mutex<WasccHost>>,
 }
 
 impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
@@ -118,32 +127,36 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
         config: &kubelet::config::Config,
         kubeconfig: kube::config::Configuration,
     ) -> anyhow::Result<Self> {
-        let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
+        let host = Arc::new(Mutex::new(WasccHost::new()));
+        let log_path = config.data_dir.join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
 
-        let mut http_lib = config.data_dir.clone();
-        http_lib.push(HTTP_LIB);
-        let mut log_lib = config.data_dir.clone();
-        log_lib.push(LOG_LIB);
+        let http_lib = config.data_dir.join(HTTP_LIB);
+        let log_lib = config.data_dir.join(LOG_LIB);
 
         // wascc has native capabilities which are dynamic libraries (.so, .dylib, .dll)
         // and portable capabilities which are WASM modules.  Portable capabilities
         // don't fully work, and won't until the WASI spec has matured.  We load
         // logging and http serving capabilities here, by first loading the library
         // then adding the capability to the host.
-        tokio::task::spawn_blocking(|| {
+        let host = tokio::task::spawn_blocking(move || {
             info!("Loading HTTP Capability");
-            let data = NativeCapability::from_file(http_lib).map_err(|e| {
+            let data = NativeCapability::from_file(http_lib, None).map_err(|e| {
                 anyhow::anyhow!("Failed to read HTTP capability {}: {}", HTTP_LIB, e)
             })?;
-            host::add_native_capability(data)
+            host.lock()
+                .unwrap()
+                .add_native_capability(data)
                 .map_err(|e| anyhow::anyhow!("Failed to load HTTP capability: {}", e))?;
 
             info!("Loading LOG Capability");
-            let logdata = NativeCapability::from_file(log_lib)
+            let logdata = NativeCapability::from_file(log_lib, None)
                 .map_err(|e| anyhow::anyhow!("Failed to read LOG capability {}: {}", LOG_LIB, e))?;
-            host::add_native_capability(logdata)
-                .map_err(|e| anyhow::anyhow!("Failed to load LOG capability: {}", e))
+            host.lock()
+                .unwrap()
+                .add_native_capability(logdata)
+                .map_err(|e| anyhow::anyhow!("Failed to load LOG capability: {}", e))?;
+            Ok::<_, anyhow::Error>(host)
         })
         .await??;
         Ok(Self {
@@ -151,6 +164,7 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
             store,
             log_path,
             kubeconfig,
+            host,
         })
     }
 }
@@ -183,8 +197,9 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
                 timestamp: chrono::Utc::now(),
                 message: "No status has been received from the process".into(),
             });
+            let host = self.host.clone();
             let http_result = tokio::task::spawn_blocking(move || {
-                wascc_run_http(module_data, env, &lp, status_recv)
+                wascc_run_http(host, module_data, env, &lp, status_recv)
             })
             .await?;
             match http_result {
@@ -291,6 +306,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
 ///
 /// This bootstraps an HTTP host, using the value of the env's `PORT` key to expose a port.
 fn wascc_run_http(
+    host: Arc<Mutex<WasccHost>>,
     data: Vec<u8>,
     env: EnvVars,
     log_path: &Path,
@@ -302,7 +318,7 @@ fn wascc_run_http(
         name: HTTP_CAPABILITY,
         env,
     });
-    wascc_run(data, &mut caps, log_path, status_recv)
+    wascc_run(host, data, &mut caps, log_path, status_recv)
 }
 
 /// Capability describes a waSCC capability.
@@ -320,6 +336,7 @@ struct Capability {
 /// The provided capabilities will be configured for this actor, but the capabilities
 /// must first be loaded into the host by some other process, such as register_native_capabilities().
 fn wascc_run(
+    host: Arc<Mutex<WasccHost>>,
     data: Vec<u8>,
     capabilities: &mut Vec<Capability>,
     log_path: &Path,
@@ -340,15 +357,20 @@ fn wascc_run(
     let load = Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
     let pk = load.public_key();
 
-    host::add_actor(load).map_err(|e| anyhow::anyhow!("Error adding actor: {}", e))?;
+    host.lock()
+        .unwrap()
+        .add_actor(load)
+        .map_err(|e| anyhow::anyhow!("Error adding actor: {}", e))?;
     capabilities.iter().try_for_each(|cap| {
         info!("configuring capability {}", cap.name);
-        host::configure(&pk, cap.name, cap.env.clone())
+        host.lock()
+            .unwrap()
+            .bind_actor(&pk, cap.name, None, cap.env.clone())
             .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
     })?;
     info!("wascc actor executing");
     Ok(RuntimeHandle::new(
-        ActorStopper { key: pk },
+        ActorStopper { host, key: pk },
         tokio::fs::File::from_std(log_output.reopen()?),
         status_recv,
     ))

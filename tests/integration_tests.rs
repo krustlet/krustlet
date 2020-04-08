@@ -72,7 +72,7 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
             "containers": [
                 {
                     "name": "greet-wascc",
-                    "image": "webassembly.azurecr.io/greet-wascc:v0.3",
+                    "image": "webassembly.azurecr.io/greet-wascc:v0.4",
                 },
             ],
             "tolerations": [

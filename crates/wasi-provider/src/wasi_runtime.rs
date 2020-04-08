@@ -36,8 +36,15 @@ impl Stop for HandleStopper {
 /// WasiRuntime provides a WASI compatible runtime. A runtime should be used for
 /// each "instance" of a process and can be passed to a thread pool for running
 pub struct WasiRuntime {
+    /// Data needed for the runtime
+    data: Arc<Data>,
+    /// The tempfile that output from the wasmtime process writes to
+    output: Arc<NamedTempFile>,
+}
+
+struct Data {
     /// binary module data to be run as a wasm module
-    module_data: Arc<Vec<u8>>,
+    module_data: Vec<u8>,
     /// key/value environment variables made available to the wasm process
     env: HashMap<String, String>,
     /// the arguments passed as the command-line arguments list
@@ -46,9 +53,6 @@ pub struct WasiRuntime {
     /// (e.g. /tmp/foo/myfile -> /app/config). If the optional value is not given,
     /// the same path will be allowed in the runtime
     dirs: HashMap<String, Option<String>>,
-
-    /// The tempfile that output from the wasmtime process writes to
-    output: Arc<NamedTempFile>,
 }
 
 impl WasiRuntime {
@@ -82,10 +86,12 @@ impl WasiRuntime {
         // loop that runs elsewhere. These will get deleted when the reference
         // is dropped
         Ok(WasiRuntime {
-            module_data: Arc::new(module_data),
-            env,
-            args,
-            dirs,
+            data: Arc::new(Data {
+                module_data,
+                env,
+                args,
+                dirs,
+            }),
             output: Arc::new(temp),
         })
     }
@@ -101,33 +107,11 @@ impl WasiRuntime {
         )
         .await??;
 
-        // Build the WASI instance and then generate a list of WASI modules
-        let mut ctx_builder_snapshot = WasiCtxBuilder::new();
-        // For some reason if I didn't split these out, the compiler got mad
-        let mut ctx_builder_snapshot = ctx_builder_snapshot
-            .args(&self.args)
-            .envs(&self.env)
-            .stdout(output_write.try_clone()?)
-            .stderr(output_write.try_clone()?);
-        let mut ctx_builder_unstable = wasi_common::old::snapshot_0::WasiCtxBuilder::new()
-            .args(&self.args)
-            .envs(&self.env)
-            .stdout(output_write.try_clone()?)
-            .stderr(output_write);
-
-        for (key, value) in self.dirs.iter() {
-            let guest_dir = value.as_ref().unwrap_or(key);
-            ctx_builder_snapshot = ctx_builder_snapshot.preopened_dir(preopen_dir(key)?, guest_dir);
-            ctx_builder_unstable = ctx_builder_unstable.preopened_dir(preopen_dir(key)?, guest_dir);
-        }
-        let wasi_ctx_snapshot = ctx_builder_snapshot.build()?;
-        let wasi_ctx_unstable = ctx_builder_unstable.build()?;
-
         let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
             timestamp: chrono::Utc::now(),
             message: "No status has been received from the process".into(),
         });
-        let handle = self.spawn_wasmtime(status_sender, wasi_ctx_snapshot, wasi_ctx_unstable);
+        let handle = self.spawn_wasmtime(status_sender, output_write);
 
         Ok(RuntimeHandle::new(
             HandleStopper { handle },
@@ -142,18 +126,40 @@ impl WasiRuntime {
     fn spawn_wasmtime(
         &self,
         status_sender: Sender<ContainerStatus>,
-        wasi_ctx_snapshot: wasi_common::WasiCtx,
-        wasi_ctx_unstable: wasi_common::old::snapshot_0::WasiCtx,
+        output_write: std::fs::File,
     ) -> JoinHandle<anyhow::Result<()>> {
         // Clone the module data Arc so it can be moved
-        let module_data = self.module_data.clone();
+        let data = self.data.clone();
 
         tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+            // Build the WASI instance and then generate a list of WASI modules
+            let mut ctx_builder_snapshot = WasiCtxBuilder::new();
+            let mut ctx_builder_snapshot = ctx_builder_snapshot
+                .args(&data.args)
+                .envs(&data.env)
+                .stdout(output_write.try_clone()?)
+                .stderr(output_write.try_clone()?);
+            let mut ctx_builder_unstable = wasi_common::old::snapshot_0::WasiCtxBuilder::new();
+            let mut ctx_builder_unstable = ctx_builder_unstable
+                .args(&data.args)
+                .envs(&data.env)
+                .stdout(output_write.try_clone()?)
+                .stderr(output_write);
+
+            for (key, value) in data.dirs.iter() {
+                let guest_dir = value.as_ref().unwrap_or(key);
+                ctx_builder_snapshot =
+                    ctx_builder_snapshot.preopened_dir(preopen_dir(key)?, guest_dir);
+                ctx_builder_unstable =
+                    ctx_builder_unstable.preopened_dir(preopen_dir(key)?, guest_dir);
+            }
+            let wasi_ctx_snapshot = ctx_builder_snapshot.build()?;
+            let wasi_ctx_unstable = ctx_builder_unstable.build()?;
             let engine = wasmtime::Engine::default();
             let store = wasmtime::Store::new(&engine);
             let wasi_snapshot = Wasi::new(&store, wasi_ctx_snapshot);
             let wasi_unstable = WasiUnstable::new(&store, wasi_ctx_unstable);
-            let module = match wasmtime::Module::new(&store, module_data.as_ref()) {
+            let module = match wasmtime::Module::new(&store, &data.module_data) {
                 // We can't map errors here or it moves the send channel, so we
                 // do it in a match
                 Ok(m) => m,

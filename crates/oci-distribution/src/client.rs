@@ -7,7 +7,6 @@ use crate::errors::*;
 use crate::manifest::OciManifest;
 use crate::Reference;
 
-use chrono::prelude::{DateTime, Utc};
 use futures_util::future;
 use futures_util::stream::StreamExt;
 use hyperx::header::Header;
@@ -261,8 +260,6 @@ impl ClientProtocol {
 #[derive(serde::Deserialize, Default)]
 struct RegistryToken {
     access_token: String,
-    expires_in: Option<u32>,
-    issued_at: Option<DateTime<Utc>>,
 }
 
 impl RegistryToken {

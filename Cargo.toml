@@ -15,20 +15,20 @@ default-run = "krustlet-wascc"
 
 [dependencies]
 anyhow = "1.0"
-tokio = { version = "0.2.14", features = ["macros"] }
-kube = "0.31.0"
-env_logger = "0.7.1"
+tokio = { version = "0.2", features = ["macros"] }
+kube = "0.31"
+env_logger = "0.7"
 kubelet = { path = "./crates/kubelet", version = "0.1.0", features = ["cli"] }
 wascc-provider = { path = "./crates/wascc-provider", version = "0.1.0" }
 wasi-provider = { path = "./crates/wasi-provider", version = "0.1.0" }
 oci-distribution = { path = "./crates/oci-distribution", version = "0.1.0" }
 
 [dev-dependencies]
-futures = "0.3.4"
+futures = "0.3"
 serde_derive = "1.0"
 serde_json = "1.0"
 k8s-openapi = { version = "0.7.1", default-features = false, features = ["v1_17"] }
-reqwest = "0.10.4"
+reqwest = "0.10"
 
 [workspace]
 members = [

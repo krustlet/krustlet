@@ -6,7 +6,7 @@ metadata:
     app: greet
 spec:
   containers:
-    - image: webassembly.azurecr.io/greet-wascc:v0.3 
+    - image: webassembly.azurecr.io/greet-wascc:v0.4 
       imagePullPolicy: Always
       name: greet
       env:
