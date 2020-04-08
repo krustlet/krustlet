@@ -20,7 +20,7 @@
 extern crate wascc_codec as codec;
 
 use codec::capabilities::{CapabilityProvider, Dispatcher, NullDispatcher};
-use codec::core::{CapabilityConfiguration, OP_CONFIGURE, OP_REMOVE_ACTOR};
+use codec::core::{CapabilityConfiguration, OP_BIND_ACTOR, OP_REMOVE_ACTOR};
 use codec::{
     deserialize,
     logging::{WriteLogRequest, OP_LOG},
@@ -111,7 +111,7 @@ impl CapabilityProvider for LoggingProvider {
     fn handle_call(&self, actor: &str, op: &str, msg: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
         // TIP: do not allow individual modules to attempt to send configuration,
         // only accept it from the host runtime
-        if op == OP_CONFIGURE && actor == SYSTEM_ACTOR {
+        if op == OP_BIND_ACTOR && actor == SYSTEM_ACTOR {
             let cfg_vals = deserialize::<CapabilityConfiguration>(msg)?;
             self.configure(cfg_vals)
         } else if op == OP_REMOVE_ACTOR && actor == SYSTEM_ACTOR {
@@ -121,12 +121,12 @@ impl CapabilityProvider for LoggingProvider {
             let log_msg = deserialize::<WriteLogRequest>(msg)?;
 
             let level = match log_msg.level {
-                x if x == LogLevel::ERROR as usize => log::Level::Error,
-                x if x == LogLevel::WARN as usize => log::Level::Warn,
-                x if x == LogLevel::INFO as usize => log::Level::Info,
-                x if x == LogLevel::DEBUG as usize => log::Level::Debug,
-                x if x == LogLevel::TRACE as usize => log::Level::Trace,
-                x if x == LogLevel::NONE as usize => return Ok(vec![]),
+                x if x == LogLevel::ERROR as u32 => log::Level::Error,
+                x if x == LogLevel::WARN as u32 => log::Level::Warn,
+                x if x == LogLevel::INFO as u32 => log::Level::Info,
+                x if x == LogLevel::DEBUG as u32 => log::Level::Debug,
+                x if x == LogLevel::TRACE as u32 => log::Level::Trace,
+                x if x == LogLevel::NONE as u32 => return Ok(vec![]),
                 _ => return Err(format!("Unknown log level {}", log_msg.level).into()),
             };
 

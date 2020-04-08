@@ -3,11 +3,11 @@
 //! The best way to configure the kubelet is by using [`Config::default_config`]
 //! or by turning on the "cli" feature and using [`Config::new_from_flags`].
 
-#[cfg(feature = "cli")]
-use clap::derive::{FromArgMatches, IntoApp};
 use std::net::IpAddr;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
+#[cfg(feature = "cli")]
+use structopt::StructOpt;
 
 const DEFAULT_PORT: u16 = 3000;
 
@@ -81,8 +81,8 @@ impl Config {
         // together, so there is no easy way to merge together everything right
         // now. This function is here so we can do that data massaging and
         // merging down the road
-        let app = Opts::into_app().version(version);
-        let opts = Opts::from_arg_matches(&app.get_matches());
+        let app = Opts::clap().version(version);
+        let opts = Opts::from_clap(&app.get_matches());
         // Copy the addr to avoid a partial move when computing node_ip
         let addr = opts.addr;
         let hostname = opts
@@ -130,15 +130,15 @@ impl Default for Config {
 /// CLI options that can be configured for Kubelet
 ///
 /// These can be parsed from args using `Opts::into_app()`
-#[derive(clap::Clap, Clone, Debug)]
+#[derive(StructOpt, Clone, Debug)]
 #[cfg(any(feature = "cli", feature = "docs"))]
 #[cfg_attr(feature = "docs", doc(cfg(feature = "cli")))]
-#[clap(
+#[structopt(
     name = "krustlet",
     about = "A kubelet for running WebAssembly workloads"
 )]
 pub struct Opts {
-    #[clap(
+    #[structopt(
         short = "a",
         long = "addr",
         default_value = "0.0.0.0",
@@ -147,7 +147,7 @@ pub struct Opts {
     )]
     addr: IpAddr,
 
-    #[clap(
+    #[structopt(
         short = "p",
         long = "port",
         default_value = "3000",
@@ -156,21 +156,21 @@ pub struct Opts {
     )]
     port: u16,
 
-    #[clap(
+    #[structopt(
         long = "pfx-path",
         env = "PFX_PATH",
         help = "The path to the pfx bundle for ssl configuration"
     )]
     pfx_path: Option<PathBuf>,
 
-    #[clap(
+    #[structopt(
         long = "pfx-password",
         env = "PFX_PASSWORD",
         help = "The password to unencrypt the pfx bundle"
     )]
     pfx_password: Option<String>,
 
-    #[clap(
+    #[structopt(
         short = "n",
         long = "node-ip",
         env = "KRUSTLET_NODE_IP",
@@ -178,21 +178,21 @@ pub struct Opts {
     )]
     node_ip: Option<IpAddr>,
 
-    #[clap(
+    #[structopt(
         long = "hostname",
         env = "KRUSTLET_HOSTNAME",
         help = "The hostname for this node, defaults to the hostname of this machine"
     )]
     hostname: Option<String>,
 
-    #[clap(
+    #[structopt(
         long = "node-name",
         env = "KRUSTLET_NODE_NAME",
         help = "The name for this node in Kubernetes, defaults to the hostname of this machine"
     )]
     node_name: Option<String>,
 
-    #[clap(
+    #[structopt(
         long = "data-dir",
         env = "KRUSTLET_DATA_DIR",
         help = "The data path (logs, container images, etc) for krustlet storage. Defaults to $HOME/.krustlet"
