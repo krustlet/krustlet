@@ -128,13 +128,11 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
         kubeconfig: kube::config::Configuration,
     ) -> anyhow::Result<Self> {
         let host = Arc::new(Mutex::new(WasccHost::new()));
-        let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
+        let log_path = config.data_dir.join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
 
-        let mut http_lib = config.data_dir.clone();
-        http_lib.push(HTTP_LIB);
-        let mut log_lib = config.data_dir.clone();
-        log_lib.push(LOG_LIB);
+        let http_lib = config.data_dir.join(HTTP_LIB);
+        let log_lib = config.data_dir.join(LOG_LIB);
 
         // wascc has native capabilities which are dynamic libraries (.so, .dylib, .dll)
         // and portable capabilities which are WASM modules.  Portable capabilities

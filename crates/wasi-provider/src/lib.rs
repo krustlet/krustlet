@@ -28,7 +28,7 @@
 //! };
 //! ```
 
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 
 mod wasi_runtime;
 

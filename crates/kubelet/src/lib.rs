@@ -42,7 +42,7 @@
 //! };
 //! ```
 
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 #![cfg_attr(feature = "docs", feature(doc_cfg))]
 
 mod kubelet;

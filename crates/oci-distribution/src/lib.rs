@@ -1,5 +1,5 @@
 //! An OCI Distribution client for fetching oci images from an OCI compliant remote store
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 
 pub mod client;
 pub mod errors;
