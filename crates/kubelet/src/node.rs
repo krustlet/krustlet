@@ -4,7 +4,33 @@ use k8s_openapi::api::coordination::v1::Lease;
 use k8s_openapi::api::core::v1::Node;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 use kube::api::{Api, DeleteParams, PatchParams, PostParams};
+use kube::Error;
 use log::{debug, error, info};
+
+macro_rules! retry {
+    ($action:expr, times: $num_times:expr, $on_err:expr) => {{
+        let mut n = 0u8;
+        let mut duration = std::time::Duration::from_millis(100);
+        loop {
+            n += 1;
+            let result = $action;
+            match result {
+                Ok(_) => break result,
+                Err(ref e) => {
+                    $on_err(e);
+                    tokio::time::delay_for(duration).await;
+                    duration *= (n + 1) as u32;
+                    if n == $num_times {
+                        break result;
+                    }
+                }
+            }
+        }
+    }};
+    ($action:expr, times: $num_times:expr) => {
+        retry!($action, times: $num_times, |_| {})
+    };
+}
 
 /// Create a node
 ///
@@ -18,52 +44,49 @@ use log::{debug, error, info};
 pub async fn create_node(client: &kube::Client, config: &Config, arch: &str) {
     let node_client: Api<Node> = Api::all(client.clone());
     let node = node_definition(config, arch);
+    let node =
+        serde_json::from_value(node).expect("failed to deserialize node from node definition JSON");
 
-    match node_client
-        .create(
-            &PostParams::default(),
-            &serde_json::from_value(node)
-                .expect("failed to deserialize node from node definition JSON"),
-        )
-        .await
-    {
+    match retry!(node_client.create(&PostParams::default(), &node).await, times: 4) {
         Ok(node) => {
-            info!("successfully created node");
-            let node_uid = node.metadata.unwrap_or_default().uid.unwrap_or_default();
-            create_lease(&node_uid, &config.node_name, &client).await
+            info!("Successfully created node '{}'", &config.node_name);
+            let node_uid = node.metadata.unwrap().uid.unwrap();
+            let _create_lease_result =
+                retry!(create_lease(&node_uid, &config.node_name, &client).await, times: 4);
         }
         Err(e) => {
             info!(
-                "Unable to create node: {:?}, looking up node to see if it exists already",
+                "Unable to create node: {:?}, looking up node to see if it exists already...",
                 e
             );
-            match node_client.get(&config.node_name).await {
-                Ok(_) => {
-                    // HACK WARNING: So it turns out we need to have the proper
-                    // permissions in order to update the node status, so this
-                    // is a hacky workaround for now where we delete and
-                    // recreate the node. This is being tracked in https://github.com/deislabs/krustlet/issues/150
-                    info!("node found, updating current node definition");
-                    node_client
-                        .delete(&config.node_name, &DeleteParams::default())
-                        .await
-                        .expect("Unable to recreate node...aborting");
-                    let node = node_client
-                        .create(
-                            &PostParams::default(),
-                            &serde_json::from_value(node_definition(config, arch))
-                                .expect("failed to deserialize node from node definition JSON"),
-                        )
-                        .await
-                        .expect("Unable to recreate node...aborting");
-                    create_lease(
-                        &node.metadata.unwrap_or_default().uid.unwrap_or_default(),
-                        &config.node_name,
-                        &client,
-                    )
-                    .await
-                }
-                Err(e) => error!("Error fetching node after failed create: {}", e),
+
+            if let Err(e) = retry!(node_client.get(&config.node_name).await, times: 4, |e| info!(
+                "Error fetching node after failed create: {}. Retrying...",
+                e
+            )) {
+                error!(
+                    "Exhausted retries fetching node after failed create: {}. Not retrying.",
+                    e
+                )
+            }
+
+            info!(
+                "Node '{}' found, updating current node definition",
+                &config.node_name
+            );
+
+            if let Err(e) = retry!(
+                replace_node(client, &config.node_name, &node).await,
+                times: 4,
+                |_| info!(
+                    "Node '{}' could not be updated. Retrying...",
+                    &config.node_name
+                )
+            ) {
+                error!(
+                    "Exhausted retries replacing node after failed create: {}. Not retrying.",
+                    e
+                )
             }
         }
     };
@@ -85,7 +108,9 @@ pub async fn update_node(client: &kube::Client, node_name: &str) {
         }
         Ok(node) => {
             let uid = node.metadata.unwrap_or_default().uid.unwrap_or_default();
-            update_lease(&uid, node_name, client).await;
+            update_lease(&uid, node_name, client)
+                .await
+                .expect("Could not update lease");
         }
     }
 }
@@ -98,18 +123,30 @@ pub async fn update_node(client: &kube::Client, node_name: &str) {
 ///
 /// As far as I can tell, leases ALWAYS go in the 'kube-node-lease'
 /// namespace, no exceptions.
-async fn create_lease(node_uid: &str, node_name: &str, client: &kube::Client) {
+async fn create_lease(
+    node_uid: &str,
+    node_name: &str,
+    client: &kube::Client,
+) -> Result<Lease, Error> {
     let leases: Api<Lease> = Api::namespaced(client.clone(), "kube-node-lease");
 
     let lease = lease_definition(node_uid, node_name);
     let lease = serde_json::from_value(lease)
         .expect("failed to deserialize lease from lease definition JSON");
 
-    let resp = leases.create(&PostParams::default(), &lease).await;
-    match resp {
-        Ok(_) => debug!("Created lease"),
-        Err(e) => error!("Failed to create lease: {}", e),
+    let resp = retry!(
+        leases.create(&PostParams::default(), &lease).await,
+        times: 4,
+        |e| info!("Lease could not be created: {}. Retrying...", e)
+    );
+    match &resp {
+        Ok(_) => debug!("Created lease for node '{}'", node_name),
+        Err(e) => error!(
+            "Exhausted retries creating lease for node '{}': {}",
+            node_name, e
+        ),
     }
+    resp
 }
 
 /// Update the Kubernetes node lease, essentially requesting that we keep
@@ -117,7 +154,11 @@ async fn create_lease(node_uid: &str, node_name: &str, client: &kube::Client) {
 ///
 /// TODO: Our patch is overzealous right now. We just need to update the
 /// timestamp.
-async fn update_lease(node_uid: &str, node_name: &str, client: &kube::Client) {
+async fn update_lease(
+    node_uid: &str,
+    node_name: &str,
+    client: &kube::Client,
+) -> Result<Lease, Error> {
     let leases: Api<Lease> = Api::namespaced(client.clone(), "kube-node-lease");
 
     let lease = lease_definition(node_uid, node_name);
@@ -127,10 +168,41 @@ async fn update_lease(node_uid: &str, node_name: &str, client: &kube::Client) {
     let resp = leases
         .patch(node_name, &PatchParams::default(), lease_data)
         .await;
-    match resp {
-        Ok(_) => debug!("Lease updated"),
-        Err(e) => error!("Failed to update lease: {}", e),
+    match &resp {
+        Ok(_) => debug!("Lease updated for '{}'", node_name),
+        Err(e) => error!("Failed to update lease for '{}': {}", node_name, e),
     }
+    resp
+}
+
+async fn replace_node(client: &kube::Client, node_name: &str, node: &Node) -> Result<(), Error> {
+    let node_client: Api<Node> = Api::all(client.clone());
+
+    // HACK WARNING: So it turns out we need to have the proper
+    // permissions in order to update the node status, so this
+    // is a hacky workaround for now where we delete and
+    // recreate the node. This is being tracked in https://github.com/deislabs/krustlet/issues/150
+
+    // Delete the node
+    retry!(
+        node_client
+            .delete(node_name, &DeleteParams::default())
+            .await,
+        times: 4
+    )?;
+    // Create the node
+    let node = retry!(node_client.create(&PostParams::default(), node).await, times: 4)?;
+    // Create the lease
+    retry!(
+        create_lease(
+            &node.metadata.clone().unwrap().uid.unwrap(),
+            node_name,
+            &client,
+        )
+        .await,
+        times: 4
+    )?;
+    Ok(())
 }
 
 /// Define a new node that will handle WASM load.
