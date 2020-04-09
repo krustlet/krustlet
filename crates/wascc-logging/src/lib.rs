@@ -16,12 +16,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(not(feature = "static_plugin"))]
 #[macro_use]
-extern crate wascc_codec as codec;
+extern crate wascc_codec;
 
-use codec::capabilities::{CapabilityProvider, Dispatcher, NullDispatcher};
-use codec::core::{CapabilityConfiguration, OP_BIND_ACTOR, OP_REMOVE_ACTOR};
-use codec::{
+use wascc_codec::capabilities::{CapabilityProvider, Dispatcher, NullDispatcher};
+use wascc_codec::core::{CapabilityConfiguration, OP_BIND_ACTOR, OP_REMOVE_ACTOR};
+use wascc_codec::{
     deserialize,
     logging::{WriteLogRequest, OP_LOG},
 };
@@ -36,6 +37,7 @@ use std::sync::RwLock;
 
 use simplelog::{Config, LevelFilter, WriteLogger};
 
+#[cfg(not(feature = "static_plugin"))]
 capability_provider!(LoggingProvider, LoggingProvider::new);
 
 pub const LOG_PATH_KEY: &str = "LOG_PATH";

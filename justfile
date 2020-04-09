@@ -7,9 +7,6 @@ run: run-wascc
 build:
     cargo build
 
-build-logging:
-    cd crates/wascc-logging && cargo build
-
 test:
     cargo fmt --all -- --check
     cargo clippy --workspace
@@ -20,9 +17,6 @@ test-e2e:
     cargo test --test integration_tests
 
 run-wascc: _cleanup_kube bootstrap-ssl
-    @# Change directories so we have access to the ./lib dir
-    mkdir -p $HOME/.krustlet/lib
-    cp ./crates/wascc-provider/lib/*.{so,dylib} $HOME/.krustlet/lib/
     cargo run --bin krustlet-wascc -- --node-name krustlet-wascc --port 3000
 
 run-wasi: _cleanup_kube bootstrap-ssl

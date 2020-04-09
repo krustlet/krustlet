@@ -36,7 +36,6 @@ jobs:
         run: |
           mkdir _dist
           cp README.md LICENSE target/release/krustlet-wasi target/release/krustlet-wascc _dist/
-          cp -R crates/wascc-provider/lib _dist/lib
           cd _dist
           tar czf krustlet-${{ env.RELEASE_VERSION }}-${{ runner.os }}-${{ matrix.arch }}.tar.gz README.md LICENSE krustlet-wasi krustlet-wascc lib/
 
