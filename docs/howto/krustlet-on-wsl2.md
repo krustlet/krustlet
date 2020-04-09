@@ -16,64 +16,7 @@ See the [Docker Desktop for Windows > Getting started > Kubernetes](https://docs
 
 This specific tutorial will be running Krustlet on your WSL2 distro and will explain how to access it from Windows.
 
-## Step 1: Create Certificate
-
-Krustlet requires a certificate for securing communication with the Kubernetes API. Because
-Kubernetes has its own certificates, we'll need to get a signed certificate from the Kubernetes API
-that we can use. First things first, let's create a certificate signing request (CSR):
-
-```shell
-$ mkdir -p ~/.krustlet/config
-$ cd $_
-$ openssl req -new -sha256 -newkey rsa:2048 -keyout krustlet.key -out krustlet.csr -nodes -subj "/C=US/ST=./L=./O=./OU=./CN=krustlet"
-Generating a RSA private key
-.................+++++
-....................................................+++++
-writing new private key to 'krustlet.key'
-```
-
-This will create a CSR and a new key for the certificate, using `krustlet` as the hostname of the
-server.
-
-Now that it is created, we'll need to send the request to Kubernetes:
-
-```shell
-$ cat <<EOF | kubectl apply -f -
-apiVersion: certificates.k8s.io/v1beta1
-kind: CertificateSigningRequest
-metadata:
-  name: krustlet
-spec:
-  request: $(cat krustlet.csr | base64 | tr -d '\n')
-  usages:
-  - digital signature
-  - key encipherment
-  - server auth
-EOF
-certificatesigningrequest.certificates.k8s.io/krustlet created
-```
-
-Once that runs, you will need to approve the request:
-
-```shell
-$ kubectl certificate approve krustlet
-certificatesigningrequest.certificates.k8s.io/krustlet approved
-```
-
-After approval, you can download the cert like so:
-
-```shell
-$ kubectl get csr krustlet -o jsonpath='{.status.certificate}' | base64 --decode > krustlet.crt
-```
-
-Lastly, combine the key and the cert into a PFX bundle, choosing your own password instead of
-"password":
-
-```shell
-$ openssl pkcs12 -export -out certificate.pfx -inkey krustlet.key -in krustlet.crt -password "pass:password"
-```
-
-## Step 2: Determine the default gateway
+## Step 1: Determine the default gateway
 
 The default gateway for most Docker containers is generally `172.17.0.1`.
 This IP is only reachable, by default, from the WSL2 distro.
@@ -96,33 +39,33 @@ eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
 
 In this example, I should use `172.26.47.208`.
 
-The hostname being "applied" from Windows, the default hostname will not resolve to this address, therefore you need to pass the `--node-ip` and `--node-name` flag to Krustlet.
-
-### Add a route to 172.17.0.1
-
-As stated above, the Docker default gateway, `172.17.0.1`, cannot be reached from Windows by default.
-
-However, a route can create to reach it, using the WSL2 own default gateway.
-
-We can use the following commands to create a temporary route:
+> TIP: get the IP from `eth0`
 
 ```shell
-PS> $env:WSLIP = Get-NetIPConfiguration -InterfaceAlias *WSL* | % { $_.IPv4Address.IPAddress }
-
-PS> $env:WSLIP = Get-NetIPConfiguration -InterfaceAlias *WSL* | % { $_.IPv4Address.IPAddress }
- OK!
+$ export mainIP=$(ifconfig eth0 | grep "inet " | awk '{ print $2 }')
 ```
 
-**DO NOT** make this route permanent as the WSL2 default gateway is DHCP based and will change upon every reboot.
+The hostname being "applied" from Windows, the default hostname will not resolve to this address, therefore you need to pass the `--node-ip` and `--node-name` flag to Krustlet.
 
-## Step 3: Install and run Krustlet
+## Step 2: Install and run Krustlet
 
 First, install the latest release of Krustlet following [the install guide](../intro/install.md).
+
+Second, ensure the Kubernetes context is correctly set to `docker-desktop`:
+
+```shell
+$ kubectl config get-contexts
+CURRENT   NAME                 CLUSTER          AUTHINFO         NAMESPACE
+*         docker-desktop       docker-desktop   docker-desktop
+
+# Optional if the context is not set correctly
+$ kubectl config set-context docker-desktop
+```
 
 Once you have done that, run the following commands to run Krustlet's WASI provider:
 
 ```shell
-$ krustlet-wasi --node-ip 172.17.0.1 --node-name krustlet --pfx-password password
+$ krustlet-wasi --node-ip $mainIP --node-name krustlet
 ```
 
 In another terminal, run `kubectl get nodes -o wide` and you should see output that looks similar to
