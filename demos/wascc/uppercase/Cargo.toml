@@ -15,3 +15,5 @@ wascc-codec = "0.6.0"
 
 [profile.release]
 opt-level = "s"
+
+[workspace]
