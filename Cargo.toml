@@ -32,7 +32,8 @@ reqwest = "0.10"
 
 [workspace]
 members = [
-    "crates/*"
+    "crates/*",
+    "demos/wascc/uppercase"
 ]
 
 [[bin]]
