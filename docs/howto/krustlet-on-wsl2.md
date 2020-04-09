@@ -60,6 +60,7 @@ CURRENT   NAME                 CLUSTER          AUTHINFO         NAMESPACE
 
 # Optional if the context is not set correctly
 $ kubectl config set-context docker-desktop
+Context "docker-desktop" modified.
 ```
 
 Once you have done that, run the following commands to run Krustlet's WASI provider:
