@@ -8,7 +8,7 @@ However, these guides will help you quickly accomplish common tasks.
 - [Running Krustlet on Amazon Elastic Kubernetes Service (EKS)](krustlet-on-eks.md)
 - [Running Krustlet on Kubernetes-in-Docker (KinD)](krustlet-on-kind.md)
 - [Running Krustlet on Minikube](krustlet-on-minikube.md)
-- [Running Krustlet on any Kubernetes cluster with an inlets tunnel](krustlet-on-kubernetes-with-inlets.md)
+- [Running Krustlet on any Kubernetes cluster with inlets](krustlet-with-inlets.md)
 - [Running Kubernetes on Azure Kubernetes Service (AKS)](kubernetes-on-aks.md)
 - [Running Kubernetes on Amazon Elastic Kubernetes Service (EKS)](kubernetes-on-eks.md)
 - [Running Kubernetes on Kubernetes-in-Docker (KinD)](kubernetes-on-kind.md)
