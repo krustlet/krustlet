@@ -1,0 +1,17 @@
+[package]
+name = "uppercase"
+version = "0.0.1"
+authors = ["Brian Ketelsen <mail@bjk.fyi"]
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wascc-actor = "0.6.0"
+log = '0.4.8'
+serde = { version = "1.0.104", features = ["derive"]}
+wascc-codec = "0.6.0"
+
+[profile.release]
+opt-level = "s"
