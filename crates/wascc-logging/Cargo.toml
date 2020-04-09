@@ -12,9 +12,11 @@ authors = [
 ]
 edition = "2018"
 
-
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[features]
+static_plugin = [] # Enable to statically compile this into a host
 
 [dependencies]
 wascc-codec = "0.6"

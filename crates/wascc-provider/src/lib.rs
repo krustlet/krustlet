@@ -9,8 +9,7 @@
 //! use kubelet::module_store::FileModuleStore;
 //! use wascc_provider::WasccProvider;
 //!
-//! #[tokio::main]
-//! async fn main() {
+//! async fn start() {
 //!     // Get a configuration for the Kubelet
 //!     let kubelet_config = Config::default();
 //!     let client = oci_distribution::Client::default();
@@ -43,8 +42,8 @@ use tokio::fs::File;
 use tokio::sync::watch::{self, Receiver};
 use tokio::sync::RwLock;
 use wascc_host::{Actor, NativeCapability, WasccHost};
-
-use wascc_logging::LOG_PATH_KEY;
+use wascc_httpsrv::HttpServerProvider;
+use wascc_logging::{LoggingProvider, LOG_PATH_KEY};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -56,23 +55,11 @@ const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
 /// The name of the HTTP capability.
 const HTTP_CAPABILITY: &str = "wascc:http_server";
 
-/// The name of the Logging capability.
+// /// The name of the Logging capability.
 const LOG_CAPABILITY: &str = "wascc:logging";
 
 /// The root directory of waSCC logs.
 const LOG_DIR_NAME: &str = "wascc-logs";
-
-#[cfg(target_os = "linux")]
-const HTTP_LIB: &str = "lib/libwascc_httpsrv.so";
-
-#[cfg(target_os = "linux")]
-const LOG_LIB: &str = "lib/libwascc_logging.so";
-
-#[cfg(target_os = "macos")]
-const HTTP_LIB: &str = "lib/libwascc_httpsrv.dylib";
-
-#[cfg(target_os = "macos")]
-const LOG_LIB: &str = "lib/libwascc_logging.dylib";
 
 /// Kubernetes' view of environment variables is an unordered map of string to string.
 type EnvVars = std::collections::HashMap<String, String>;
@@ -131,32 +118,41 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
         let log_path = config.data_dir.join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
 
-        let http_lib = config.data_dir.join(HTTP_LIB);
-        let log_lib = config.data_dir.join(LOG_LIB);
-
-        // wascc has native capabilities which are dynamic libraries (.so, .dylib, .dll)
-        // and portable capabilities which are WASM modules.  Portable capabilities
-        // don't fully work, and won't until the WASI spec has matured.  We load
-        // logging and http serving capabilities here, by first loading the library
-        // then adding the capability to the host.
-        let host = tokio::task::spawn_blocking(move || {
+        // wascc has native and portable capabilities.
+        //
+        // Native capabilities are either dynamic libraries (.so, .dylib, .dll)
+        // or statically linked Rust libaries. If the native capabilty is a dynamic
+        // library it must be loaded and configured through [`NativeCapability::from_file`].
+        // If it is a statically linked libary it can be configured through
+        // [`NativeCapability::from_instance`].
+        //
+        // Portable capabilities are WASM modules.  Portable capabilities
+        // don't fully work, and won't until the WASI spec has matured.
+        //
+        // Here we are using the native capabilties as statically linked libraries that will
+        // be compiled into the wascc-provider binary.
+        let cloned_host = host.clone();
+        tokio::task::spawn_blocking(move || {
             info!("Loading HTTP Capability");
-            let data = NativeCapability::from_file(http_lib, None).map_err(|e| {
-                anyhow::anyhow!("Failed to read HTTP capability {}: {}", HTTP_LIB, e)
-            })?;
-            host.lock()
+            let http_provider = HttpServerProvider::new();
+            let data = NativeCapability::from_instance(http_provider, None)
+                .map_err(|e| anyhow::anyhow!("Failed to instantiate HTTP capability: {}", e))?;
+
+            cloned_host
+                .lock()
                 .unwrap()
                 .add_native_capability(data)
-                .map_err(|e| anyhow::anyhow!("Failed to load HTTP capability: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to add HTTP capability: {}", e))?;
 
             info!("Loading LOG Capability");
-            let logdata = NativeCapability::from_file(log_lib, None)
-                .map_err(|e| anyhow::anyhow!("Failed to read LOG capability {}: {}", LOG_LIB, e))?;
-            host.lock()
+            let logging_provider = LoggingProvider::new();
+            let logging_capability = NativeCapability::from_instance(logging_provider, None)
+                .map_err(|e| anyhow::anyhow!("Failed to instantiate LOG capability: {}", e))?;
+            cloned_host
+                .lock()
                 .unwrap()
-                .add_native_capability(logdata)
-                .map_err(|e| anyhow::anyhow!("Failed to load LOG capability: {}", e))?;
-            Ok::<_, anyhow::Error>(host)
+                .add_native_capability(logging_capability)
+                .map_err(|e| anyhow::anyhow!("Failed to add LOG capability: {}", e))
         })
         .await??;
         Ok(Self {
