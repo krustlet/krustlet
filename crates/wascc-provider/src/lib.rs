@@ -119,7 +119,7 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
         let log_path = config.data_dir.join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
 
-        // wascc has native and protable capabilities.
+        // wascc has native and porstable capabilities.
         //
         // Native capabilities are either dynamic libraries (.so, .dylib, .dll)
         // or statically linked Rust libaries. If the native capabilty is a dynamic
@@ -137,22 +137,22 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
             info!("Loading HTTP Capability");
             let http_provider = HttpServerProvider::new();
             let data = NativeCapability::from_instance(http_provider, None)
-                .map_err(|e| anyhow::anyhow!("Failed to read HTTP capability: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to instantiate HTTP capability: {}", e))?;
             cloned_host
                 .lock()
                 .unwrap()
                 .add_native_capability(data)
-                .map_err(|e| anyhow::anyhow!("Failed to load HTTP capability: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to add HTTP capability: {}", e))?;
 
             info!("Loading LOG Capability");
             let logging_provider = LoggingProvider::new();
             let logging_capability = NativeCapability::from_instance(logging_provider, None)
-                .map_err(|e| anyhow::anyhow!("Failed to read LOG capability: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to instantiate LOG capability: {}", e))?;
             cloned_host
                 .lock()
                 .unwrap()
                 .add_native_capability(logging_capability)
-                .map_err(|e| anyhow::anyhow!("Failed to load LOG capability: {}", e))
+                .map_err(|e| anyhow::anyhow!("Failed to add LOG capability: {}", e))
         })
         .await??;
         Ok(Self {
