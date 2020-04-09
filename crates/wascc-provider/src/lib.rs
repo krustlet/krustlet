@@ -9,8 +9,7 @@
 //! use kubelet::module_store::FileModuleStore;
 //! use wascc_provider::WasccProvider;
 //!
-//! #[tokio::main]
-//! async fn main() {
+//! async fn start() {
 //!     // Get a configuration for the Kubelet
 //!     let kubelet_config = Config::default();
 //!     let client = oci_distribution::Client::default();
@@ -119,7 +118,7 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
         let log_path = config.data_dir.join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
 
-        // wascc has native and porstable capabilities.
+        // wascc has native and portable capabilities.
         //
         // Native capabilities are either dynamic libraries (.so, .dylib, .dll)
         // or statically linked Rust libaries. If the native capabilty is a dynamic
@@ -138,6 +137,7 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
             let http_provider = HttpServerProvider::new();
             let data = NativeCapability::from_instance(http_provider, None)
                 .map_err(|e| anyhow::anyhow!("Failed to instantiate HTTP capability: {}", e))?;
+
             cloned_host
                 .lock()
                 .unwrap()
