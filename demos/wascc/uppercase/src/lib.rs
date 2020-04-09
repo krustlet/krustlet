@@ -14,21 +14,17 @@ actor_handlers! {
     codec::core::OP_HEALTH_REQUEST => health
 }
 
-fn uppercase(
-    r: codec::http::Request
-) -> CallResult{
+fn uppercase(r: codec::http::Request) -> CallResult {
     info!("Query String: {}", r.query_string);
-        let upper = UppercaseResponse {
-            original: r.query_string.to_string(),
-            uppercased: r.query_string.to_ascii_uppercase(),
-        };
+    let upper = UppercaseResponse {
+        original: r.query_string.to_string(),
+        uppercased: r.query_string.to_ascii_uppercase(),
+    };
 
-     Ok(serialize(codec::http::Response::json(upper, 200, "OK"))?)
+    Ok(serialize(codec::http::Response::json(upper, 200, "OK"))?)
 }
 
-fn health(
-    _req: codec::core::HealthRequest
-) -> ReceiveResult{
+fn health(_req: codec::core::HealthRequest) -> ReceiveResult {
     Ok(vec![])
 }
 
