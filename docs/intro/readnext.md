@@ -30,4 +30,5 @@ to spend most of your time; if you work your way through these guides you should
 pretty much everything there is to know about Krustlet.
 
 
-[intro]: README.md [topics]: ../topics/README.md
+[intro]: README.md
+[topics]: ../topics/README.md
