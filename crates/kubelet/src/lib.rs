@@ -56,6 +56,7 @@ pub mod image_client;
 pub mod module_store;
 pub mod provider;
 pub mod status;
+pub mod volumes;
 
 pub use self::kubelet::Kubelet;
 pub use handle::{PodHandle, RuntimeHandle};

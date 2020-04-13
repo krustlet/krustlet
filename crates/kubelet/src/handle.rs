@@ -16,6 +16,7 @@ use tokio::task::JoinHandle;
 
 use crate::provider::ProviderError;
 use crate::status::{ContainerStatus, Status};
+use crate::volumes::VolumeRef;
 use crate::Pod;
 
 /// Any provider wanting to use the [`RuntimeHandle`] and
@@ -57,19 +58,19 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<S, R> {
         }
     }
 
+    /// Signal the running instance to stop. Use [`RuntimeHandle::wait`] to wait for the process to exit. This
+    /// uses the underlying [`Stop`] implementation passed to the
+    /// constructor
+    pub async fn stop(&mut self) -> anyhow::Result<()> {
+        self.stopper.stop().await
+    }
+
     /// Write all of the output from the running process into the given buffer.
     /// Returns the number of bytes written to the buffer
     pub(crate) async fn output(&mut self, buf: &mut Vec<u8>) -> anyhow::Result<usize> {
         let bytes_written = self.output.read_to_end(buf).await?;
         self.output.seek(SeekFrom::Start(0)).await?;
         Ok(bytes_written)
-    }
-
-    /// Signal the running instance to stop. Use [`RuntimeHandle::wait`] to wait for the process to exit. This
-    /// uses the underlying [`Stop`] implementation passed to the
-    /// constructor
-    pub async fn stop(&mut self) -> anyhow::Result<()> {
-        self.stopper.stop().await
     }
 
     /// Returns a clone of the status_channel for use in reporting the status to
@@ -93,17 +94,22 @@ pub struct PodHandle<S, R> {
     container_handles: RwLock<HashMap<String, RuntimeHandle<S, R>>>,
     status_handle: JoinHandle<()>,
     pod: Pod,
+    // Storage for the volume references so they don't get dropped until the runtime handle is
+    // dropped
+    _volumes: Option<HashMap<String, VolumeRef>>,
 }
 
 impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> PodHandle<S, R> {
-    /// Creates a new pod handle that manages the given map of container names
-    /// to [`RuntimeHandle`]s. The given pod and client are used to
-    /// maintain a reference to the kubernetes object and to be able to update
-    /// the status of that object
+    /// Creates a new pod handle that manages the given map of container names to
+    /// [`RuntimeHandle`]s. The given pod and client are used to maintain a reference to the
+    /// kubernetes object and to be able to update the status of that object. The optional volumes
+    /// parameter allows a caller to pass a map of volumes to keep reference to (so that they will
+    /// be dropped along with the pod)
     pub fn new(
         container_handles: HashMap<String, RuntimeHandle<S, R>>,
         pod: Pod,
         client: kube::Client,
+        volumes: Option<HashMap<String, VolumeRef>>,
     ) -> anyhow::Result<Self> {
         let mut channel_map = StreamMap::with_capacity(container_handles.len());
         for (name, handle) in container_handles.iter() {
@@ -135,6 +141,7 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> PodHandle<S, R> {
             container_handles: RwLock::new(container_handles),
             status_handle,
             pod,
+            _volumes: volumes,
         })
     }
 

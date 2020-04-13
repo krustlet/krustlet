@@ -38,6 +38,7 @@ use std::sync::Arc;
 
 use kubelet::module_store::ModuleStore;
 use kubelet::provider::ProviderError;
+use kubelet::volumes::VolumeRef;
 use kubelet::{Pod, Provider};
 use log::{debug, error, info};
 use tokio::fs::File;
@@ -48,6 +49,7 @@ use wasi_runtime::{HandleStopper, WasiRuntime};
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 const LOG_DIR_NAME: &str = "wasi-logs";
+const VOLUME_DIR: &str = "volumes";
 
 /// WasiProvider provides a Kubelet runtime implementation that executes WASM
 /// binaries conforming to the WASI spec
@@ -57,6 +59,7 @@ pub struct WasiProvider<S> {
     store: S,
     log_path: PathBuf,
     kubeconfig: kube::Config,
+    volume_path: PathBuf,
 }
 
 impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
@@ -66,12 +69,15 @@ impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
         config: &kubelet::config::Config,
         kubeconfig: kube::Config,
     ) -> anyhow::Result<Self> {
-        let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
+        let log_path = config.data_dir.join(LOG_DIR_NAME);
+        let volume_path = config.data_dir.join(VOLUME_DIR);
         tokio::fs::create_dir_all(&log_path).await?;
+        tokio::fs::create_dir_all(&volume_path).await?;
         Ok(Self {
             handles: Default::default(),
             store,
             log_path,
+            volume_path,
             kubeconfig,
         })
     }
@@ -107,18 +113,48 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
 
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
         let client = kube::Client::new(self.kubeconfig.clone());
+        // TODO: Make volume refs part of the handle so they don't get dropped
+        let volumes = VolumeRef::volumes_from_pod(&self.volume_path, &pod, &client).await?;
         info!("Starting containers for pod {:?}", pod_name);
         for container in pod.containers() {
             let env = Self::env_vars(&container, &pod, &client).await;
             let module_data = modules
                 .remove(&container.name)
                 .expect("FATAL ERROR: module map not properly populated");
+            let container_volumes: HashMap<String, Option<String>> =
+                if let Some(volume_mounts) = container.volume_mounts.as_ref() {
+                    volume_mounts
+                        .iter()
+                        .map(|vm| -> anyhow::Result<(String, Option<String>)> {
+                            // Check the volume exists first
+                            let vol = volumes.get(&vm.name).ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "no volume with the name of {} found for container {}",
+                                    vm.name,
+                                    container.name
+                                )
+                            })?;
+                            let mut guest_path = PathBuf::from(&vm.mount_path);
+                            if let Some(sub_path) = &vm.sub_path {
+                                guest_path.push(sub_path);
+                            }
+                            // We can safely assume that this should be valid UTF-8 because it would have
+                            // been validated by the k8s API
+                            Ok((
+                                vol.to_string_lossy().into_owned(),
+                                Some(guest_path.to_string_lossy().into_owned()),
+                            ))
+                        })
+                        .collect::<anyhow::Result<_>>()?
+                } else {
+                    HashMap::default()
+                };
 
             let runtime = WasiRuntime::new(
                 module_data,
                 env,
                 Vec::default(),
-                HashMap::default(),
+                container_volumes,
                 self.log_path.clone(),
             )
             .await?;
@@ -138,7 +174,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
             let mut handles = self.handles.write().await;
             handles.insert(
                 key_from_pod(&pod),
-                PodHandle::new(container_handles, pod, client)?,
+                PodHandle::new(container_handles, pod, client, Some(volumes))?,
             );
         }
 
