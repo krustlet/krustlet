@@ -103,6 +103,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 export PATH=$PATH:$HOME/.cargo/bin
 
 # Build krustlet to link against the system libssl
+# Amazon Linux has an older openssl version than the krustlet release binary
 # TODO: make the krustlet to build (wasi or wascc) configurable
 mkdir /tmp/krustlet
 git clone https://github.com/deislabs/krustlet /tmp/krustlet
