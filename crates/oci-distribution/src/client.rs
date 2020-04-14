@@ -7,9 +7,11 @@ use crate::errors::*;
 use crate::manifest::OciManifest;
 use crate::Reference;
 
+use anyhow::Context;
 use futures_util::future;
 use futures_util::stream::StreamExt;
 use hyperx::header::Header;
+use log::debug;
 use reqwest::header::HeaderMap;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
@@ -52,9 +54,11 @@ impl Client {
     /// The client will check if it's already been authenticated and if
     /// not will attempt to do.
     pub async fn pull_image(&mut self, image: &Reference) -> anyhow::Result<Vec<u8>> {
+        debug!("Pulling image: {:?}", image);
         if self.token.is_none() {
             self.auth(image, None).await?;
         }
+
         let manifest = self.pull_manifest(image).await?;
 
         let layers = manifest.layers.into_iter().map(|layer| {
@@ -64,6 +68,7 @@ impl Client {
             let this = &self;
             async move {
                 let mut out: Vec<u8> = Vec::new();
+                debug!("Pulling image layer");
                 this.pull_layer(image, &layer.digest, &mut out).await?;
                 Ok::<_, anyhow::Error>(out)
             }
@@ -101,6 +106,7 @@ impl Client {
     /// This performs authorization and then stores the token internally to be used
     /// on other requests.
     pub async fn auth(&mut self, image: &Reference, _secret: Option<&str>) -> anyhow::Result<()> {
+        debug!("Authorzing for image: {:?}", image);
         // The version request will tell us where to go.
         let url = format!(
             "{}://{}/v2/",
@@ -130,6 +136,7 @@ impl Client {
 
         // TODO: At some point in the future, we should support sending a secret to the
         // server for auth. This particular workflow is for read-only public auth.
+        debug!("Making authentication call to {}", realm);
         let auth_res = self
             .client
             .get(realm)
@@ -139,12 +146,17 @@ impl Client {
 
         match auth_res.status() {
             reqwest::StatusCode::OK => {
-                let docker_token: RegistryToken = auth_res.json().await?;
+                let text = auth_res.text().await?;
+                debug!("Recevied response from auth request: {}", text);
+                let docker_token: RegistryToken = serde_json::from_str(&text)
+                    .context("Failed to decode registry token from auth request")?;
                 self.token = Some(docker_token);
+                debug!("Succesfully authorized for image '{:?}'", image);
                 Ok(())
             }
             _ => {
                 let reason = auth_res.text().await?;
+                debug!("Failed to authenticate for image '{:?}': {}", image, reason);
                 Err(anyhow::anyhow!("failed to authenticate: {}", reason))
             }
         }
@@ -156,6 +168,7 @@ impl Client {
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
     pub async fn pull_manifest(&self, image: &Reference) -> anyhow::Result<OciManifest> {
         let url = image.to_v2_manifest_url(self.config.protocol.as_str());
+        debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
 
         let res = request.headers(self.auth_headers()).send().await?;
@@ -164,7 +177,16 @@ impl Client {
         // Obviously, HTTP servers are going to send other codes. This tries to catch the
         // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
         match res.status() {
-            reqwest::StatusCode::OK => Ok(res.json::<OciManifest>().await?),
+            reqwest::StatusCode::OK => {
+                let text = res.text().await?;
+                debug!("Parsing response as OciManifest: {}", text);
+                Ok(serde_json::from_str(&text).with_context(|| {
+                    format!(
+                        "Failed to parse response from pulling manifest for '{:?}' as an OciManifest",
+                        image
+                    )
+                })?)
+            }
             s if s.is_client_error() => {
                 // According to the OCI spec, we should see an error in the message body.
                 let err = res.json::<OciEnvelope>().await?;
@@ -259,6 +281,7 @@ impl ClientProtocol {
 /// A token granted during the OAuth2-like workflow for OCI registries.
 #[derive(serde::Deserialize, Default)]
 struct RegistryToken {
+    #[serde(alias = "token")]
     access_token: String,
 }
 

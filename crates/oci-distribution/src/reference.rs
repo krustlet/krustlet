@@ -5,11 +5,17 @@ use std::convert::{Into, TryFrom};
 /// currently, the library only accepts modules tagged in the following structure:
 /// <registry>/<repository>:<tag>
 /// for example: webassembly.azurecr.io/hello:v1
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub struct Reference {
     whole: String,
     slash: usize,
     colon: usize,
+}
+
+impl std::fmt::Debug for Reference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.whole)
+    }
 }
 
 impl Reference {
