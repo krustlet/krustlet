@@ -35,7 +35,7 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
     let address = std::net::SocketAddr::new(config.addr, config.port);
     let mut listener = TcpListener::bind(&address).await.unwrap();
 
-    info!("starting webserver at: {:?}", address);
+    info!("Starting webserver at: {}", address);
 
     let mut incoming = listener.incoming();
 
@@ -45,7 +45,7 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
 
         tokio::spawn(async move {
             if let Err(e) = handle_connection(conn, acceptor, provider).await {
-                error!("error handling connection: {}", e);
+                error!("Error handling server connection: {}", e);
             }
         });
     }
