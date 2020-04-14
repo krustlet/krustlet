@@ -76,8 +76,9 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
             loop {
                 let mut stream = informer.poll().await.expect("informer poll failed").boxed();
                 while let Some(event) = stream.try_next().await.unwrap() {
+                    debug!("Handling Kubernetes pod event: {:?}", event);
                     match provider.lock().await.handle_event(event).await {
-                        Ok(_) => debug!("Handled event successfully"),
+                        Ok(()) => debug!("Handled Kubernetes event successfully"),
                         Err(e) => error!("Error handling event: {}", e),
                     };
                 }
