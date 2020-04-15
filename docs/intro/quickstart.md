@@ -9,6 +9,12 @@ Get started with Krustlet in three easy steps:
 As Krustlet is under active development, this guide will help you set up a cluster suitable for
 evaluation, development, and testing purposes.
 
+## Video Tutorials
+
+Some of these guides are available to view as a video tutorial:
+
+- [Azure Kubernetes Service (AKS)](https://www.youtube.com/watch?v=epdUIS5FDyQ)
+
 ## Step 1: Boot a Kubernetes Cluster
 
 There are many ways to boot up a Kubernetes cluster. You may choose to get up and running in cloud
