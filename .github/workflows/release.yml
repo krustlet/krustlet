@@ -5,7 +5,7 @@ on:
     branches:
       - master
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   build:
@@ -37,7 +37,7 @@ jobs:
           mkdir _dist
           cp README.md LICENSE target/release/krustlet-wasi target/release/krustlet-wascc _dist/
           cd _dist
-          tar czf krustlet-${{ env.RELEASE_VERSION }}-${{ runner.os }}-${{ matrix.arch }}.tar.gz README.md LICENSE krustlet-wasi krustlet-wascc lib/
+          tar czf krustlet-${{ env.RELEASE_VERSION }}-${{ runner.os }}-${{ matrix.arch }}.tar.gz README.md LICENSE krustlet-wasi krustlet-wascc
 
       - uses: actions/upload-artifact@v1
         with:
