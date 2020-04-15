@@ -16,7 +16,7 @@
 //!     let store = FileModuleStore::new(client, &std::path::PathBuf::from(""));
 //!
 //!     // Load a kubernetes configuration
-//!     let kubeconfig = kube::config::load_kube_config().await.unwrap();
+//!     let kubeconfig = kube::Config::infer().await.unwrap();
 //!
 //!     // Instantiate the provider type
 //!     let provider = WasccProvider::new(store, &kubelet_config, kubeconfig.clone()).await.unwrap();
@@ -102,7 +102,7 @@ pub struct WasccProvider<S> {
     handles: Arc<RwLock<HashMap<String, PodHandle<ActorStopper, File>>>>,
     store: S,
     log_path: PathBuf,
-    kubeconfig: kube::config::Configuration,
+    kubeconfig: kube::Config,
     host: Arc<Mutex<WasccHost>>,
 }
 
@@ -112,7 +112,7 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
     pub async fn new(
         store: S,
         config: &kubelet::config::Config,
-        kubeconfig: kube::config::Configuration,
+        kubeconfig: kube::Config,
     ) -> anyhow::Result<Self> {
         let host = Arc::new(Mutex::new(WasccHost::new()));
         let log_path = config.data_dir.join(LOG_DIR_NAME);
@@ -179,7 +179,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         info!("Starting containers for pod {:?}", pod.name());
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
         let mut container_handles = HashMap::new();
-        let client = kube::Client::from(self.kubeconfig.clone());
+        let client = kube::Client::new(self.kubeconfig.clone());
         for container in pod.containers() {
             let env = Self::env_vars(&container, &pod, &client).await;
 

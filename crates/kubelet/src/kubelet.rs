@@ -7,7 +7,7 @@ use crate::Provider;
 
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::Pod as KubePod;
-use kube::{api::ListParams, runtime::Informer, Resource};
+use kube::{api::ListParams, runtime::Informer, Api};
 use log::{debug, error};
 use tokio::sync::Mutex;
 
@@ -27,14 +27,14 @@ use std::sync::Arc;
 /// thread to thread during the course of the Kubelet's lifetime.
 pub struct Kubelet<P> {
     provider: Arc<Mutex<P>>,
-    kube_config: kube::config::Configuration,
+    kube_config: kube::Config,
     config: Config,
 }
 
 impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
     /// Create a new Kubelet with a provider, a kubernetes configuration,
     /// and a kubelet configuration
-    pub fn new(provider: T, kube_config: kube::config::Configuration, config: Config) -> Self {
+    pub fn new(provider: T, kube_config: kube::Config, config: Config) -> Self {
         Self {
             provider: Arc::new(Mutex::new(provider)),
             kube_config,
@@ -47,7 +47,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
     /// This will listen on the given address, and will also begin watching for Pod
     /// events, which it will handle.
     pub async fn start(&self) -> anyhow::Result<()> {
-        let client = kube::Client::from(self.kube_config.clone());
+        let client = kube::Client::new(self.kube_config.clone());
         // Create the node. If it already exists, "adopt" the node definition
         create_node(&client, &self.config, T::ARCH).await;
 
@@ -72,7 +72,8 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
                 field_selector: Some(node_selector),
                 ..Default::default()
             };
-            let informer = Informer::new(client, params, Resource::all::<KubePod>());
+            let api = Api::<KubePod>::all(client);
+            let informer = Informer::new(api).params(params);
             loop {
                 let mut stream = informer.poll().await.expect("informer poll failed").boxed();
                 while let Some(event) = stream.try_next().await.unwrap() {
@@ -125,12 +126,9 @@ mod test {
     use std::collections::BTreeMap;
 
     fn mock_client() -> kube::Client {
-        kube::config::Configuration {
-            base_path: ".".to_string(),
-            client: reqwest::Client::new(),
-            default_ns: " ".to_string(),
-        }
-        .into()
+        kube::Client::new(kube::Config::new(
+            reqwest::Url::parse("http://example.com").unwrap(),
+        ))
     }
 
     struct MockProvider;

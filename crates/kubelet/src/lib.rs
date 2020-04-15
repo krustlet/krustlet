@@ -31,7 +31,7 @@
 //!     let provider = MyProvider;
 //!
 //!     // Load a kubernetes configuration
-//!     let kubeconfig = kube::config::load_kube_config().await.unwrap();
+//!     let kubeconfig = kube::Config::infer().await.unwrap();
 //!     // Get a configuration for the Kubelet
 //!     let kubelet_config = Config::default();
 //!

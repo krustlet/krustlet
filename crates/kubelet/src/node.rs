@@ -4,6 +4,7 @@ use k8s_openapi::api::coordination::v1::Lease;
 use k8s_openapi::api::core::v1::Node;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 use kube::api::{Api, DeleteParams, PatchParams, PostParams};
+use kube::error::ErrorResponse;
 use kube::Error;
 use log::{debug, error, info};
 
@@ -62,7 +63,7 @@ pub async fn create_node(client: &kube::Client, config: &Config, arch: &str) {
     let node =
         serde_json::from_value(node).expect("failed to deserialize node from node definition JSON");
 
-    match retry!(node_client.create(&PostParams::default(), &node).await, times: 4, break_on: &Error::Api(kube::ErrorResponse { code: 409, .. }))
+    match retry!(node_client.create(&PostParams::default(), &node).await, times: 4, break_on: &Error::Api(ErrorResponse { code: 409, .. }))
     {
         Ok(node) => {
             let node_uid = node.metadata.unwrap().uid.unwrap();
@@ -71,7 +72,7 @@ pub async fn create_node(client: &kube::Client, config: &Config, arch: &str) {
                 return;
             }
         }
-        Err(Error::Api(kube::ErrorResponse { code: 409, .. })) => {
+        Err(Error::Api(ErrorResponse { code: 409, .. })) => {
             debug!(
                 "Node '{}' exists already. Going to fetch existing node...",
                 &config.node_name
@@ -149,14 +150,14 @@ async fn create_lease(node_uid: &str, node_name: &str, client: &kube::Client) ->
         leases.create(&PostParams::default(), &lease).await,
         times: 4,
         log_error: |e| debug!("Lease could not be created: {}. Retrying...", e),
-        break_on: &Error::Api(kube::ErrorResponse { code: 409, .. })
+        break_on: &Error::Api(ErrorResponse { code: 409, .. })
     );
     match resp {
         Ok(_) => {
             debug!("Created lease for node '{}'", node_name);
             Ok(())
         }
-        Err(Error::Api(kube::ErrorResponse { code: 409, .. })) => {
+        Err(Error::Api(ErrorResponse { code: 409, .. })) => {
             debug!("Lease already existed for node '{}'", node_name);
             Ok(())
         }

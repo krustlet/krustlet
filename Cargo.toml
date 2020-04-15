@@ -16,7 +16,7 @@ default-run = "krustlet-wascc"
 [dependencies]
 anyhow = "1.0"
 tokio = { version = "0.2", features = ["macros"] }
-kube = "0.31"
+kube = "0.32"
 env_logger = "0.7"
 kubelet = { path = "./crates/kubelet", version = "0.1.0", features = ["cli"] }
 wascc-provider = { path = "./crates/wascc-provider", version = "0.1.0" }
