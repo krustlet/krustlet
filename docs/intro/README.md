@@ -2,6 +2,7 @@
 
 New to Krustlet? Start here:
 
+- [What is Krustlet?](intro.md)
 - [Quick Start](quickstart.md)
 - [Install Krustlet](install.md)
 - [Writing your first app, part 1](tutorial01.md)
