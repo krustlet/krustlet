@@ -1681,6 +1681,7 @@ name = "krustlet"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dirs",
  "env_logger 0.7.1",
  "futures",
  "k8s-openapi",
@@ -1688,6 +1689,7 @@ dependencies = [
  "kubelet",
  "oci-distribution",
  "reqwest",
+ "serde",
  "serde_derive",
  "serde_json",
  "tokio",

@@ -1,5 +1,5 @@
 use futures::{StreamExt, TryStreamExt};
-use k8s_openapi::api::core::v1::{Node, Pod, Taint};
+use k8s_openapi::api::core::v1::{ConfigMap, Node, Pod, Secret, Taint};
 use kube::{
     api::{Api, DeleteParams, ListParams, LogParams, PostParams, WatchEvent},
     runtime::Informer,
@@ -181,6 +181,40 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let client: kube::Client = nodes.into();
+    let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
+    secrets
+        .create(
+            &PostParams::default(),
+            &serde_json::from_value(json!({
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {
+                    "name": "hello-wasi-secret"
+                },
+                "stringData": {
+                    "myval": "a cool secret"
+                }
+            }))?,
+        )
+        .await?;
+
+    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), "default");
+    config_maps
+        .create(
+            &PostParams::default(),
+            &serde_json::from_value(json!({
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": {
+                    "name": "hello-wasi-configmap"
+                },
+                "data": {
+                    "myval": "a cool configmap"
+                }
+            }))?,
+        )
+        .await?;
+
     let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
@@ -193,6 +227,16 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     "name": "hello-wasi",
                     "image": "webassembly.azurecr.io/hello-wasm:v1",
+                    "volumeMounts": [
+                        {
+                            "mountPath": "/foo",
+                            "name": "secret-test"
+                        },
+                        {
+                            "mountPath": "/bar",
+                            "name": "configmap-test"
+                        }
+                    ]
                 },
             ],
             "tolerations": [
@@ -202,6 +246,20 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
                     "operator": "Equal",
                     "value": "wasm32-wasi"
                 },
+            ],
+            "volumes": [
+                {
+                    "name": "secret-test",
+                    "secret": {
+                        "secretName": "hello-wasi-secret"
+                    }
+                },
+                {
+                    "name": "configmap-test",
+                    "configMap": {
+                        "name": "hello-wasi-configmap"
+                    }
+                }
             ]
         }
     }))?;
@@ -259,8 +317,31 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
     .expect("Could not fetch terminated states");
     assert_eq!(state.exit_code, 0);
 
+    // TODO: Create a module that actually reads from a directory and outputs to logs
+    let file_path_base = dirs::home_dir()
+        .expect("home dir does not exist")
+        .join(".krustlet/volumes/hello-wasi-default");
+    let secret_file_bytes = tokio::fs::read(file_path_base.join("secret-test/myval"))
+        .await
+        .expect("unable to open secret file");
+    let configmap_file_bytes = tokio::fs::read(file_path_base.join("configmap-test/myval"))
+        .await
+        .expect("unable to open configmap file");
+    assert_eq!("a cool secret".to_owned().into_bytes(), secret_file_bytes);
+    assert_eq!(
+        "a cool configmap".to_owned().into_bytes(),
+        configmap_file_bytes
+    );
+
     // cleanup
+    // TODO: Find an actual way to perform cleanup automatically, even in the case of failures
     pods.delete("hello-wasi", &DeleteParams::default()).await?;
+    secrets
+        .delete("hello-wasi-secret", &DeleteParams::default())
+        .await?;
+    config_maps
+        .delete("hello-wasi-configmap", &DeleteParams::default())
+        .await?;
 
     Ok(())
 }
