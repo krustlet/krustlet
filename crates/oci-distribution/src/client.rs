@@ -281,7 +281,6 @@ impl ClientProtocol {
 /// A token granted during the OAuth2-like workflow for OCI registries.
 #[derive(serde::Deserialize, Default)]
 struct RegistryToken {
-    #[serde(alias = "token")]
     access_token: String,
 }
 
