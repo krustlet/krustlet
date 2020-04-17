@@ -87,7 +87,7 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     let api = Api::namespaced(client, "default");
     let inf: Informer<Pod> = Informer::new(api).params(
         ListParams::default()
-            .fields("metadata.name=hello-wasi")
+            .fields("metadata.name=greet-wascc")
             .timeout(30),
     );
 
