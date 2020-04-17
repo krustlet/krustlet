@@ -8,7 +8,7 @@ use crate::Provider;
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::{api::ListParams, runtime::Informer, Api};
-use log::{debug, error};
+use log::{debug, warn};
 use tokio::sync::Mutex;
 
 use std::sync::Arc;
@@ -80,7 +80,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
                     debug!("Handling Kubernetes pod event: {:?}", event);
                     match provider.lock().await.handle_event(event).await {
                         Ok(()) => debug!("Handled Kubernetes event successfully"),
-                        Err(e) => error!("Error handling event: {}", e),
+                        Err(e) => warn!("Error handling pod event: {}", e),
                     };
                 }
             }
