@@ -3,6 +3,7 @@ use crate::image_client::ImageClient;
 use crate::pod::Pod;
 
 use async_trait::async_trait;
+use log::debug;
 use oci_distribution::Reference;
 use tokio::sync::Mutex;
 
@@ -52,6 +53,10 @@ pub trait ModuleStore {
     ///
     /// This panics if any of the pod's containers do not have an image associated with them
     async fn fetch_pod_modules(&self, pod: &Pod) -> anyhow::Result<HashMap<String, Vec<u8>>> {
+        debug!(
+            "Fetching all the container modules for pod '{}'",
+            pod.name()
+        );
         // Fetch all of the container modules in parallel
         let container_module_futures = pod.containers().iter().map(move |container| {
             let image = container
@@ -113,11 +118,16 @@ impl<C: ImageClient + Send> ModuleStore for FileModuleStore<C> {
     async fn get(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
         let path = self.pull_file_path(image_ref);
         if !path.exists() {
+            debug!(
+                "Image ref '{:?}' doesn't exist on disk. Fetching remotely...",
+                image_ref
+            );
             let contents = self.client.lock().await.pull(image_ref).await?;
             self.store(image_ref, &contents).await?;
             return Ok(contents);
         }
 
+        debug!("Fetching image ref '{:?}' from disk", image_ref);
         Ok(tokio::fs::read(path).await?)
     }
 }
