@@ -127,7 +127,7 @@ mod test {
 
     fn mock_client() -> kube::Client {
         kube::Client::new(kube::Config::new(
-            reqwest::Url::parse("http://example.com").unwrap(),
+            reqwest::Url::parse("http://127.0.0.1:8080").unwrap(),
         ))
     }
 
