@@ -3,6 +3,7 @@
 //! The best way to configure the kubelet is by using [`Config::default_config`]
 //! or by turning on the "cli" feature and using [`Config::new_from_flags`].
 
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
@@ -31,6 +32,8 @@ pub struct Config {
     pub server_config: ServerConfig,
     /// The directory where the Kubelet will store data
     pub data_dir: PathBuf,
+    /// The labels to be applied to the node in addition to the default labels
+    pub node_labels: HashMap<String, String>,
 }
 /// The configuration for the Kubelet server.
 #[derive(Clone, Debug)]
@@ -69,6 +72,7 @@ impl Config {
                 pfx_password: String::new(),
                 pfx_path: default_pfx_path(),
             },
+            node_labels: default_node_labels()?,
         })
     }
 
@@ -101,6 +105,8 @@ impl Config {
         let data_dir = opts
             .data_dir
             .unwrap_or_else(|| default_data_dir().expect("unable to get default directory"));
+        let node_labels = build_node_labels(opts.node_labels.unwrap_or_default())
+            .unwrap_or_else(|_| default_node_labels().unwrap_or_default());
         Config {
             node_ip,
             node_name,
@@ -112,6 +118,7 @@ impl Config {
                 pfx_path,
                 pfx_password,
             },
+            node_labels: node_labels,
         }
     }
 }
@@ -198,6 +205,21 @@ pub struct Opts {
         help = "The data path (logs, container images, etc) for krustlet storage. Defaults to $HOME/.krustlet"
     )]
     data_dir: Option<PathBuf>,
+
+    #[structopt(
+        long = "node-labels",
+        env = "KRUSTLET_NODE_LABELS",
+        help = "Labels to add when registering the node in the cluster.
+        Labels must be key=value pairs separated by ','.
+        Labels in the 'kubernetes.io' namespace must begin with an allowed prefix
+        (kubelet.kubernetes.io, node.kubernetes.io) or be in the specifically allowed set
+        (beta.kubernetes.io/arch, beta.kubernetes.io/instance-type, beta.kubernetes.io/os,
+        failure-domain.beta.kubernetes.io/region, failure-domain.beta.kubernetes.io/zone,
+        failure-domain.kubernetes.io/region, failure-domain.kubernetes.io/zone,
+        kubernetes.io/arch, kubernetes.io/hostname, kubernetes.io/instance-type,
+        kubernetes.io/os)"
+    )]
+    node_labels: Option<String>,
 }
 
 fn default_hostname() -> anyhow::Result<String> {
@@ -210,6 +232,51 @@ fn default_data_dir() -> anyhow::Result<PathBuf> {
     Ok(dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("Unable to get home directory"))?
         .join(".krustlet"))
+}
+
+fn default_node_labels() -> anyhow::Result<HashMap<String, String>> {
+    let mut default_labels = HashMap::new();
+    default_labels.insert("beta.kubernetes.io/os".to_string(), "linux".to_string());
+    default_labels.insert("kubernetes.io/os".to_string(), "linux".to_string());
+    default_labels.insert("kubernetes.io/role".to_string(), "agent".to_string());
+    default_labels.insert("type".to_string(), "krustlet".to_string());
+
+    Ok(default_labels)
+}
+
+// Attempt to build node labels from passed arguments.
+// First, append all mandatory node labels.
+// Next, split on comma per man desription
+// Next, split on equals per man description
+// Next, if exactly two values check for k8s namespace
+// Next, if namespace exists, filter on prefix or allowed namespaces only and insert
+// Else, if not k8s namspace, insert
+// Return labels
+fn build_node_labels(opts: String) -> anyhow::Result<HashMap<String, String>> {
+    let k8s_namespace = "kubernetes.io";
+    let allowed_k8s_prefixes = vec![""];
+    let mut node_labels = default_node_labels().unwrap();
+    let split = opts.split(",");
+    let labels = split.collect::<Vec<&str>>();
+
+    for label in labels {
+        let label_split = label.split("=");
+        let kv = label_split.collect::<Vec<&str>>();
+        if kv.len() == 2 {
+            if kv[0].contains(k8s_namespace) {
+                if kv[0].starts_with("kubelet.kubernetes.io")
+                    || kv[0].starts_with("node.kubernetes.io")
+                    || allowed_k8s_prefixes.contains(&kv[0])
+                {
+                    node_labels.insert(kv[0].to_string(), kv[1].to_string());
+                }
+            } else {
+                node_labels.insert(kv[0].to_string(), kv[1].to_string());
+            }
+        }
+    }
+
+    Ok(node_labels)
 }
 
 // Some hostnames (particularly local ones) can have uppercase letters, which is

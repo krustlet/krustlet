@@ -6,6 +6,7 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 use kube::api::{Api, DeleteParams, PatchParams, PostParams};
 use kube::Error;
 use log::{debug, error, info};
+use std::collections::HashMap;
 
 macro_rules! retry {
     ($action:expr, times: $num_times:expr, error: $on_err:expr) => {{
@@ -243,20 +244,14 @@ async fn replace_node(client: &kube::Client, node_name: &str, node: &Node) -> Re
 /// use seems like a misstep. Ideally, we'll be able to support multiple runtimes.
 fn node_definition(config: &Config, arch: &str) -> serde_json::Value {
     let ts = Time(Utc::now());
-    serde_json::json!({
+    let node_labels = node_labels_definition(arch, &config);
+
+    let mut json = serde_json::json!({
         "apiVersion": "v1",
         "kind": "Node",
         "metadata": {
             "name": config.node_name,
-            "labels": {
-                "beta.kubernetes.io/arch": arch,
-                "beta.kubernetes.io/os": "linux",
-                "kubernetes.io/arch": arch,
-                "kubernetes.io/os": "linux",
-                "kubernetes.io/hostname": config.hostname,
-                "kubernetes.io/role":     "agent",
-                "type": "krustlet"
-            },
+            "labels": {},
             "annotations": {
                 "node.alpha.kubernetes.io/ttl": "0",
                 "volumes.kubernetes.io/controller-managed-attach-detach": "true"
@@ -335,7 +330,13 @@ fn node_definition(config: &Config, arch: &str) -> serde_json::Value {
                 }
             }
         }
-    })
+    });
+
+    // extra labels from config
+    for (key, val) in node_labels {
+        json["metadata"]["labels"][key] = serde_json::json!(val);
+    }
+    json
 }
 
 /// Define a new coordination.Lease object for Kubernetes
@@ -380,4 +381,23 @@ fn lease_spec_definition(node_name: &str) -> serde_json::Value {
             "leaseDurationSeconds": 300
         }
     )
+}
+
+/// Defines the labels that will be applied to this node
+///
+/// Default values and passed node-labels arguments are injected by config.
+fn node_labels_definition(arch: &str, config: &Config) -> HashMap<String, String> {
+    // clone from config should include A) all default values and B) any
+    // passed via the --node-labels argument
+    let mut labels = config.node_labels.clone();
+
+    // add the mandatory labels that are dependent on injected values
+    labels.insert("beta.kubernetes.io/arch".to_string(), arch.to_string());
+    labels.insert("kubernetes.io/arch".to_string(), arch.to_string());
+    labels.insert(
+        "kubernetes.io/hostname".to_string(),
+        config.hostname.to_string(),
+    );
+
+    labels
 }
