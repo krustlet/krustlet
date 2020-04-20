@@ -67,7 +67,7 @@ nodeGroups:
     desiredCapacity: 2
     ssh:
       allow: true
-    overrideBootstrapCommand: /etc/eks/bootstrap.sh
+    overrideBootstrapCommand: /etc/eks/bootstrap.sh --krustlet-node-labels "alpha.eksctl.io/cluster-name=krustlet-demo,alpha.eksctl.io/nodegroup-name=krustlet"
 ```
 
 This will create a EKS cluster named `krustlet-demo` with a single unmanaged node group named `krustlet` with two `t3.small` nodes.
@@ -99,18 +99,6 @@ ip-192-168-44-27.us-west-2.compute.internal   Ready    agent   17s   v1.17.0
 ```
 
 You should see two nodes with different names in the output.
-
-`eksctl` expects the nodes to have been created with specific labels it uses to manage the nodes.
-
-Currently [Krustlet does not add these labels](https://github.com/deislabs/krustlet/issues/184) when it registers the node with the Kubernetes API server.
-
-To fix this, run `kubectl` to manually apply the labels to the nodes, where `$NODE_NAME` should be replaced with each of the two node names:
-
-```bash
-$ kubectl label nodes $NODE_NAME alpha.eksctl.io/cluster-name=krustlet-demo alpha.eksctl.io/nodegroup-name=krustlet
-```
-
-Once the labels are applied to the nodes, the `eksctl` command should continue and complete successfully.
 
 ## Running a WebAssembly application
 

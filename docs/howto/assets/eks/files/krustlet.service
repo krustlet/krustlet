@@ -2,6 +2,8 @@
 Description=Krustlet - a kubelet implementation for running WebAssembly
 
 [Service]
+# Global and static parameters: KRUSTLET_NODE_LABELS
+EnvironmentFile=/etc/eksctl/krustlet.local.env
 Environment=KUBECONFIG=/etc/eksctl/kubeconfig.yaml
 Environment=PFX_PATH=/etc/krustlet/cert.pfx
 Environment=PFX_PASSWORD=krustlet
