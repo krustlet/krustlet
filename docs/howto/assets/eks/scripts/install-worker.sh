@@ -22,6 +22,7 @@ validate_env_set() {
 }
 
 validate_env_set KRUSTLET_VERSION
+validate_env_set KRUSTLET_SRC
 
 ################################################################################
 ### Machine Architecture #######################################################
@@ -105,11 +106,16 @@ export PATH=$PATH:$HOME/.cargo/bin
 # Build krustlet to link against the system libssl
 # Amazon Linux has an older openssl version than the krustlet release binary
 # TODO: make the krustlet to build (wasi or wascc) configurable
+echo "Downloading Krustlet source from $KRUSTLET_SRC"
+curl $KRUSTLET_SRC -L -o /tmp/krustlet.tar.gz
+
+echo "Unziping Krustlet source"
 mkdir /tmp/krustlet
-git clone https://github.com/deislabs/krustlet /tmp/krustlet
+tar xvzf /tmp/krustlet.tar.gz --strip=1 -C /tmp/krustlet
+
 cargo build --release --manifest-path /tmp/krustlet/Cargo.toml --bin krustlet-wasi
 sudo mv /tmp/krustlet/target/release/krustlet-wasi /usr/local/bin/krustlet
-rm -rf /tmp/krustlet
+rm -rf /tmp/krustlet /tmp/krustlet.tar.gz
 sudo chown root:root /usr/local/bin/krustlet
 sudo chmod 755 /usr/local/bin/krustlet
 
