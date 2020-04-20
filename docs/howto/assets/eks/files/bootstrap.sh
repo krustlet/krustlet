@@ -7,6 +7,35 @@ set -o pipefail
 set -o nounset
 set -o errexit
 
+function print_help {
+    echo "usage: $0 [options] <cluster-name>"
+    echo "Bootstraps a Krustlet instance into an EKS cluster"
+    echo ""
+    echo "-h,--help print this help"
+    echo "--krustlet-node-labels Add extra labels to Krustlet."
+}
+
+while [[ $# -gt 0 ]]; do
+    key="$1"
+    case $key in
+        -h|--help)
+            print_help
+            exit 1
+            ;;
+        --krustlet-node-labels)
+            NODE_LABELS=$2
+            shift
+            shift
+            ;;
+        *) # unknown option
+            print_help
+            exit 1
+            ;;
+    esac
+done
+
+NODE_LABELS="${NODE_LABELS:-}"
+
 echo "Generating certificate signing request..."
 openssl req -new -sha256 -newkey rsa:2048 -keyout /tmp/krustlet.key -out /tmp/krustlet.csr -nodes -config <(
 cat <<-EOF
@@ -100,6 +129,13 @@ chown root:root /etc/krustlet/cert.pfx
 chmod 640 /etc/krustlet/cert.pfx
 
 rm /tmp/krustlet.key /tmp/krustlet.csr /tmp/krustlet.cert
+
+if [[ -n "$NODE_LABELS" ]]; then
+    cat <<EOF > /etc/eksctl/krustlet.local.env
+NODE_LABELS=$NODE_LABELS
+EOF
+fi
+chown root:root /etc/eksctl/krustlet.local.env
 
 echo "Starting krustlet service..."
 systemctl daemon-reload
