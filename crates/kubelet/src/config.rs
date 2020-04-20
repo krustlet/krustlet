@@ -113,9 +113,7 @@ impl Config {
         let port = opts.port;
         let pfx_path = opts.pfx_path.unwrap_or_else(default_pfx_path);
 
-        let pfx_password = opts
-            .pfx_password
-            .unwrap_or_else(|| read_password_from_tty());
+        let pfx_password = opts.pfx_password.unwrap_or_else(read_password_from_tty);
 
         let data_dir = opts
             .data_dir
@@ -290,8 +288,7 @@ fn is_same_ip_family(first: &IpAddr, second: &IpAddr) -> bool {
 }
 
 fn read_password_from_tty() -> String {
-    let password = rpassword::read_password_from_tty(Some("PFX file password: ")).unwrap();
-    return password;
+    rpassword::read_password_from_tty(Some("PFX file password: ")).unwrap()
 }
 
 fn split_one_label(in_string: &str) -> Result<(String, String), String> {

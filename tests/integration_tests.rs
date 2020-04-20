@@ -214,7 +214,8 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
             }))?,
         )
         .await?;
-
+    // Create a temp directory to use for the host path
+    let tempdir = tempfile::tempdir()?;
     let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
@@ -235,6 +236,10 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
                         {
                             "mountPath": "/bar",
                             "name": "configmap-test"
+                        },
+                        {
+                            "mountPath": "/baz",
+                            "name": "hostpath-test"
                         }
                     ]
                 },
@@ -259,10 +264,19 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
                     "configMap": {
                         "name": "hello-wasi-configmap"
                     }
+                },
+                {
+                    "name": "hostpath-test",
+                    "hostPath": {
+                        "path": tempdir.path()
+                    }
                 }
             ]
         }
     }))?;
+
+    // TODO: Create a testing module to write to the path to actually check that writing and reading
+    // from a host path volume works
 
     let pod = pods.create(&PostParams::default(), &p).await?;
 
