@@ -105,8 +105,7 @@ impl Config {
 
         let node_labels = opts
             .node_labels
-            .unwrap_or_default()
-            .split(',')
+            .iter()
             .map(|i| split_one_label(i))
             .filter_map(Result::ok)
             .collect();
@@ -202,9 +201,10 @@ pub struct Opts {
     #[structopt(
         long = "node-labels",
         env = "NODE_LABELS",
+        use_delimiter = true,
         help = "Labels to add when registering the node in the cluster. Labels must be key-value pairs separated by ','"
     )]
-    node_labels: Option<String>,
+    node_labels: Vec<String>,
 
     #[structopt(
         long = "hostname",
