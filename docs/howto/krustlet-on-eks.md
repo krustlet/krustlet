@@ -27,6 +27,13 @@ $ cd docs/howto/assets/eks
 $ make
 ```
 
+You can also build the AMI with a different version of Krustlet from a forked repo. For example:
+
+```bash
+$ cd docs/howto/assets/eks
+$ KRUSTLET_VERSION=$(git rev-parse --short HEAD) KRUSTLET_SRC=https://github.com/jingweno/krustlet/archive/$(git rev-parse --short HEAD).tar.gz make krustlet
+```
+
 This command will take a while to build Krustlet from source on the EC2 instance.
 In the future, a prebuilt binary for Amazon Linux 2 might be available that would speed up the AMI creation process.
 

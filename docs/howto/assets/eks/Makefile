@@ -1,5 +1,5 @@
 PACKER_BINARY ?= packer
-PACKER_VARIABLES := aws_region ami_name krustlet_version source_ami_id source_ami_owners arch instance_type security_group_id
+PACKER_VARIABLES := aws_region ami_name krustlet_version krustlet_src source_ami_id source_ami_owners arch instance_type security_group_id
 
 aws_region ?= $(AWS_DEFAULT_REGION)
 ami_name ?= amazon-eks-node-krustlet-$(KRUSTLET_VERSION)-v$(shell date +'%Y%m%d')
@@ -13,6 +13,11 @@ endif
 ifeq ($(aws_region), cn-northwest-1)
 source_ami_owners ?= 141808717104
 endif
+
+KRUSTLET_VERSION ?= 0.1.0
+krustlet_version ?= $(KRUSTLET_VERSION)
+KRUSTLET_SRC ?= https://github.com/deislabs/krustlet/archive/v$(krustlet_version).tar.gz
+krustlet_src ?= $(KRUSTLET_SRC)
 
 T_RED := \e[0;31m
 T_GREEN := \e[0;32m
