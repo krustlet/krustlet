@@ -2,12 +2,6 @@
 
 This document describes the requirements for committing to this repository.
 
-## Code of Conduct
-
-All participants in the Krustlet community must comply with the [Microsoft Open Source Code of
-Conduct](https://opensource.microsoft.com/codeofconduct/). This includes issues filed in the queue
-as well as PRs.
-
 ## Contributor License Agreement
 
 This repository is governed under a [Contributor License
