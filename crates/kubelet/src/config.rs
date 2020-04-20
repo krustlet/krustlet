@@ -201,7 +201,7 @@ pub struct Opts {
 
     #[structopt(
         long = "node-labels",
-        env = "KRUSTLET_NODE_LABELS",
+        env = "NODE_LABELS",
         help = "Labels to add when registering the node in the cluster. Labels must be key-value pairs separated by ','"
     )]
     node_labels: Option<String>,

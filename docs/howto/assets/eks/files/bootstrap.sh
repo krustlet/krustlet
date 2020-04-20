@@ -23,7 +23,7 @@ while [[ $# -gt 0 ]]; do
             exit 1
             ;;
         --krustlet-node-labels)
-            KRUSTLET_NODE_LABELS=$2
+            NODE_LABELS=$2
             shift
             shift
             ;;
@@ -34,7 +34,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-KRUSTLET_NODE_LABELS="${KRUSTLET_NODE_LABELS:-}"
+NODE_LABELS="${NODE_LABELS:-}"
 
 echo "Generating certificate signing request..."
 openssl req -new -sha256 -newkey rsa:2048 -keyout /tmp/krustlet.key -out /tmp/krustlet.csr -nodes -config <(
@@ -130,9 +130,9 @@ chmod 640 /etc/krustlet/cert.pfx
 
 rm /tmp/krustlet.key /tmp/krustlet.csr /tmp/krustlet.cert
 
-if [[ -n "$KRUSTLET_NODE_LABELS" ]]; then
+if [[ -n "$NODE_LABELS" ]]; then
     cat <<EOF > /etc/eksctl/krustlet.local.env
-KRUSTLET_NODE_LABELS=$KRUSTLET_NODE_LABELS
+NODE_LABELS=$NODE_LABELS
 EOF
 fi
 chown root:root /etc/eksctl/krustlet.local.env
