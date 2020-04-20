@@ -58,9 +58,8 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<S, R> {
         }
     }
 
-    /// Signal the running instance to stop. Use [`RuntimeHandle::wait`] to wait for the process to exit. This
-    /// uses the underlying [`Stop`] implementation passed to the
-    /// constructor
+    /// Signal the running instance to stop. Use [`RuntimeHandle::wait`] to wait for the process to
+    /// exit. This uses the underlying [`Stop`] implementation passed to the constructor
     pub async fn stop(&mut self) -> anyhow::Result<()> {
         self.stopper.stop().await
     }
@@ -96,7 +95,7 @@ pub struct PodHandle<S, R> {
     pod: Pod,
     // Storage for the volume references so they don't get dropped until the runtime handle is
     // dropped
-    _volumes: Option<HashMap<String, VolumeRef>>,
+    _volumes: HashMap<String, VolumeRef>,
 }
 
 impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> PodHandle<S, R> {
@@ -141,7 +140,7 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> PodHandle<S, R> {
             container_handles: RwLock::new(container_handles),
             status_handle,
             pod,
-            _volumes: volumes,
+            _volumes: volumes.unwrap_or_default(),
         })
     }
 

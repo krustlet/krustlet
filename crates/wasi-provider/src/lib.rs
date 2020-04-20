@@ -33,6 +33,7 @@
 mod wasi_runtime;
 
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -93,27 +94,11 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
 
-        // TODO: Implement this for real.
-        //
-        // What it should do:
-        // - for each volume
-        //   - set up the volume map
-        // - for each init container:
-        //   - set up the runtime
-        //   - mount any volumes (preopen)
-        //   - run it to completion
-        //   - bail with an error if it fails
-        // - for each container and ephemeral_container
-        //   - set up the runtime
-        //   - mount any volumes (popen)
-        //   - run it to completion
-        //   - bail if it errors
         let pod_name = pod.name();
         let mut container_handles = HashMap::new();
 
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
         let client = kube::Client::new(self.kubeconfig.clone());
-        // TODO: Make volume refs part of the handle so they don't get dropped
         let volumes = VolumeRef::volumes_from_pod(&self.volume_path, &pod, &client).await?;
         info!("Starting containers for pod {:?}", pod_name);
         for container in pod.containers() {
@@ -121,11 +106,11 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
             let module_data = modules
                 .remove(&container.name)
                 .expect("FATAL ERROR: module map not properly populated");
-            let container_volumes: HashMap<String, Option<String>> =
+            let container_volumes: HashMap<PathBuf, Option<PathBuf>> =
                 if let Some(volume_mounts) = container.volume_mounts.as_ref() {
                     volume_mounts
                         .iter()
-                        .map(|vm| -> anyhow::Result<(String, Option<String>)> {
+                        .map(|vm| -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
                             // Check the volume exists first
                             let vol = volumes.get(&vm.name).ok_or_else(|| {
                                 anyhow::anyhow!(
@@ -140,10 +125,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
                             }
                             // We can safely assume that this should be valid UTF-8 because it would have
                             // been validated by the k8s API
-                            Ok((
-                                vol.to_string_lossy().into_owned(),
-                                Some(guest_path.to_string_lossy().into_owned()),
-                            ))
+                            Ok((vol.deref().clone(), Some(guest_path)))
                         })
                         .collect::<anyhow::Result<_>>()?
                 } else {

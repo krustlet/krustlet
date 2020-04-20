@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use k8s_openapi::api::core::v1::Volume as KubeVolume;
 use k8s_openapi::api::core::v1::{ConfigMap, Secret};
+use k8s_openapi::ByteString;
 use kube::api::Api;
 use log::{debug, error};
 
@@ -21,6 +22,7 @@ enum VolumeType {
 /// A smart wrapper around the location of a volume on the host system. If this is a ConfigMap or
 /// Secret volume, dropping this reference will clean up the temporary volume. [AsRef] and
 /// [std::ops::Deref] are implemented for this type so you can still use it like a normal PathBuf
+#[derive(Debug)]
 pub struct VolumeRef {
     host_path: PathBuf,
     volume_type: VolumeType,
@@ -139,9 +141,9 @@ async fn populate_from_secret(
     let secret_client: Api<Secret> = Api::namespaced(client.clone(), namespace);
     let secret = secret_client.get(name).await?;
     let data = secret.data.unwrap_or_default();
-    let data = data.iter().map(|(key, data)| async move {
+    let data = data.iter().map(|(key, ByteString(data))| async move {
         let file_path = path.join(key);
-        tokio::fs::write(file_path, &data.0).await
+        tokio::fs::write(file_path, &data).await
     });
     futures::future::join_all(data)
         .await
@@ -159,14 +161,14 @@ async fn populate_from_config_map(
 ) -> anyhow::Result<VolumeType> {
     tokio::fs::create_dir(path).await?;
     let cm_client: Api<ConfigMap> = Api::namespaced(client.clone(), namespace);
-    let cm = cm_client.get(name).await?;
-    let binary_data = cm.binary_data.unwrap_or_default();
+    let config_map = cm_client.get(name).await?;
+    let binary_data = config_map.binary_data.unwrap_or_default();
     let binary_data = binary_data.iter().map(|(key, data)| async move {
         let file_path = path.join(key);
         tokio::fs::write(file_path, &data.0).await
     });
     let binary_data = futures::future::join_all(binary_data);
-    let data = cm.data.unwrap_or_default();
+    let data = config_map.data.unwrap_or_default();
     let data = data.iter().map(|(key, data)| async move {
         let file_path = path.join(key);
         tokio::fs::write(file_path, data).await
