@@ -6,6 +6,8 @@
 use std::net::IpAddr;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
+
+use rpassword;
 #[cfg(feature = "cli")]
 use structopt::StructOpt;
 
@@ -97,7 +99,11 @@ impl Config {
             .unwrap_or_else(|| sanitize_hostname(&hostname));
         let port = opts.port;
         let pfx_path = opts.pfx_path.unwrap_or_else(default_pfx_path);
-        let pfx_password = opts.pfx_password.unwrap_or_default();
+
+        let pfx_password = opts
+            .pfx_password
+            .unwrap_or_else(|| read_password_from_tty());
+
         let data_dir = opts
             .data_dir
             .unwrap_or_else(|| default_data_dir().expect("unable to get default directory"));
@@ -259,4 +265,9 @@ fn is_same_ip_family(first: &IpAddr, second: &IpAddr) -> bool {
         IpAddr::V4(_) => second.is_ipv4(),
         IpAddr::V6(_) => second.is_ipv6(),
     }
+}
+
+fn read_password_from_tty() -> String {
+    let password = rpassword::read_password_from_tty(Some("PFX file password: ")).unwrap();
+    return password;
 }
