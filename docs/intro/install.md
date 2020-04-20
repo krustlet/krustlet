@@ -39,9 +39,9 @@ Here are links to the common builds:
 
 - [checksum file](https://krustlet.blob.core.windows.net/releases/checksums-canary.txt)
 - [64-bit Linux (AMD
-  architecture)](https://krustlet.blob.core.windows.net/releases/krustlet-canary-Linux-amd64.tar.gz)
+  architecture)](https://krustlet.blob.core.windows.net/releases/krustlet-canary-linux-amd64.tar.gz)
 - [64-bit macOS (AMD
-  architecture)](https://krustlet.blob.core.windows.net/releases/krustlet-canary-macOS-amd64.tar.gz)
+  architecture)](https://krustlet.blob.core.windows.net/releases/krustlet-canary-macos-amd64.tar.gz)
 
 ## Compiling from Source
 
