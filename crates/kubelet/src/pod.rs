@@ -4,6 +4,7 @@ use crate::status::{Phase, Status};
 use k8s_openapi::api::core::v1::Container as KubeContainer;
 use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 use k8s_openapi::api::core::v1::Pod as KubePod;
+use k8s_openapi::api::core::v1::Volume as KubeVolume;
 use kube::api::{Api, PatchParams};
 use log::{debug, error};
 
@@ -48,6 +49,12 @@ impl Pod {
     pub fn service_account_name(&self) -> Option<&str> {
         let spec = self.0.spec.as_ref()?;
         spec.service_account_name.as_deref()
+    }
+
+    /// Get the pod volumes
+    pub fn volumes(&self) -> Option<&Vec<KubeVolume>> {
+        let spec = self.0.spec.as_ref()?;
+        spec.volumes.as_ref()
     }
 
     /// Get the pod's host ip

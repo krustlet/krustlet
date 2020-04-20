@@ -27,8 +27,10 @@ oci-distribution = { path = "./crates/oci-distribution", version = "0.1.0" }
 futures = "0.3"
 serde_derive = "1.0"
 serde_json = "1.0"
+serde = "1.0"
 k8s-openapi = { version = "0.7.1", default-features = false, features = ["v1_17"] }
 reqwest = "0.10"
+dirs = "2.0"
 
 [workspace]
 members = [

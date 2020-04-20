@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::bail;
@@ -52,7 +52,7 @@ struct Data {
     /// a hash map of local file system paths to optional path names in the runtime
     /// (e.g. /tmp/foo/myfile -> /app/config). If the optional value is not given,
     /// the same path will be allowed in the runtime
-    dirs: HashMap<String, Option<String>>,
+    dirs: HashMap<PathBuf, Option<PathBuf>>,
 }
 
 impl WasiRuntime {
@@ -71,7 +71,7 @@ impl WasiRuntime {
         module_data: Vec<u8>,
         env: HashMap<String, String>,
         args: Vec<String>,
-        dirs: HashMap<String, Option<String>>,
+        dirs: HashMap<PathBuf, Option<PathBuf>>,
         log_dir: L,
     ) -> anyhow::Result<Self> {
         let temp = tokio::task::spawn_blocking(move || -> anyhow::Result<NamedTempFile> {

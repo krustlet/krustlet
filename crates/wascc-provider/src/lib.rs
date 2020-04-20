@@ -237,7 +237,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
             let mut handles = self.handles.write().await;
             handles.insert(
                 key_from_pod(&pod),
-                PodHandle::new(container_handles, pod, client)?,
+                PodHandle::new(container_handles, pod, client, None)?,
             );
         }
 
