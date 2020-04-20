@@ -26,6 +26,9 @@ jobs:
         if: github.ref == 'refs/heads/master'
         run: echo ::set-env name=RELEASE_VERSION::canary
 
+      - name: lowercase the runner OS name
+        run: echo ::set-env name=RUNNER_OS::${${{ runner.os }},,}
+
       - name: build release
         uses: actions-rs/cargo@v1
         with:
@@ -37,12 +40,12 @@ jobs:
           mkdir _dist
           cp README.md LICENSE target/release/krustlet-wasi target/release/krustlet-wascc _dist/
           cd _dist
-          tar czf krustlet-${{ env.RELEASE_VERSION }}-${{ runner.os }}-${{ matrix.arch }}.tar.gz README.md LICENSE krustlet-wasi krustlet-wascc
+          tar czf krustlet-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.arch }}.tar.gz README.md LICENSE krustlet-wasi krustlet-wascc
 
       - uses: actions/upload-artifact@v1
         with:
           name: krustlet
-          path: _dist/krustlet-${{ env.RELEASE_VERSION }}-${{ runner.os }}-${{ matrix.arch }}.tar.gz
+          path: _dist/krustlet-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.arch }}.tar.gz
 
   crates:
     name: publish to crates.io
