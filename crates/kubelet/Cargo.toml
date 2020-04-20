@@ -33,6 +33,7 @@ tokio-tls = "0.3"
 thiserror = "1.0"
 lazy_static = "1.4"
 oci-distribution = { path = "../oci-distribution", version = "0.1.0" }
+rpassword = "4.0"
 
 [features]
 cli = ["structopt"]
