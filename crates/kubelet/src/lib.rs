@@ -48,6 +48,7 @@
 mod kubelet;
 mod node;
 mod pod;
+mod queue;
 mod server;
 
 pub mod config;
