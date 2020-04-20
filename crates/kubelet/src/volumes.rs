@@ -47,9 +47,17 @@ impl VolumeRef {
                     let volume_type = configure(v, pod.namespace(), client, &host_path).await?;
                     Ok((
                         v.name.to_owned(),
-                        VolumeRef {
-                            host_path,
-                            volume_type,
+                        // Every other volume type should mount to the given host_path except for a
+                        // hostpath volume type. So we need to handle that special case here
+                        match &v.host_path {
+                            Some(hostpath) => VolumeRef {
+                                host_path: PathBuf::from(&hostpath.path),
+                                volume_type,
+                            },
+                            None => VolumeRef {
+                                host_path,
+                                volume_type,
+                            },
                         },
                     ))
                 }
@@ -124,6 +132,10 @@ async fn configure(
             path,
         )
         .await
+    } else if let Some(hostpath) = &vol.host_path {
+        // Check the the directory exists on the host
+        tokio::fs::metadata(&hostpath.path).await?;
+        Ok(VolumeType::HostPath)
     } else {
         Err(anyhow::anyhow!(
             "Unsupported volume type. Currently supported types: ConfigMap, Secret, and HostPath"
