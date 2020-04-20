@@ -244,7 +244,7 @@ async fn replace_node(client: &kube::Client, node_name: &str, node: &Node) -> Re
 /// use seems like a misstep. Ideally, we'll be able to support multiple runtimes.
 fn node_definition(config: &Config, arch: &str) -> serde_json::Value {
     let ts = Time(Utc::now());
-    serde_json::json!({
+    let mut json = serde_json::json!({
         "apiVersion": "v1",
         "kind": "Node",
         "metadata": {
@@ -336,7 +336,14 @@ fn node_definition(config: &Config, arch: &str) -> serde_json::Value {
                 }
             }
         }
-    })
+    });
+
+    // extra labels from config
+    for (key, val) in &config.node_labels {
+        json["metadata"]["labels"][key] = serde_json::json!(val);
+    }
+
+    json
 }
 
 /// Define a new coordination.Lease object for Kubernetes

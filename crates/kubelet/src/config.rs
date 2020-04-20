@@ -11,6 +11,8 @@ use rpassword;
 #[cfg(feature = "cli")]
 use structopt::StructOpt;
 
+use std::collections::HashMap;
+
 const DEFAULT_PORT: u16 = 3000;
 
 /// The configuration needed for a kubelet to run properly.
@@ -33,6 +35,8 @@ pub struct Config {
     pub server_config: ServerConfig,
     /// The directory where the Kubelet will store data
     pub data_dir: PathBuf,
+    /// Labels to add when registering the node in the cluster
+    pub node_labels: HashMap<String, String>,
 }
 /// The configuration for the Kubelet server.
 #[derive(Clone, Debug)]
@@ -58,6 +62,7 @@ impl Config {
         Ok(Config {
             node_ip: default_node_ip(&mut hostname.clone(), preferred_ip_family)?,
             node_name: sanitize_hostname(&hostname),
+            node_labels: HashMap::new(),
             hostname,
             data_dir: default_data_dir()?,
             server_config: ServerConfig {
@@ -97,6 +102,15 @@ impl Config {
         let node_name = opts
             .node_name
             .unwrap_or_else(|| sanitize_hostname(&hostname));
+
+        let node_labels = opts
+            .node_labels
+            .unwrap_or_default()
+            .split(',')
+            .map(|i| split_one_label(i))
+            .filter_map(Result::ok)
+            .collect();
+
         let port = opts.port;
         let pfx_path = opts.pfx_path.unwrap_or_else(default_pfx_path);
 
@@ -110,6 +124,7 @@ impl Config {
         Config {
             node_ip,
             node_name,
+            node_labels,
             hostname,
             data_dir,
             server_config: ServerConfig {
@@ -183,6 +198,13 @@ pub struct Opts {
         help = "The IP address of the node registered with the Kubernetes master. Defaults to the IP address of the node name in DNS as a best effort try at a default"
     )]
     node_ip: Option<IpAddr>,
+
+    #[structopt(
+        long = "node-labels",
+        env = "KRUSTLET_NODE_LABELS",
+        help = "Labels to add when registering the node in the cluster. Labels must be key-value pairs separated by ','"
+    )]
+    node_labels: Option<String>,
 
     #[structopt(
         long = "hostname",
@@ -270,4 +292,13 @@ fn is_same_ip_family(first: &IpAddr, second: &IpAddr) -> bool {
 fn read_password_from_tty() -> String {
     let password = rpassword::read_password_from_tty(Some("PFX file password: ")).unwrap();
     return password;
+}
+
+fn split_one_label(in_string: &str) -> Result<(String, String), String> {
+    let mut splitter = in_string.splitn(2, '=');
+    let key = splitter.next().unwrap();
+    match splitter.next() {
+        Some(val) => Ok((key.to_string(), val.to_string())),
+        None => Err("empty label".to_string()),
+    }
 }
