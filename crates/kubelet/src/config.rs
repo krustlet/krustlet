@@ -297,8 +297,12 @@ fn read_password_from_tty() -> String {
 fn split_one_label(in_string: &str) -> Result<(String, String), String> {
     let mut splitter = in_string.splitn(2, '=');
     let key = splitter.next().unwrap();
-    match splitter.next() {
-        Some(val) => Ok((key.to_string(), val.to_string())),
-        None => Err("empty label".to_string()),
+    if key.is_empty() {
+        Err("error splitting label".to_string())
+    } else {
+        match splitter.next() {
+            Some(val) => Ok((key.to_string(), val.to_string())),
+            None => Ok((key.to_string(), "".to_string())),
+        }
     }
 }
