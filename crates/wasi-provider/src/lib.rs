@@ -16,7 +16,7 @@
 //!     let store = FileModuleStore::new(client, &std::path::PathBuf::from(""));
 //!
 //!     // Load a kubernetes configuration
-//!     let kubeconfig = kube::config::load_kube_config().await.unwrap();
+//!     let kubeconfig = kube::Config::infer().await.unwrap();
 //!
 //!     // Instantiate the provider type
 //!     let provider = WasiProvider::new(store, &kubelet_config, kubeconfig.clone()).await.unwrap();
@@ -56,7 +56,7 @@ pub struct WasiProvider<S> {
     handles: Arc<RwLock<HashMap<String, PodHandle<HandleStopper, File>>>>,
     store: S,
     log_path: PathBuf,
-    kubeconfig: kube::config::Configuration,
+    kubeconfig: kube::Config,
 }
 
 impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
@@ -64,7 +64,7 @@ impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
     pub async fn new(
         store: S,
         config: &kubelet::config::Config,
-        kubeconfig: kube::config::Configuration,
+        kubeconfig: kube::Config,
     ) -> anyhow::Result<Self> {
         let log_path = config.data_dir.to_path_buf().join(LOG_DIR_NAME);
         tokio::fs::create_dir_all(&log_path).await?;
@@ -106,7 +106,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         let mut container_handles = HashMap::new();
 
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
-        let client = kube::Client::from(self.kubeconfig.clone());
+        let client = kube::Client::new(self.kubeconfig.clone());
         info!("Starting containers for pod {:?}", pod_name);
         for container in pod.containers() {
             let env = Self::env_vars(&container, &pod, &client).await;

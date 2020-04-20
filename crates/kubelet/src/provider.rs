@@ -102,6 +102,7 @@ pub trait Provider {
                 error!("Event error: {}", e);
                 Err(e.into())
             }
+            WatchEvent::Bookmark(_) => Ok(()),
         }
     }
 

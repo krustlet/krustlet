@@ -1,23 +1,16 @@
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::{Node, Pod, Taint};
 use kube::{
-    api::{Api, DeleteParams, ListParams, LogParams, PostParams, Resource, WatchEvent},
-    config,
+    api::{Api, DeleteParams, ListParams, LogParams, PostParams, WatchEvent},
     runtime::Informer,
 };
 use serde_json::json;
 
 #[tokio::test]
 async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
-    // Read the environment. Note that this tries a KubeConfig file first, then
-    // falls back on an in-cluster configuration.
-    let kubeconfig = config::load_kube_config()
-        .await
-        .or_else(|_| config::incluster_config())?;
+    let client = kube::Client::try_default().await?;
 
-    let client = kube::Client::from(kubeconfig);
-
-    let nodes: Api<Node> = Api::all(client.clone());
+    let nodes: Api<Node> = Api::all(client);
 
     let node = nodes.get("krustlet-wascc").await?;
     let node_status = node.status.expect("node reported no status");
@@ -61,6 +54,7 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
         }
     );
 
+    let client: kube::Client = nodes.into();
     let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
@@ -90,12 +84,11 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    let inf: Informer<Pod> = Informer::new(
-        client,
+    let api = Api::namespaced(client, "default");
+    let inf: Informer<Pod> = Informer::new(api).params(
         ListParams::default()
             .fields("metadata.name=greet-wascc")
             .timeout(30),
-        Resource::namespaced::<Pod>("default"),
     );
 
     let mut watcher = inf.poll().await?.boxed();
@@ -140,15 +133,9 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tokio::test]
 async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
-    // Read the environment. Note that this tries a KubeConfig file first, then
-    // falls back on an in-cluster configuration.
-    let kubeconfig = config::load_kube_config()
-        .await
-        .or_else(|_| config::incluster_config())?;
+    let client = kube::Client::try_default().await?;
 
-    let client = kube::Client::from(kubeconfig);
-
-    let nodes: Api<Node> = Api::all(client.clone());
+    let nodes: Api<Node> = Api::all(client);
 
     let node = nodes.get("krustlet-wasi").await?;
 
@@ -193,6 +180,7 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
         }
     );
 
+    let client: kube::Client = nodes.into();
     let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
@@ -222,12 +210,11 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    let inf: Informer<Pod> = Informer::new(
-        client,
+    let api = Api::namespaced(client.clone(), "default");
+    let inf: Informer<Pod> = Informer::new(api).params(
         ListParams::default()
             .fields("metadata.name=hello-wasi")
             .timeout(30),
-        Resource::namespaced::<Pod>("default"),
     );
 
     let mut watcher = inf.poll().await?.boxed();

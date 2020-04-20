@@ -9,11 +9,7 @@ async fn main() -> anyhow::Result<()> {
     // a new Kubelet, all you need to implement is a provider.
     let config = Config::new_from_flags(env!("CARGO_PKG_VERSION"));
 
-    // Read the environment. Note that this tries a KubeConfig file first, then
-    // falls back on an in-cluster configuration.
-    let kubeconfig = kube::config::load_kube_config()
-        .await
-        .or_else(|_| kube::config::incluster_config())?;
+    let kubeconfig = kube::Config::infer().await?;
 
     // Initialize the logger
     env_logger::init();
