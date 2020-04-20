@@ -111,9 +111,6 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
 
     assert!(went_ready, "pod never went ready");
 
-    // Allow some time for the pod to actually become ready
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
-
     // Send a request to the pod to trigger some logging
     reqwest::get("http://127.0.0.1:8080")
         .await
