@@ -11,6 +11,7 @@
     "aws_session_token": "{{env `AWS_SESSION_TOKEN`}}",
 
     "krustlet_version": "0.1.0",
+    "krustlet_src": "https://github.com/deislabs/krustlet/archive/v{{ user `krustlet_version`}}.tar.gz",
 
     "source_ami_id": "",
     "source_ami_owners": "137112412989",
@@ -105,6 +106,7 @@
       "script": "{{template_dir}}/scripts/install-worker.sh",
       "environment_vars": [
         "KRUSTLET_VERSION={{user `krustlet_version`}}",
+        "KRUSTLET_SRC={{user `krustlet_src`}}",
         "AWS_ACCESS_KEY_ID={{user `aws_access_key_id`}}",
         "AWS_SECRET_ACCESS_KEY={{user `aws_secret_access_key`}}",
         "AWS_SESSION_TOKEN={{user `aws_session_token`}}"
