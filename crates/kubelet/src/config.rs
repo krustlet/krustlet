@@ -200,7 +200,15 @@ pub struct Opts {
         long = "node-labels",
         env = "NODE_LABELS",
         use_delimiter = true,
-        help = "Labels to add when registering the node in the cluster. Labels must be key-value pairs separated by ','"
+        help = "Labels to add when registering the node in the cluster.
+        Labels must be key=value pairs separated by ','.
+        Labels in the 'kubernetes.io' namespace must begin with an allowed prefix
+        (kubelet.kubernetes.io, node.kubernetes.io) or be in the specifically allowed set
+        (beta.kubernetes.io/arch, beta.kubernetes.io/instance-type, beta.kubernetes.io/os,
+        failure-domain.beta.kubernetes.io/region, failure-domain.beta.kubernetes.io/zone,
+        failure-domain.kubernetes.io/region, failure-domain.kubernetes.io/zone,
+        kubernetes.io/arch, kubernetes.io/hostname, kubernetes.io/instance-type,
+        kubernetes.io/os)"
     )]
     node_labels: Vec<String>,
 
