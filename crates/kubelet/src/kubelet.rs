@@ -10,7 +10,7 @@ use crate::Provider;
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::{
-    api::{ListParams, Meta, PatchParams, Resource},
+    api::{ListParams, Meta, PatchParams},
     runtime::Informer,
     Api,
 };
@@ -75,8 +75,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
         let client_clone = client.clone();
         let error_handler = tokio::task::spawn(async move {
             let client = client_clone;
-            while let Some(e) = error_receiver.recv().await {
-                let (pod, err) = e;
+            while let Some((pod, err)) = error_receiver.recv().await {
                 let json_status = serde_json::json!(
                     {
                         "metadata": {
@@ -96,19 +95,18 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
                 );
 
                 let data = serde_json::to_vec(&json_status).expect("Should always serialize");
-                let pod_resource =
-                    Resource::namespaced::<KubePod>(&pod.namespace().unwrap_or_default());
+                let pod_client: Api<KubePod> =
+                    Api::namespaced(client.clone(), &pod.namespace().unwrap_or_default());
                 let pod_name = pod.name();
-                match pod_resource.patch_status(&pod_name, &PatchParams::default(), data) {
-                    Ok(req) => {
-                        if let Err(e) = client.request::<KubePod>(req).await {
-                            error!(
-                                "Unable to patch status during pod failure for {}: {}",
-                                pod_name, e
-                            )
-                        }
-                    }
-                    Err(e) => error!("Unable to generate pod request for {}: {}", pod_name, e),
+                match pod_client
+                    .patch_status(&pod_name, &PatchParams::default(), data)
+                    .await
+                {
+                    Ok(_) => (),
+                    Err(e) => error!(
+                        "Unable to patch status during pod failure for {}: {}",
+                        pod_name, e
+                    ),
                 }
             }
         });

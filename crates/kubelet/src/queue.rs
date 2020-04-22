@@ -4,21 +4,22 @@ use std::sync::Arc;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Meta, WatchEvent};
 use log::{debug, error};
-use tokio::sync::{mpsc::Sender, watch, Mutex};
+use tokio::sync::{mpsc::Sender, watch};
 use tokio::task::JoinHandle;
 
 use crate::handle::pod_key;
 use crate::Provider;
 
 /// A per-pod queue that takes incoming Kubernetes events and broadcasts them to the correct queue
-/// for that pod. It will also send a error out on the given sender that can be handled in another
-/// process (namely the main kubelet process). This queue will only handle the latest update. So if
-/// a modify comes in while it is still handling a create and then another modify comes in after,
-/// only the second modify will be handled, which is ok given that each event contains the whole pod
-/// object
+/// for that pod.
+///
+/// It will also send a error out on the given sender that can be handled in another process (namely
+/// the main kubelet process). This queue will only handle the latest update. So if a modify comes
+/// in while it is still handling a create and then another modify comes in after, only the second
+/// modify will be handled, which is ok given that each event contains the whole pod object
 pub struct PodQueue<P> {
     provider: Arc<P>,
-    handlers: Mutex<HashMap<String, Worker>>,
+    handlers: HashMap<String, Worker>,
     error_sender: Sender<(KubePod, anyhow::Error)>,
 }
 
@@ -60,7 +61,7 @@ impl<P: 'static + Provider + Sync + Send> PodQueue<P> {
     pub fn new(provider: Arc<P>, error_sender: Sender<(KubePod, anyhow::Error)>) -> Self {
         PodQueue {
             provider,
-            handlers: Mutex::new(HashMap::new()),
+            handlers: HashMap::new(),
             error_sender,
         }
     }
@@ -71,22 +72,26 @@ impl<P: 'static + Provider + Sync + Send> PodQueue<P> {
             | WatchEvent::Bookmark(pod)
             | WatchEvent::Deleted(pod)
             | WatchEvent::Modified(pod) => {
-                let mut handlers = self.handlers.lock().await;
                 let pod_name = pod.name();
                 let pod_namespace = pod.namespace().unwrap_or_default();
-                let entry = handlers
-                    .entry(pod_key(&pod_namespace, &pod_name))
-                    .or_insert_with(|| {
-                        Worker::create(
-                            event.clone(),
-                            self.provider.clone(),
-                            self.error_sender.clone(),
-                        )
-                    });
-                // TODO: There is a possible condition where we get two modifies right in a row and
-                // the 1st one locks/broadcasts after the second one. This shouldn't matter too much
-                // right now, but we should fix that possibility in the future
-                match entry.sender.broadcast(event) {
+                let key = pod_key(&pod_namespace, &pod_name);
+                // We are explicitly not using the entry api here to insert to avoid the need for a
+                // mutex
+                let handler = match self.handlers.get(&key) {
+                    Some(h) => h,
+                    None => {
+                        self.handlers.insert(
+                            key.clone(),
+                            Worker::create(
+                                event.clone(),
+                                self.provider.clone(),
+                                self.error_sender.clone(),
+                            ),
+                        );
+                        self.handlers.get(&key).unwrap()
+                    }
+                };
+                match handler.sender.broadcast(event) {
                     Ok(_) => debug!(
                         "successfully sent event to handler for pod {} in namespace {}",
                         pod_name, pod_namespace
