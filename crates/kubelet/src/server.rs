@@ -8,7 +8,6 @@ use log::{debug, error, info};
 use native_tls::{Identity, TlsAcceptor};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::stream::StreamExt;
-use tokio::sync::Mutex;
 
 use std::sync::Arc;
 
@@ -20,7 +19,7 @@ use crate::provider::{NotImplementedError, Provider};
 /// This is a primitive implementation of an HTTP provider for the internal API.
 /// TODO: Support TLS/SSL.
 pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
-    provider: Arc<Mutex<T>>,
+    provider: Arc<T>,
     config: &ServerConfig,
 ) -> anyhow::Result<()> {
     let identity = tokio::fs::read(&config.pfx_path)
@@ -56,7 +55,7 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
 async fn handle_connection<T>(
     conn: TcpStream,
     acceptor: Arc<tokio_tls::TlsAcceptor>,
-    provider: Arc<Mutex<T>>,
+    provider: Arc<T>,
 ) -> anyhow::Result<()>
 where
     T: Provider + Send + Sync + 'static,
@@ -75,10 +74,7 @@ where
     Ok(())
 }
 
-async fn handle_request<T>(
-    req: Request<Body>,
-    provider: Arc<Mutex<T>>,
-) -> anyhow::Result<Response<Body>>
+async fn handle_request<T>(req: Request<Body>, provider: Arc<T>) -> anyhow::Result<Response<Body>>
 where
     T: Provider + Send + Sync + 'static,
 {
@@ -88,7 +84,7 @@ where
         (_, path) if path.len() <= 2 => get_ping(),
         (&Method::GET, [_, "containerLogs", namespace, pod, container]) => {
             get_container_logs(
-                &*provider.lock().await,
+                &*provider,
                 &req,
                 (*namespace).to_string(),
                 (*pod).to_string(),
@@ -96,7 +92,7 @@ where
             )
             .await
         }
-        (&Method::POST, [_, "exec", _, _, _]) => post_exec(&*provider.lock().await, &req),
+        (&Method::POST, [_, "exec", _, _, _]) => post_exec(&*provider, &req),
         _ => Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Body::from("Not Found"))

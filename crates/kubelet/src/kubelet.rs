@@ -2,14 +2,20 @@
 ///! Kubelet with a specific handler (called a `Provider`)
 use crate::config::Config;
 use crate::node::{create_node, update_node};
+use crate::queue::PodQueue;
 use crate::server::start_webserver;
+use crate::status::Phase;
 use crate::Provider;
 
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::Pod as KubePod;
-use kube::{api::ListParams, runtime::Informer, Api};
-use log::{debug, warn};
-use tokio::sync::Mutex;
+use kube::{
+    api::{ListParams, Meta, PatchParams},
+    runtime::Informer,
+    Api,
+};
+use log::{debug, error, warn};
+use tokio::sync::mpsc;
 
 use std::sync::Arc;
 
@@ -26,7 +32,7 @@ use std::sync::Arc;
 /// run one (instance of a) Provider. So a provider may be passed around from
 /// thread to thread during the course of the Kubelet's lifetime.
 pub struct Kubelet<P> {
-    provider: Arc<Mutex<P>>,
+    provider: Arc<P>,
     kube_config: kube::Config,
     config: Config,
 }
@@ -36,7 +42,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
     /// and a kubelet configuration
     pub fn new(provider: T, kube_config: kube::Config, config: Config) -> Self {
         Self {
-            provider: Arc::new(Mutex::new(provider)),
+            provider: Arc::new(provider),
             kube_config,
             config,
         }
@@ -63,8 +69,51 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
             }
         });
 
-        // This informer listens for pod events.
-        let provider = self.provider.clone();
+        // TODO: How should we configure this value? We should eventually have a max pods setting
+        // just like a normal kubelet, so maybe that?
+        let (error_sender, mut error_receiver) = mpsc::channel::<(KubePod, anyhow::Error)>(200);
+        let client_clone = client.clone();
+        let error_handler = tokio::task::spawn(async move {
+            let client = client_clone;
+            while let Some((pod, err)) = error_receiver.recv().await {
+                let json_status = serde_json::json!(
+                    {
+                        "metadata": {
+                            "resourceVersion": "",
+                        },
+                        "status": {
+                            "phase": Phase::Failed,
+                            "message": format!("{}", err),
+                        }
+                    }
+                );
+
+                debug!(
+                    "Setting pod status for {} using {:?}",
+                    pod.name(),
+                    json_status
+                );
+
+                let data = serde_json::to_vec(&json_status).expect("Should always serialize");
+                let pod_client: Api<KubePod> =
+                    Api::namespaced(client.clone(), &pod.namespace().unwrap_or_default());
+                let pod_name = pod.name();
+                match pod_client
+                    .patch_status(&pod_name, &PatchParams::default(), data)
+                    .await
+                {
+                    Ok(_) => (),
+                    Err(e) => error!(
+                        "Unable to patch status during pod failure for {}: {}",
+                        pod_name, e
+                    ),
+                }
+            }
+        });
+
+        // Create a queue that locks on events per pod
+        let mut queue = PodQueue::new(self.provider.clone(), error_sender);
+
         let node_selector = format!("spec.nodeName={}", self.config.node_name);
         let pod_informer = tokio::task::spawn(async move {
             // Create our informer and start listening.
@@ -78,9 +127,9 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
                 let mut stream = informer.poll().await.expect("informer poll failed").boxed();
                 while let Some(event) = stream.try_next().await.unwrap() {
                     debug!("Handling Kubernetes pod event: {:?}", event);
-                    match provider.lock().await.handle_event(event).await {
-                        Ok(()) => debug!("Handled Kubernetes event successfully"),
-                        Err(e) => warn!("Error handling pod event: {}", e),
+                    match queue.enqueue(event).await {
+                        Ok(()) => debug!("Enqueued event for processing"),
+                        Err(e) => warn!("Error enqueuing pod event: {}", e),
                     };
                 }
             }
@@ -89,10 +138,8 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
         // Start the webserver
         let webserver = start_webserver(self.provider.clone(), &self.config.server_config);
 
-        // FIXME: If any of these dies, we should crash the Kubelet and let it restart.
-        // A Future that will complete as soon as either spawned task fails
         let threads = async {
-            futures::try_join!(node_updater, pod_informer)?;
+            futures::try_join!(node_updater, pod_informer, error_handler)?;
             Ok(())
         };
 
