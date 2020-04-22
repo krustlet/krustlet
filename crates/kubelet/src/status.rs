@@ -1,10 +1,11 @@
 //! Container statuses
 use chrono::{DateTime, Utc};
-use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 use k8s_openapi::api::core::v1::{
     ContainerState, ContainerStateRunning, ContainerStateTerminated, ContainerStateWaiting,
+    ContainerStatus as KubeContainerStatus, Pod as KubePod,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
+use kube::{api::PatchParams, Api};
 
 use std::collections::HashMap;
 
@@ -100,7 +101,7 @@ impl ContainerStatus {
 ///
 /// This is specified by Kubernetes itself.
 #[derive(Clone, Debug, serde::Serialize)]
-pub(crate) enum Phase {
+pub enum Phase {
     /// The workload is currently executing.
     Running,
     /// The workload has exited with an error.
@@ -115,4 +116,23 @@ impl Default for Phase {
     fn default() -> Self {
         Self::Unknown
     }
+}
+
+/// A helper for updating pod status. The given data should be a pod status object and be
+/// serializable by serde
+pub async fn update_pod_status<T: serde::Serialize>(
+    client: kube::Client,
+    ns: &str,
+    pod_name: &str,
+    data: &T,
+) -> anyhow::Result<()> {
+    let data = serde_json::to_vec(data)?;
+    let pod_client: Api<KubePod> = Api::namespaced(client, ns);
+    if let Err(e) = pod_client
+        .patch_status(pod_name, &PatchParams::default(), data)
+        .await
+    {
+        return Err(e.into());
+    }
+    Ok(())
 }

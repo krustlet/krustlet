@@ -149,7 +149,7 @@ async fn populate_from_secret(
     client: &kube::Client,
     path: &PathBuf,
 ) -> anyhow::Result<VolumeType> {
-    tokio::fs::create_dir(path).await?;
+    tokio::fs::create_dir_all(path).await?;
     let secret_client: Api<Secret> = Api::namespaced(client.clone(), namespace);
     let secret = secret_client.get(name).await?;
     let data = secret.data.unwrap_or_default();
@@ -171,7 +171,7 @@ async fn populate_from_config_map(
     client: &kube::Client,
     path: &PathBuf,
 ) -> anyhow::Result<VolumeType> {
-    tokio::fs::create_dir(path).await?;
+    tokio::fs::create_dir_all(path).await?;
     let cm_client: Api<ConfigMap> = Api::namespaced(client.clone(), namespace);
     let config_map = cm_client.get(name).await?;
     let binary_data = config_map.binary_data.unwrap_or_default();

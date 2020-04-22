@@ -91,7 +91,6 @@ pub trait Provider {
             }
             WatchEvent::Modified(pod) => {
                 let pod = pod.into();
-                // TODO: Is this a real modification, or just status?
                 self.modify(pod).await
             }
             WatchEvent::Deleted(pod) => {
