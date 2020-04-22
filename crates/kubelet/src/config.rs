@@ -106,8 +106,7 @@ impl Config {
         let node_labels = opts
             .node_labels
             .iter()
-            .map(|i| split_one_label(i))
-            .filter_map(Result::ok)
+            .filter_map(|i| split_one_label(i))
             .collect();
 
         let port = opts.port;
@@ -291,15 +290,14 @@ fn read_password_from_tty() -> String {
     rpassword::read_password_from_tty(Some("PFX file password: ")).unwrap()
 }
 
-fn split_one_label(in_string: &str) -> Result<(String, String), String> {
+fn split_one_label(in_string: &str) -> Option<(String, String)> {
     let mut splitter = in_string.splitn(2, '=');
-    let key = splitter.next().unwrap();
-    if key.is_empty() {
-        Err("error splitting label".to_string())
-    } else {
-        match splitter.next() {
-            Some(val) => Ok((key.to_string(), val.to_string())),
-            None => Ok((key.to_string(), "".to_string())),
-        }
+
+    match splitter.next() {
+        Some("") | None => None,
+        Some(key) => match splitter.next() {
+            Some(val) => Some((key.to_string(), val.to_string())),
+            None => Some((key.to_string(), String::new())),
+        },
     }
 }
