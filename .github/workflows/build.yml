@@ -29,9 +29,11 @@ jobs:
           url: ${{ matrix.config.url }}
           pathInArchive: ${{ matrix.config.pathInArchive }}
       # hack(bacongobbler): install rustfmt to work around darwin toolchain issues
-      - name: install rustfmt
+      - name: '(macOS) install dev tools'
         if: runner.os == 'macOS'
-        run: rustup component add rustfmt --toolchain stable-x86_64-apple-darwin
+        run: |
+          rustup component add rustfmt --toolchain stable-x86_64-apple-darwin
+          rustup component add clippy --toolchain stable-x86_64-apple-darwin
       - name: Build
         run: |
           just build
