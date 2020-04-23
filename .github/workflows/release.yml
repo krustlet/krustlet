@@ -18,16 +18,18 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: set the release version
+      - name: set the release version (tag)
         if: startsWith(github.ref, 'refs/tags')
         run: echo ::set-env name=RELEASE_VERSION::${GITHUB_REF/refs\/tags\//}
 
-      - name: set the release version
+      - name: set the release version (master)
         if: github.ref == 'refs/heads/master'
         run: echo ::set-env name=RELEASE_VERSION::canary
 
       - name: lowercase the runner OS name
-        run: echo ::set-env name=RUNNER_OS::${${{ runner.os }},,}
+        run: |
+        OS=${{ runner.os }}
+        echo ::set-env name=RUNNER_OS::${OS,,}
 
       - name: build release
         uses: actions-rs/cargo@v1
