@@ -27,7 +27,9 @@ jobs:
         run: echo ::set-env name=RELEASE_VERSION::canary
 
       - name: lowercase the runner OS name
-        run: echo ::set-env name=RUNNER_OS::${${{ runner.os }},,}
+        run: |
+        OS=${{ runner.os }}
+        echo ::set-env name=RUNNER_OS::${OS,,}
 
       - name: build release
         uses: actions-rs/cargo@v1
