@@ -6,7 +6,8 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 use kube::api::{Api, DeleteParams, PatchParams, PostParams};
 use kube::error::ErrorResponse;
 use kube::Error;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
+use std::collections::HashMap;
 
 macro_rules! retry {
     ($action:expr, times: $num_times:expr, error: $on_err:expr) => {{
@@ -249,15 +250,7 @@ fn node_definition(config: &Config, arch: &str) -> serde_json::Value {
         "kind": "Node",
         "metadata": {
             "name": config.node_name,
-            "labels": {
-                "beta.kubernetes.io/arch": arch,
-                "beta.kubernetes.io/os": "linux",
-                "kubernetes.io/arch": arch,
-                "kubernetes.io/os": "linux",
-                "kubernetes.io/hostname": config.hostname,
-                "kubernetes.io/role":     "agent",
-                "type": "krustlet"
-            },
+            "labels": {},
             "annotations": {
                 "node.alpha.kubernetes.io/ttl": "0",
                 "volumes.kubernetes.io/controller-managed-attach-detach": "true"
@@ -338,8 +331,9 @@ fn node_definition(config: &Config, arch: &str) -> serde_json::Value {
         }
     });
 
+    let node_labels = node_labels_definition(arch, &config);
     // extra labels from config
-    for (key, val) in &config.node_labels {
+    for (key, val) in node_labels {
         json["metadata"]["labels"][key] = serde_json::json!(val);
     }
 
@@ -388,4 +382,121 @@ fn lease_spec_definition(node_name: &str) -> serde_json::Value {
             "leaseDurationSeconds": 300
         }
     )
+}
+
+/// Defines the labels that will be applied to this node
+///
+/// Default values and passed node-labels arguments are injected by config.
+fn node_labels_definition(arch: &str, config: &Config) -> HashMap<String, String> {
+    // Add mandatory static labels
+    let mut labels = HashMap::new();
+    labels.insert("beta.kubernetes.io/os".to_owned(), "linux".to_owned());
+    labels.insert("kubernetes.io/os".to_owned(), "linux".to_owned());
+    labels.insert("kubernetes.io/role".to_owned(), "agent".to_owned());
+    labels.insert("type".to_owned(), "krustlet".to_owned());
+    // add the mandatory labels that are dependent on injected values
+    labels.insert("beta.kubernetes.io/arch".to_owned(), arch.to_owned());
+    labels.insert("kubernetes.io/arch".to_owned(), arch.to_owned());
+    labels.insert(
+        "kubernetes.io/hostname".to_owned(),
+        config.hostname.to_owned(),
+    );
+
+    let k8s_namespace = "kubernetes.io";
+    // namespaces managed by this method - do not allow user injection
+    let managed_namespace_labels = [
+        "beta.kubernetes.io/arch",
+        "beta.kubernetes.io/os",
+        "kubernetes.io/arch",
+        "kubernetes.io/hostname",
+        "kubernetes.io/os",
+        "kubernetes.io/role",
+        "type",
+    ];
+    let allowed_k8s_namespace_labels = [
+        "beta.kubernetes.io/instance-type",
+        "failure-domain.beta.kubernetes.io/region",
+        "failure-domain.beta.kubernetes.io/zone",
+        "failure-domain.kubernetes.io/region",
+        "failure-domain.kubernetes.io/zone",
+        "kubernetes.io/instance-type",
+    ];
+
+    // Attempt to append node labels from passed arguments.
+    // First, check for managed namespace and log exclusion
+    // Next, check if label contains k8s namespace and ensure it's allowable
+    // Else, if not k8s namspace, insert
+    let user_labels = &config.node_labels;
+
+    for (key, value) in user_labels.iter() {
+        if managed_namespace_labels.contains(&key.as_str()) {
+            warn!(
+                "User provided node label {} omitted. Namespace label managed by runtime.",
+                key
+            );
+        } else if key.contains(k8s_namespace)
+            && !key.starts_with("kubelet.kubernetes.io")
+            && !key.starts_with("node.kubernetes.io")
+            && !allowed_k8s_namespace_labels.contains(&key.as_str())
+        {
+            warn!(
+                "User provided node label {} omitted. Namespace violates constraints.",
+                key
+            );
+        } else {
+            labels.insert(key.to_owned(), value.to_owned());
+        }
+    }
+    labels
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::config::{Config, ServerConfig};
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_node_labels_definition() {
+        let mut node_labels = HashMap::new();
+        node_labels.insert("foo".to_owned(), "custom".to_owned());
+        node_labels.insert(
+            "kubelet.kubernetes.io/allowed-prefix".to_owned(),
+            "prefix".to_owned(),
+        );
+        node_labels.insert(
+            "not-allowed.kubernetes.io".to_owned(),
+            "not-allowed".to_owned(),
+        );
+        node_labels.insert(
+            "kubernetes.io/instance-type".to_owned(),
+            "allowed".to_owned(),
+        );
+        node_labels.insert("beta.kubernetes.io/os".to_owned(), "managed".to_owned());
+
+        let config = Config {
+            node_ip: IpAddr::from(Ipv4Addr::new(127, 0, 0, 1)),
+            hostname: String::from("foo"),
+            node_name: String::from("bar"),
+            server_config: ServerConfig {
+                addr: IpAddr::from(Ipv4Addr::new(127, 0, 0, 1)),
+                port: 8080,
+                pfx_password: String::new(),
+                pfx_path: PathBuf::new(),
+            },
+            data_dir: PathBuf::new(),
+            node_labels,
+        };
+
+        let result = node_labels_definition("linux", &config);
+
+        assert!(result.contains_key("kubernetes.io/role"));
+        assert!(result.contains_key("foo"));
+        assert!(result.contains_key("kubelet.kubernetes.io/allowed-prefix"));
+        assert!(!result.contains_key("not-allowed.kubernetes.io"));
+        assert!(result.contains_key("kubernetes.io/instance-type"));
+        assert!(!result.get("beta.kubernetes.io/os").unwrap().eq("managed"));
+        assert!(result.get("beta.kubernetes.io/os").unwrap().eq("linux"));
+    }
 }
