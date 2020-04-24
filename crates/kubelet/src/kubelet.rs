@@ -4,13 +4,13 @@ use crate::config::Config;
 use crate::node::{create_node, update_node};
 use crate::queue::PodQueue;
 use crate::server::start_webserver;
-use crate::status::Phase;
+use crate::status::{update_pod_status, Phase};
 use crate::Provider;
 
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::{
-    api::{ListParams, Meta, PatchParams},
+    api::{ListParams, Meta},
     runtime::Informer,
     Api,
 };
@@ -93,14 +93,14 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
                     pod.name(),
                     json_status
                 );
-
-                let data = serde_json::to_vec(&json_status).expect("Should always serialize");
-                let pod_client: Api<KubePod> =
-                    Api::namespaced(client.clone(), &pod.namespace().unwrap_or_default());
                 let pod_name = pod.name();
-                match pod_client
-                    .patch_status(&pod_name, &PatchParams::default(), data)
-                    .await
+                match update_pod_status(
+                    client.clone(),
+                    &pod.namespace().unwrap_or_default(),
+                    &pod_name,
+                    &json_status,
+                )
+                .await
                 {
                     Ok(_) => (),
                     Err(e) => error!(

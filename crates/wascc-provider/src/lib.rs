@@ -31,12 +31,14 @@
 #![deny(missing_docs)]
 
 use async_trait::async_trait;
+use k8s_openapi::api::core::v1::{ContainerStatus as KubeContainerStatus, Pod as KubePod};
+use kube::{api::DeleteParams, Api};
 use kubelet::handle::{key_from_pod, pod_key, PodHandle, RuntimeHandle, Stop};
 use kubelet::module_store::ModuleStore;
 use kubelet::provider::ProviderError;
-use kubelet::status::{ContainerStatus, Status};
+use kubelet::status::{update_pod_status, ContainerStatus, Phase, Status};
 use kubelet::{Pod, Provider};
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use tempfile::NamedTempFile;
 use tokio::fs::File;
 use tokio::sync::watch::{self, Receiver};
@@ -245,37 +247,110 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
     }
 
     async fn modify(&self, pod: Pod) -> anyhow::Result<()> {
-        // Modify will be tricky. Not only do we need to handle legitimate modifications, but we
-        // need to sift out modifications that simply alter the status. For the time being, we
-        // just ignore them, which is the wrong thing to do... except that it demos better than
-        // other wrong things.
-        info!("Pod modified");
-        info!(
-            "Modified pod spec: {:#?}",
-            pod.as_kube_pod().status.as_ref().unwrap()
+        // The only things we care about are:
+        // 1. metadata.deletionTimestamp => signal all containers to stop and then mark them
+        //    as terminated
+        // 2. spec.containers[*].image, spec.initContainers[*].image => stop the currently
+        //    running containers and start new ones?
+        // 3. spec.activeDeadlineSeconds => Leaving unimplemented for now
+        // TODO: Determine what the proper behavior should be if labels change
+        let pod_name = pod.name().to_owned();
+        let pod_namespace = pod.namespace().to_owned();
+        debug!(
+            "Got pod modified event for {} in namespace {}",
+            pod_name, pod_namespace
         );
-        Ok(())
+        trace!("Modified pod spec: {:#?}", pod.as_kube_pod());
+        if let Some(_timestamp) = pod.deletion_timestamp() {
+            debug!(
+                "Found delete timestamp for pod {} in namespace {}. Stopping running actors",
+                pod_name, pod_namespace
+            );
+            let mut handles = self.handles.write().await;
+            match handles.get_mut(&key_from_pod(&pod)) {
+                Some(h) => {
+                    h.stop().await?;
+
+                    debug!(
+                        "All actors stopped for pod {} in namespace {}, updating status",
+                        pod_name, pod_namespace
+                    );
+                    // Having to do this here isn't my favorite thing, but we need to update the
+                    // status of the container so it can be deleted. We will probably need to have
+                    // some sort of provider that can send a message about status to the Kube API
+                    let now = chrono::Utc::now();
+                    let terminated = ContainerStatus::Terminated {
+                        timestamp: now,
+                        message: "Pod stopped".to_owned(),
+                        failed: false,
+                    };
+
+                    let container_statuses: Vec<KubeContainerStatus> = pod
+                        .into_kube_pod()
+                        .spec
+                        .unwrap_or_default()
+                        .containers
+                        .into_iter()
+                        .map(|c| terminated.to_kubernetes(c.name))
+                        .collect();
+
+                    let json_status = serde_json::json!(
+                        {
+                            "metadata": {
+                                "resourceVersion": "",
+                            },
+                            "status": {
+                                "message": "Pod stopped",
+                                "phase": Phase::Succeeded,
+                                "containerStatuses": container_statuses,
+                            }
+                        }
+                    );
+                    let client = kube::client::Client::new(self.kubeconfig.clone());
+                    update_pod_status(client.clone(), &pod_namespace, &pod_name, &json_status)
+                        .await?;
+
+                    let pod_client: Api<KubePod> = Api::namespaced(client.clone(), &pod_namespace);
+                    let dp = DeleteParams {
+                        grace_period_seconds: Some(0),
+                        ..Default::default()
+                    };
+                    match pod_client.delete(&pod_name, &dp).await {
+                        Ok(_) => Ok(()),
+                        Err(e) => Err(e.into()),
+                    }
+                }
+                None => {
+                    // This isn't an error with the pod, so don't return an error (otherwise it will
+                    // get updated in its status). This is an unlikely case to get into and means
+                    // that something is likely out of sync, so just log the error
+                    error!(
+                        "Unable to find pod {} in namespace {} when trying to stop all containers",
+                        pod_name, pod_namespace
+                    );
+                    Ok(())
+                }
+            }
+        } else {
+            Ok(())
+        }
+        // TODO: Implement behavior for stopping old containers and restarting when the container
+        // image changes
     }
 
     async fn delete(&self, pod: Pod) -> anyhow::Result<()> {
         let mut handles = self.handles.write().await;
-        if let Some(mut h) = handles.remove(&key_from_pod(&pod)) {
-            h.stop().await.unwrap_or_else(|e| {
-                error!(
-                    "unable to stop pod {} in namespace {}: {:?}",
-                    pod.name(),
-                    pod.namespace(),
-                    e
-                );
-                // Insert the pod back in to our store if we failed to delete it
-                handles.insert(key_from_pod(&pod), h);
-            })
-        } else {
-            info!(
+        match handles.remove(&key_from_pod(&pod)) {
+            Some(_) => debug!(
+                "Pod {} in namespace {} removed",
+                pod.name(),
+                pod.namespace()
+            ),
+            None => info!(
                 "unable to find pod {} in namespace {}, it was likely already deleted",
                 pod.name(),
                 pod.namespace()
-            );
+            ),
         }
         Ok(())
     }

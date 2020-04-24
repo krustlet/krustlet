@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 
 use crate::status::{Phase, Status};
-use k8s_openapi::api::core::v1::Container as KubeContainer;
-use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
-use k8s_openapi::api::core::v1::Pod as KubePod;
-use k8s_openapi::api::core::v1::Volume as KubeVolume;
-use kube::api::{Api, PatchParams};
+use chrono::{DateTime, Utc};
+use k8s_openapi::api::core::v1::{
+    Container as KubeContainer, ContainerStatus as KubeContainerStatus, Pod as KubePod,
+    Volume as KubeVolume,
+};
+use kube::api::{Api, Meta, PatchParams};
 use log::{debug, error};
 
 /// A Kubernetes Pod
@@ -71,25 +72,26 @@ impl Pod {
 
     /// Get an iterator over the pod's labels
     pub fn labels(&self) -> &std::collections::BTreeMap<String, String> {
-        self.0
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata.labels.as_ref())
-            .unwrap_or_else(|| &EMPTY_MAP)
+        self.0.meta().labels.as_ref().unwrap_or_else(|| &EMPTY_MAP)
     }
 
     ///  Get the pod's annotations
     pub fn annotations(&self) -> &std::collections::BTreeMap<String, String> {
         self.0
-            .metadata
+            .meta()
+            .annotations
             .as_ref()
-            .and_then(|metadata| metadata.annotations.as_ref())
             .unwrap_or_else(|| &EMPTY_MAP)
     }
 
     ///  Get a specific annotation from the pod
     pub fn get_annotation(&self, key: &str) -> Option<&str> {
         Some(self.annotations().get(key)?.as_str())
+    }
+
+    /// Get the deletionTimestamp if it exists
+    pub fn deletion_timestamp(&self) -> Option<&DateTime<Utc>> {
+        self.0.meta().deletion_timestamp.as_ref().map(|t| &t.0)
     }
 
     /// Patch the pod status using the given status information.

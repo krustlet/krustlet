@@ -19,6 +19,7 @@ wascc-host = "0.6"
 log = "0.4"
 serde = "1.0"
 serde_derive = "1.0"
+serde_json = "1.0"
 kube = "0.32" 
 kubelet = { path = "../kubelet", version = "0.1.0" }
 tokio = { version = "0.2", features = ["fs", "macros"] }
@@ -26,7 +27,7 @@ chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3.1"
 wascc-logging = { path = "../wascc-logging", version = "0.1", features = ["static_plugin"] }
 wascc-httpsrv = { version = "0.6", features = ["static_plugin" ] }
+k8s-openapi = { version = "0.7", features = ["v1_17"] }
 
 [dev-dependencies]
-k8s-openapi = { version = "0.7", features = ["v1_17"] }
 oci-distribution = { path = "../oci-distribution", version = "0.1" }
