@@ -126,7 +126,7 @@ async fn configure(
         populate_from_secret(
             &s.secret_name
                 .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("no configmap name was given"))?,
+                .ok_or_else(|| anyhow::anyhow!("no secret name was given"))?,
             namespace,
             client,
             path,
