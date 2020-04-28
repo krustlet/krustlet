@@ -15,7 +15,7 @@ edition = "2018"
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-kube = "0.32" 
+kube = "0.33" 
 log = "0.4"
 wasmtime = "0.15"
 wasmtime-wasi = "0.15"

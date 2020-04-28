@@ -23,7 +23,7 @@ hyper = { version = "0.13", default-features = false, features = ["stream"] }
 log = "0.4"
 reqwest = "0.10"
 tokio  = { version = "0.2", features = ["fs", "stream", "macros"] }
-kube = "0.32" 
+kube = "0.33" 
 k8s-openapi = { version = "0.7", default-features = false, features = ["v1_17"] }
 chrono = { version = "0.4", features = ["serde"] }
 structopt = { version = "0.3", features = ["wrap_help"], optional = true }
