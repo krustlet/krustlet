@@ -1,7 +1,7 @@
 # Krustlet: Kubernetes Kubelet in Rust for running WASM
 
 :construction: :construction: **This project is highly experimental.** :construction: :construction:
-It is not yet fully ready for production, so you should use it in production at your own risk
+It should not be used in production workloads.
 
 Krustlet acts as a Kubelet by listening on the event stream for new pods that
 the scheduler assigns to it based on specific Kubernetes
