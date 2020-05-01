@@ -9,8 +9,6 @@ spec:
     - image: webassembly.azurecr.io/simpleserver:v1.0.0
       imagePullPolicy: Always
       name: simpleserver
-      ports:
-        - containerPort: 80
   tolerations:
     - key: "node.kubernetes.io/network-unavailable"
       operator: "Exists"
