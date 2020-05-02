@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: simpleserver
+  labels:
+    app: simpleserver
+spec:
+  containers:
+    - image: webassembly.azurecr.io/simpleserver:v1.0.0
+      imagePullPolicy: Always
+      name: simpleserver
+  tolerations:
+    - key: "node.kubernetes.io/network-unavailable"
+      operator: "Exists"
+      effect: "NoSchedule"
+    - key: "krustlet/arch"
+      operator: "Equal"
+      value: "wasm32-wasi"
+      effect: "NoExecute"
