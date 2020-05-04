@@ -40,7 +40,7 @@ use std::collections::HashMap;
 ///     // Implement the rest of the methods using `async` for the ones that return futures ...
 ///     # async fn modify(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
 ///     # async fn delete(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
-///     # async fn logs(&self, namespace: String, pod: String, container: String) -> anyhow::Result<Vec<u8>> { todo!() }
+///     # async fn logs(&self, namespace: String, pod: String, container: String, sender: hyper::body::Sender, tail: Option<usize>, follow: bool) -> anyhow::Result<()> { todo!() }
 /// }
 /// ```
 #[async_trait]

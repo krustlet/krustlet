@@ -197,8 +197,11 @@ mod test {
             _namespace: String,
             _pod: String,
             _container: String,
-        ) -> anyhow::Result<Vec<u8>> {
-            Ok(vec![])
+            _sender: hyper::body::Sender,
+            _tail: Option<usize>,
+            _follow: bool,
+        ) -> anyhow::Result<()> {
+            Ok(())
         }
     }
 
