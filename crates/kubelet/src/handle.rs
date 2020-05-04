@@ -6,9 +6,10 @@
 
 use std::collections::HashMap;
 use std::io::SeekFrom;
+use anyhow::bail;
 
 use log::{debug, error, info};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
+use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt, AsyncBufReadExt};
 use tokio::stream::{StreamExt, StreamMap};
 use tokio::sync::watch::Receiver;
 use tokio::sync::RwLock;
@@ -33,27 +34,106 @@ pub trait Stop {
     async fn wait(&mut self) -> anyhow::Result<()>;
 }
 
+/// Trait to describe necessary behavior for creating multiple log readers.
+/// TODO: Both providers make a handle containing a tempfile. If this is a common pattern,
+/// it might make sense to provide that implementation here. This would add `tempfile` as a
+/// dependency of `kubelet`.
+pub trait LogHandle<R>: Sync + Send {
+    /// Create new log reader.
+    fn output(&self) -> R;
+}
+
+/// Future that streams logs from provided `AsyncRead` to provided `hyper::body::Sender`.
+async fn stream_logs<R: AsyncRead + std::marker::Unpin>(output: R, mut sender: hyper::body::Sender, tail: Option<usize>, follow: bool) -> anyhow::Result<()> {
+    let buf = tokio::io::BufReader::new(output);
+    let mut lines = buf.lines();
+
+    if let Some(n) = tail {
+        // Stream last n lines.
+        // TODO: this uses a lot of memory for large n and scans the entire file.
+        let mut line_buf = std::collections::VecDeque::with_capacity(n);
+
+        while let Some(line) = lines.next_line().await? {
+            if line_buf.len() == n { line_buf.pop_front(); }
+            line_buf.push_back(line);
+        }
+
+        for mut line in line_buf {
+            line.push('\n');
+            let b = hyper::body::Bytes::copy_from_slice(&line.as_bytes());
+            match sender.send_data(b).await {
+                Ok(_) => (),
+                Err(e) => if e.is_closed() {
+                    debug!("channel closed.");
+                    return Ok(());
+                } else {
+                    error!("channel error: {}", e);
+                    bail!(e);
+                }
+            }
+        }
+    } else {
+        // Stream entire file.
+        while let Some(mut line) = lines.next_line().await? {
+            line.push('\n');
+            let b = hyper::body::Bytes::copy_from_slice(&line.as_bytes());
+            match sender.send_data(b).await {
+                Ok(_) => (),
+                Err(e) => if e.is_closed() {
+                    debug!("channel closed.");
+                    return Ok(());
+                } else {
+                    error!("channel error: {}", e);
+                    bail!(e);
+                }
+            }
+        }
+    }
+
+    if follow {
+        // Optionally watch file for changes.
+        loop {
+            while let Some(mut line) = lines.next_line().await? {
+                line.push('\n');
+                let b = hyper::body::Bytes::copy_from_slice(&line.as_bytes());
+                match sender.send_data(b).await {
+                    Ok(_) => (),
+                    Err(e) => if e.is_closed() {
+                        debug!("channel closed.");
+                        return Ok(());
+                    } else {
+                        error!("channel error: {}", e);
+                        bail!(e);
+                    }
+                }
+            }
+            tokio::time::delay_for(std::time::Duration::from_millis(500)).await;
+        }
+    }
+    Ok(())
+}
+
 /// Represents a handle to a running "container" (whatever that might be). This
 /// can be used on its own, however, it is generally better to use it as a part
 /// of a [`PodHandle`], which manages a group of containers in a Kubernetes
 /// Pod
 pub struct RuntimeHandle<S, R> {
     stopper: S,
-    output: R,
+    handle: Box<dyn LogHandle<R>>,
     status_channel: Receiver<ContainerStatus>,
 }
 
-impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<S, R> {
+impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin + Send + 'static> RuntimeHandle<S, R> {
     /// Create a new handle with the given stopper for stopping the runtime,
     /// a reader for log output and status channel.
     ///
     /// The status channel is a [Tokio watch `Receiver`][Receiver]. The sender part
     /// of the channel should be given to the running process and the receiver half
     /// passed to this constructor to be used for reporting current status
-    pub fn new(stopper: S, output: R, status_channel: Receiver<ContainerStatus>) -> Self {
+    pub fn new(stopper: S, handle: Box<dyn LogHandle<R>>, status_channel: Receiver<ContainerStatus>) -> Self {
         Self {
             stopper,
-            output,
+            handle,
             status_channel,
         }
     }
@@ -66,10 +146,11 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<S, R> {
 
     /// Write all of the output from the running process into the given buffer.
     /// Returns the number of bytes written to the buffer
-    pub(crate) async fn output(&mut self, buf: &mut Vec<u8>) -> anyhow::Result<usize> {
-        let bytes_written = self.output.read_to_end(buf).await?;
-        self.output.seek(SeekFrom::Start(0)).await?;
-        Ok(bytes_written)
+    pub(crate) async fn output(&mut self, sender: hyper::body::Sender, tail: Option<usize>, follow: bool) -> anyhow::Result<()> {
+        let mut output = self.handle.output();
+        output.seek(SeekFrom::Start(0)).await?;
+        tokio::spawn(stream_logs(output, sender, tail, follow));
+        Ok(())
     }
 
     /// Returns a clone of the status_channel for use in reporting the status to
@@ -98,7 +179,7 @@ pub struct PodHandle<S, R> {
     _volumes: HashMap<String, VolumeRef>,
 }
 
-impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> PodHandle<S, R> {
+impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin + Send + 'static> PodHandle<S, R> {
     /// Creates a new pod handle that manages the given map of container names to
     /// [`RuntimeHandle`]s. The given pod and client are used to maintain a reference to the
     /// kubernetes object and to be able to update the status of that object. The optional volumes
@@ -149,8 +230,9 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> PodHandle<S, R> {
     pub async fn output(
         &mut self,
         container_name: &str,
-        buf: &mut Vec<u8>,
-    ) -> anyhow::Result<usize> {
+        sender: hyper::body::Sender,
+        tail: Option<usize>, follow: bool
+    ) -> anyhow::Result<()> {
         let mut handles = self.container_handles.write().await;
         let handle =
             handles
@@ -159,7 +241,7 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> PodHandle<S, R> {
                     pod_name: self.pod.name().to_owned(),
                     container_name: container_name.to_owned(),
                 })?;
-        handle.output(buf).await
+        handle.output(sender, tail, follow).await
     }
 
     /// Signal the pod and all its running containers to stop and wait for them

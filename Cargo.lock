@@ -1752,6 +1752,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-tls",
+ "url 2.1.1",
 ]
 
 [[package]]
@@ -3641,6 +3642,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "hyper",
  "k8s-openapi",
  "kube",
  "kubelet",
@@ -3714,6 +3716,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
+ "hyper",
  "k8s-openapi",
  "kube",
  "kubelet",

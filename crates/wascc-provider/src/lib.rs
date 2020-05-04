@@ -360,16 +360,16 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         namespace: String,
         pod_name: String,
         container_name: String,
-    ) -> anyhow::Result<Vec<u8>> {
+        sender: hyper::body::Sender,
+        tail: Option<usize>, follow: bool
+    ) -> anyhow::Result<()> {
         let mut handles = self.handles.write().await;
         let handle = handles
             .get_mut(&pod_key(&namespace, &pod_name))
             .ok_or_else(|| ProviderError::PodNotFound {
                 pod_name: pod_name.clone(),
             })?;
-        let mut output = Vec::new();
-        handle.output(&container_name, &mut output).await?;
-        Ok(output)
+        handle.output(&container_name, sender, tail, follow).await
     }
 }
 
@@ -400,6 +400,18 @@ fn wascc_run_http(
 struct Capability {
     name: &'static str,
     env: EnvVars,
+}
+
+/// Holds our tempfile handle.
+struct LogHandle {
+    temp: NamedTempFile
+}
+
+impl kubelet::handle::LogHandle<tokio::fs::File> for LogHandle {
+    /// Creates `tokio::fs::File` on demand for log reading.
+    fn output(&self) -> tokio::fs::File {
+        tokio::fs::File::from_std(self.temp.reopen().unwrap())
+    }
 }
 
 /// Run the given WASM data as a waSCC actor with the given public key.
@@ -439,10 +451,13 @@ fn wascc_run(
             .bind_actor(&pk, cap.name, None, cap.env.clone())
             .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
     })?;
+
+    let log_handle = LogHandle { temp: log_output };
+
     info!("wascc actor executing");
     Ok(RuntimeHandle::new(
         ActorStopper { host, key: pk },
-        tokio::fs::File::from_std(log_output.reopen()?),
+        Box::new(log_handle),
         status_recv,
     ))
 }

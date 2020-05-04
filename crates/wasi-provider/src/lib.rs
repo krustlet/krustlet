@@ -239,15 +239,15 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         namespace: String,
         pod_name: String,
         container_name: String,
-    ) -> anyhow::Result<Vec<u8>> {
+        sender: hyper::body::Sender,
+        tail: Option<usize>, follow: bool
+    ) -> anyhow::Result<()> {
         let mut handles = self.handles.write().await;
         let handle = handles
             .get_mut(&pod_key(&namespace, &pod_name))
             .ok_or_else(|| ProviderError::PodNotFound {
                 pod_name: pod_name.clone(),
             })?;
-        let mut output = Vec::new();
-        handle.output(&container_name, &mut output).await?;
-        Ok(output)
+        handle.output(&container_name, sender, tail, follow).await
     }
 }

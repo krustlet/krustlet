@@ -69,7 +69,9 @@ pub trait Provider {
         namespace: String,
         pod: String,
         container: String,
-    ) -> anyhow::Result<Vec<u8>>;
+        sender: hyper::body::Sender,
+        tail: Option<usize>, follow: bool
+    ) -> anyhow::Result<()>;
 
     /// Execute a given command on a workload and then return the result.
     ///
