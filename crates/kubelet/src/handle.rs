@@ -4,12 +4,12 @@
 //! optional, but abstract away much of the logic around managing logging,
 //! status updates, and stopping pods
 
+use anyhow::bail;
 use std::collections::HashMap;
 use std::io::SeekFrom;
-use anyhow::bail;
 
 use log::{debug, error, info};
-use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt, AsyncBufReadExt};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncSeek, AsyncSeekExt};
 use tokio::stream::{StreamExt, StreamMap};
 use tokio::sync::watch::Receiver;
 use tokio::sync::RwLock;
@@ -44,7 +44,12 @@ pub trait LogHandle<R>: Sync + Send {
 }
 
 /// Future that streams logs from provided `AsyncRead` to provided `hyper::body::Sender`.
-async fn stream_logs<R: AsyncRead + std::marker::Unpin>(output: R, mut sender: hyper::body::Sender, tail: Option<usize>, follow: bool) -> anyhow::Result<()> {
+async fn stream_logs<R: AsyncRead + std::marker::Unpin>(
+    output: R,
+    mut sender: hyper::body::Sender,
+    tail: Option<usize>,
+    follow: bool,
+) -> anyhow::Result<()> {
     let buf = tokio::io::BufReader::new(output);
     let mut lines = buf.lines();
 
@@ -54,7 +59,9 @@ async fn stream_logs<R: AsyncRead + std::marker::Unpin>(output: R, mut sender: h
         let mut line_buf = std::collections::VecDeque::with_capacity(n);
 
         while let Some(line) = lines.next_line().await? {
-            if line_buf.len() == n { line_buf.pop_front(); }
+            if line_buf.len() == n {
+                line_buf.pop_front();
+            }
             line_buf.push_back(line);
         }
 
@@ -63,12 +70,14 @@ async fn stream_logs<R: AsyncRead + std::marker::Unpin>(output: R, mut sender: h
             let b = hyper::body::Bytes::copy_from_slice(&line.as_bytes());
             match sender.send_data(b).await {
                 Ok(_) => (),
-                Err(e) => if e.is_closed() {
-                    debug!("channel closed.");
-                    return Ok(());
-                } else {
-                    error!("channel error: {}", e);
-                    bail!(e);
+                Err(e) => {
+                    if e.is_closed() {
+                        debug!("channel closed.");
+                        return Ok(());
+                    } else {
+                        error!("channel error: {}", e);
+                        bail!(e);
+                    }
                 }
             }
         }
@@ -79,12 +88,14 @@ async fn stream_logs<R: AsyncRead + std::marker::Unpin>(output: R, mut sender: h
             let b = hyper::body::Bytes::copy_from_slice(&line.as_bytes());
             match sender.send_data(b).await {
                 Ok(_) => (),
-                Err(e) => if e.is_closed() {
-                    debug!("channel closed.");
-                    return Ok(());
-                } else {
-                    error!("channel error: {}", e);
-                    bail!(e);
+                Err(e) => {
+                    if e.is_closed() {
+                        debug!("channel closed.");
+                        return Ok(());
+                    } else {
+                        error!("channel error: {}", e);
+                        bail!(e);
+                    }
                 }
             }
         }
@@ -98,12 +109,14 @@ async fn stream_logs<R: AsyncRead + std::marker::Unpin>(output: R, mut sender: h
                 let b = hyper::body::Bytes::copy_from_slice(&line.as_bytes());
                 match sender.send_data(b).await {
                     Ok(_) => (),
-                    Err(e) => if e.is_closed() {
-                        debug!("channel closed.");
-                        return Ok(());
-                    } else {
-                        error!("channel error: {}", e);
-                        bail!(e);
+                    Err(e) => {
+                        if e.is_closed() {
+                            debug!("channel closed.");
+                            return Ok(());
+                        } else {
+                            error!("channel error: {}", e);
+                            bail!(e);
+                        }
                     }
                 }
             }
@@ -130,7 +143,11 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin + Send + 'static> RuntimeHandle<S
     /// The status channel is a [Tokio watch `Receiver`][Receiver]. The sender part
     /// of the channel should be given to the running process and the receiver half
     /// passed to this constructor to be used for reporting current status
-    pub fn new(stopper: S, handle: Box<dyn LogHandle<R>>, status_channel: Receiver<ContainerStatus>) -> Self {
+    pub fn new(
+        stopper: S,
+        handle: Box<dyn LogHandle<R>>,
+        status_channel: Receiver<ContainerStatus>,
+    ) -> Self {
         Self {
             stopper,
             handle,
@@ -146,7 +163,12 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin + Send + 'static> RuntimeHandle<S
 
     /// Write all of the output from the running process into the given buffer.
     /// Returns the number of bytes written to the buffer
-    pub(crate) async fn output(&mut self, sender: hyper::body::Sender, tail: Option<usize>, follow: bool) -> anyhow::Result<()> {
+    pub(crate) async fn output(
+        &mut self,
+        sender: hyper::body::Sender,
+        tail: Option<usize>,
+        follow: bool,
+    ) -> anyhow::Result<()> {
         let mut output = self.handle.output();
         output.seek(SeekFrom::Start(0)).await?;
         tokio::spawn(stream_logs(output, sender, tail, follow));
@@ -231,7 +253,8 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin + Send + 'static> PodHandle<S, R>
         &mut self,
         container_name: &str,
         sender: hyper::body::Sender,
-        tail: Option<usize>, follow: bool
+        tail: Option<usize>,
+        follow: bool,
     ) -> anyhow::Result<()> {
         let mut handles = self.container_handles.write().await;
         let handle =

@@ -70,7 +70,8 @@ pub trait Provider {
         pod: String,
         container: String,
         sender: hyper::body::Sender,
-        tail: Option<usize>, follow: bool
+        tail: Option<usize>,
+        follow: bool,
     ) -> anyhow::Result<()>;
 
     /// Execute a given command on a workload and then return the result.

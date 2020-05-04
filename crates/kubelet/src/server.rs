@@ -4,7 +4,7 @@
 use anyhow::Context;
 use hyper::service::service_fn;
 use hyper::{server::conn::Http, Body, Method, Request, Response, StatusCode};
-use log::{debug, error, warn, info};
+use log::{debug, error, info, warn};
 use native_tls::{Identity, TlsAcceptor};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::stream::StreamExt;
@@ -99,11 +99,14 @@ where
                     "tailLines" => match value.parse::<usize>() {
                         Ok(n) => tail = Some(n),
                         Err(e) => {
-                            warn!("Unable to parse tailLines query parameter ({}): {:?}", value, e);
+                            warn!(
+                                "Unable to parse tailLines query parameter ({}): {:?}",
+                                value, e
+                            );
                         }
                     },
                     "follow" if value == "true" => follow = true,
-                    s => warn!("Unknown query parameter: {}={}", s, value)
+                    s => warn!("Unknown query parameter: {}={}", s, value),
                 }
             }
             get_container_logs(
@@ -113,7 +116,7 @@ where
                 (*pod).to_string(),
                 (*container).to_string(),
                 tail,
-                follow
+                follow,
             )
             .await
         }
@@ -142,7 +145,7 @@ async fn get_container_logs<T: Provider + Sync>(
     pod: String,
     container: String,
     tail: Option<usize>,
-    follow: bool
+    follow: bool,
 ) -> Response<Body> {
     debug!(
         "Got container log request for container {} in pod {} in namespace {}. tail: {:?}, follow: {}",
@@ -158,10 +161,11 @@ async fn get_container_logs<T: Provider + Sync>(
             .unwrap();
     }
     let (log_sender, log_body) = hyper::Body::channel();
-    match provider.logs(namespace, pod, container, log_sender, tail, follow).await {
-        Ok(()) => {
-            Response::new(log_body)
-        },
+    match provider
+        .logs(namespace, pod, container, log_sender, tail, follow)
+        .await
+    {
+        Ok(()) => Response::new(log_body),
         Err(e) => {
             error!("Error fetching logs: {}", e);
             let mut res = Response::new(Body::from(format!("Server error: {}", e)));

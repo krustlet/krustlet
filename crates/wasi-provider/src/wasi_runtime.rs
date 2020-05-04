@@ -1,8 +1,8 @@
+use anyhow::bail;
+use log::{error, info};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use anyhow::bail;
-use log::{error, info};
 use tempfile::NamedTempFile;
 use tokio::sync::{
     oneshot,
@@ -59,7 +59,7 @@ struct Data {
 
 /// Holds our tempfile handle.
 struct LogHandle {
-    temp: Arc<NamedTempFile>
+    temp: Arc<NamedTempFile>,
 }
 
 impl kubelet::handle::LogHandle<tokio::fs::File> for LogHandle {
@@ -114,11 +114,9 @@ impl WasiRuntime {
         let temp = self.output.clone();
         // Because a reopen is blocking, run in a blocking task to get new
         // handles to the tempfile
-        let output_write = tokio::task::spawn_blocking(
-            move || -> anyhow::Result<std::fs::File> {
-                Ok(temp.reopen()?)
-            },
-        )
+        let output_write = tokio::task::spawn_blocking(move || -> anyhow::Result<std::fs::File> {
+            Ok(temp.reopen()?)
+        })
         .await??;
 
         let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
@@ -127,7 +125,9 @@ impl WasiRuntime {
         });
         let (interrupt_handle, handle) = self.spawn_wasmtime(status_sender, output_write).await?;
 
-        let log_handle = LogHandle { temp: self.output.clone() };
+        let log_handle = LogHandle {
+            temp: self.output.clone(),
+        };
 
         Ok(RuntimeHandle::new(
             HandleStopper {

@@ -240,7 +240,8 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         pod_name: String,
         container_name: String,
         sender: hyper::body::Sender,
-        tail: Option<usize>, follow: bool
+        tail: Option<usize>,
+        follow: bool,
     ) -> anyhow::Result<()> {
         let mut handles = self.handles.write().await;
         let handle = handles

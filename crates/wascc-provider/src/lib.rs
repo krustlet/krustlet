@@ -361,7 +361,8 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         pod_name: String,
         container_name: String,
         sender: hyper::body::Sender,
-        tail: Option<usize>, follow: bool
+        tail: Option<usize>,
+        follow: bool,
     ) -> anyhow::Result<()> {
         let mut handles = self.handles.write().await;
         let handle = handles
@@ -404,7 +405,7 @@ struct Capability {
 
 /// Holds our tempfile handle.
 struct LogHandle {
-    temp: NamedTempFile
+    temp: NamedTempFile,
 }
 
 impl kubelet::handle::LogHandle<tokio::fs::File> for LogHandle {
