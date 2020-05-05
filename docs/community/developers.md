@@ -29,6 +29,21 @@ We use `just` to build our programs, but you can use `cargo` if you want:
 $ just build
 ```
 
+### Building on WSL (Windows Subsystem for Linux)
+
+You can build Krustlet on WSL but will need a few prerequisites that aren't included in the
+Ubuntu distro in the Microsoft Store:
+
+```
+sudo apt install build-essential
+sudo apt-get install libssl-dev
+sudo apt-get install pkg-config
+```
+
+**NOTE:** We've had mixed success developing Krustlet on WSL.  It has been successfully
+run on WSL2 using the WSL2-enabled Docker Kubernetes or Azure Kubernetes.  If you're
+on WSL1 you may be better off running in a full Linux VM under Hyper-V.
+
 ## Running
 
 There are two different runtimes available for Krustlet: `wascc` or `wasi`.
