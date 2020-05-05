@@ -137,6 +137,13 @@ $ KUBECONFIG=/var/snap/microk8s/current/credentials/client.config \
 
 In another terminal:
 
+We'll ensure the Kubernetes context is reverted to the default (`microk8s`) before proceeding:
+
+```shell
+$ microk8s.kubectl use context microk8s
+Switched to context "microk8s".
+```
+
 ```shell
 $ microk8s.kubectl get nodes --output=wide
 NAME                                STATUS   ROLES   AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION      CONTAINER-RUNTIME
@@ -145,6 +152,13 @@ microk8s                            Ready    <none>  13m     v1.18.2   10.138.0.
 ```
 
 ## Step 4: Test that things work
+
+We'll ensure the Kubernetes context is reverted to the default (`microk8s`) before proceeding:
+
+```shell
+$ microk8s.kubectl use context microk8s
+Switched to context "microk8s".
+```
 
 Now you can see things work! Feel free to give any of the demos a try like so:
 
