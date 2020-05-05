@@ -58,7 +58,16 @@ async fn stream_logs<R: AsyncRead + std::marker::Unpin>(
         // TODO: this uses a lot of memory for large n and scans the entire file.
         let mut line_buf = std::collections::VecDeque::with_capacity(n);
 
-        while let Some(line) = lines.next_line().await? {
+        while let Some(line) = match lines.next_line().await {
+            Ok(line) => line,
+            Err(e) => {
+                let err = format!("Error reading from log: {:?}", e);
+                error!("{}", &err);
+                let b = hyper::body::Bytes::copy_from_slice(&err.as_bytes());
+                sender.send_data(b).await?;
+                bail!(e);
+            }
+        } {
             if line_buf.len() == n {
                 line_buf.pop_front();
             }
@@ -83,7 +92,16 @@ async fn stream_logs<R: AsyncRead + std::marker::Unpin>(
         }
     } else {
         // Stream entire file.
-        while let Some(mut line) = lines.next_line().await? {
+        while let Some(mut line) = match lines.next_line().await {
+            Ok(line) => line,
+            Err(e) => {
+                let err = format!("Error reading from log: {:?}", e);
+                error!("{}", &err);
+                let b = hyper::body::Bytes::copy_from_slice(&err.as_bytes());
+                sender.send_data(b).await?;
+                bail!(e);
+            }
+        } {
             line.push('\n');
             let b = hyper::body::Bytes::copy_from_slice(&line.as_bytes());
             match sender.send_data(b).await {
@@ -104,7 +122,16 @@ async fn stream_logs<R: AsyncRead + std::marker::Unpin>(
     if follow {
         // Optionally watch file for changes.
         loop {
-            while let Some(mut line) = lines.next_line().await? {
+            while let Some(mut line) = match lines.next_line().await {
+                Ok(line) => line,
+                Err(e) => {
+                    let err = format!("Error reading from log: {:?}", e);
+                    error!("{}", &err);
+                    let b = hyper::body::Bytes::copy_from_slice(&err.as_bytes());
+                    sender.send_data(b).await?;
+                    bail!(e);
+                }
+            } {
                 line.push('\n');
                 let b = hyper::body::Bytes::copy_from_slice(&line.as_bytes());
                 match sender.send_data(b).await {
