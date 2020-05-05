@@ -74,8 +74,8 @@ impl<S: Stop, H> RuntimeHandle<S, H> {
         self.stopper.stop().await
     }
 
-    /// Write all of the output from the running process into the given buffer.
-    /// Returns the number of bytes written to the buffer
+    /// Streams output from the running process into the given sender.
+    /// Optionally tails the output and/or continues to watch the file and stream changes.
     pub(crate) async fn output<R>(
         &mut self,
         sender: LogSender,
@@ -164,8 +164,8 @@ impl<S: Stop, H> PodHandle<S, H> {
         })
     }
 
-    /// Write all of the output from the specified container into the given
-    /// buffer. Returns the number of bytes written to the buffer
+    /// Streams output from the specified container into the given sender.
+    /// Optionally tails the output and/or continues to watch the file and stream changes.
     pub async fn output<R>(
         &mut self,
         container_name: &str,
