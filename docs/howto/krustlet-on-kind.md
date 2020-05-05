@@ -102,6 +102,11 @@ en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
 
 In this example, I should use `192.168.1.167`.
 
+### Special note: Docker on Hyper-V Linux VMs
+
+For Docker running on a Linux VM on a Windows host under Hyper-V, the default gateway
+is usually `172.18.0.1`.
+
 ## Step 3: Install and run Krustlet
 
 First, install the latest release of Krustlet following [the install guide](../intro/install.md).
