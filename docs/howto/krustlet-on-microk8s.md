@@ -11,8 +11,21 @@ You may use a standlone `kubectl` if you prefer.
 
 ## Step 1: Create a service account user for the node
 
-We will need to create a Kubernetes configuration file (known as the kubeconfig) and service account
+We need to edit the Kubernetes configuration file (known as the kubeconfig) and create a service account
 for Krustlet to use to register nodes and access specific secrets.
+
+The service account can be created by using the Kubernetes manifest in the [assets](./assets) directory:
+
+```shell
+$ microk8s.kubectl apply --namespace=kube-system --filename=./docs/howto/assets/krustlet-service-account.yaml
+```
+
+You can also do this by using the manifest straight from GitHub:
+
+```shell
+$ microk8s.kubectl apply --namespace=kube-system --filename=https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/krustlet-service-account.yaml
+```
+The following commands edit Kubernetes configuration file, adding a context that will be used by Krustlet:
 
 ```shell
 SERVICE_ACCOUNT_NAME="krustlet"
