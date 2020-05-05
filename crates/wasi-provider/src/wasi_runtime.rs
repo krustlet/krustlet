@@ -1,9 +1,8 @@
+use anyhow::bail;
+use log::{error, info};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-use anyhow::bail;
-use log::{error, info};
 use tempfile::NamedTempFile;
 use tokio::sync::{
     oneshot,
@@ -58,6 +57,18 @@ struct Data {
     dirs: HashMap<PathBuf, Option<PathBuf>>,
 }
 
+/// Holds our tempfile handle.
+pub struct LogHandleFactory {
+    temp: Arc<NamedTempFile>,
+}
+
+impl kubelet::handle::LogHandleFactory<tokio::fs::File> for LogHandleFactory {
+    /// Creates `tokio::fs::File` on demand for log reading.
+    fn new_handle(&self) -> tokio::fs::File {
+        tokio::fs::File::from_std(self.temp.reopen().unwrap())
+    }
+}
+
 impl WasiRuntime {
     /// Creates a new WasiRuntime
     ///
@@ -99,15 +110,13 @@ impl WasiRuntime {
         })
     }
 
-    pub async fn start(&self) -> anyhow::Result<RuntimeHandle<HandleStopper, tokio::fs::File>> {
+    pub async fn start(&self) -> anyhow::Result<RuntimeHandle<HandleStopper, LogHandleFactory>> {
         let temp = self.output.clone();
         // Because a reopen is blocking, run in a blocking task to get new
         // handles to the tempfile
-        let (output_write, output_read) = tokio::task::spawn_blocking(
-            move || -> anyhow::Result<(std::fs::File, std::fs::File)> {
-                Ok((temp.reopen()?, temp.reopen()?))
-            },
-        )
+        let output_write = tokio::task::spawn_blocking(move || -> anyhow::Result<std::fs::File> {
+            Ok(temp.reopen()?)
+        })
         .await??;
 
         let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
@@ -116,12 +125,16 @@ impl WasiRuntime {
         });
         let (interrupt_handle, handle) = self.spawn_wasmtime(status_sender, output_write).await?;
 
+        let log_handle_factory = LogHandleFactory {
+            temp: self.output.clone(),
+        };
+
         Ok(RuntimeHandle::new(
             HandleStopper {
                 handle,
                 interrupt_handle,
             },
-            tokio::fs::File::from_std(output_read),
+            log_handle_factory,
             status_recv,
         ))
     }

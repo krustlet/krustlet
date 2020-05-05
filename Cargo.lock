@@ -1752,6 +1752,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-tls",
+ "url 2.1.1",
 ]
 
 [[package]]

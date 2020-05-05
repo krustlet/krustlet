@@ -41,7 +41,6 @@ use kubelet::volumes::VolumeRef;
 use kubelet::{Pod, Provider};
 use log::{debug, error, info, trace};
 use tempfile::NamedTempFile;
-use tokio::fs::File;
 use tokio::sync::watch::{self, Receiver};
 use tokio::sync::RwLock;
 use wascc_fs::FileSystemProvider;
@@ -113,7 +112,7 @@ impl Stop for ActorStopper {
 /// from Kubernetes.
 #[derive(Clone)]
 pub struct WasccProvider<S> {
-    handles: Arc<RwLock<HashMap<String, PodHandle<ActorStopper, File>>>>,
+    handles: Arc<RwLock<HashMap<String, PodHandle<ActorStopper, LogHandleFactory>>>>,
     store: S,
     volume_path: PathBuf,
     log_path: PathBuf,
@@ -401,16 +400,15 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         namespace: String,
         pod_name: String,
         container_name: String,
-    ) -> anyhow::Result<Vec<u8>> {
+        sender: kubelet::LogSender,
+    ) -> anyhow::Result<()> {
         let mut handles = self.handles.write().await;
         let handle = handles
             .get_mut(&pod_key(&namespace, &pod_name))
             .ok_or_else(|| ProviderError::PodNotFound {
                 pod_name: pod_name.clone(),
             })?;
-        let mut output = Vec::new();
-        handle.output(&container_name, &mut output).await?;
-        Ok(output)
+        handle.output(&container_name, sender).await
     }
 }
 
@@ -429,7 +427,7 @@ fn wascc_run_http(
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
     status_recv: Receiver<ContainerStatus>,
-) -> anyhow::Result<RuntimeHandle<ActorStopper, File>> {
+) -> anyhow::Result<RuntimeHandle<ActorStopper, LogHandleFactory>> {
     let mut caps: Vec<Capability> = Vec::new();
 
     caps.push(Capability {
@@ -451,6 +449,18 @@ struct Capability {
     env: EnvVars,
 }
 
+/// Holds our tempfile handle.
+struct LogHandleFactory {
+    temp: NamedTempFile,
+}
+
+impl kubelet::handle::LogHandleFactory<tokio::fs::File> for LogHandleFactory {
+    /// Creates `tokio::fs::File` on demand for log reading.
+    fn new_handle(&self) -> tokio::fs::File {
+        tokio::fs::File::from_std(self.temp.reopen().unwrap())
+    }
+}
+
 /// Run the given WASM data as a waSCC actor with the given public key.
 ///
 /// The provided capabilities will be configured for this actor, but the capabilities
@@ -462,7 +472,7 @@ fn wascc_run(
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
     status_recv: Receiver<ContainerStatus>,
-) -> anyhow::Result<RuntimeHandle<ActorStopper, File>> {
+) -> anyhow::Result<RuntimeHandle<ActorStopper, LogHandleFactory>> {
     info!("sending actor to wascc host");
     let log_output = NamedTempFile::new_in(log_path)?;
     let mut logenv: HashMap<String, String> = HashMap::new();
@@ -520,10 +530,12 @@ fn wascc_run(
             .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
     })?;
 
+    let log_handle_factory = LogHandleFactory { temp: log_output };
+
     info!("wascc actor executing");
     Ok(RuntimeHandle::new(
         ActorStopper { host, key: pk },
-        tokio::fs::File::from_std(log_output.reopen()?),
+        log_handle_factory,
         status_recv,
     ))
 }

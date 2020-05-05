@@ -197,8 +197,9 @@ mod test {
             _namespace: String,
             _pod: String,
             _container: String,
-        ) -> anyhow::Result<Vec<u8>> {
-            Ok(vec![])
+            _sender: crate::LogSender,
+        ) -> anyhow::Result<()> {
+            Ok(())
         }
     }
 

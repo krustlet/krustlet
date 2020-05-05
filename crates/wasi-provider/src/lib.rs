@@ -44,7 +44,6 @@ use kubelet::provider::ProviderError;
 use kubelet::volumes::VolumeRef;
 use kubelet::{Pod, Provider};
 use log::{debug, error, info, trace};
-use tokio::fs::File;
 use tokio::sync::RwLock;
 
 use kubelet::handle::{key_from_pod, pod_key, PodHandle};
@@ -58,7 +57,7 @@ const VOLUME_DIR: &str = "volumes";
 /// binaries conforming to the WASI spec
 #[derive(Clone)]
 pub struct WasiProvider<S> {
-    handles: Arc<RwLock<HashMap<String, PodHandle<HandleStopper, File>>>>,
+    handles: Arc<RwLock<HashMap<String, PodHandle<HandleStopper, wasi_runtime::LogHandleFactory>>>>,
     store: S,
     log_path: PathBuf,
     kubeconfig: kube::Config,
@@ -239,15 +238,14 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         namespace: String,
         pod_name: String,
         container_name: String,
-    ) -> anyhow::Result<Vec<u8>> {
+        sender: kubelet::LogSender,
+    ) -> anyhow::Result<()> {
         let mut handles = self.handles.write().await;
         let handle = handles
             .get_mut(&pod_key(&namespace, &pod_name))
             .ok_or_else(|| ProviderError::PodNotFound {
                 pod_name: pod_name.clone(),
             })?;
-        let mut output = Vec::new();
-        handle.output(&container_name, &mut output).await?;
-        Ok(output)
+        handle.output(&container_name, sender).await
     }
 }
