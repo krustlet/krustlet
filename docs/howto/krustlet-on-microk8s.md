@@ -1,0 +1,141 @@
+# Running Krustlet on [microk8s](https://microk8s.io)
+
+These are steps for running krustlet node(s) and [microk8s](https://microk8s.io) on the same machine.
+
+## Prerequisites
+
+You will require a running microk8s cluster for this guide. The steps below assume you will run microk8s and the Krustlet, on a single machine. `kubectl` is required but is installed with microk8s as `microk8s.kubectl`. The following instructions use `microk8s.kubectl` for simplicity. You may use a standlone `kubectl` if you prefer.
+
+## Step 1: Create a service account user for the node
+
+We will need to create a Kubernetes configuration file (known as the kubeconfig) and service account
+for krustlet to use to register nodes and access specific secrets.
+
+```shell
+SERVICE_ACCOUNT_NAME="krustlet"
+CONTEXT="krustlet"
+CLUSTER="microk8s-cluster"
+NAMESPACE="kube-system"
+USER="${CONTEXT}-token-user"
+
+SECRET_NAME=$(microk8s.kubectl get serviceaccount/${SERVICE_ACCOUNT_NAME} \
+  --namespace=${NAMESPACE} \
+  --output=jsonpath='{.secrets[0].name}')
+TOKEN_DATA=$(microk8s.kubectl get secret/${SECRET_NAME} \
+  --namespace=${NAMESPACE} \
+  --output=jsonpath='{.data.token}')
+
+TOKEN=$(echo ${TOKEN_DATA} | base64 -d)
+
+# Create user
+microk8s.kubectl config set-credentials ${USER} \
+--token ${TOKEN}
+# Create context
+microk8s.kubectl config set-context ${CONTEXT}
+# Set context to use cluster, namespace and user
+microk8s.kubectl config set-context ${CONTEXT} \
+--cluster=${CLUSTER} \
+--user=${USER} \
+--namespace=${NAMESPACE}
+```
+
+> **NB** We'll switch to this context when we run krustlet; for now we'll continue using the current (probably 'default') context
+
+## Step 2: Create Certificate
+
+Krustlet requires a certificate for securing communication with the Kubernetes API. Because
+Kubernetes has its own certificates, we'll need to get a signed certificate from the Kubernetes API
+that we can use. First things first, let's create a certificate signing request (CSR):
+
+```shell
+$ openssl req -new -sha256 -newkey rsa:2048 -keyout krustlet.key -out krustlet.csr -nodes -subj "/C=US/ST=./L=./O=./OU=./CN=krustlet"
+```
+
+This will create a CSR and a new key for the certificate, using `krustlet` as the hostname of the
+server.
+
+Now that it is created, we'll need to send the request to Kubernetes:
+
+```shell
+$ cat <<EOF | microk8s.kubectl apply --filename=-
+apiVersion: certificates.k8s.io/v1beta1
+kind: CertificateSigningRequest
+metadata:
+  name: krustlet
+spec:
+  request: $(cat krustlet.csr | base64 | tr -d '\n')
+  usages:
+  - digital signature
+  - key encipherment
+  - server auth
+EOF
+certificatesigningrequest.certificates.k8s.io/krustlet created
+```
+
+Once that runs, an admin (that is probably you! at least it should be if you are trying to add a
+node to the cluster) needs to approve the request:
+
+```shell
+$ microk8s.kubectl certificate approve krustlet
+certificatesigningrequest.certificates.k8s.io/krustlet approved
+```
+
+After approval, you can download the cert like so:
+
+```shell
+$ microk8s.kubectl get csr krustlet --output=jsonpath='{.status.certificate}' \
+    | base64 --decode > krustlet.crt
+```
+
+Lastly, combine the key and the cert into a PFX bundle, choosing your own password instead of
+"password":
+
+```shell
+$ openssl pkcs12 -export -out krustlet.pfx -inkey krustlet.key -in krustlet.crt -password "pass:password"
+```
+
+## Step 3: Install and configure Krustlet
+
+Install the latest release of krustlet following [the install guide](../intro/install.md).
+
+We want the krustlet to run as the service account that we created in step #1. This is configured by the context (`krustlet`) that we created in that step. Unfortunately, it's not possible to reference a specific context, so we must change the context before running krustlet:
+
+```shell
+$ microk8s.kubectl use context ${CONTEXT}
+Switched to context "krustlet".
+```
+
+There are 2 binaries (`krustlet-wasi` and `krustlet-wascc`), let's start the first:
+
+```shell
+$ KUBECONFIG=/var/snap/microk8s/current/credentials/client.config \
+./krustlet-wasi \
+--node-ip=127.0.0.1 \
+--node-name=krustlet \
+--pfx-password="password" \
+--pfx-path=./krustlet.pfx
+```
+
+In another terminal:
+
+```shell
+$ microk8s.kubectl get nodes --output=wide
+NAME                                STATUS   ROLES   AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION      CONTAINER-RUNTIME
+krustlet                            Ready    agent   11s     v1.17.0   127.0.0.1     <none>        <unknown>            <unknown>           mvp
+microk8s                            Ready    <none>  13m     v1.18.2   10.138.0.4    <none>        Ubuntu 20.04 LTS     5.4.0-1009-gcp      containerd://1.2.5
+```
+
+## Step 6: Test that things work
+
+Now you can see things work! Feel free to give any of the demos a try like so:
+
+```shell
+$ microk8s.kubectl apply --file=https://raw.githubusercontent.com/deislabs/krustlet/master/demos/wasi/hello-world-rust/k8s.yaml
+$ microk8s.kubectl logs pod/hello-world-wasi-rust
+hello from stdout!
+hello from stderr!
+CONFIG_MAP_VAL=cool stuff
+FOO=bar
+POD_NAME=hello-world-wasi-rust
+Args are: []
+```
