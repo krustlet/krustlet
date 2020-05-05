@@ -102,9 +102,9 @@ $ openssl pkcs12 -export -out krustlet.pfx -inkey krustlet.key -in krustlet.crt 
 
 Install the latest release of krustlet following [the install guide](../intro/install.md).
 
-We want the krustlet to run as the service account that we created in step #1. This is configured by the
-context (`krustlet`) that we created in that step. Unfortunately, it's not possible to reference a specific
-context, so we must change the context before running krustlet:
+We want the krustlet to run as the service account that we created in step #1. This is configured
+by the context (`krustlet`) that we created in that step. Unfortunately, it's not possible to
+reference a specific context, so we must change the context before running krustlet:
 
 ```shell
 $ microk8s.kubectl use context ${CONTEXT}
