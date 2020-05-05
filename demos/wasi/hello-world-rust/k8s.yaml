@@ -4,6 +4,14 @@ metadata:
   name: hello-world-wasi-rust
 data:
   myval: "cool stuff"
+  bacon_ipsum.txt: |
+    Bacon ipsum dolor amet chuck turducken porchetta, tri-tip spare ribs t-bone ham hock. Meatloaf
+    pork belly leberkas, ham beef pig corned beef boudin ground round meatball alcatra jerky.
+    Pancetta brisket pastrami, flank pork chop ball tip short loin burgdoggen. Tri-tip kevin
+    shoulder cow andouille. Prosciutto chislic cupim, short ribs venison jerky beef ribs ham hock
+    short loin fatback. Bresaola meatloaf capicola pancetta, prosciutto chicken landjaeger andouille
+    swine kielbasa drumstick cupim tenderloin chuck shank. Flank jowl leberkas turducken ham tongue
+    beef ribs shankle meatloaf drumstick pork t-bone frankfurter tri-tip.
 ---
 apiVersion: v1
 kind: Pod
@@ -12,7 +20,7 @@ metadata:
 spec:
   containers:
     - name: hello-world-wasi-rust
-      image: webassembly.azurecr.io/hello-world-wasi-rust:v0.1.0
+      image: webassembly.azurecr.io/hello-world-wasi-rust:v0.2.0
       env:
         - name: FOO
           value: bar
@@ -25,6 +33,13 @@ spec:
             configMapKeyRef:
               key: myval
               name: hello-world-wasi-rust
+      volumeMounts:
+        - name: storage
+          mountPath: /mnt/storage
+  volumes:
+    - name: storage
+      configMap:
+        name: hello-world-wasi-rust
   tolerations:
     - key: "krustlet/arch"
       operator: "Equal"
