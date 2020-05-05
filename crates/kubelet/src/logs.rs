@@ -54,7 +54,7 @@ impl LogSender {
 
     /// The tail flag indicated by the request if present.
     pub fn tail(&self) -> Option<usize> {
-        self.tail.clone()
+        self.tail
     }
 
     /// The follow flag indicated by the request, or `false` if absent.
