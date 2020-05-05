@@ -1,6 +1,6 @@
 # Running Krustlet on [microk8s](https://microk8s.io)
 
-These are steps for running krustlet node(s) and [microk8s](https://microk8s.io) on the same machine.
+These are steps for running Krustlet node(s) and [microk8s](https://microk8s.io) on the same machine.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ You may use a standlone `kubectl` if you prefer.
 ## Step 1: Create a service account user for the node
 
 We will need to create a Kubernetes configuration file (known as the kubeconfig) and service account
-for krustlet to use to register nodes and access specific secrets.
+for Krustlet to use to register nodes and access specific secrets.
 
 ```shell
 SERVICE_ACCOUNT_NAME="krustlet"
@@ -42,7 +42,7 @@ microk8s.kubectl config set-context ${CONTEXT} \
 --namespace=${NAMESPACE}
 ```
 
-> **NB** We'll switch to this context when we run krustlet; for now we'll continue using the
+> **NB** We'll switch to this context when we run Krustlet; for now we'll continue using the
 current (probably 'default') context
 
 ## Step 2: Create Certificate
@@ -100,11 +100,11 @@ $ openssl pkcs12 -export -out krustlet.pfx -inkey krustlet.key -in krustlet.crt 
 
 ## Step 3: Install and configure Krustlet
 
-Install the latest release of krustlet following [the install guide](../intro/install.md).
+Install the latest release of Krustlet following [the install guide](../intro/install.md).
 
-We want the krustlet to run as the service account that we created in step #1. This is configured
+We want the Krustlet to run as the service account that we created in step #1. This is configured
 by the context (`krustlet`) that we created in that step. Unfortunately, it's not possible to
-reference a specific context, so we must change the context before running krustlet:
+reference a specific context, so we must change the context before running Krustlet:
 
 ```shell
 $ microk8s.kubectl use context ${CONTEXT}
