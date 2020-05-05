@@ -82,7 +82,7 @@ impl LogSender {
     /// Gracefully close the channel.
     pub fn close(&mut self) {
         match self.sender.take() {
-            Some(sender) => sender.abort(),
+            Some(sender) => drop(sender),
             None => (),
         }
     }
