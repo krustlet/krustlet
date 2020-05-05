@@ -4,7 +4,10 @@ These are steps for running krustlet node(s) and [microk8s](https://microk8s.io)
 
 ## Prerequisites
 
-You will require a running microk8s cluster for this guide. The steps below assume you will run microk8s and the Krustlet, on a single machine. `kubectl` is required but is installed with microk8s as `microk8s.kubectl`. The following instructions use `microk8s.kubectl` for simplicity. You may use a standlone `kubectl` if you prefer.
+You will require a running microk8s cluster for this guide. The steps below assume you will run
+microk8s and the Krustlet, on a single machine. `kubectl` is required but is installed with microk8s
+as `microk8s.kubectl`. The following instructions use `microk8s.kubectl` for simplicity.
+You may use a standlone `kubectl` if you prefer.
 
 ## Step 1: Create a service account user for the node
 
@@ -39,13 +42,14 @@ microk8s.kubectl config set-context ${CONTEXT} \
 --namespace=${NAMESPACE}
 ```
 
-> **NB** We'll switch to this context when we run krustlet; for now we'll continue using the current (probably 'default') context
+> **NB** We'll switch to this context when we run krustlet; for now we'll continue using the
+current (probably 'default') context
 
 ## Step 2: Create Certificate
 
 Krustlet requires a certificate for securing communication with the Kubernetes API. Because
-Kubernetes has its own certificates, we'll need to get a signed certificate from the Kubernetes API
-that we can use. First things first, let's create a certificate signing request (CSR):
+Kubernetes has its own certificates, we'll need to get a signed certificate from the Kubernetes
+API that we can use. First things first, let's create a certificate signing request (CSR):
 
 ```shell
 $ openssl req -new -sha256 -newkey rsa:2048 -keyout krustlet.key -out krustlet.csr -nodes -subj "/C=US/ST=./L=./O=./OU=./CN=krustlet"
@@ -98,7 +102,9 @@ $ openssl pkcs12 -export -out krustlet.pfx -inkey krustlet.key -in krustlet.crt 
 
 Install the latest release of krustlet following [the install guide](../intro/install.md).
 
-We want the krustlet to run as the service account that we created in step #1. This is configured by the context (`krustlet`) that we created in that step. Unfortunately, it's not possible to reference a specific context, so we must change the context before running krustlet:
+We want the krustlet to run as the service account that we created in step #1. This is configured by the
+context (`krustlet`) that we created in that step. Unfortunately, it's not possible to reference a specific
+context, so we must change the context before running krustlet:
 
 ```shell
 $ microk8s.kubectl use context ${CONTEXT}
