@@ -197,7 +197,7 @@ mod test {
             _namespace: String,
             _pod: String,
             _container: String,
-            _sender: hyper::body::Sender,
+            _sender: crate::LogSender,
             _tail: Option<usize>,
             _follow: bool,
         ) -> anyhow::Result<()> {

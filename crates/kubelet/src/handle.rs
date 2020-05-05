@@ -4,17 +4,17 @@
 //! optional, but abstract away much of the logic around managing logging,
 //! status updates, and stopping pods
 
-use anyhow::bail;
 use std::collections::HashMap;
 use std::io::SeekFrom;
 
 use log::{debug, error, info};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncSeek, AsyncSeekExt};
+use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt};
 use tokio::stream::{StreamExt, StreamMap};
 use tokio::sync::watch::Receiver;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
+use crate::logs::{stream_logs, LogSender};
 use crate::provider::ProviderError;
 use crate::status::{ContainerStatus, Status};
 use crate::volumes::VolumeRef;
@@ -41,116 +41,6 @@ pub trait Stop {
 pub trait LogHandle<R>: Sync + Send {
     /// Create new log reader.
     fn output(&self) -> R;
-}
-
-/// Future that streams logs from provided `AsyncRead` to provided `hyper::body::Sender`.
-async fn stream_logs<R: AsyncRead + std::marker::Unpin>(
-    output: R,
-    mut sender: hyper::body::Sender,
-    tail: Option<usize>,
-    follow: bool,
-) -> anyhow::Result<()> {
-    let buf = tokio::io::BufReader::new(output);
-    let mut lines = buf.lines();
-
-    if let Some(n) = tail {
-        // Stream last n lines.
-        // TODO: this uses a lot of memory for large n and scans the entire file.
-        let mut line_buf = std::collections::VecDeque::with_capacity(n);
-
-        while let Some(line) = match lines.next_line().await {
-            Ok(line) => line,
-            Err(e) => {
-                let err = format!("Error reading from log: {:?}", e);
-                error!("{}", &err);
-                let b = hyper::body::Bytes::copy_from_slice(&err.as_bytes());
-                sender.send_data(b).await?;
-                bail!(e);
-            }
-        } {
-            if line_buf.len() == n {
-                line_buf.pop_front();
-            }
-            line_buf.push_back(line);
-        }
-
-        for mut line in line_buf {
-            line.push('\n');
-            let b = hyper::body::Bytes::copy_from_slice(&line.as_bytes());
-            match sender.send_data(b).await {
-                Ok(_) => (),
-                Err(e) => {
-                    if e.is_closed() {
-                        debug!("channel closed.");
-                        return Ok(());
-                    } else {
-                        error!("channel error: {}", e);
-                        bail!(e);
-                    }
-                }
-            }
-        }
-    } else {
-        // Stream entire file.
-        while let Some(mut line) = match lines.next_line().await {
-            Ok(line) => line,
-            Err(e) => {
-                let err = format!("Error reading from log: {:?}", e);
-                error!("{}", &err);
-                let b = hyper::body::Bytes::copy_from_slice(&err.as_bytes());
-                sender.send_data(b).await?;
-                bail!(e);
-            }
-        } {
-            line.push('\n');
-            let b = hyper::body::Bytes::copy_from_slice(&line.as_bytes());
-            match sender.send_data(b).await {
-                Ok(_) => (),
-                Err(e) => {
-                    if e.is_closed() {
-                        debug!("channel closed.");
-                        return Ok(());
-                    } else {
-                        error!("channel error: {}", e);
-                        bail!(e);
-                    }
-                }
-            }
-        }
-    }
-
-    if follow {
-        // Optionally watch file for changes.
-        loop {
-            while let Some(mut line) = match lines.next_line().await {
-                Ok(line) => line,
-                Err(e) => {
-                    let err = format!("Error reading from log: {:?}", e);
-                    error!("{}", &err);
-                    let b = hyper::body::Bytes::copy_from_slice(&err.as_bytes());
-                    sender.send_data(b).await?;
-                    bail!(e);
-                }
-            } {
-                line.push('\n');
-                let b = hyper::body::Bytes::copy_from_slice(&line.as_bytes());
-                match sender.send_data(b).await {
-                    Ok(_) => (),
-                    Err(e) => {
-                        if e.is_closed() {
-                            debug!("channel closed.");
-                            return Ok(());
-                        } else {
-                            error!("channel error: {}", e);
-                            bail!(e);
-                        }
-                    }
-                }
-            }
-            tokio::time::delay_for(std::time::Duration::from_millis(500)).await;
-        }
-    }
-    Ok(())
 }
 
 /// Represents a handle to a running "container" (whatever that might be). This
@@ -188,7 +78,7 @@ impl<S: Stop, H> RuntimeHandle<S, H> {
     /// Returns the number of bytes written to the buffer
     pub(crate) async fn output<R>(
         &mut self,
-        sender: hyper::body::Sender,
+        sender: LogSender,
         tail: Option<usize>,
         follow: bool,
     ) -> anyhow::Result<()>
@@ -279,7 +169,7 @@ impl<S: Stop, H> PodHandle<S, H> {
     pub async fn output<R>(
         &mut self,
         container_name: &str,
-        sender: hyper::body::Sender,
+        sender: LogSender,
         tail: Option<usize>,
         follow: bool,
     ) -> anyhow::Result<()>

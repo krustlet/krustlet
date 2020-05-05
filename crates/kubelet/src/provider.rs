@@ -5,6 +5,7 @@ use kube::api::{Api, WatchEvent};
 use log::{error, info};
 use thiserror::Error;
 
+use crate::logs::LogSender;
 use crate::pod::Pod;
 
 use std::collections::HashMap;
@@ -40,7 +41,7 @@ use std::collections::HashMap;
 ///     // Implement the rest of the methods using `async` for the ones that return futures ...
 ///     # async fn modify(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
 ///     # async fn delete(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
-///     # async fn logs(&self, namespace: String, pod: String, container: String, sender: hyper::body::Sender, tail: Option<usize>, follow: bool) -> anyhow::Result<()> { todo!() }
+///     # async fn logs(&self, namespace: String, pod: String, container: String, sender: kubelet::LogSender, tail: Option<usize>, follow: bool) -> anyhow::Result<()> { todo!() }
 /// }
 /// ```
 #[async_trait]
@@ -69,7 +70,7 @@ pub trait Provider {
         namespace: String,
         pod: String,
         container: String,
-        sender: hyper::body::Sender,
+        sender: LogSender,
         tail: Option<usize>,
         follow: bool,
     ) -> anyhow::Result<()>;

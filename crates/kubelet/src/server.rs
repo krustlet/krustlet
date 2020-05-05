@@ -12,6 +12,7 @@ use tokio::stream::StreamExt;
 use std::sync::Arc;
 
 use crate::config::ServerConfig;
+use crate::logs::LogSender;
 use crate::provider::{NotImplementedError, Provider};
 
 /// Start the Krustlet HTTP(S) server
@@ -160,7 +161,9 @@ async fn get_container_logs<T: Provider + Sync>(
             )))
             .unwrap();
     }
-    let (log_sender, log_body) = hyper::Body::channel();
+    let (sender, log_body) = hyper::Body::channel();
+    let log_sender = LogSender::new(sender);
+
     match provider
         .logs(namespace, pod, container, log_sender, tail, follow)
         .await

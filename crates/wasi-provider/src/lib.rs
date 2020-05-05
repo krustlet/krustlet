@@ -238,7 +238,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         namespace: String,
         pod_name: String,
         container_name: String,
-        sender: hyper::body::Sender,
+        sender: kubelet::LogSender,
         tail: Option<usize>,
         follow: bool,
     ) -> anyhow::Result<()> {
