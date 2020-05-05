@@ -144,7 +144,7 @@ krustlet                            Ready    agent   11s     v1.17.0   127.0.0.1
 microk8s                            Ready    <none>  13m     v1.18.2   10.138.0.4    <none>        Ubuntu 20.04 LTS     5.4.0-1009-gcp      containerd://1.2.5
 ```
 
-## Step 6: Test that things work
+## Step 4: Test that things work
 
 Now you can see things work! Feel free to give any of the demos a try like so:
 
