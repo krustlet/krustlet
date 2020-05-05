@@ -1,11 +1,11 @@
-# Running Krustlet on [microk8s](https://microk8s.io)
+# Running Krustlet on [MicroK8s](https://microk8s.io)
 
-These are steps for running Krustlet node(s) and [microk8s](https://microk8s.io) on the same machine.
+These are steps for running Krustlet node(s) and [MicroK8s](https://microk8s.io) on the same machine.
 
 ## Prerequisites
 
-You will require a running microk8s cluster for this guide. The steps below assume you will run
-microk8s and the Krustlet, on a single machine. `kubectl` is required but is installed with microk8s
+You will require a running MicroK8s cluster for this guide. The steps below assume you will run
+MicroK8s and the Krustlet, on a single machine. `kubectl` is required but is installed with MicroK8s
 as `microk8s.kubectl`. The following instructions use `microk8s.kubectl` for simplicity.
 You may use a standlone `kubectl` if you prefer.
 
