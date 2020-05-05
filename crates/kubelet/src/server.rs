@@ -79,20 +79,27 @@ async fn handle_request<T>(req: Request<Body>, provider: Arc<T>) -> anyhow::Resu
 where
     T: Provider + Send + Sync + 'static,
 {
-    let path: Vec<&str> = req.uri().path().split('/').collect();
+    let mut path: Vec<&str> = req.uri().path().split('/').rev().collect();
+    let method = req.method();
+    let params: std::collections::HashMap<String, String> = req
+        .uri()
+        .query()
+        .map(|v| {
+            url::form_urlencoded::parse(v.as_bytes())
+                .into_owned()
+                .collect()
+        })
+        .unwrap_or_else(std::collections::HashMap::new);
 
-    let response = match (req.method(), path.as_slice()) {
-        (_, path) if path.len() <= 2 => get_ping(),
-        (&Method::GET, [_, "containerLogs", namespace, pod, container]) => {
-            let params: std::collections::HashMap<String, String> = req
-                .uri()
-                .query()
-                .map(|v| {
-                    url::form_urlencoded::parse(v.as_bytes())
-                        .into_owned()
-                        .collect()
-                })
-                .unwrap_or_else(std::collections::HashMap::new);
+    path.pop();
+    let resource = path.pop();
+    match resource {
+        Some("") | Some("healthz") if method == &Method::GET => get_ping(),
+        Some("containerLogs") if method == &Method::GET => {
+            let (namespace, pod, container) = match extract_container_path(path) {
+                Ok(resource) => resource,
+                Err(e) => return e,
+            };
             let mut tail = None;
             let mut follow = false;
             for (key, value) in &params {
@@ -111,30 +118,90 @@ where
                     s => warn!("Unknown query parameter: {}={}", s, value),
                 }
             }
-            get_container_logs(
-                &*provider,
-                &req,
-                (*namespace).to_string(),
-                (*pod).to_string(),
-                (*container).to_string(),
-                tail,
-                follow,
-            )
-            .await
+            get_container_logs(&*provider, &req, namespace, pod, container, tail, follow).await
         }
-        (&Method::POST, [_, "exec", _, _, _]) => post_exec(&*provider, &req),
-        _ => Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::from("Not Found"))
-            .unwrap(),
-    };
+        Some("exec") if method == &Method::POST => {
+            let (namespace, pod, container) = match extract_container_path(path) {
+                Ok(resource) => resource,
+                Err(e) => return e,
+            };
+            post_exec(&*provider, &req, namespace, pod, container).await
+        }
+        Some("tailLines") | Some("containerLogs") | Some("") | Some("healthz") => return_code(
+            StatusCode::METHOD_NOT_ALLOWED,
+            format!(
+                "Unsupported method {} for resource '{}'.",
+                method,
+                req.uri().path()
+            ),
+        ),
+        Some(_) | None => return_code(
+            StatusCode::NOT_FOUND,
+            format!("Unknown resource '{}'.", req.uri().path()),
+        ),
+    }
+}
 
-    Ok(response)
+/// Extract and validate namespace/pod/container resource path. 
+/// On error return response to return to client.
+fn extract_container_path(
+    path: Vec<&str>,
+) -> Result<(String, String, String), anyhow::Result<Response<Body>>> {
+    match path[..] {
+        [] => Err(return_code(
+            StatusCode::BAD_REQUEST,
+            format!("Please specify a namespace."),
+        )),
+        [_] => Err(return_code(
+            StatusCode::BAD_REQUEST,
+            format!("Please specify a pod."),
+        )),
+        [_, _] => Err(return_code(
+            StatusCode::BAD_REQUEST,
+            format!("Please specify a container."),
+        )),
+        [s, _, _] if s == "" => Err(return_code(
+            StatusCode::BAD_REQUEST,
+            format!("Please specify a namespace."),
+        )),
+        [_, s, _] if s == "" => Err(return_code(
+            StatusCode::BAD_REQUEST,
+            format!("Please specify a pod."),
+        )),
+        [_, _, s] if s == "" => Err(return_code(
+            StatusCode::BAD_REQUEST,
+            format!("Please specify a container."),
+        )),
+        [namespace, pod, container] => Ok((
+            namespace.to_string(),
+            pod.to_string(),
+            container.to_string(),
+        )),
+        [_, _, _, ..] => {
+            let resource = path
+                .iter()
+                .rev()
+                .map(|s| *s)
+                .collect::<Vec<&str>>()
+                .join("/");
+            Err(return_code(
+                StatusCode::NOT_FOUND,
+                format!("Unknown resource '{}'.", resource),
+            ))
+        }
+    }
 }
 
 /// Return a simple status message
-fn get_ping() -> Response<Body> {
-    Response::new(Body::from("this is the Krustlet HTTP server"))
+fn get_ping() -> anyhow::Result<Response<Body>> {
+    Ok(Response::new(Body::from(
+        "this is the Krustlet HTTP server",
+    )))
+}
+
+/// Return a HTTP code and message.
+fn return_code(code: StatusCode, body: String) -> anyhow::Result<Response<Body>> {
+    Ok(Response::builder().status(code).body(Body::from(body))?)
 }
 
 /// Get the logs from the running WASM module
@@ -142,48 +209,52 @@ fn get_ping() -> Response<Body> {
 /// Implements the kubelet path /containerLogs/{namespace}/{pod}/{container}
 async fn get_container_logs<T: Provider + Sync>(
     provider: &T,
-    req: &Request<Body>,
+    _req: &Request<Body>,
     namespace: String,
     pod: String,
     container: String,
     tail: Option<usize>,
     follow: bool,
-) -> Response<Body> {
+) -> anyhow::Result<Response<Body>> {
     debug!(
         "Got container log request for container {} in pod {} in namespace {}. tail: {:?}, follow: {}",
         container, pod, namespace, tail, follow
     );
-    if namespace.is_empty() || pod.is_empty() || container.is_empty() {
-        return Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::from(format!(
-                "Resource {} not found",
-                req.uri().path()
-            )))
-            .unwrap();
-    }
+
     let (sender, log_body) = hyper::Body::channel();
     let log_sender = LogSender::new(sender, tail, follow);
 
     match provider.logs(namespace, pod, container, log_sender).await {
-        Ok(()) => Response::new(log_body),
+        Ok(()) => Ok(Response::new(log_body)),
         Err(e) => {
             error!("Error fetching logs: {}", e);
-            let mut res = Response::new(Body::from(format!("Server error: {}", e)));
-            *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
             if e.is::<NotImplementedError>() {
-                res = Response::new(Body::from("Not Implemented"));
-                *res.status_mut() = StatusCode::NOT_IMPLEMENTED;
+                return_code(
+                    StatusCode::NOT_IMPLEMENTED,
+                    format!("Logs not implemented in provider."),
+                )
+            } else {
+                return_code(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Server error: {}", e),
+                )
             }
-            res
         }
     }
 }
+
 /// Run a pod exec command and get the output
 ///
 /// Implements the kubelet path /exec/{namespace}/{pod}/{container}
-fn post_exec<T: Provider>(_provider: &T, _req: &Request<Body>) -> Response<Body> {
-    let mut res = Response::new(Body::from("Not Implemented"));
-    *res.status_mut() = StatusCode::NOT_IMPLEMENTED;
-    res
+async fn post_exec<T: Provider>(
+    _provider: &T,
+    _req: &Request<Body>,
+    _namespace: String,
+    _pod: String,
+    _container: String,
+) -> anyhow::Result<Response<Body>> {
+    return_code(
+        StatusCode::NOT_IMPLEMENTED,
+        format!("Exec not implemented."),
+    )
 }
