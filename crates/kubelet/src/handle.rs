@@ -38,9 +38,9 @@ pub trait Stop {
 /// TODO: Both providers make a handle containing a tempfile. If this is a common pattern,
 /// it might make sense to provide that implementation here. This would add `tempfile` as a
 /// dependency of `kubelet`.
-pub trait LogHandle<R>: Sync + Send {
+pub trait LogHandleFactory<R>: Sync + Send {
     /// Create new log reader.
-    fn output(&self) -> R;
+    fn new_handle(&self) -> R;
 }
 
 /// Represents a handle to a running "container" (whatever that might be). This
@@ -49,7 +49,7 @@ pub trait LogHandle<R>: Sync + Send {
 /// Pod
 pub struct RuntimeHandle<S, H> {
     stopper: S,
-    handle: H,
+    handle_factory: H,
     status_channel: Receiver<ContainerStatus>,
 }
 
@@ -60,10 +60,10 @@ impl<S: Stop, H> RuntimeHandle<S, H> {
     /// The status channel is a [Tokio watch `Receiver`][Receiver]. The sender part
     /// of the channel should be given to the running process and the receiver half
     /// passed to this constructor to be used for reporting current status
-    pub fn new(stopper: S, handle: H, status_channel: Receiver<ContainerStatus>) -> Self {
+    pub fn new(stopper: S, handle_factory: H, status_channel: Receiver<ContainerStatus>) -> Self {
         Self {
             stopper,
-            handle,
+            handle_factory,
             status_channel,
         }
     }
@@ -76,19 +76,14 @@ impl<S: Stop, H> RuntimeHandle<S, H> {
 
     /// Streams output from the running process into the given sender.
     /// Optionally tails the output and/or continues to watch the file and stream changes.
-    pub(crate) async fn output<R>(
-        &mut self,
-        sender: LogSender,
-        tail: Option<usize>,
-        follow: bool,
-    ) -> anyhow::Result<()>
+    pub(crate) async fn output<R>(&mut self, sender: LogSender) -> anyhow::Result<()>
     where
         R: AsyncRead + AsyncSeek + Unpin + Send + 'static,
-        H: LogHandle<R>,
+        H: LogHandleFactory<R>,
     {
-        let mut output = self.handle.output();
-        output.seek(SeekFrom::Start(0)).await?;
-        tokio::spawn(stream_logs(output, sender, tail, follow));
+        let mut handle = self.handle_factory.new_handle();
+        handle.seek(SeekFrom::Start(0)).await?;
+        tokio::spawn(stream_logs(handle, sender));
         Ok(())
     }
 
@@ -166,16 +161,10 @@ impl<S: Stop, H> PodHandle<S, H> {
 
     /// Streams output from the specified container into the given sender.
     /// Optionally tails the output and/or continues to watch the file and stream changes.
-    pub async fn output<R>(
-        &mut self,
-        container_name: &str,
-        sender: LogSender,
-        tail: Option<usize>,
-        follow: bool,
-    ) -> anyhow::Result<()>
+    pub async fn output<R>(&mut self, container_name: &str, sender: LogSender) -> anyhow::Result<()>
     where
         R: AsyncRead + AsyncSeek + Unpin + Send + 'static,
-        H: LogHandle<R>,
+        H: LogHandleFactory<R>,
     {
         let mut handles = self.container_handles.write().await;
         let handle =
@@ -185,7 +174,7 @@ impl<S: Stop, H> PodHandle<S, H> {
                     pod_name: self.pod.name().to_owned(),
                     container_name: container_name.to_owned(),
                 })?;
-        handle.output(sender, tail, follow).await
+        handle.output(sender).await
     }
 
     /// Signal the pod and all its running containers to stop and wait for them

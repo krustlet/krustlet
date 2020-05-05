@@ -107,6 +107,7 @@ where
                         }
                     },
                     "follow" if value == "true" => follow = true,
+                    "follow" => (),
                     s => warn!("Unknown query parameter: {}={}", s, value),
                 }
             }
@@ -162,12 +163,9 @@ async fn get_container_logs<T: Provider + Sync>(
             .unwrap();
     }
     let (sender, log_body) = hyper::Body::channel();
-    let log_sender = LogSender::new(sender);
+    let log_sender = LogSender::new(sender, tail, follow);
 
-    match provider
-        .logs(namespace, pod, container, log_sender, tail, follow)
-        .await
-    {
+    match provider.logs(namespace, pod, container, log_sender).await {
         Ok(()) => Response::new(log_body),
         Err(e) => {
             error!("Error fetching logs: {}", e);

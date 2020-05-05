@@ -198,8 +198,6 @@ mod test {
             _pod: String,
             _container: String,
             _sender: crate::LogSender,
-            _tail: Option<usize>,
-            _follow: bool,
         ) -> anyhow::Result<()> {
             Ok(())
         }

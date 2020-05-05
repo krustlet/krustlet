@@ -100,7 +100,7 @@ impl Stop for ActorStopper {
 /// from Kubernetes.
 #[derive(Clone)]
 pub struct WasccProvider<S> {
-    handles: Arc<RwLock<HashMap<String, PodHandle<ActorStopper, LogHandle>>>>,
+    handles: Arc<RwLock<HashMap<String, PodHandle<ActorStopper, LogHandleFactory>>>>,
     store: S,
     log_path: PathBuf,
     kubeconfig: kube::Config,
@@ -360,8 +360,6 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         pod_name: String,
         container_name: String,
         sender: kubelet::LogSender,
-        tail: Option<usize>,
-        follow: bool,
     ) -> anyhow::Result<()> {
         let mut handles = self.handles.write().await;
         let handle = handles
@@ -369,7 +367,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
             .ok_or_else(|| ProviderError::PodNotFound {
                 pod_name: pod_name.clone(),
             })?;
-        handle.output(&container_name, sender, tail, follow).await
+        handle.output(&container_name, sender).await
     }
 }
 
@@ -382,7 +380,7 @@ fn wascc_run_http(
     env: EnvVars,
     log_path: &Path,
     status_recv: Receiver<ContainerStatus>,
-) -> anyhow::Result<RuntimeHandle<ActorStopper, LogHandle>> {
+) -> anyhow::Result<RuntimeHandle<ActorStopper, LogHandleFactory>> {
     let mut caps: Vec<Capability> = Vec::new();
 
     caps.push(Capability {
@@ -403,13 +401,13 @@ struct Capability {
 }
 
 /// Holds our tempfile handle.
-struct LogHandle {
+struct LogHandleFactory {
     temp: NamedTempFile,
 }
 
-impl kubelet::handle::LogHandle<tokio::fs::File> for LogHandle {
+impl kubelet::handle::LogHandleFactory<tokio::fs::File> for LogHandleFactory {
     /// Creates `tokio::fs::File` on demand for log reading.
-    fn output(&self) -> tokio::fs::File {
+    fn new_handle(&self) -> tokio::fs::File {
         tokio::fs::File::from_std(self.temp.reopen().unwrap())
     }
 }
@@ -424,7 +422,7 @@ fn wascc_run(
     capabilities: &mut Vec<Capability>,
     log_path: &Path,
     status_recv: Receiver<ContainerStatus>,
-) -> anyhow::Result<RuntimeHandle<ActorStopper, LogHandle>> {
+) -> anyhow::Result<RuntimeHandle<ActorStopper, LogHandleFactory>> {
     info!("sending actor to wascc host");
     let log_output = NamedTempFile::new_in(log_path)?;
     let mut logenv: HashMap<String, String> = HashMap::new();
@@ -452,12 +450,12 @@ fn wascc_run(
             .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
     })?;
 
-    let log_handle = LogHandle { temp: log_output };
+    let log_handle_factory = LogHandleFactory { temp: log_output };
 
     info!("wascc actor executing");
     Ok(RuntimeHandle::new(
         ActorStopper { host, key: pk },
-        log_handle,
+        log_handle_factory,
         status_recv,
     ))
 }

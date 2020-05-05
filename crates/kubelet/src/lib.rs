@@ -23,7 +23,7 @@
 //!     // Implement the rest of the methods
 //!     # async fn modify(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
 //!     # async fn delete(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
-//!     # async fn logs(&self, namespace: String, pod: String, container: String, sender: kubelet::LogSender, tail: Option<usize>, follow: bool) -> anyhow::Result<()> { todo!() }
+//!     # async fn logs(&self, namespace: String, pod: String, container: String, sender: kubelet::LogSender) -> anyhow::Result<()> { todo!() }
 //! }
 //!
 //! async {
@@ -61,7 +61,7 @@ pub mod status;
 pub mod volumes;
 
 pub use self::kubelet::Kubelet;
-pub use handle::{PodHandle, RuntimeHandle};
+pub use handle::{LogHandleFactory, PodHandle, RuntimeHandle};
 pub use logs::{LogSendError, LogSender};
 pub use pod::Pod;
 #[doc(inline)]

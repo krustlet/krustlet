@@ -57,7 +57,7 @@ const VOLUME_DIR: &str = "volumes";
 /// binaries conforming to the WASI spec
 #[derive(Clone)]
 pub struct WasiProvider<S> {
-    handles: Arc<RwLock<HashMap<String, PodHandle<HandleStopper, wasi_runtime::LogHandle>>>>,
+    handles: Arc<RwLock<HashMap<String, PodHandle<HandleStopper, wasi_runtime::LogHandleFactory>>>>,
     store: S,
     log_path: PathBuf,
     kubeconfig: kube::Config,
@@ -239,8 +239,6 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         pod_name: String,
         container_name: String,
         sender: kubelet::LogSender,
-        tail: Option<usize>,
-        follow: bool,
     ) -> anyhow::Result<()> {
         let mut handles = self.handles.write().await;
         let handle = handles
@@ -248,6 +246,6 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
             .ok_or_else(|| ProviderError::PodNotFound {
                 pod_name: pod_name.clone(),
             })?;
-        handle.output(&container_name, sender, tail, follow).await
+        handle.output(&container_name, sender).await
     }
 }

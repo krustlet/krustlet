@@ -58,13 +58,13 @@ struct Data {
 }
 
 /// Holds our tempfile handle.
-pub struct LogHandle {
+pub struct LogHandleFactory {
     temp: Arc<NamedTempFile>,
 }
 
-impl kubelet::handle::LogHandle<tokio::fs::File> for LogHandle {
+impl kubelet::handle::LogHandleFactory<tokio::fs::File> for LogHandleFactory {
     /// Creates `tokio::fs::File` on demand for log reading.
-    fn output(&self) -> tokio::fs::File {
+    fn new_handle(&self) -> tokio::fs::File {
         tokio::fs::File::from_std(self.temp.reopen().unwrap())
     }
 }
@@ -110,7 +110,7 @@ impl WasiRuntime {
         })
     }
 
-    pub async fn start(&self) -> anyhow::Result<RuntimeHandle<HandleStopper, LogHandle>> {
+    pub async fn start(&self) -> anyhow::Result<RuntimeHandle<HandleStopper, LogHandleFactory>> {
         let temp = self.output.clone();
         // Because a reopen is blocking, run in a blocking task to get new
         // handles to the tempfile
@@ -125,7 +125,7 @@ impl WasiRuntime {
         });
         let (interrupt_handle, handle) = self.spawn_wasmtime(status_sender, output_write).await?;
 
-        let log_handle = LogHandle {
+        let log_handle_factory = LogHandleFactory {
             temp: self.output.clone(),
         };
 
@@ -134,7 +134,7 @@ impl WasiRuntime {
                 handle,
                 interrupt_handle,
             },
-            log_handle,
+            log_handle_factory,
             status_recv,
         ))
     }
