@@ -92,8 +92,8 @@ this address), check which IP address you have for the `en0` network:
 $ ifconfig en0
 en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
         options=400<CHANNEL_IO>
-        ether 78:4f:43:8d:4f:55 
-        inet6 fe80::1c20:1e66:6322:6ae9%en0 prefixlen 64 secured scopeid 0x5 
+        ether 78:4f:43:8d:4f:55
+        inet6 fe80::1c20:1e66:6322:6ae9%en0 prefixlen 64 secured scopeid 0x5
         inet 192.168.1.167 netmask 0xffffff00 broadcast 192.168.1.255
         nd6 options=201<PERFORMNUD,DAD>
         media: autoselect
@@ -104,8 +104,8 @@ In this example, I should use `192.168.1.167`.
 
 ### Special note: Docker on Hyper-V Linux VMs
 
-For Docker running on a Linux VM on a Windows host under Hyper-V, the default gateway
-is usually `172.18.0.1`.
+For Docker running on a Linux VM on a Windows host under Hyper-V, the default gateway is usually
+`172.18.0.1`.
 
 ## Step 3: Install and run Krustlet
 
