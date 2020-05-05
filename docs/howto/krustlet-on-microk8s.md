@@ -42,7 +42,7 @@ microk8s.kubectl config set-context ${CONTEXT} \
 --namespace=${NAMESPACE}
 ```
 
-> **NB** We'll switch to this context when we run Krustlet; for now we'll continue using the
+> **NOTE** We'll switch to this context when we run Krustlet; for now we'll continue using the
 current (probably 'default') context
 
 ## Step 2: Create Certificate
