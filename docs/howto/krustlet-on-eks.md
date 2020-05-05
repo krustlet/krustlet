@@ -1,24 +1,29 @@
 # Running Krustlet on Amazon Elastic Kubernetes Service (EKS)
 
-Currently, [EKS does not support](https://github.com/aws/containers-roadmap/issues/741) running managed node groups with custom Amazon Machine Images (AMI).
+Currently, [EKS does not support](https://github.com/aws/containers-roadmap/issues/741) running
+managed node groups with custom Amazon Machine Images (AMI).
 
 However, it does appear the feature might be coming soon.
 
-Until that time, we can use [eksctl](https://eksctl.io/) to create and manage a node group with a custom Krustlet-based AMI.
+Until that time, we can use [eksctl](https://eksctl.io/) to create and manage a node group with a
+custom Krustlet-based AMI.
 
 ## Prerequisites
 
 The following tools are needed to complete this walkthrough:
 
-* [Amazon CLI](https://aws.amazon.com/cli/) - *use `aws configure` to set your access keys and default region*
+* [Amazon CLI](https://aws.amazon.com/cli/) - *use `aws configure` to set your access keys and
+  default region*
 * [Packer](https://packer.io/)
-* [eksctl](https://eksctl.io/) 
+* [eksctl](https://eksctl.io/)
 
 # Building the Krustlet-based AMI
 
 We will be using [Packer](https://packer.io/) to spin up an EC2 instance to build the AMI.
 
-There is a Makefile in `docs/howto/assets/eks` that will run `packer` for you.  It will use a `c5.2xlarge` EC2 instance to build the AMI with.  Use the `instance_type` variable to `make` to change the type of the EC2 instance used.
+There is a Makefile in `docs/howto/assets/eks` that will run `packer` for you.  It will use a
+`c5.2xlarge` EC2 instance to build the AMI with.  Use the `instance_type` variable to `make` to
+change the type of the EC2 instance used.
 
 Run `make` to build the AMI:
 
@@ -34,10 +39,10 @@ $ cd docs/howto/assets/eks
 $ KRUSTLET_VERSION=$(git rev-parse --short HEAD) KRUSTLET_SRC=https://github.com/jingweno/krustlet/archive/$(git rev-parse --short HEAD).tar.gz make krustlet
 ```
 
-This command will take a while to build Krustlet from source on the EC2 instance.
-In the future, a prebuilt binary for Amazon Linux 2 might be available that would speed up the AMI creation process.
+This command will take a while to build Krustlet from source on the EC2 instance. In the future, a
+prebuilt binary for Amazon Linux 2 might be available that would speed up the AMI creation process.
 
-If everything works correctly, you should see the command complete with output similar to: 
+If everything works correctly, you should see the command complete with output similar to:
 
 ```bash
 ...
@@ -48,13 +53,15 @@ us-west-2: ami-07adf9ce893885a3d
 --> amazon-ebs:
 ```
 
-Make note of the AMI identifier (in the example output above it would be `ami-07adf9ce893885a3d`) as it will be used to create the EKS cluster.
+Make note of the AMI identifier (in the example output above it would be `ami-07adf9ce893885a3d`) as
+it will be used to create the EKS cluster.
 
 ## Creating the EKS cluster
 
 We will be using [eksctl](https://eksctl.io/) to deploy the EKS cluster.
 
-Create a file named `cluster.yaml` with the following contents, replacing the `region` and `ami` fields with your values:
+Create a file named `cluster.yaml` with the following contents, replacing the `region` and `ami`
+fields with your values:
 
 ```yaml
 apiVersion: eksctl.io/v1alpha5
@@ -77,9 +84,11 @@ nodeGroups:
     overrideBootstrapCommand: /etc/eks/bootstrap.sh --krustlet-node-labels "alpha.eksctl.io/cluster-name=krustlet-demo,alpha.eksctl.io/nodegroup-name=krustlet"
 ```
 
-This will create a EKS cluster named `krustlet-demo` with a single unmanaged node group named `krustlet` with two `t3.small` nodes.
+This will create a EKS cluster named `krustlet-demo` with a single unmanaged node group named
+`krustlet` with two `t3.small` nodes.
 
-Be aware that the `overrideBootstrapCommand` setting is required to properly boot the nodes.  Without it, the Krustlet service will not be started and the nodes will not automatically join the cluster.
+Be aware that the `overrideBootstrapCommand` setting is required to properly boot the nodes. Without
+it, the Krustlet service will not be started and the nodes will not automatically join the cluster.
 
 Use `eksctl` to create the cluster:
 
@@ -149,7 +158,8 @@ $ eksctl delete cluster --name krustlet-demo
 
 ## Deleting the Krustlet AMI
 
-Determine the snapshot identifier of the AMI, where `$AMI_ID` is the identifier of your Krustlet AMI:
+Determine the snapshot identifier of the AMI, where `$AMI_ID` is the identifier of your Krustlet
+AMI:
 
 ```bash
 $ aws ec2 describe-images --image-ids $AMI_ID | grep SnapshotId

@@ -1,9 +1,11 @@
 # Running Krustlet on WSL2 with Docker Desktop
 
-This how-to guide demonstrates how to boot a Krustlet node in Docker Desktop for Windows with WSL2 backend.
+This how-to guide demonstrates how to boot a Krustlet node in Docker Desktop for Windows with WSL2
+backend.
 
 ## Information
-This tutorial will work on current Windows 10 Insider Slow ring and Docker Desktop for Windows stable release.
+This tutorial will work on current Windows 10 Insider Slow ring and Docker Desktop for Windows
+stable release.
 
 Concerning Windows, this tutorial should work on the Production ring once it will be available.
 
@@ -11,19 +13,21 @@ Last but not least, this will work on Windows 10 Home edition.
 
 ## Prerequisites
 
-You will require a WSL2 distro and Docker Desktop for Windows for this how-to. The WSL2 backend and Kubernetes features will need to be also enabled.
-See the [Docker Desktop for Windows > Getting started > Kubernetes](https://docs.docker.com/docker-for-windows/#kubernetes) howto for more information.
+You will require a WSL2 distro and Docker Desktop for Windows for this how-to. The WSL2 backend and
+Kubernetes features will need to be also enabled. See the [Docker Desktop for Windows > Getting
+started > Kubernetes](https://docs.docker.com/docker-for-windows/#kubernetes) howto for more
+information.
 
-This specific tutorial will be running Krustlet on your WSL2 distro and will explain how to access it from Windows.
+This specific tutorial will be running Krustlet on your WSL2 distro and will explain how to access
+it from Windows.
 
 ## Step 1: Determine the default gateway
 
-The default gateway for most Docker containers is generally `172.17.0.1`.
-This IP is only reachable, by default, from the WSL2 distro.
-However, the `eth0` host network is accessible from Windows, so we can use this IP address to connect to the WSL2 distro (where Krustlet is running). 
+The default gateway for most Docker containers is generally `172.17.0.1`. This IP is only reachable,
+by default, from the WSL2 distro. However, the `eth0` host network is accessible from Windows, so we
+can use this IP address to connect to the WSL2 distro (where Krustlet is running).
 
-If this was changed, check `ifconfig eth0` from
-the host OS to determine the default gateway:
+If this was changed, check `ifconfig eth0` from the host OS to determine the default gateway:
 
 ```console
 $ ifconfig eth0
@@ -45,7 +49,8 @@ In this example, I should use `172.26.47.208`.
 $ export mainIP=$(ifconfig eth0 | grep "inet " | awk '{ print $2 }')
 ```
 
-The hostname being "applied" from Windows, the default hostname will not resolve to this address, therefore you need to pass the `--node-ip` and `--node-name` flag to Krustlet.
+The hostname being "applied" from Windows, the default hostname will not resolve to this address,
+therefore you need to pass the `--node-ip` and `--node-name` flag to Krustlet.
 
 ## Step 2: Install and run Krustlet
 
@@ -80,7 +85,8 @@ krustlet      Ready    agent    34s     v1.17.0   172.26.47.208   <none>        
 ```
 
 ## Optional: Delete the Krustlet node
-Once you will no more need the Krustlet node, you can remove it from your cluster with the following `kubectl delete node` command:
+Once you will no more need the Krustlet node, you can remove it from your cluster with the following
+`kubectl delete node` command:
 
 ```shell
 $ kubectl delete node krustlet
