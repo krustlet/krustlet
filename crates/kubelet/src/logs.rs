@@ -2,13 +2,6 @@ use anyhow::bail;
 use log::{debug, error};
 use tokio::io::{AsyncBufReadExt, AsyncRead};
 
-/// Sender for streaming logs to client.
-pub struct LogSender {
-    sender: Option<hyper::body::Sender>,
-    tail: Option<usize>,
-    follow: bool,
-}
-
 /// Possible errors sending log data.
 #[derive(Debug)]
 pub enum LogSendError {
@@ -42,11 +35,18 @@ impl std::error::Error for LogSendError {
     }
 }
 
+/// Sender for streaming logs to client.
+pub struct LogSender {
+    sender: hyper::body::Sender,
+    tail: Option<usize>,
+    follow: bool,
+}
+
 impl LogSender {
     /// Create new `LogSender` from `hyper::body::Sender`.
     pub fn new(sender: hyper::body::Sender, tail: Option<usize>, follow: bool) -> Self {
         LogSender {
-            sender: Some(sender),
+            sender,
             tail,
             follow,
         }
@@ -65,26 +65,15 @@ impl LogSender {
     /// Async send some data to a client.
     pub async fn send(&mut self, data: String) -> Result<(), LogSendError> {
         let b: hyper::body::Bytes = data.into();
-        match self.sender {
-            Some(ref mut sender) => sender.send_data(b).await.map_err(|e| {
-                if e.is_closed() {
-                    debug!("channel closed.");
-                    LogSendError::ChannelClosed
-                } else {
-                    error!("channel error: {}", e);
-                    LogSendError::Abnormal(anyhow::Error::new(e))
-                }
-            }),
-            None => Err(LogSendError::ChannelClosed),
-        }
-    }
-
-    /// Gracefully close the channel.
-    pub fn close(&mut self) {
-        match self.sender.take() {
-            Some(sender) => drop(sender),
-            None => (),
-        }
+        self.sender.send_data(b).await.map_err(|e| {
+            if e.is_closed() {
+                debug!("channel closed.");
+                LogSendError::ChannelClosed
+            } else {
+                error!("channel error: {}", e);
+                LogSendError::Abnormal(anyhow::Error::new(e))
+            }
+        })
     }
 }
 
@@ -102,7 +91,6 @@ async fn tail_logs<R: AsyncRead + std::marker::Unpin>(
             let err = format!("Error reading from log: {:?}", e);
             error!("{}", &err);
             sender.send(err).await?;
-            sender.close();
             return Err(e.into());
         }
     } {
@@ -130,7 +118,6 @@ async fn stream_to_end<R: AsyncRead + std::marker::Unpin>(
             let err = format!("Error reading from log: {:?}", e);
             error!("{}", &err);
             sender.send(err).await?;
-            sender.close();
             return Err(e.into());
         }
     } {
@@ -174,6 +161,5 @@ pub async fn stream_logs<R: AsyncRead + std::marker::Unpin>(
         }
     }
 
-    sender.close();
     Ok(())
 }
