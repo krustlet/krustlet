@@ -44,7 +44,6 @@ use kubelet::provider::ProviderError;
 use kubelet::volumes::VolumeRef;
 use kubelet::{Pod, Provider};
 use log::{debug, error, info, trace};
-use tokio::fs::File;
 use tokio::sync::RwLock;
 
 use kubelet::handle::{key_from_pod, pod_key, PodHandle};
@@ -58,7 +57,7 @@ const VOLUME_DIR: &str = "volumes";
 /// binaries conforming to the WASI spec
 #[derive(Clone)]
 pub struct WasiProvider<S> {
-    handles: Arc<RwLock<HashMap<String, PodHandle<HandleStopper, File>>>>,
+    handles: Arc<RwLock<HashMap<String, PodHandle<HandleStopper, wasi_runtime::LogHandle>>>>,
     store: S,
     log_path: PathBuf,
     kubeconfig: kube::Config,

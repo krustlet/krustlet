@@ -58,7 +58,7 @@ struct Data {
 }
 
 /// Holds our tempfile handle.
-struct LogHandle {
+pub struct LogHandle {
     temp: Arc<NamedTempFile>,
 }
 
@@ -110,7 +110,7 @@ impl WasiRuntime {
         })
     }
 
-    pub async fn start(&self) -> anyhow::Result<RuntimeHandle<HandleStopper, tokio::fs::File>> {
+    pub async fn start(&self) -> anyhow::Result<RuntimeHandle<HandleStopper, LogHandle>> {
         let temp = self.output.clone();
         // Because a reopen is blocking, run in a blocking task to get new
         // handles to the tempfile
@@ -134,7 +134,7 @@ impl WasiRuntime {
                 handle,
                 interrupt_handle,
             },
-            Box::new(log_handle),
+            log_handle,
             status_recv,
         ))
     }

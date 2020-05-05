@@ -157,24 +157,20 @@ async fn stream_logs<R: AsyncRead + std::marker::Unpin>(
 /// can be used on its own, however, it is generally better to use it as a part
 /// of a [`PodHandle`], which manages a group of containers in a Kubernetes
 /// Pod
-pub struct RuntimeHandle<S, R> {
+pub struct RuntimeHandle<S, H> {
     stopper: S,
-    handle: Box<dyn LogHandle<R>>,
+    handle: H,
     status_channel: Receiver<ContainerStatus>,
 }
 
-impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin + Send + 'static> RuntimeHandle<S, R> {
+impl<S: Stop, H> RuntimeHandle<S, H> {
     /// Create a new handle with the given stopper for stopping the runtime,
     /// a reader for log output and status channel.
     ///
     /// The status channel is a [Tokio watch `Receiver`][Receiver]. The sender part
     /// of the channel should be given to the running process and the receiver half
     /// passed to this constructor to be used for reporting current status
-    pub fn new(
-        stopper: S,
-        handle: Box<dyn LogHandle<R>>,
-        status_channel: Receiver<ContainerStatus>,
-    ) -> Self {
+    pub fn new(stopper: S, handle: H, status_channel: Receiver<ContainerStatus>) -> Self {
         Self {
             stopper,
             handle,
@@ -190,12 +186,16 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin + Send + 'static> RuntimeHandle<S
 
     /// Write all of the output from the running process into the given buffer.
     /// Returns the number of bytes written to the buffer
-    pub(crate) async fn output(
+    pub(crate) async fn output<R>(
         &mut self,
         sender: hyper::body::Sender,
         tail: Option<usize>,
         follow: bool,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        R: AsyncRead + AsyncSeek + Unpin + Send + 'static,
+        H: LogHandle<R>,
+    {
         let mut output = self.handle.output();
         output.seek(SeekFrom::Start(0)).await?;
         tokio::spawn(stream_logs(output, sender, tail, follow));
@@ -219,8 +219,8 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin + Send + 'static> RuntimeHandle<S
 /// PodHandle is the top level handle into managing a pod. It manages updating
 /// statuses for the containers in the pod and can be used to stop the pod and
 /// access logs
-pub struct PodHandle<S, R> {
-    container_handles: RwLock<HashMap<String, RuntimeHandle<S, R>>>,
+pub struct PodHandle<S, H> {
+    container_handles: RwLock<HashMap<String, RuntimeHandle<S, H>>>,
     status_handle: JoinHandle<()>,
     pod: Pod,
     // Storage for the volume references so they don't get dropped until the runtime handle is
@@ -228,14 +228,14 @@ pub struct PodHandle<S, R> {
     _volumes: HashMap<String, VolumeRef>,
 }
 
-impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin + Send + 'static> PodHandle<S, R> {
+impl<S: Stop, H> PodHandle<S, H> {
     /// Creates a new pod handle that manages the given map of container names to
     /// [`RuntimeHandle`]s. The given pod and client are used to maintain a reference to the
     /// kubernetes object and to be able to update the status of that object. The optional volumes
     /// parameter allows a caller to pass a map of volumes to keep reference to (so that they will
     /// be dropped along with the pod)
     pub fn new(
-        container_handles: HashMap<String, RuntimeHandle<S, R>>,
+        container_handles: HashMap<String, RuntimeHandle<S, H>>,
         pod: Pod,
         client: kube::Client,
         volumes: Option<HashMap<String, VolumeRef>>,
@@ -276,13 +276,17 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin + Send + 'static> PodHandle<S, R>
 
     /// Write all of the output from the specified container into the given
     /// buffer. Returns the number of bytes written to the buffer
-    pub async fn output(
+    pub async fn output<R>(
         &mut self,
         container_name: &str,
         sender: hyper::body::Sender,
         tail: Option<usize>,
         follow: bool,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        R: AsyncRead + AsyncSeek + Unpin + Send + 'static,
+        H: LogHandle<R>,
+    {
         let mut handles = self.container_handles.write().await;
         let handle =
             handles

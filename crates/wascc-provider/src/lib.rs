@@ -40,7 +40,6 @@ use kubelet::status::{update_pod_status, ContainerStatus, Phase, Status};
 use kubelet::{Pod, Provider};
 use log::{debug, error, info, trace};
 use tempfile::NamedTempFile;
-use tokio::fs::File;
 use tokio::sync::watch::{self, Receiver};
 use tokio::sync::RwLock;
 use wascc_host::{Actor, NativeCapability, WasccHost};
@@ -101,7 +100,7 @@ impl Stop for ActorStopper {
 /// from Kubernetes.
 #[derive(Clone)]
 pub struct WasccProvider<S> {
-    handles: Arc<RwLock<HashMap<String, PodHandle<ActorStopper, File>>>>,
+    handles: Arc<RwLock<HashMap<String, PodHandle<ActorStopper, LogHandle>>>>,
     store: S,
     log_path: PathBuf,
     kubeconfig: kube::Config,
@@ -383,7 +382,7 @@ fn wascc_run_http(
     env: EnvVars,
     log_path: &Path,
     status_recv: Receiver<ContainerStatus>,
-) -> anyhow::Result<RuntimeHandle<ActorStopper, File>> {
+) -> anyhow::Result<RuntimeHandle<ActorStopper, LogHandle>> {
     let mut caps: Vec<Capability> = Vec::new();
 
     caps.push(Capability {
@@ -425,7 +424,7 @@ fn wascc_run(
     capabilities: &mut Vec<Capability>,
     log_path: &Path,
     status_recv: Receiver<ContainerStatus>,
-) -> anyhow::Result<RuntimeHandle<ActorStopper, File>> {
+) -> anyhow::Result<RuntimeHandle<ActorStopper, LogHandle>> {
     info!("sending actor to wascc host");
     let log_output = NamedTempFile::new_in(log_path)?;
     let mut logenv: HashMap<String, String> = HashMap::new();
@@ -458,7 +457,7 @@ fn wascc_run(
     info!("wascc actor executing");
     Ok(RuntimeHandle::new(
         ActorStopper { host, key: pk },
-        Box::new(log_handle),
+        log_handle,
         status_recv,
     ))
 }
