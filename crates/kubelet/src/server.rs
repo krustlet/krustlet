@@ -79,7 +79,7 @@ async fn handle_request<T>(req: Request<Body>, provider: Arc<T>) -> anyhow::Resu
 where
     T: Provider + Send + Sync + 'static,
 {
-    let mut path: Vec<&str> = req.uri().path().split('/').rev().collect();
+    let mut path: std::collections::VecDeque<&str> = req.uri().path().split('/').collect();
     let method = req.method();
     let params: std::collections::HashMap<String, String> = req
         .uri()
@@ -91,12 +91,12 @@ where
         })
         .unwrap_or_else(std::collections::HashMap::new);
 
-    path.pop();
-    let resource = path.pop();
+    path.pop_front();
+    let resource = path.pop_front();
     match resource {
         Some("") | Some("healthz") if method == &Method::GET => get_ping(),
         Some("containerLogs") if method == &Method::GET => {
-            let (namespace, pod, container) = match extract_container_path(path) {
+            let (namespace, pod, container) = match extract_container_path(path.into()) {
                 Ok(resource) => resource,
                 Err(e) => return e,
             };
@@ -121,7 +121,7 @@ where
             get_container_logs(&*provider, &req, namespace, pod, container, tail, follow).await
         }
         Some("exec") if method == &Method::POST => {
-            let (namespace, pod, container) = match extract_container_path(path) {
+            let (namespace, pod, container) = match extract_container_path(path.into()) {
                 Ok(resource) => resource,
                 Err(e) => return e,
             };
@@ -142,7 +142,7 @@ where
     }
 }
 
-/// Extract and validate namespace/pod/container resource path. 
+/// Extract and validate namespace/pod/container resource path.
 /// On error return response to return to client.
 fn extract_container_path(
     path: Vec<&str>,
