@@ -3587,6 +3587,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "wascc-fs"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67556ac8f3d3429ebd72892010f3ddc4dfc8c758b079209ab820e16e835deea5"
+dependencies = [
+ "env_logger 0.7.1",
+ "log",
+ "wascc-codec",
+]
+
+[[package]]
 name = "wascc-host"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3651,6 +3662,8 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "wascc-codec",
+ "wascc-fs",
  "wascc-host",
  "wascc-httpsrv",
  "wascc-logging",
