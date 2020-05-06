@@ -51,6 +51,7 @@ accessible from the Kubernetes control plane.
 For testing/development environments:
 
 - [Kubernetes-in-Docker (KinD)](../howto/krustlet-on-kind.md)
+- [MicroK8s](../howto/krustlet-on-microk8s.md)
 - [Minikube](../howto/krustlet-on-minikube.md)
 - [Windows Subsystem for Linux (WSL2)](../howto/krustlet-on-wsl2.md)
 
