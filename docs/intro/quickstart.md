@@ -50,6 +50,7 @@ accessible from the Kubernetes control plane.
 For testing/development environments:
 
 - [Kubernetes-in-Docker (KinD)](../howto/krustlet-on-kind.md)
+- [MicroK8s](../howto/krustlet-on-microk8s.md)
 
 ## Step 3: Deploy your First Application
 
