@@ -4,7 +4,7 @@
 use anyhow::Context;
 use hyper::service::service_fn;
 use hyper::{server::conn::Http, Body, Method, Request, Response, StatusCode};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use native_tls::{Identity, TlsAcceptor};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::stream::StreamExt;
@@ -12,6 +12,7 @@ use tokio::stream::StreamExt;
 use std::sync::Arc;
 
 use crate::config::ServerConfig;
+use crate::logs::LogSender;
 use crate::provider::{NotImplementedError, Provider};
 
 /// Start the Krustlet HTTP(S) server
@@ -83,12 +84,41 @@ where
     let response = match (req.method(), path.as_slice()) {
         (_, path) if path.len() <= 2 => get_ping(),
         (&Method::GET, [_, "containerLogs", namespace, pod, container]) => {
+            let params: std::collections::HashMap<String, String> = req
+                .uri()
+                .query()
+                .map(|v| {
+                    url::form_urlencoded::parse(v.as_bytes())
+                        .into_owned()
+                        .collect()
+                })
+                .unwrap_or_else(std::collections::HashMap::new);
+            let mut tail = None;
+            let mut follow = false;
+            for (key, value) in &params {
+                match key.as_ref() {
+                    "tailLines" => match value.parse::<usize>() {
+                        Ok(n) => tail = Some(n),
+                        Err(e) => {
+                            warn!(
+                                "Unable to parse tailLines query parameter ({}): {:?}",
+                                value, e
+                            );
+                        }
+                    },
+                    "follow" if value == "true" => follow = true,
+                    "follow" => (),
+                    s => warn!("Unknown query parameter: {}={}", s, value),
+                }
+            }
             get_container_logs(
                 &*provider,
                 &req,
                 (*namespace).to_string(),
                 (*pod).to_string(),
                 (*container).to_string(),
+                tail,
+                follow,
             )
             .await
         }
@@ -116,10 +146,12 @@ async fn get_container_logs<T: Provider + Sync>(
     namespace: String,
     pod: String,
     container: String,
+    tail: Option<usize>,
+    follow: bool,
 ) -> Response<Body> {
     debug!(
-        "Got container log request for container {} in pod {} in namespace {}",
-        container, pod, namespace
+        "Got container log request for container {} in pod {} in namespace {}. tail: {:?}, follow: {}",
+        container, pod, namespace, tail, follow
     );
     if namespace.is_empty() || pod.is_empty() || container.is_empty() {
         return Response::builder()
@@ -130,8 +162,11 @@ async fn get_container_logs<T: Provider + Sync>(
             )))
             .unwrap();
     }
-    match provider.logs(namespace, pod, container).await {
-        Ok(data) => Response::new(Body::from(data)),
+    let (sender, log_body) = hyper::Body::channel();
+    let log_sender = LogSender::new(sender, tail, follow);
+
+    match provider.logs(namespace, pod, container, log_sender).await {
+        Ok(()) => Response::new(log_body),
         Err(e) => {
             error!("Error fetching logs: {}", e);
             let mut res = Response::new(Body::from(format!("Server error: {}", e)));

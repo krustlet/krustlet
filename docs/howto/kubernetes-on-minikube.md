@@ -2,9 +2,10 @@
 
 This tutorial will focus on using a tool called [minikube](https://github.com/kubernetes/minikube).
 
-If you haven't installed them already, go ahead and [install VirtualBox 5.2 or higher](https://www.virtualbox.org/),
-[install minikube](https://minikube.sigs.k8s.io/docs/start/linux/), and
-[install kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/).
+If you haven't installed them already, go ahead and [install VirtualBox 5.2 or
+higher](https://www.virtualbox.org/), [install
+minikube](https://minikube.sigs.k8s.io/docs/start/linux/), and [install
+kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/).
 
 You'll need `kubectl` to interact with the cluster once it's created.
 
@@ -18,8 +19,10 @@ $ egrep -q 'vmx|svm' /proc/cpuinfo && echo yes || echo no
 
 If the above command outputs “no”:
 
-- If you are running within a VM, your hypervisor does not allow nested virtualization. You will need to use the *None (bare-metal)* driver
-- If you are running on a physical machine, ensure that your BIOS has hardware virtualization enabled
+- If you are running within a VM, your hypervisor does not allow nested virtualization. You will
+  need to use the *None (bare-metal)* driver
+- If you are running on a physical machine, ensure that your BIOS has hardware virtualization
+  enabled
 
 ## Create a cluster
 

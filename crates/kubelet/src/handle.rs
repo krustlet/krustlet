@@ -8,12 +8,13 @@ use std::collections::HashMap;
 use std::io::SeekFrom;
 
 use log::{debug, error, info};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
+use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt};
 use tokio::stream::{StreamExt, StreamMap};
 use tokio::sync::watch::Receiver;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
+use crate::logs::{stream_logs, LogSender};
 use crate::provider::ProviderError;
 use crate::status::{ContainerStatus, Status};
 use crate::volumes::VolumeRef;
@@ -33,27 +34,36 @@ pub trait Stop {
     async fn wait(&mut self) -> anyhow::Result<()>;
 }
 
+/// Trait to describe necessary behavior for creating multiple log readers.
+/// TODO: Both providers make a handle containing a tempfile. If this is a common pattern,
+/// it might make sense to provide that implementation here. This would add `tempfile` as a
+/// dependency of `kubelet`.
+pub trait LogHandleFactory<R>: Sync + Send {
+    /// Create new log reader.
+    fn new_handle(&self) -> R;
+}
+
 /// Represents a handle to a running "container" (whatever that might be). This
 /// can be used on its own, however, it is generally better to use it as a part
 /// of a [`PodHandle`], which manages a group of containers in a Kubernetes
 /// Pod
-pub struct RuntimeHandle<S, R> {
+pub struct RuntimeHandle<S, H> {
     stopper: S,
-    output: R,
+    handle_factory: H,
     status_channel: Receiver<ContainerStatus>,
 }
 
-impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<S, R> {
+impl<S: Stop, H> RuntimeHandle<S, H> {
     /// Create a new handle with the given stopper for stopping the runtime,
     /// a reader for log output and status channel.
     ///
     /// The status channel is a [Tokio watch `Receiver`][Receiver]. The sender part
     /// of the channel should be given to the running process and the receiver half
     /// passed to this constructor to be used for reporting current status
-    pub fn new(stopper: S, output: R, status_channel: Receiver<ContainerStatus>) -> Self {
+    pub fn new(stopper: S, handle_factory: H, status_channel: Receiver<ContainerStatus>) -> Self {
         Self {
             stopper,
-            output,
+            handle_factory,
             status_channel,
         }
     }
@@ -64,12 +74,17 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<S, R> {
         self.stopper.stop().await
     }
 
-    /// Write all of the output from the running process into the given buffer.
-    /// Returns the number of bytes written to the buffer
-    pub(crate) async fn output(&mut self, buf: &mut Vec<u8>) -> anyhow::Result<usize> {
-        let bytes_written = self.output.read_to_end(buf).await?;
-        self.output.seek(SeekFrom::Start(0)).await?;
-        Ok(bytes_written)
+    /// Streams output from the running process into the given sender.
+    /// Optionally tails the output and/or continues to watch the file and stream changes.
+    pub(crate) async fn output<R>(&mut self, sender: LogSender) -> anyhow::Result<()>
+    where
+        R: AsyncRead + AsyncSeek + Unpin + Send + 'static,
+        H: LogHandleFactory<R>,
+    {
+        let mut handle = self.handle_factory.new_handle();
+        handle.seek(SeekFrom::Start(0)).await?;
+        tokio::spawn(stream_logs(handle, sender));
+        Ok(())
     }
 
     /// Returns a clone of the status_channel for use in reporting the status to
@@ -89,8 +104,8 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> RuntimeHandle<S, R> {
 /// PodHandle is the top level handle into managing a pod. It manages updating
 /// statuses for the containers in the pod and can be used to stop the pod and
 /// access logs
-pub struct PodHandle<S, R> {
-    container_handles: RwLock<HashMap<String, RuntimeHandle<S, R>>>,
+pub struct PodHandle<S, H> {
+    container_handles: RwLock<HashMap<String, RuntimeHandle<S, H>>>,
     status_handle: JoinHandle<()>,
     pod: Pod,
     // Storage for the volume references so they don't get dropped until the runtime handle is
@@ -98,14 +113,14 @@ pub struct PodHandle<S, R> {
     _volumes: HashMap<String, VolumeRef>,
 }
 
-impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> PodHandle<S, R> {
+impl<S: Stop, H> PodHandle<S, H> {
     /// Creates a new pod handle that manages the given map of container names to
     /// [`RuntimeHandle`]s. The given pod and client are used to maintain a reference to the
     /// kubernetes object and to be able to update the status of that object. The optional volumes
     /// parameter allows a caller to pass a map of volumes to keep reference to (so that they will
     /// be dropped along with the pod)
     pub fn new(
-        container_handles: HashMap<String, RuntimeHandle<S, R>>,
+        container_handles: HashMap<String, RuntimeHandle<S, H>>,
         pod: Pod,
         client: kube::Client,
         volumes: Option<HashMap<String, VolumeRef>>,
@@ -144,13 +159,13 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> PodHandle<S, R> {
         })
     }
 
-    /// Write all of the output from the specified container into the given
-    /// buffer. Returns the number of bytes written to the buffer
-    pub async fn output(
-        &mut self,
-        container_name: &str,
-        buf: &mut Vec<u8>,
-    ) -> anyhow::Result<usize> {
+    /// Streams output from the specified container into the given sender.
+    /// Optionally tails the output and/or continues to watch the file and stream changes.
+    pub async fn output<R>(&mut self, container_name: &str, sender: LogSender) -> anyhow::Result<()>
+    where
+        R: AsyncRead + AsyncSeek + Unpin + Send + 'static,
+        H: LogHandleFactory<R>,
+    {
         let mut handles = self.container_handles.write().await;
         let handle =
             handles
@@ -159,7 +174,7 @@ impl<S: Stop, R: AsyncRead + AsyncSeek + Unpin> PodHandle<S, R> {
                     pod_name: self.pod.name().to_owned(),
                     container_name: container_name.to_owned(),
                 })?;
-        handle.output(buf).await
+        handle.output(sender).await
     }
 
     /// Signal the pod and all its running containers to stop and wait for them
