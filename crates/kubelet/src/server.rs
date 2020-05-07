@@ -12,6 +12,8 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use warp::Filter;
 
+const PING: &'static str = "this is the Krustlet HTTP server";
+
 /// Start the Krustlet HTTP(S) server                                                                                                                                                                                                                       │
 ///                                                                                                                                                                                                                                                         │
 /// This is a primitive implementation of an HTTP provider for the internal API.
@@ -19,8 +21,8 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
     provider: Arc<T>,
     config: &ServerConfig,
 ) -> anyhow::Result<()> {
-    let health = warp::get().and(warp::path("healthz")).map(get_ping);
-    let ping = warp::get().and(warp::path::end()).map(get_ping);
+    let health = warp::get().and(warp::path("healthz")).map(|| PING);
+    let ping = warp::get().and(warp::path::end()).map(|| PING);
 
     let logs_provider = provider.clone();
     let logs = warp::get()
@@ -105,9 +107,4 @@ fn return_with_code(code: StatusCode, body: String) -> Result<Response<Body>, In
     let mut response = Response::new(body.into());
     *response.status_mut() = code;
     Ok(response)
-}
-
-/// Return a simple status message
-fn get_ping() -> &'static str {
-    "this is the Krustlet HTTP server"
 }

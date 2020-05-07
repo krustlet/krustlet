@@ -37,21 +37,12 @@ impl std::error::Error for LogSendError {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 /// Client options for fetching logs.
 pub struct LogOptions {
-    tail_lines: Option<usize>,
-    follow: Option<bool>,
-}
-
-impl LogOptions {
-    pub fn tail(&self) -> Option<usize> {
-        self.tail_lines
-    }
-
-    pub fn follow(&self) -> bool {
-        self.follow.unwrap_or(false)
-    }
+    #[serde(rename = "tailLines")]
+    pub tail: Option<usize>,
+    #[serde(default)]
+    pub follow: bool,
 }
 
 /// Sender for streaming logs to client.
@@ -68,12 +59,12 @@ impl LogSender {
 
     /// The tail flag indicated by the request if present.
     pub fn tail(&self) -> Option<usize> {
-        self.opts.tail()
+        self.opts.tail
     }
 
     /// The follow flag indicated by the request, or `false` if absent.
     pub fn follow(&self) -> bool {
-        self.opts.follow()
+        self.opts.follow
     }
 
     /// Async send some data to a client.
