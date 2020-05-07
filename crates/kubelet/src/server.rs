@@ -20,7 +20,10 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
     config: &ServerConfig,
 ) -> anyhow::Result<()> {
     let health = warp::get()
-        .and(warp::path("healthz").or(warp::path::end()))
+        .and(warp::path("healthz"))
+        .map(get_ping);
+    let ping = warp::get()
+        .and(warp::path::end())
         .map(get_ping);
 
     let logs_provider = provider.clone();
@@ -40,7 +43,7 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
             post_exec(provider, namespace, pod, container)
         });
 
-    let routes = health.or(logs).or(exec);
+    let routes = ping.or(health).or(logs).or(exec);
 
     warp::serve(routes)
         .tls()
