@@ -40,13 +40,13 @@ impl std::error::Error for LogSendError {
 #[serde(rename_all = "camelCase")]
 /// Client options for fetching logs.
 pub struct LogOptions {
-    tail: Option<usize>,
+    tail_lines: Option<usize>,
     follow: Option<bool>,
 }
 
 impl LogOptions {
     pub fn tail(&self) -> Option<usize> {
-        self.tail
+        self.tail_lines
     }
 
     pub fn follow(&self) -> bool {
