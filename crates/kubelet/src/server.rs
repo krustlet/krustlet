@@ -19,12 +19,8 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
     provider: Arc<T>,
     config: &ServerConfig,
 ) -> anyhow::Result<()> {
-    let health = warp::get()
-        .and(warp::path("healthz"))
-        .map(get_ping);
-    let ping = warp::get()
-        .and(warp::path::end())
-        .map(get_ping);
+    let health = warp::get().and(warp::path("healthz")).map(get_ping);
+    let ping = warp::get().and(warp::path::end()).map(get_ping);
 
     let logs_provider = provider.clone();
     let logs = warp::get()
