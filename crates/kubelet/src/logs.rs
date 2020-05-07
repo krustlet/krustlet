@@ -1,5 +1,6 @@
 use anyhow::bail;
 use log::{debug, error};
+use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, AsyncRead};
 
 /// Possible errors sending log data.
@@ -35,31 +36,44 @@ impl std::error::Error for LogSendError {
     }
 }
 
-/// Sender for streaming logs to client.
-pub struct LogSender {
-    sender: hyper::body::Sender,
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Client options for fetching logs.
+pub struct LogOptions {
     tail: Option<usize>,
-    follow: bool,
+    follow: Option<bool>,
 }
 
-impl LogSender {
-    /// Create new `LogSender` from `hyper::body::Sender`.
-    pub fn new(sender: hyper::body::Sender, tail: Option<usize>, follow: bool) -> Self {
-        LogSender {
-            sender,
-            tail,
-            follow,
-        }
-    }
-
-    /// The tail flag indicated by the request if present.
+impl LogOptions {
     pub fn tail(&self) -> Option<usize> {
         self.tail
     }
 
+    pub fn follow(&self) -> bool {
+        self.follow.unwrap_or(false)
+    }
+}
+
+/// Sender for streaming logs to client.
+pub struct LogSender {
+    sender: hyper::body::Sender,
+    opts: LogOptions,
+}
+
+impl LogSender {
+    /// Create new `LogSender` from `hyper::body::Sender`.
+    pub fn new(sender: hyper::body::Sender, opts: LogOptions) -> Self {
+        LogSender { sender, opts }
+    }
+
+    /// The tail flag indicated by the request if present.
+    pub fn tail(&self) -> Option<usize> {
+        self.opts.tail()
+    }
+
     /// The follow flag indicated by the request, or `false` if absent.
     pub fn follow(&self) -> bool {
-        self.follow
+        self.opts.follow()
     }
 
     /// Async send some data to a client.

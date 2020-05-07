@@ -1,240 +1,84 @@
+use crate::config::ServerConfig;
+use crate::logs::{LogOptions, LogSender};
+use crate::provider::{NotImplementedError, Provider};
+use http::status::StatusCode;
+use http::Response;
+use hyper::Body;
 /// Server is an HTTP(S) server for answering Kubelet callbacks.
 ///
 /// Logs and exec calls are the main things that a server should handle.
-use anyhow::Context;
-use hyper::service::service_fn;
-use hyper::{server::conn::Http, Body, Method, Request, Response, StatusCode};
-use log::{debug, error, info, warn};
-use native_tls::{Identity, TlsAcceptor};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::stream::StreamExt;
-
+use log::{debug, error};
+use std::convert::Infallible;
 use std::sync::Arc;
+use warp::Filter;
 
-use crate::config::ServerConfig;
-use crate::logs::LogSender;
-use crate::provider::{NotImplementedError, Provider};
-
-/// Start the Krustlet HTTP(S) server
-///
+/// Start the Krustlet HTTP(S) server                                                                                                                                                                                                                       │
+///                                                                                                                                                                                                                                                         │
 /// This is a primitive implementation of an HTTP provider for the internal API.
-/// TODO: Support TLS/SSL.
 pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
     provider: Arc<T>,
     config: &ServerConfig,
 ) -> anyhow::Result<()> {
-    let identity = tokio::fs::read(&config.pfx_path)
-        .await
-        .with_context(|| format!("Could not read file {:?}", config.pfx_path))?;
-    let identity = Identity::from_pkcs12(&identity, &config.pfx_password)?;
+    let health = warp::get()
+        .and(warp::path("healthz").or(warp::path::end()))
+        .map(get_ping);
 
-    let acceptor = tokio_tls::TlsAcceptor::from(TlsAcceptor::new(identity)?);
-
-    let acceptor = Arc::new(acceptor);
-
-    let address = std::net::SocketAddr::new(config.addr, config.port);
-    let mut listener = TcpListener::bind(&address).await.unwrap();
-
-    info!("Starting webserver at: {}", address);
-
-    let mut incoming = listener.incoming();
-
-    while let Some(conn) = incoming.try_next().await? {
-        let acceptor = acceptor.clone();
-        let provider = provider.clone();
-
-        tokio::spawn(async move {
-            if let Err(e) = handle_connection(conn, acceptor, provider).await {
-                error!("Error handling server connection: {}", e);
-            }
+    let logs_provider = provider.clone();
+    let logs = warp::get()
+        .and(warp::path!("containerLogs" / String / String / String))
+        .and(warp::query::<LogOptions>())
+        .and_then(move |namespace, pod, container, opts| {
+            let provider = logs_provider.clone();
+            get_container_logs(provider, namespace, pod, container, opts)
         });
-    }
 
+    let exec_provider = provider.clone();
+    let exec = warp::post()
+        .and(warp::path!("exec" / String / String / String))
+        .and_then(move |namespace, pod, container| {
+            let provider = exec_provider.clone();
+            post_exec(provider, namespace, pod, container)
+        });
+
+    let routes = health.or(logs).or(exec);
+
+    warp::serve(routes)
+        .tls()
+        .cert_path(&config.tls_cert_file)
+        .key_path(&config.tls_private_key_file)
+        .run((config.addr, config.port))
+        .await;
     Ok(())
 }
 
-async fn handle_connection<T>(
-    conn: TcpStream,
-    acceptor: Arc<tokio_tls::TlsAcceptor>,
-    provider: Arc<T>,
-) -> anyhow::Result<()>
-where
-    T: Provider + Send + Sync + 'static,
-{
-    let io = acceptor.accept(conn).await?;
-    Http::new()
-        .serve_connection(
-            io,
-            service_fn(move |req| {
-                let provider = provider.clone();
-                async move { handle_request(req, provider).await }
-            }),
-        )
-        .await?;
-
-    Ok(())
-}
-
-async fn handle_request<T>(req: Request<Body>, provider: Arc<T>) -> anyhow::Result<Response<Body>>
-where
-    T: Provider + Send + Sync + 'static,
-{
-    let mut path: std::collections::VecDeque<&str> = req.uri().path().split('/').collect();
-    let method = req.method();
-    let params: std::collections::HashMap<String, String> = req
-        .uri()
-        .query()
-        .map(|v| {
-            url::form_urlencoded::parse(v.as_bytes())
-                .into_owned()
-                .collect()
-        })
-        .unwrap_or_else(std::collections::HashMap::new);
-
-    path.pop_front();
-    let resource = path.pop_front();
-    match resource {
-        Some("") | Some("healthz") if method == &Method::GET => get_ping(),
-        Some("containerLogs") if method == &Method::GET => {
-            let (namespace, pod, container) = match extract_container_path(path.into()) {
-                Ok(resource) => resource,
-                Err(e) => return e,
-            };
-            let mut tail = None;
-            let mut follow = false;
-            for (key, value) in &params {
-                match key.as_ref() {
-                    "tailLines" => match value.parse::<usize>() {
-                        Ok(n) => tail = Some(n),
-                        Err(e) => {
-                            warn!(
-                                "Unable to parse tailLines query parameter ({}): {:?}",
-                                value, e
-                            );
-                        }
-                    },
-                    "follow" if value == "true" => follow = true,
-                    "follow" => (),
-                    s => warn!("Unknown query parameter: {}={}", s, value),
-                }
-            }
-            get_container_logs(&*provider, &req, namespace, pod, container, tail, follow).await
-        }
-        Some("exec") if method == &Method::POST => {
-            let (namespace, pod, container) = match extract_container_path(path.into()) {
-                Ok(resource) => resource,
-                Err(e) => return e,
-            };
-            post_exec(&*provider, &req, namespace, pod, container).await
-        }
-        Some("tailLines") | Some("containerLogs") | Some("") | Some("healthz") => return_code(
-            StatusCode::METHOD_NOT_ALLOWED,
-            format!(
-                "Unsupported method {} for resource '{}'.",
-                method,
-                req.uri().path()
-            ),
-        ),
-        Some(_) | None => return_code(
-            StatusCode::NOT_FOUND,
-            format!("Unknown resource '{}'.", req.uri().path()),
-        ),
-    }
-}
-
-/// Extract and validate namespace/pod/container resource path.
-/// On error return response to return to client.
-fn extract_container_path(
-    path: Vec<&str>,
-) -> Result<(String, String, String), anyhow::Result<Response<Body>>> {
-    match path[..] {
-        [] => Err(return_code(
-            StatusCode::BAD_REQUEST,
-            format!("Please specify a namespace."),
-        )),
-        [_] => Err(return_code(
-            StatusCode::BAD_REQUEST,
-            format!("Please specify a pod."),
-        )),
-        [_, _] => Err(return_code(
-            StatusCode::BAD_REQUEST,
-            format!("Please specify a container."),
-        )),
-        [s, _, _] if s == "" => Err(return_code(
-            StatusCode::BAD_REQUEST,
-            format!("Please specify a namespace."),
-        )),
-        [_, s, _] if s == "" => Err(return_code(
-            StatusCode::BAD_REQUEST,
-            format!("Please specify a pod."),
-        )),
-        [_, _, s] if s == "" => Err(return_code(
-            StatusCode::BAD_REQUEST,
-            format!("Please specify a container."),
-        )),
-        [namespace, pod, container] => Ok((
-            namespace.to_string(),
-            pod.to_string(),
-            container.to_string(),
-        )),
-        [_, _, _, ..] => {
-            let resource = path
-                .iter()
-                .rev()
-                .map(|s| *s)
-                .collect::<Vec<&str>>()
-                .join("/");
-            Err(return_code(
-                StatusCode::NOT_FOUND,
-                format!("Unknown resource '{}'.", resource),
-            ))
-        }
-    }
-}
-
-/// Return a simple status message
-fn get_ping() -> anyhow::Result<Response<Body>> {
-    Ok(Response::new(Body::from(
-        "this is the Krustlet HTTP server",
-    )))
-}
-
-/// Return a HTTP code and message.
-fn return_code(code: StatusCode, body: String) -> anyhow::Result<Response<Body>> {
-    Ok(Response::builder().status(code).body(Body::from(body))?)
-}
-
-/// Get the logs from the running WASM module
+/// Get the logs from the running container.
 ///
 /// Implements the kubelet path /containerLogs/{namespace}/{pod}/{container}
-async fn get_container_logs<T: Provider + Sync>(
-    provider: &T,
-    _req: &Request<Body>,
+async fn get_container_logs<T: 'static + Provider + Send + Sync>(
+    provider: Arc<T>,
     namespace: String,
     pod: String,
     container: String,
-    tail: Option<usize>,
-    follow: bool,
-) -> anyhow::Result<Response<Body>> {
+    opts: LogOptions,
+) -> Result<Response<Body>, Infallible> {
     debug!(
-        "Got container log request for container {} in pod {} in namespace {}. tail: {:?}, follow: {}",
-        container, pod, namespace, tail, follow
+        "Got container log request for container {} in pod {} in namespace {}. Options: {:?}.",
+        container, pod, namespace, opts
     );
-
-    let (sender, log_body) = hyper::Body::channel();
-    let log_sender = LogSender::new(sender, tail, follow);
+    let (sender, log_body) = Body::channel();
+    let log_sender = LogSender::new(sender, opts);
 
     match provider.logs(namespace, pod, container, log_sender).await {
         Ok(()) => Ok(Response::new(log_body)),
         Err(e) => {
             error!("Error fetching logs: {}", e);
             if e.is::<NotImplementedError>() {
-                return_code(
+                return_with_code(
                     StatusCode::NOT_IMPLEMENTED,
                     format!("Logs not implemented in provider."),
                 )
             } else {
-                return_code(
+                return_with_code(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Server error: {}", e),
                 )
@@ -246,15 +90,25 @@ async fn get_container_logs<T: Provider + Sync>(
 /// Run a pod exec command and get the output
 ///
 /// Implements the kubelet path /exec/{namespace}/{pod}/{container}
-async fn post_exec<T: Provider>(
-    _provider: &T,
-    _req: &Request<Body>,
+async fn post_exec<T: 'static + Provider + Send + Sync>(
+    _provider: Arc<T>,
     _namespace: String,
     _pod: String,
     _container: String,
-) -> anyhow::Result<Response<Body>> {
-    return_code(
+) -> Result<Response<Body>, Infallible> {
+    return_with_code(
         StatusCode::NOT_IMPLEMENTED,
         format!("Exec not implemented."),
     )
+}
+
+fn return_with_code(code: StatusCode, body: String) -> Result<Response<Body>, Infallible> {
+    let mut response = Response::new(body.into());
+    *response.status_mut() = code;
+    Ok(response)
+}
+
+/// Return a simple status message
+fn get_ping() -> &'static str {
+    "this is the Krustlet HTTP server"
 }
