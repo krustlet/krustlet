@@ -42,7 +42,7 @@ use kube::{api::DeleteParams, Api};
 use kubelet::module_store::ModuleStore;
 use kubelet::provider::ProviderError;
 use kubelet::volumes::VolumeRef;
-use kubelet::{Pod, Provider};
+use kubelet::{NodeBuilder, Pod, Provider};
 use log::{debug, error, info, trace};
 use tokio::sync::RwLock;
 
@@ -88,6 +88,11 @@ impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
 #[async_trait::async_trait]
 impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
     const ARCH: &'static str = TARGET_WASM32_WASI;
+
+    fn node(&self, builder: &mut NodeBuilder) {
+        builder.set_architecture("wasm-wasi");
+        builder.add_taint("NoExecute", "krustlet/arch", Self::ARCH);
+    }
 
     async fn add(&self, pod: Pod) -> anyhow::Result<()> {
         // To run an Add event, we load the WASM, update the pod status to Running,
