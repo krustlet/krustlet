@@ -205,7 +205,7 @@ Install the latest release of krustlet following [the install guide](../intro/in
 There are two flavors of Krustlet (`krustlet-wasi` and `krustlet-wascc`), let's use the first:
 
 ```shell
-$ KUBECONFIG=${PWD}/kubeconfig-sa ./krustlet-wasi \
+$ KUBECONFIG=${PWD}/kubeconfig-sa krustlet-wasi \
 --hostname="krustlet" \
 --node-ip=${IP} \
 --node-name="krustlet" \
@@ -290,6 +290,53 @@ spec:
     - key: "node.kubernetes.io/network-unavailable"
       operator: "Exists"
       effect: "NoSchedule"
+```
+
+## Step 6: Run Krustlet as a service
+
+Create `krustlet.service` in `/etc/systemd/system/krustlet.service` on the VM. Make
+sure to change the value of `PFX_PASSWORD` to the password you set for your certificate.
+
+```
+[Unit]
+Description=Krustlet, a kubelet implementation for running WASM
+
+[Service]
+Restart=on-failure
+RestartSec=5s
+Environment=KUBECONFIG=/etc/krustlet/kubeconfig-sa
+Environment=NODE_NAME=krustlet
+Environment=PFX_PATH=/etc/krustlet/krustlet.pfx
+Environment=PFX_PASSWORD=password
+Environment=KRUSTLET_DATA_DIR=/etc/krustlet
+Environment=RUST_LOG=wascc_provider=info,wasi_provider=info,main=info
+ExecStart=/usr/local/bin/krustlet-wasi
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Ensure that the `krustlet.service` has the correct ownership and permissions with:
+
+```shell
+$ sudo chown root:root /etc/systemd/system/krustlet.service
+$ sudo chmod 644 /etc/systemd/system/krustlet.service
+```
+
+Then:
+
+```shell
+$ sudo mkdir -p /etc/krustlet && sudo chown root:root /etc/krustlet
+$ sudo mv {krustlet.pfx,kubeconfig-sa} /etc/krustlet && chmod 600 /etc/krustlet/*
+```
+
+Once you have done that, run the following commands to make sure the unit is configured to start on
+boot:
+
+```shell
+$ sudo systemctl enable krustlet && sudo systemctl start krustlet
 ```
 
 ## Delete the VM
