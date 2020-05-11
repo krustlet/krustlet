@@ -111,7 +111,7 @@ In order for the Kubernetes cluster to resolve the name of the VM running the Kr
 First things first, let's create a certificate signing request (CSR):
 
 ```shell
-$ ALIASES="DNS:${INSTANCE},DNS:${INSTANCE}.${ZONE},IP:${IP}"
+$ ALIASES="DNS:${INSTANCE},DNS:${INSTANCE}.${ZONE},IP:${IP}" && echo ${ALIASES}
 $ openssl req -new -sha256 -newkey rsa:2048 -keyout ./krustlet.key -out ./krustlet.csr -nodes -config <(
 cat <<-EOF
 [req]
@@ -195,6 +195,7 @@ There are two flavors of Krustlet (`krustlet-wasi` and `krustlet-wascc`), let's 
 
 ```shell
 $ KUBECONFIG=${PWD}/kubeconfig-sa ./krustlet-wasi \
+--hostname="krustlet" \
 --node-ip=${IP} \
 --node-name="krustlet" \
 --pfx-password="password" \
