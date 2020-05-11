@@ -48,7 +48,9 @@ $ gcloud beta container clusters create ${CLUSTER} \
 --num-nodes="1"
 ```
 
-> **NOTE** This creates a cluster with nodes distributed across multiple zones in a region. This increase the cluster's availability. If you'd prefer a less available (and cheaper) single zone cluster, you may use the following commands instead:
+> **NOTE** This creates a cluster with nodes distributed across multiple zones in a region. This
+increases the cluster's availability. If you'd prefer a less available (and cheaper) single zone
+cluster, you may use the following commands instead:
 
 ```shell
 $ ZONE="${REGION}-a" # Or "-b" or "-c"
@@ -70,7 +72,8 @@ NAME     LOCATION  MASTER_VERSION  MASTER_IP       MACHINE_TYPE   NODE_VERSION  
 cluster  us-west1  1.17.4-gke.10   xx.xx.xx.xx     n1-standard-1  1.17.4-gke.10  3          RUNNING
 ```
 
-> **NOTE** You may also use Cloud Console to interact with the cluster: https://console.cloud.google.com/kubernetes/list?project=${PROJECT}
+> **NOTE** You may also use Cloud Console to interact with the cluster:
+https://console.cloud.google.com/kubernetes/list?project=${PROJECT}
 
 > **NOTE** `gcloud clusters create` also configures `kubectl` to be able to access the cluster.
 
@@ -132,7 +135,8 @@ When you are finished with the cluster, you may delete it with:
 $ gcloud beta container clusters delete ${CLUSTER} --project=${PROJECT} --region=${REGION} --quiet
 ```
 
-If you wish to delete everything in the project, you may delete hte project (including all its resources) with:
+If you wish to delete everything in the project, you may delete hte project (including all its
+resources) with:
 
 ```shell
 $ gcloud projects delete ${PROJECT} --quiet

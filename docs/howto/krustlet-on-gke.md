@@ -4,11 +4,16 @@ These steps are for running a Krustlet node in a GKE cluster.
 
 ## Prerequisites
 
-You will require a GKE cluster. See the [how-to guide for running Kubernetes on GKE](kubernetes-on-gke.md) for more information.
+You will require a GKE cluster. See the [how-to guide for running Kubernetes on GKE](kubernetes-on-gke.md)
+for more information.
 
-This specific tutorial will be running Krustlet on a Compute Engine VM; however you may follow these steps from any device that can start a web server on an IP accessible from the Kubernetes control plane.
+This specific tutorial will be running Krustlet on a Compute Engine VM; however you may follow
+these steps from any device that can start a web server on an IP accessible from the Kubernetes
+control plane.
 
-In the [how-to guide for running Kubernetes on GKE](kubernetes-on-gke.md), several environment variables were used to define a Google Cloud Platform project, region and Kubernetes Engine cluster. Let's reuse those values:
+In the [how-to guide for running Kubernetes on GKE](kubernetes-on-gke.md), several environment
+variables were used to define a Google Cloud Platform project, region and Kubernetes Engine
+cluster. Let's reuse those values:
 
 ```shell
 $ PROJECT=[YOUR-PROJECT] # Perhaps $(whoami)-$(date +%y%m%d)-krustlet
@@ -34,7 +39,8 @@ gke-cluster-default-pool-3885c0e3-6zw2   Ready    <none>   1m      v1.17.4-gke.1
 gke-cluster-default-pool-6d70a85d-19r8   Ready    <none>   1m      v1.17.4-gke.10
 ```
 
-> **NOTE** If you chose to create a single-zone cluster, replace `--region=${REGION}` with `--zone=${ZONE}` in the above `gcloud` commands.
+> **NOTE** If you chose to create a single-zone cluster, replace `--region=${REGION}` with
+`--zone=${ZONE}` in the above `gcloud` commands.
 
 ## Step 1: Create a service account user for the node
 
@@ -89,7 +95,9 @@ NAME      ZONE        MACHINE_TYPE   PREEMPTIBLE  INTERNAL_IP  EXTERNAL_IP     S
 krustlet  us-west1-a  n1-standard-1               xx.xx.xx.xx  yy.yy.yy.yy     RUNNING
 ```
 
-Let's determine the instance's internal (!) IP to use when creating the Kubernete certificate and subsequently running Krustlet. In step #4, you'll need to copy this value into the command that is used to run Krustlet on the VM:
+Let's determine the instance's internal (!) IP to use when creating the Kubernete certificate and
+subsequently running Krustlet. In step #4, you'll need to copy this value into the command that is
+used to run Krustlet on the VM:
 
 ```shell
 $ IP=$(gcloud compute instances describe ${INSTANCE} \
@@ -103,10 +111,11 @@ It should take less than 30-seconds to provision the VM.
 ## Step 2: Create Certificate
 
 Krustlet requires a certificate for securing communication with the Kubernetes API. Because
-Kubernetes has its own certificates, we'll need to get a signed certificate from the Kubernetes API
-that we can use.
+Kubernetes has its own certificates, we'll need to get a signed certificate from the Kubernetes
+API that we can use.
 
-In order for the Kubernetes cluster to resolve the name of the VM running the Krustlet, we'll include aliases for the VM's name in the certificate.
+In order for the Kubernetes cluster to resolve the name of the VM running the Krustlet, we'll
+include aliases for the VM's name in the certificate.
 
 First things first, let's create a certificate signing request (CSR):
 
@@ -133,7 +142,8 @@ Generating a RSA private key
 writing new private key to './krustlet.key'
 ```
 
-This will create a CSR and a new key for the certificate. Now that it is created, we'll need to send the request to Kubernetes:
+This will create a CSR and a new key for the certificate. Now that it is created, we'll need to
+send the request to Kubernetes:
 
 ```shell
 $ cat <<EOF | kubectl apply --filename=-
@@ -174,7 +184,8 @@ $ openssl pkcs12 -export -out krustlet.pfx -inkey krustlet.key -in krustlet.crt 
 
 ## Step 3: Copy assets to VM
 
-The first thing we'll need to do is copy up the assets we generated in steps 1 and 2. Copy them to the VM by typing:
+The first thing we'll need to do is copy up the assets we generated in steps 1 and 2. Copy them to
+the VM by typing:
 
 ```shell
 $ gcloud compute scp krustlet.pfx ${INSTANCE}: --project=${PROJECT} --zone=${ZONE}
@@ -202,13 +213,15 @@ $ KUBECONFIG=${PWD}/kubeconfig-sa ./krustlet-wasi \
 --pfx-path=./krustlet.pfx
 ```
 
-> **NOTE** To increase the level of debugging, you may prefix the command with `RUST_LOG=info` or `RUST_LOG=debug`.
+> **NOTE** To increase the level of debugging, you may prefix the command with `RUST_LOG=info` or
+`RUST_LOG=debug`.
 
 > **NOTE** The value of `${IP}` was determined in step #1.
 
 
 
-From another terminal that's configured to access the cluster, you should be able to enumerate the cluster's nodes including the Krustlet by typing:
+From another terminal that's configured to access the cluster, you should be able to enumerate the
+cluster's nodes including the Krustlet by typing:
 
 ```shell
 $ kubectl get nodes
@@ -235,7 +248,9 @@ POD_NAME=hello-world-wasi-rust
 Args are: []
 ```
 
-> **NOTE** you may receive an `ErrImagePull` and `Failed to pull image` and `failed to generate container`. This results if the taints do not apply correctly. You should be able to resolve this issue, using the following YAML.
+> **NOTE** you may receive an `ErrImagePull` and `Failed to pull image` and
+`failed to generate container`. This results if the taints do not apply correctly. You should be
+able to resolve this issue, using the following YAML.
 
 ```YAML
 apiVersion: v1
