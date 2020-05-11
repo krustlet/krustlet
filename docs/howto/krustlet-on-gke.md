@@ -86,7 +86,7 @@ $ gcloud beta compute instances create ${INSTANCE} \
 --image-family="debian-10" \
 --image-project="debian-cloud"
 NAME      ZONE        MACHINE_TYPE   PREEMPTIBLE  INTERNAL_IP  EXTERNAL_IP     STATUS
-instance  us-west1-a  n1-standard-1               xx.xx.xx.xx  yy.yy.yy.yy     RUNNING
+krustlet  us-west1-a  n1-standard-1               xx.xx.xx.xx  yy.yy.yy.yy     RUNNING
 ```
 
 Let's determine the instance's internal (!) IP to use when creating the Kubernete certificate and subsequently running Krustlet. In step #4, you'll need to copy this value into the command that is used to run Krustlet on the VM:
