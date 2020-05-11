@@ -95,6 +95,8 @@ NAME      ZONE        MACHINE_TYPE   PREEMPTIBLE  INTERNAL_IP  EXTERNAL_IP     S
 krustlet  us-west1-a  n1-standard-1               xx.xx.xx.xx  yy.yy.yy.yy     RUNNING
 ```
 
+It should take less than 30-seconds to provision the VM.
+
 Let's determine the instance's internal (!) IP to use when creating the Kubernete certificate and
 subsequently running Krustlet. In step #4, you'll need to copy this value into the command that is
 used to run Krustlet on the VM:
@@ -105,8 +107,6 @@ $ IP=$(gcloud compute instances describe ${INSTANCE} \
 --zone=${ZONE} \
 --format="value(networkInterfaces[0].networkIP)") && echo ${IP}
 ```
-
-It should take less than 30-seconds to provision the VM.
 
 ## Step 2: Create Certificate
 
