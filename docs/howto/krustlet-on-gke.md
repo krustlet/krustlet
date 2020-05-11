@@ -238,7 +238,7 @@ We may test that the Krustlet is working by running one of the demos:
 
 ```shell
 $ kubectl apply --filename=https://raw.githubusercontent.com/deislabs/krustlet/master/demos/wasi/hello-world-rust/k8s.yaml
-$ wait a few seconds for the pod to run
+$ # wait a few seconds for the pod to run
 $ kubectl logs pods/hello-world-wasi-rust
 hello from stdout!
 hello from stderr!
@@ -303,8 +303,8 @@ $ gcloud compute instances delete ${INSTANCE} --project=${PROJECT} --zone=${ZONE
 When you are finished with the cluster, you can delete it by typing:
 
 ```shell
-$ If you created a regional cluster
+$ # If you created a regional cluster
 $ gcoud container clusters delete ${CLUSTER} --project=${PROJECT} --region=${REGION}
-$ If you created a zonal cluster
+$ # If you created a zonal cluster
 $ gcoud container clusters delete ${CLUSTER} --project=${PROJECT} --zone=${ZONE}
 ```
