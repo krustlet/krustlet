@@ -12,7 +12,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use warp::Filter;
 
-const PING: &'static str = "this is the Krustlet HTTP server";
+const PING: &str = "this is the Krustlet HTTP server";
 
 /// Start the Krustlet HTTP(S) server                                                                                                                                                                                                                       │
 ///                                                                                                                                                                                                                                                         │
@@ -76,7 +76,7 @@ async fn get_container_logs<T: 'static + Provider + Send + Sync>(
             if e.is::<NotImplementedError>() {
                 return_with_code(
                     StatusCode::NOT_IMPLEMENTED,
-                    format!("Logs not implemented in provider."),
+                    "Logs not implemented in provider.".to_owned(),
                 )
             } else {
                 return_with_code(
