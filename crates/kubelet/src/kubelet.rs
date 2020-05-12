@@ -139,7 +139,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
         let webserver = start_webserver(self.provider.clone(), &self.config.server_config);
 
         let term = Arc::new(AtomicBool::new(false));
-        signal_hook::flag::register(signal_hook::SIGTERM, Arc::clone(&term))?;
+        signal_hook::flag::register(signal_hook::SIGINT, Arc::clone(&term))?;
         let node_name = self.config.node_name.clone();
         let signal_handler = tokio::task::spawn(async move {
             let duration = std::time::Duration::from_millis(100);
