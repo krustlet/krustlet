@@ -319,20 +319,39 @@ async fn set_up_wasi_test_environment(
     Ok(())
 }
 
-async fn clean_up_wasi_test_resources(
-    client: kube::Client,
-    pods: &Api<Pod>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    pods.delete("hello-wasi", &DeleteParams::default()).await?;
+async fn clean_up_wasi_test_resources() -> () {
+    let client = kube::Client::try_default()
+        .await
+        .expect("Failed to create client");
+    println!("did first await");
+    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
+    pods.delete("hello-wasi", &DeleteParams::default())
+        .await
+        .expect("Failed to delete pod");
     let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
     secrets
         .delete("hello-wasi-secret", &DeleteParams::default())
-        .await?;
+        .await
+        .expect("Failed to delete secret");
     let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), "default");
     config_maps
         .delete("hello-wasi-configmap", &DeleteParams::default())
-        .await?;
-    Ok(())
+        .await
+        .expect("Failed to delete configmap");
+}
+
+struct WasiTestResourceCleaner {}
+
+impl Drop for WasiTestResourceCleaner {
+    fn drop(&mut self) {
+        let t = std::thread::spawn(move || {
+            let mut rt =
+                tokio::runtime::Runtime::new().expect("Failed to reate Tokio runtime for cleanup");
+            rt.block_on(clean_up_wasi_test_resources());
+        });
+
+        t.join().expect("Failed to clean up WASI test resources");
+    }
 }
 
 #[tokio::test]
@@ -348,6 +367,8 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
     let client: kube::Client = nodes.into();
 
     set_up_wasi_test_environment(client.clone()).await?;
+
+    let _cleaner = WasiTestResourceCleaner {};
 
     let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
 
@@ -370,10 +391,6 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
         "unable to open configmap file",
     )
     .await?;
-
-    // cleanup
-    // TODO: Find an actual way to perform cleanup automatically, even in the case of failures
-    clean_up_wasi_test_resources(client.clone(), &pods).await?;
 
     Ok(())
 }
