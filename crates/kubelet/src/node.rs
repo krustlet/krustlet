@@ -11,6 +11,8 @@ use log::{debug, error, info, warn};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+const KUBELET_VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
 macro_rules! retry {
     ($action:expr, times: $num_times:expr, error: $on_err:expr) => {{
         let mut n = 0u8;
@@ -85,14 +87,14 @@ pub async fn create_node<P: 'static + Provider + Sync + Send>(
     builder.add_capacity("hugepages-1Gi", "0");
     builder.add_capacity("hugepages-2Mi", "0");
     builder.add_capacity("memory", "4032800Ki");
-    builder.add_capacity("pods", "30");
+    builder.add_capacity("pods", &config.max_pods.to_string());
 
     builder.add_allocatable("cpu", "4");
     builder.add_allocatable("ephemeral-storage", "61255492Ki");
     builder.add_allocatable("hugepages-1Gi", "0");
     builder.add_allocatable("hugepages-2Mi", "0");
     builder.add_allocatable("memory", "4032800Ki");
-    builder.add_allocatable("pods", "30");
+    builder.add_allocatable("pods", &config.max_pods.to_string());
 
     let ts = Utc::now();
     builder.add_condition("Ready", "True", &ts, "KubeletReady", "kubelet is ready");
@@ -401,14 +403,16 @@ impl Node {
         Default::default()
     }
 
-    /// Create node definition from `k8s_openapi::api::core::v1::Node` object.
-    pub fn from_k8s_openapi(node: k8s_openapi::api::core::v1::Node) -> Node {
-        Node(node)
-    }
-
     /// Extract inner `k8s_openapi::api::core::v1::Node` object from node definition.
     pub fn into_inner(self) -> KubeNode {
         self.0
+    }
+}
+
+impl From<KubeNode> for Node {
+    /// Create node definition from `k8s_openapi::api::core::v1::Node` object.
+    fn from(node: KubeNode) -> Self {
+        Node(node)
     }
 }
 
@@ -590,8 +594,7 @@ impl Default for NodeBuilder {
             taints: vec![],
             architecture: "".to_string(),
             kube_proxy_version: "v1.17.0".to_string(),
-            // TODO Should this be the crate version?
-            kubelet_version: "v1.17.0".to_string(),
+            kubelet_version: KUBELET_VERSION.to_string(),
             container_runtime_version: "mvp".to_string(),
             operating_system: "linux".to_string(),
             capacity: BTreeMap::new(),
@@ -647,6 +650,7 @@ mod test {
             },
             data_dir: PathBuf::new(),
             node_labels,
+            max_pods: 110,
         };
 
         let mut builder = Node::builder();
