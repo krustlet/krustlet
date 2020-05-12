@@ -88,11 +88,12 @@ $ ZONE="${REGION}-a" # Pick one of the zones in this region
 $ gcloud beta compute instances create ${INSTANCE} \
 --project=${PROJECT} \
 --zone=${ZONE} \
+--preemptible \
 --machine-type "n1-standard-1" \
 --image-family="debian-10" \
 --image-project="debian-cloud"
 NAME      ZONE        MACHINE_TYPE   PREEMPTIBLE  INTERNAL_IP  EXTERNAL_IP     STATUS
-krustlet  us-west1-a  n1-standard-1               xx.xx.xx.xx  yy.yy.yy.yy     RUNNING
+krustlet  us-west1-a  n1-standard-1  true         xx.xx.xx.xx  yy.yy.yy.yy     RUNNING
 ```
 
 It should take less than 30-seconds to provision the VM.
