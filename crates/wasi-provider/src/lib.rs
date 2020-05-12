@@ -89,7 +89,7 @@ impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
 impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
     const ARCH: &'static str = TARGET_WASM32_WASI;
 
-    fn node(&self, builder: &mut NodeBuilder) {
+    async fn node(&self, builder: &mut NodeBuilder) {
         builder.set_architecture("wasm-wasi");
         builder.add_taint("NoExecute", "krustlet/arch", Self::ARCH);
     }

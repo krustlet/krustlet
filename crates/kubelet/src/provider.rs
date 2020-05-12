@@ -50,7 +50,7 @@ pub trait Provider {
     const ARCH: &'static str;
 
     /// Allows provider to populate node information.
-    fn node(&self, _builder: &mut NodeBuilder) {}
+    async fn node(&self, _builder: &mut NodeBuilder) {}
 
     /// Given a Pod definition, execute the workload.
     async fn add(&self, pod: Pod) -> anyhow::Result<()>;

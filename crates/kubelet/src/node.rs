@@ -111,7 +111,7 @@ pub async fn create_node<P: 'static + Provider + Sync + Send>(
 
     builder.set_port(config.server_config.port as i32);
 
-    provider.node(&mut builder);
+    provider.node(&mut builder).await;
     let node = builder.build().into_inner();
 
     match retry!(node_client.create(&PostParams::default(), &node).await, times: 4, break_on: &Error::Api(ErrorResponse { code: 409, .. }))
