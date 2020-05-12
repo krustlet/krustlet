@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::logs::LogSender;
 use crate::pod::Pod;
-
+use crate::NodeBuilder;
 use std::collections::HashMap;
 
 /// A back-end for a Kubelet.
@@ -48,6 +48,11 @@ use std::collections::HashMap;
 pub trait Provider {
     /// Arch returns a string specifying what architecture this provider supports
     const ARCH: &'static str;
+
+    /// Allows provider to populate node information.
+    async fn node(&self, _builder: &mut NodeBuilder) -> anyhow::Result<()> {
+        Ok(())
+    }
 
     /// Given a Pod definition, execute the workload.
     async fn add(&self, pod: Pod) -> anyhow::Result<()>;

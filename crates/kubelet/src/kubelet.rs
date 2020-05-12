@@ -55,7 +55,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
     pub async fn start(&self) -> anyhow::Result<()> {
         let client = kube::Client::new(self.kube_config.clone());
         // Create the node. If it already exists, "adopt" the node definition
-        create_node(&client, &self.config, T::ARCH).await;
+        create_node(&client, &self.config, self.provider.clone()).await;
 
         // Get the node name for use in the update loop
         let node_name = self.config.node_name.clone();

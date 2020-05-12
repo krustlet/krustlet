@@ -1,13 +1,17 @@
 use crate::config::Config;
+use crate::provider::Provider;
 use chrono::prelude::*;
 use k8s_openapi::api::coordination::v1::Lease;
-use k8s_openapi::api::core::v1::Node;
+use k8s_openapi::api::core::v1::Node as KubeNode;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 use kube::api::{Api, DeleteParams, PatchParams, PostParams};
 use kube::error::ErrorResponse;
 use kube::Error;
 use log::{debug, error, info, warn};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+const KUBELET_VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 macro_rules! retry {
     ($action:expr, times: $num_times:expr, error: $on_err:expr) => {{
@@ -58,11 +62,61 @@ macro_rules! retry {
 /// A node comes with a lease, and we maintain the lease to tell Kubernetes that the
 /// node remains alive and functional. Note that this will not work in
 /// versions of Kubernetes prior to 1.14.
-pub async fn create_node(client: &kube::Client, config: &Config, arch: &str) {
-    let node_client: Api<Node> = Api::all(client.clone());
-    let node = node_definition(config, arch);
-    let node =
-        serde_json::from_value(node).expect("failed to deserialize node from node definition JSON");
+pub async fn create_node<P: 'static + Provider + Sync + Send>(
+    client: &kube::Client,
+    config: &Config,
+    provider: Arc<P>,
+) {
+    let node_client: Api<KubeNode> = Api::all(client.clone());
+
+    let mut builder = Node::builder();
+
+    builder.set_name(&config.node_name);
+
+    builder.add_annotation("node.alpha.kubernetes.io/ttl", "0");
+    builder.add_annotation(
+        "volumes.kubernetes.io/controller-managed-attach-detach",
+        "true",
+    );
+
+    node_labels_definition(P::ARCH, &config, &mut builder);
+
+    // TODO Do we want to detect this?
+    builder.add_capacity("cpu", "4");
+    builder.add_capacity("ephemeral-storage", "61255492Ki");
+    builder.add_capacity("hugepages-1Gi", "0");
+    builder.add_capacity("hugepages-2Mi", "0");
+    builder.add_capacity("memory", "4032800Ki");
+    builder.add_capacity("pods", &config.max_pods.to_string());
+
+    builder.add_allocatable("cpu", "4");
+    builder.add_allocatable("ephemeral-storage", "61255492Ki");
+    builder.add_allocatable("hugepages-1Gi", "0");
+    builder.add_allocatable("hugepages-2Mi", "0");
+    builder.add_allocatable("memory", "4032800Ki");
+    builder.add_allocatable("pods", &config.max_pods.to_string());
+
+    let ts = Utc::now();
+    builder.add_condition("Ready", "True", &ts, "KubeletReady", "kubelet is ready");
+    builder.add_condition(
+        "OutOfDisk",
+        "False",
+        &ts,
+        "KubeletHasSufficientDisk",
+        "kubelet has sufficient disk space available",
+    );
+
+    builder.add_address("InternalIP", &format!("{}", config.node_ip));
+    builder.add_address("Hostname", &config.hostname);
+
+    builder.set_port(config.server_config.port as i32);
+
+    match provider.node(&mut builder).await {
+        Ok(()) => (),
+        Err(e) => warn!("Provider node annotation error: {:?}", e),
+    }
+
+    let node = builder.build().into_inner();
 
     match retry!(node_client.create(&PostParams::default(), &node).await, times: 4, break_on: &Error::Api(ErrorResponse { code: 409, .. }))
     {
@@ -121,7 +175,7 @@ pub async fn create_node(client: &kube::Client, config: &Config, arch: &str) {
 /// doing our processing of the pod queue.
 pub async fn update_node(client: &kube::Client, node_name: &str) {
     debug!("Updating node '{}'", node_name);
-    let node_client: Api<Node> = Api::all(client.clone());
+    let node_client: Api<KubeNode> = Api::all(client.clone());
     if let Ok(node) = retry!(node_client.get(node_name).await, times: 4, log_error: |e| error!("Failed to get node to update: {:?}", e))
     {
         debug!("Node to update '{}' fetched.", node_name);
@@ -199,9 +253,13 @@ async fn update_lease(
     resp
 }
 
-async fn replace_node(client: &kube::Client, node_name: &str, node: &Node) -> Result<(), Error> {
+async fn replace_node(
+    client: &kube::Client,
+    node_name: &str,
+    node: &KubeNode,
+) -> Result<(), Error> {
     debug!("Replacing existing node '{}'", node_name);
-    let node_client: Api<Node> = Api::all(client.clone());
+    let node_client: Api<KubeNode> = Api::all(client.clone());
 
     // HACK WARNING: So it turns out we need to have the proper
     // permissions in order to update the node status, so this
@@ -233,111 +291,6 @@ async fn replace_node(client: &kube::Client, node_name: &str, node: &Node) -> Re
 
     debug!("Successfully replaced node '{}'", node_name);
     Ok(())
-}
-
-/// Define a new node that will handle WASM load.
-///
-/// The most important part of this spec is the set of labels, which control
-/// how pods are scheduled on this node. It claims the wasm-wasi architecture,
-/// though perhaps this should be wasm32-wasi. I am not clear what to do with
-/// the OS field. I have seen 'emscripten' used for this field, but in our case
-/// the runtime is not emscripten, and besides... specifying which runtime we
-/// use seems like a misstep. Ideally, we'll be able to support multiple runtimes.
-fn node_definition(config: &Config, arch: &str) -> serde_json::Value {
-    let ts = Time(Utc::now());
-    let mut json = serde_json::json!({
-        "apiVersion": "v1",
-        "kind": "Node",
-        "metadata": {
-            "name": config.node_name,
-            "labels": {},
-            "annotations": {
-                "node.alpha.kubernetes.io/ttl": "0",
-                "volumes.kubernetes.io/controller-managed-attach-detach": "true"
-            }
-        },
-        "spec": {
-            "podCIDR": "10.244.0.0/24",
-            "taints": [
-                {
-                    "effect": "NoExecute",
-                    "key": "krustlet/arch",
-                    "value": arch
-                }
-            ]
-        },
-        "status": {
-            "nodeInfo": {
-                "architecture": "wasm-wasi",
-                "bootID": "",
-                "containerRuntimeVersion": "mvp",
-                "kernelVersion": "",
-                "kubeProxyVersion": "v1.17.0",
-                "kubeletVersion": "v1.17.0",
-                "machineID": "",
-                "operatingSystem": "linux",
-                "osImage": "",
-                "systemUUID": ""
-            },
-            "capacity": {
-                "cpu": "4",
-                "ephemeral-storage": "61255492Ki",
-                "hugepages-1Gi": "0",
-                "hugepages-2Mi": "0",
-                "memory": "4032800Ki",
-                "pods": "30"
-            },
-            "allocatable": {
-                "cpu": "4",
-                "ephemeral-storage": "61255492Ki",
-                "hugepages-1Gi": "0",
-                "hugepages-2Mi": "0",
-                "memory": "4032800Ki",
-                "pods": "30"
-            },
-            "conditions": [
-                {
-                    "type": "Ready",
-                    "status": "True",
-                    "lastHeartbeatTime":  ts,
-                    "lastTransitionTime": ts,
-                    "reason":             "KubeletReady",
-                    "message":            "kubelet is ready",
-                },
-                {
-                    "type": "OutOfDisk",
-                    "status": "False",
-                    "lastHeartbeatTime":  ts,
-                    "lastTransitionTime": ts,
-                    "reason":             "KubeletHasSufficientDisk",
-                    "message":            "kubelet has sufficient disk space available",
-                },
-            ],
-            "addresses": [
-                {
-                    "type": "InternalIP",
-                    "address": config.node_ip
-                },
-                {
-                    "type": "Hostname",
-                    "address": config.hostname
-                }
-            ],
-            "daemonEndpoints": {
-                "kubeletEndpoint": {
-                    "Port": config.server_config.port
-                }
-            }
-        }
-    });
-
-    let node_labels = node_labels_definition(arch, &config);
-    // extra labels from config
-    for (key, val) in node_labels {
-        json["metadata"]["labels"][key] = serde_json::json!(val);
-    }
-
-    json
 }
 
 /// Define a new coordination.Lease object for Kubernetes
@@ -387,20 +340,16 @@ fn lease_spec_definition(node_name: &str) -> serde_json::Value {
 /// Defines the labels that will be applied to this node
 ///
 /// Default values and passed node-labels arguments are injected by config.
-fn node_labels_definition(arch: &str, config: &Config) -> HashMap<String, String> {
+fn node_labels_definition(arch: &str, config: &Config, builder: &mut NodeBuilder) {
     // Add mandatory static labels
-    let mut labels = HashMap::new();
-    labels.insert("beta.kubernetes.io/os".to_owned(), "linux".to_owned());
-    labels.insert("kubernetes.io/os".to_owned(), "linux".to_owned());
-    labels.insert("kubernetes.io/role".to_owned(), "agent".to_owned());
-    labels.insert("type".to_owned(), "krustlet".to_owned());
+    builder.add_label("beta.kubernetes.io/os", "linux");
+    builder.add_label("kubernetes.io/os", "linux");
+    builder.add_label("kubernetes.io/role", "agent");
+    builder.add_label("type", "krustlet");
     // add the mandatory labels that are dependent on injected values
-    labels.insert("beta.kubernetes.io/arch".to_owned(), arch.to_owned());
-    labels.insert("kubernetes.io/arch".to_owned(), arch.to_owned());
-    labels.insert(
-        "kubernetes.io/hostname".to_owned(),
-        config.hostname.to_owned(),
-    );
+    builder.add_label("beta.kubernetes.io/arch", arch);
+    builder.add_label("kubernetes.io/arch", arch);
+    builder.add_label("kubernetes.io/hostname", &config.hostname);
 
     let k8s_namespace = "kubernetes.io";
     // namespaces managed by this method - do not allow user injection
@@ -444,16 +393,234 @@ fn node_labels_definition(arch: &str, config: &Config) -> HashMap<String, String
                 key
             );
         } else {
-            labels.insert(key.to_owned(), value.to_owned());
+            builder.add_label(key, value);
         }
     }
-    labels
+}
+
+/// Kubernetes Node Definition. Wraps `k8s_openapi::api::core::v1::Node`.
+pub struct Node(k8s_openapi::api::core::v1::Node);
+
+impl Node {
+    /// Create builder for node definition.
+    pub fn builder() -> NodeBuilder {
+        Default::default()
+    }
+
+    /// Extract inner `k8s_openapi::api::core::v1::Node` object from node definition.
+    pub fn into_inner(self) -> KubeNode {
+        self.0
+    }
+}
+
+impl From<KubeNode> for Node {
+    /// Create node definition from `k8s_openapi::api::core::v1::Node` object.
+    fn from(node: KubeNode) -> Self {
+        Node(node)
+    }
+}
+
+/// Builder for node definition.
+pub struct NodeBuilder {
+    name: String,
+    annotations: BTreeMap<String, String>,
+    labels: BTreeMap<String, String>,
+    pod_cidr: String,
+    taints: Vec<k8s_openapi::api::core::v1::Taint>,
+    architecture: String,
+    kube_proxy_version: String,
+    kubelet_version: String,
+    container_runtime_version: String,
+    operating_system: String,
+    capacity: BTreeMap<String, k8s_openapi::apimachinery::pkg::api::resource::Quantity>,
+    allocatable: BTreeMap<String, k8s_openapi::apimachinery::pkg::api::resource::Quantity>,
+    port: i32,
+    conditions: Vec<k8s_openapi::api::core::v1::NodeCondition>,
+    addresses: Vec<k8s_openapi::api::core::v1::NodeAddress>,
+}
+
+impl NodeBuilder {
+    /// Create new builder with defaults.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Add an annotation for the node.
+    pub fn add_annotation(&mut self, key: &str, value: &str) {
+        self.annotations.insert(key.to_string(), value.to_string());
+    }
+
+    /// Add a label to the node.
+    pub fn add_label(&mut self, key: &str, value: &str) {
+        self.labels.insert(key.to_string(), value.to_string());
+    }
+
+    /// Set the name of the node.
+    pub fn set_name(&mut self, name: &str) {
+        self.name = name.to_string();
+    }
+
+    /// Sets the CIDR that pods will be assigned IPs from.
+    pub fn set_pod_cidr(&mut self, cidr: &str) {
+        self.pod_cidr = cidr.to_string();
+    }
+
+    /// Add a taint to the node.
+    pub fn add_taint(&mut self, effect: &str, key: &str, value: &str) {
+        self.taints.push(k8s_openapi::api::core::v1::Taint {
+            effect: effect.to_string(),
+            key: key.to_string(),
+            value: Some(value.to_string()),
+            time_added: None,
+        });
+    }
+
+    /// Set the architecture of the node.
+    pub fn set_architecture(&mut self, arch: &str) {
+        self.architecture = arch.to_string();
+    }
+
+    /// Set the kube proxy version of the node.
+    pub fn set_kube_proxy_version(&mut self, version: &str) {
+        self.kube_proxy_version = version.to_string();
+    }
+
+    /// Set the kubelet version of the node.
+    pub fn set_kubelet_version(&mut self, version: &str) {
+        self.kubelet_version = version.to_string();
+    }
+
+    /// Set the container runtime version of the node.
+    pub fn set_container_runtime_version(&mut self, version: &str) {
+        self.container_runtime_version = version.to_string();
+    }
+
+    /// Set the operating system of the node.
+    pub fn set_operating_system(&mut self, os: &str) {
+        self.operating_system = os.to_string();
+    }
+
+    /// Add a capacity of the node.
+    pub fn add_capacity(&mut self, key: &str, value: &str) {
+        self.capacity.insert(
+            key.to_string(),
+            k8s_openapi::apimachinery::pkg::api::resource::Quantity(value.to_string()),
+        );
+    }
+
+    /// Add an allocatable of the node.
+    pub fn add_allocatable(&mut self, key: &str, value: &str) {
+        self.allocatable.insert(
+            key.to_string(),
+            k8s_openapi::apimachinery::pkg::api::resource::Quantity(value.to_string()),
+        );
+    }
+
+    /// Set the port for the node.
+    pub fn set_port(&mut self, port: i32) {
+        self.port = port
+    }
+
+    /// Add a condition of the node.
+    pub fn add_condition(
+        &mut self,
+        type_: &str,
+        status: &str,
+        timestamp: &DateTime<Utc>,
+        reason: &str,
+        message: &str,
+    ) {
+        self.conditions
+            .push(k8s_openapi::api::core::v1::NodeCondition {
+                type_: type_.to_string(),
+                status: status.to_string(),
+                last_heartbeat_time: Some(Time(timestamp.clone())),
+                last_transition_time: Some(Time(timestamp.clone())),
+                reason: Some(reason.to_string()),
+                message: Some(message.to_string()),
+            });
+    }
+
+    /// Add a address to the node.
+    pub fn add_address(&mut self, type_: &str, address: &str) {
+        self.addresses
+            .push(k8s_openapi::api::core::v1::NodeAddress {
+                type_: type_.to_string(),
+                address: address.to_string(),
+            });
+    }
+
+    /// Build node definition from builder.
+    pub fn build(self) -> Node {
+        let mut metadata: k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta =
+            Default::default();
+        metadata.name = Some(self.name);
+        metadata.annotations = Some(self.annotations);
+        metadata.labels = Some(self.labels);
+
+        let mut spec: k8s_openapi::api::core::v1::NodeSpec = Default::default();
+        spec.pod_cidr = Some(self.pod_cidr);
+        spec.taints = Some(self.taints);
+
+        let mut node_info: k8s_openapi::api::core::v1::NodeSystemInfo = Default::default();
+        node_info.architecture = self.architecture;
+        node_info.kube_proxy_version = self.kube_proxy_version;
+        node_info.kubelet_version = self.kubelet_version;
+        node_info.container_runtime_version = self.container_runtime_version;
+        node_info.operating_system = self.operating_system;
+
+        let mut status: k8s_openapi::api::core::v1::NodeStatus = Default::default();
+        status.node_info = Some(node_info);
+        status.capacity = Some(self.capacity);
+        status.allocatable = Some(self.allocatable);
+        status.daemon_endpoints = Some(k8s_openapi::api::core::v1::NodeDaemonEndpoints {
+            kubelet_endpoint: Some(k8s_openapi::api::core::v1::DaemonEndpoint { port: self.port }),
+        });
+        status.conditions = Some(self.conditions);
+        status.addresses = Some(self.addresses);
+
+        let kube_node = k8s_openapi::api::core::v1::Node {
+            metadata: Some(metadata),
+            spec: Some(spec),
+            status: Some(status),
+        };
+        Node(kube_node)
+    }
+}
+
+impl Default for NodeBuilder {
+    fn default() -> NodeBuilder {
+        NodeBuilder {
+            name: "krustlet".to_string(),
+            annotations: BTreeMap::new(),
+            labels: BTreeMap::new(),
+            pod_cidr: "10.244.0.0/24".to_string(),
+            taints: vec![],
+            architecture: "".to_string(),
+            kube_proxy_version: "v1.17.0".to_string(),
+            kubelet_version: KUBELET_VERSION.to_string(),
+            container_runtime_version: "mvp".to_string(),
+            operating_system: "linux".to_string(),
+            capacity: BTreeMap::new(),
+            allocatable: BTreeMap::new(),
+            port: 10250,
+            conditions: vec![],
+            addresses: vec![],
+        }
+    }
+}
+
+impl Default for Node {
+    fn default() -> Node {
+        Node::builder().build()
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::config::{Config, ServerConfig};
+    use std::collections::HashMap;
     use std::net::{IpAddr, Ipv4Addr};
     use std::path::PathBuf;
 
@@ -487,9 +654,13 @@ mod test {
             },
             data_dir: PathBuf::new(),
             node_labels,
+            max_pods: 110,
         };
 
-        let result = node_labels_definition("linux", &config);
+        let mut builder = Node::builder();
+        node_labels_definition("linux", &config, &mut builder);
+
+        let result = builder.labels;
 
         assert!(result.contains_key("kubernetes.io/role"));
         assert!(result.contains_key("foo"));

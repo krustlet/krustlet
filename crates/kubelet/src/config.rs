@@ -14,6 +14,7 @@ use structopt::StructOpt;
 use std::collections::HashMap;
 
 const DEFAULT_PORT: u16 = 3000;
+const DEFAULT_MAX_PODS: u16 = 110;
 
 /// The configuration needed for a kubelet to run properly.
 ///
@@ -37,6 +38,8 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// Labels to add when registering the node in the cluster
     pub node_labels: HashMap<String, String>,
+    /// The maximum pods for this kubelet (reported to apiserver)
+    pub max_pods: u16,
 }
 /// The configuration for the Kubelet server.
 #[derive(Clone, Debug)]
@@ -65,6 +68,7 @@ impl Config {
             node_labels: HashMap::new(),
             hostname,
             data_dir: default_data_dir()?,
+            max_pods: DEFAULT_MAX_PODS,
             server_config: ServerConfig {
                 addr: match preferred_ip_family {
                     // Just unwrap these because they are programmer error if they
@@ -117,12 +121,16 @@ impl Config {
         let data_dir = opts
             .data_dir
             .unwrap_or_else(|| default_data_dir().expect("unable to get default directory"));
+
+        let max_pods = opts.max_pods;
+
         Config {
             node_ip,
             node_name,
             node_labels,
             hostname,
             data_dir,
+            max_pods,
             server_config: ServerConfig {
                 addr,
                 port,
@@ -172,6 +180,14 @@ pub struct Opts {
         help = "The port krustlet should listen on"
     )]
     port: u16,
+
+    #[structopt(
+        long = "max-pods",
+        default_value = "110",
+        env = "MAX_PODS",
+        help = "The maximum pods for this kubelet (reported to apiserver)"
+    )]
+    max_pods: u16,
 
     #[structopt(
         long = "pfx-path",

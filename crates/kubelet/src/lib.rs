@@ -62,7 +62,8 @@ pub mod volumes;
 
 pub use self::kubelet::Kubelet;
 pub use handle::{LogHandleFactory, PodHandle, RuntimeHandle};
-pub use logs::{LogSendError, LogSender};
+pub use logs::{stream_logs, LogSendError, LogSender};
+pub use node::NodeBuilder;
 pub use pod::Pod;
 #[doc(inline)]
 pub use provider::Provider;

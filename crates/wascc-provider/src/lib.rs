@@ -38,7 +38,7 @@ use kubelet::module_store::ModuleStore;
 use kubelet::provider::ProviderError;
 use kubelet::status::{update_pod_status, ContainerStatus, Phase, Status};
 use kubelet::volumes::VolumeRef;
-use kubelet::{Pod, Provider};
+use kubelet::{NodeBuilder, Pod, Provider};
 use log::{debug, error, info, trace};
 use tempfile::NamedTempFile;
 use tokio::sync::watch::{self, Receiver};
@@ -185,6 +185,12 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
 #[async_trait]
 impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
     const ARCH: &'static str = TARGET_WASM32_WASCC;
+
+    async fn node(&self, builder: &mut NodeBuilder) -> anyhow::Result<()> {
+        builder.set_architecture("wasm-wasi");
+        builder.add_taint("NoExecute", "krustlet/arch", Self::ARCH);
+        Ok(())
+    }
 
     async fn add(&self, pod: Pod) -> anyhow::Result<()> {
         // To run an Add event, we load the actor, and update the pod status
