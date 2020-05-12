@@ -1,12 +1,11 @@
 ///! This library contains code for running a kubelet. Use this to create a new
 ///! Kubelet with a specific handler (called a `Provider`)
 use crate::config::Config;
-use crate::node::{create_node, update_node};
+use crate::node::{cordon_node, create_node, update_node};
 use crate::queue::PodQueue;
 use crate::server::start_webserver;
 use crate::status::{update_pod_status, Phase};
 use crate::Provider;
-
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::{
@@ -15,9 +14,9 @@ use kube::{
     Api,
 };
 use log::{debug, error, warn};
-use tokio::sync::mpsc;
-
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 /// A Kubelet server backed by a given `Provider`.
 ///
@@ -54,6 +53,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
     /// events, which it will handle.
     pub async fn start(&self) -> anyhow::Result<()> {
         let client = kube::Client::new(self.kube_config.clone());
+        let handler_client = client.clone();
         // Create the node. If it already exists, "adopt" the node definition
         create_node(&client, &self.config, self.provider.clone()).await;
 
@@ -138,8 +138,25 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
         // Start the webserver
         let webserver = start_webserver(self.provider.clone(), &self.config.server_config);
 
+        let term = Arc::new(AtomicBool::new(false));
+        signal_hook::flag::register(signal_hook::SIGTERM, Arc::clone(&term))?;
+        let node_name = self.config.node_name.clone();
+        let signal_handler = tokio::task::spawn(async move {
+            let duration = std::time::Duration::from_millis(100);
+            loop {
+                if term.load(Ordering::Relaxed) {
+                    warn!("Signal caught.");
+                    cordon_node(&handler_client, &node_name).await;
+                    // TODO: Evict Pods
+                    // TODO: Delete node
+                    break;
+                }
+                tokio::time::delay_for(duration).await;
+            }
+        });
+
         let threads = async {
-            futures::try_join!(node_updater, pod_informer, error_handler)?;
+            futures::try_join!(node_updater, pod_informer, error_handler, signal_handler)?;
             Ok(())
         };
 

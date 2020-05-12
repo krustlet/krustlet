@@ -166,6 +166,54 @@ pub async fn create_node<P: 'static + Provider + Sync + Send>(
     info!("Successfully created node '{}'", &config.node_name);
 }
 
+pub async fn node_uid(client: &kube::Client, node_name: &str) -> anyhow::Result<String> {
+    let node_client: Api<KubeNode> = Api::all(client.clone());
+    match retry!(node_client.get(node_name).await, times: 4, log_error: |e| error!("Failed to get node to cordon: {:?}", e))
+    {
+        Ok(node) => match node.metadata.and_then(|meta| meta.uid) {
+            Some(uid) => Ok(uid),
+            None => {
+                let err = format!("Node missing metadata or uid {}.", node_name);
+                error!("{}", &err);
+                anyhow::bail!(err);
+            }
+        },
+        Err(e) => {
+            error!("Error fetching node {} id: {:?}.", node_name, e);
+            anyhow::bail!(e);
+        }
+    }
+}
+
+pub async fn cordon_node(client: &kube::Client, node_name: &str) {
+    debug!("Cordining node.");
+    let node_client: Api<KubeNode> = Api::all(client.clone());
+    let patch = serde_json::to_vec(&cordon_patch()).unwrap();
+    let mut params = PatchParams::default();
+    params.patch_strategy = kube::api::PatchStrategy::Merge;
+    let resp = node_client.patch(node_name, &params, patch).await;
+    match &resp {
+        Ok(_) => debug!("Node cordoned '{}'", node_name),
+        Err(e) => error!("Failed to cordon node '{}': {}", node_name, e),
+    }
+}
+
+fn cordon_patch() -> serde_json::Value {
+    serde_json::json!({
+        "apiVersion": "v1",
+        "kind": "Node",
+        "spec": {
+            "taints": [
+                {
+                    "effect": "NoSchedule",
+                    "key": "node.kubernetes.io/unschedulable",
+                    "operator": "Exists"
+                }
+            ]
+        },
+    })
+}
+
 /// Update the timestamps on the Node object.
 ///
 /// This is how we report liveness to the upstream.
@@ -175,11 +223,8 @@ pub async fn create_node<P: 'static + Provider + Sync + Send>(
 /// doing our processing of the pod queue.
 pub async fn update_node(client: &kube::Client, node_name: &str) {
     debug!("Updating node '{}'", node_name);
-    let node_client: Api<KubeNode> = Api::all(client.clone());
-    if let Ok(node) = retry!(node_client.get(node_name).await, times: 4, log_error: |e| error!("Failed to get node to update: {:?}", e))
-    {
+    if let Ok(uid) = node_uid(client, node_name).await {
         debug!("Node to update '{}' fetched.", node_name);
-        let uid = node.metadata.and_then(|m| m.uid).unwrap();
         retry!(update_lease(&uid, node_name, client).await, times: 4)
             .expect("Could not update lease");
     }
