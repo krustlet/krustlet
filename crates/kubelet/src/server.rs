@@ -99,7 +99,7 @@ async fn post_exec<T: 'static + Provider + Send + Sync>(
 ) -> Result<Response<Body>, Infallible> {
     return_with_code(
         StatusCode::NOT_IMPLEMENTED,
-        format!("Exec not implemented."),
+        "Exec not implemented.".to_string(),
     )
 }
 

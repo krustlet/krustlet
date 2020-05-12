@@ -36,7 +36,7 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 anyhow = "1.0"
 tokio = { version = "0.2", features = ["macros"] }
-kube = "0.33"
+kube = "0.34"
 env_logger = "0.7"
 kubelet = { path = "./crates/kubelet", version = "0.2", features = ["cli"] }
 wascc-provider = { path = "./crates/wascc-provider", version = "0.2" }
