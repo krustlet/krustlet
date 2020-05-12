@@ -1,5 +1,5 @@
 [package]
-name = "wascc-provider"
+name = "wasm3-provider"
 version = "0.1.0"
 authors = [
     "Matt Butcher <matt.butcher@microsoft.com>",
@@ -17,7 +17,7 @@ anyhow = "1.0"
 async-trait = "0.1"
 kube = "0.33"
 log = "0.4"
-wasm3 = { git = "https://github.com/Veykril/wasm3-rs.git" }
+wasm3 = { git = "https://github.com/Veykril/wasm3-rs.git", features = ["wasi"] }
 tempfile = "3.1"
 kubelet = { path = "../kubelet", version = "0.1.0" }
 wat = "1.0"
@@ -28,4 +28,3 @@ k8s-openapi = { version = "0.7", features = ["v1_17"] }
 
 [dev-dependencies]
 oci-distribution = { path = "../oci-distribution", version = "0.1.0" }
-

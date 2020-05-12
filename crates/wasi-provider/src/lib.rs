@@ -20,7 +20,7 @@
 //!
 //!     // Instantiate the provider type
 //!     let provider = WasiProvider::new(store, &kubelet_config, kubeconfig.clone()).await.unwrap();
-//!     
+//!
 //!     // Instantiate the Kubelet
 //!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config);
 //!     // Start the Kubelet and block on it

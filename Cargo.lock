@@ -937,6 +937,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cty"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7313c0d620d0cb4dbd9d019e461a4beb501071ff46ec0ab933efb4daa76d73e3"
+
+[[package]]
 name = "curve25519-dalek"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1697,6 +1703,7 @@ dependencies = [
  "tokio",
  "wascc-provider",
  "wasi-provider",
+ "wasm3-provider",
 ]
 
 [[package]]
@@ -3808,6 +3815,43 @@ name = "wasm-bindgen-shared"
 version = "0.2.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "daf76fe7d25ac79748a37538b7daeed1c7a6867c92d3245c12c6222e4a20d639"
+
+[[package]]
+name = "wasm3"
+version = "0.1.0"
+source = "git+https://github.com/Veykril/wasm3-rs.git#1a26fdafdb363c303ba791e84947f0204260d28f"
+dependencies = [
+ "cty",
+ "wasm3-sys",
+]
+
+[[package]]
+name = "wasm3-provider"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures",
+ "k8s-openapi",
+ "kube",
+ "kubelet",
+ "log",
+ "oci-distribution",
+ "tempfile",
+ "tokio",
+ "wasm3",
+ "wat",
+]
+
+[[package]]
+name = "wasm3-sys"
+version = "0.1.0"
+source = "git+https://github.com/Veykril/wasm3-rs.git#1a26fdafdb363c303ba791e84947f0204260d28f"
+dependencies = [
+ "cc",
+ "cty",
+]
 
 [[package]]
 name = "wasmparser"
