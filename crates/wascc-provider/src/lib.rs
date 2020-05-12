@@ -82,6 +82,7 @@ pub struct ActorStopper {
     /// The public key of the wascc Actor that will be stopped
     pub key: String,
     host: Arc<Mutex<WasccHost>>,
+    volumes: Vec<VolumeBinding>,
 }
 
 #[async_trait::async_trait]
@@ -90,11 +91,16 @@ impl Stop for ActorStopper {
         debug!("stopping wascc instance {}", self.key);
         let host = self.host.clone();
         let key = self.key.clone();
+        let volumes: Vec<VolumeBinding> = self.volumes.drain(0..).collect();
         tokio::task::spawn_blocking(move || {
-            host.lock()
-                .unwrap()
-                .remove_actor(&key)
-                .map_err(|e| anyhow::anyhow!("unable to remove actor: {:?}", e))
+            let lock = host.lock().unwrap();
+            lock.remove_actor(&key)
+                .map_err(|e| anyhow::anyhow!("unable to remove actor: {:?}", e))?;
+            for volume in volumes.into_iter() {
+                lock.remove_native_capability(FS_CAPABILITY, Some(volume.name))
+                    .map_err(|e| anyhow::anyhow!("unable to remove volume capability: {:?}", e))?;
+            }
+            Ok(())
         })
         .await?
     }
@@ -540,7 +546,11 @@ fn wascc_run(
 
     info!("wascc actor executing");
     Ok(RuntimeHandle::new(
-        ActorStopper { host, key: pk },
+        ActorStopper {
+            host,
+            key: pk,
+            volumes,
+        },
         log_handle_factory,
         status_recv,
     ))
