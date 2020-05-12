@@ -120,7 +120,7 @@ by the context (`krustlet`) that we created in that step. Unfortunately, it's no
 reference a specific context, so we must change the context before running Krustlet:
 
 ```shell
-$ microk8s.kubectl use context ${CONTEXT}
+$ microk8s.kubectl config use-context ${CONTEXT}
 Switched to context "krustlet".
 ```
 
