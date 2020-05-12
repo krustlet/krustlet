@@ -24,7 +24,7 @@ keywords = [
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-reqwest = { version = "0.10", features = ["json", "stream"] }
+reqwest = { version = "0.10", default-features=false, features = ["json", "stream", "rustls-tls"] }
 anyhow = "1.0"
 tokio = {version  = "0.2", features = ["macros", "fs"] }
 serde = { version = "1.0", features = ["derive"] }
