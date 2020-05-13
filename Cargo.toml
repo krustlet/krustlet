@@ -33,15 +33,20 @@ exclude = [
 [badges]
 maintenance = { status = "actively-developed" }
 
+[features]
+default = ["native-tls"]
+native-tls = ["kube/native-tls", "kubelet/kube-native-tls", "wasi-provider/native-tls", "wascc-provider/native-tls", "oci-distribution/native-tls"]
+rustls-tls = ["kube/rustls-tls", "kubelet/rustls-tls", "wasi-provider/rustls-tls", "wascc-provider/rustls-tls", "oci-distribution/rustls-tls"]
+
 [dependencies]
 anyhow = "1.0"
 tokio = { version = "0.2", features = ["macros"] }
-kube = { version= "0.34", default-features = false, features = ["rustls-tls"] }
+kube = { version= "0.34", default-features = false }
 env_logger = "0.7"
-kubelet = { path = "./crates/kubelet", version = "0.2", features = ["cli"] }
-wascc-provider = { path = "./crates/wascc-provider", version = "0.2" }
-wasi-provider = { path = "./crates/wasi-provider", version = "0.2" }
-oci-distribution = { path = "./crates/oci-distribution", version = "0.1" }
+kubelet = { path = "./crates/kubelet", version = "0.2", default-features = false, features = ["cli"] }
+wascc-provider = { path = "./crates/wascc-provider", version = "0.2", default-features = false }
+wasi-provider = { path = "./crates/wasi-provider", version = "0.2", default-features = false }
+oci-distribution = { path = "./crates/oci-distribution", version = "0.1", default-features = false }
 
 [dev-dependencies]
 futures = "0.3"
