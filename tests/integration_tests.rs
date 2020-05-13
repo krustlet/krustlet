@@ -174,10 +174,7 @@ async fn verify_wasi_node(node: Node) -> () {
     );
 }
 
-async fn create_wasi_pod(
-    client: kube::Client,
-    pods: &Api<Pod>,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn create_wasi_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
     // Create a temp directory to use for the host path
     let tempdir = tempfile::tempdir()?;
     let p = serde_json::from_value(json!({
@@ -279,9 +276,7 @@ async fn create_wasi_pod(
     Ok(())
 }
 
-async fn set_up_wasi_test_environment(
-    client: kube::Client,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn set_up_wasi_test_environment(client: kube::Client) -> anyhow::Result<()> {
     let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
     secrets
         .create(
@@ -355,7 +350,7 @@ impl Drop for WasiTestResourceCleaner {
 }
 
 #[tokio::test]
-async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
+async fn test_wasi_provider() -> anyhow::Result<()> {
     let client = kube::Client::try_default().await?;
 
     let nodes: Api<Node> = Api::all(client);
@@ -399,7 +394,7 @@ async fn assert_pod_log_equals(
     pods: &Api<Pod>,
     pod_name: &str,
     expected_log: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let mut logs = pods.log_stream(pod_name, &LogParams::default()).await?;
 
     while let Some(line) = logs.try_next().await? {
@@ -409,10 +404,7 @@ async fn assert_pod_log_equals(
     Ok(())
 }
 
-async fn assert_pod_exited_successfully(
-    pods: &Api<Pod>,
-    pod_name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn assert_pod_exited_successfully(pods: &Api<Pod>, pod_name: &str) -> anyhow::Result<()> {
     let pod = pods.get(pod_name).await?;
 
     let state = (|| {
@@ -432,7 +424,7 @@ async fn assert_container_file_contains(
     container_file_path: &str,
     expected_content: &str,
     file_error: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let file_path_base = dirs::home_dir()
         .expect("home dir does not exist")
         .join(".krustlet/volumes/hello-wasi-default");
