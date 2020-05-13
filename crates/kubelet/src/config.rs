@@ -3,6 +3,7 @@
 //! The best way to configure the kubelet is by using [`Config::default_config`]
 //! or by turning on the "cli" feature and using [`Config::new_from_flags`].
 
+use std::iter::FromIterator;
 use std::net::IpAddr;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
@@ -53,6 +54,32 @@ pub struct ServerConfig {
     pub tls_private_key_file: PathBuf,
 }
 
+#[derive(Clone, Debug, Default)]
+struct ConfigBuilder {
+    // TODO: consider if these should all be plain strings so we don't have to
+    // parse them until we are ready to build (relevant for overrides in the
+    // case where a value is invalid). Otherwise perhaps they should be Results
+    // rather than Options.
+    pub node_ip: Option<IpAddr>,
+    pub hostname: Option<String>,
+    pub node_name: Option<String>,
+    pub data_dir: Option<PathBuf>,
+    pub node_labels: Option<HashMap<String, String>>,
+    pub max_pods: Option<u16>,
+    pub server_addr: Option<IpAddr>,
+    pub server_port: Option<u16>,
+    pub server_tls_cert_file: Option<PathBuf>,
+    pub server_tls_private_key_file: Option<PathBuf>,
+}
+
+struct ConfigBuilderFallbacks {
+    hostname: fn() -> String,
+    data_dir: fn() -> PathBuf,
+    cert_path: fn(data_dir: &PathBuf) -> PathBuf,
+    key_path: fn(data_dir: &PathBuf) -> PathBuf,
+    node_ip: fn(hostname: &mut String, preferred_ip_family: &IpAddr) -> IpAddr,
+}
+
 impl Config {
     /// Returns a Config object set with all of the defaults.
     ///
@@ -85,65 +112,60 @@ impl Config {
         })
     }
 
+    fn new_from_builder(builder: ConfigBuilder) -> Self {
+        let fallbacks = ConfigBuilderFallbacks {
+            hostname: || default_hostname().expect("unable to get default hostname"),
+            data_dir: || default_data_dir().expect("unable to get default data directory"),
+            cert_path: default_cert_path,
+            key_path: default_key_path,
+            node_ip: |hn, ip| default_node_ip(hn, ip).expect("unable to get default node IP"),
+        };
+        ConfigBuilder::build(builder, fallbacks)
+    }
+
+    /// Parses the krustlet-config file and sets the proper defaults
+    pub fn new_from_file_only(filename: &str) -> Self {
+        let source = config_file::File::with_name(filename);
+        let builder = ConfigBuilder::from_config_source(source);
+        Config::new_from_builder(builder)
+    }
+
     /// Parses all command line flags and sets the proper defaults. The version
     /// of your application should be passed to set the proper version for the CLI
     #[cfg(any(feature = "cli", feature = "docs"))]
     #[cfg_attr(feature = "docs", doc(cfg(feature = "cli")))]
-    pub fn new_from_flags(version: &str) -> Self {
-        // TODO: Support config files too. config-rs and clap don't just work
-        // together, so there is no easy way to merge together everything right
-        // now. This function is here so we can do that data massaging and
-        // merging down the road
+    pub fn new_from_flags_only(version: &str) -> Self {
         let app = Opts::clap().version(version);
         let opts = Opts::from_clap(&app.get_matches());
-        // Copy the addr to avoid a partial move when computing node_ip
-        let addr = opts.addr;
-        let hostname = opts
-            .hostname
-            .unwrap_or_else(|| default_hostname().expect("unable to get default hostname"));
-        let node_ip = opts.node_ip.unwrap_or_else(|| {
-            default_node_ip(&mut hostname.clone(), &addr)
-                .expect("unable to get default node IP address")
-        });
-        let node_name = opts
-            .node_name
-            .unwrap_or_else(|| sanitize_hostname(&hostname));
+        let builder = ConfigBuilder::from_opts(opts);
+        Config::new_from_builder(builder)
+    }
 
-        let node_labels = opts
-            .node_labels
-            .iter()
-            .filter_map(|i| split_one_label(i))
-            .collect();
+    /// Parses any present config file and command line flags and sets the proper defaults. The version
+    /// of your application should be passed to set the proper version for CLI flags
+    #[cfg(any(feature = "cli", feature = "docs"))]
+    #[cfg_attr(feature = "docs", doc(cfg(feature = "cli")))]
+    pub fn new_from_file_and_flags(version: &str, filename: &str) -> Self {
+        let config_source = config_file::File::with_name(filename);
+        Config::new_from_file_and_flags_impl(version, config_source)
+    }
 
-        let port = opts.port;
+    #[cfg(any(feature = "cli", feature = "docs"))]
+    #[cfg_attr(feature = "docs", doc(cfg(feature = "cli")))]
+    fn new_from_file_and_flags_impl<T>(version: &str, config_source: T) -> Self
+    where
+        T: 'static,
+        T: config_file::Source + Send + Sync,
+    {
+        // TODO: reduce duplication
+        let app = Opts::clap().version(version);
+        let opts = Opts::from_clap(&app.get_matches());
+        let cli_builder = ConfigBuilder::from_opts(opts);
 
-        let data_dir = opts
-            .data_dir
-            .unwrap_or_else(|| default_data_dir().expect("unable to get default directory"));
+        let config_file_builder = ConfigBuilder::from_config_source(config_source);
 
-        let tls_cert_file = opts
-            .tls_cert_file
-            .unwrap_or_else(|| default_cert_path(&data_dir));
-        let tls_private_key_file = opts
-            .tls_private_key_file
-            .unwrap_or_else(|| default_key_path(&data_dir));
-
-        let max_pods = opts.max_pods;
-
-        Config {
-            node_ip,
-            node_name,
-            node_labels,
-            hostname,
-            data_dir,
-            max_pods,
-            server_config: ServerConfig {
-                addr,
-                port,
-                tls_cert_file,
-                tls_private_key_file,
-            },
-        }
+        let builder = config_file_builder.with_override(cli_builder);
+        Config::new_from_builder(builder)
     }
 }
 
@@ -156,6 +178,136 @@ impl Default for Config {
         )
         .expect("Could not create default config")
     }
+}
+
+impl ConfigBuilder {
+    fn from_opts(opts: Opts) -> Self {
+        let node_labels: Vec<(String, String)> = opts
+            .node_labels
+            .iter()
+            .filter_map(|i| split_one_label(i))
+            .collect();
+
+        ConfigBuilder {
+            node_ip: opts.node_ip,
+            node_name: opts.node_name,
+            node_labels: if node_labels.is_empty() {
+                None
+            } else {
+                Some(HashMap::from_iter(node_labels))
+            },
+            hostname: opts.hostname,
+            data_dir: opts.data_dir,
+            max_pods: opts.max_pods,
+            server_addr: opts.addr,
+            server_port: opts.port,
+            server_tls_cert_file: opts.tls_cert_file,
+            server_tls_private_key_file: opts.tls_private_key_file,
+        }
+    }
+
+    // TODO: probably need to surface errors rather than just defaulting,
+    // e.g. JSON parse error
+    fn from_config_source<T>(source: T) -> ConfigBuilder
+    where
+        T: 'static,
+        T: config_file::Source + Send + Sync,
+    {
+        let mut settings = config_file::Config::default();
+        match settings.merge(source) {
+            Ok(s) => ConfigBuilder::from_config_settings(s.clone()),
+            Err(_) => ConfigBuilder::default(),
+        }
+    }
+
+    fn from_config_settings(settings: config_file::Config) -> ConfigBuilder {
+        let port = settings
+            .get_str("port")
+            .ok()
+            .and_then(|s| s.parse::<u16>().ok());
+        let max_pods = settings
+            .get_str("max_pods")
+            .ok()
+            .and_then(|s| s.parse::<u16>().ok());
+        let node_labels: Option<HashMap<String, String>> =
+            settings.get_table("node_labels").map(stringise_values).ok();
+
+        ConfigBuilder {
+            hostname: settings.get_str("hostname").ok(),
+            data_dir: settings.get_str("data_dir").map(PathBuf::from).ok(),
+            node_ip: settings
+                .get_str("node_ip")
+                .ok()
+                .and_then(|s| s.parse().ok()),
+            node_labels,
+            node_name: settings.get_str("node_name").ok(),
+            max_pods,
+            server_addr: settings.get_str("addr").ok().and_then(|s| s.parse().ok()),
+            server_port: port,
+            server_tls_cert_file: settings.get_str("tls_cert_file").map(PathBuf::from).ok(),
+            server_tls_private_key_file: settings
+                .get_str("tls_private_key_file")
+                .map(PathBuf::from)
+                .ok(),
+        }
+    }
+
+    fn with_override(self: Self, other: Self) -> Self {
+        ConfigBuilder {
+            node_ip: other.node_ip.or(self.node_ip),
+            node_name: other.node_name.or(self.node_name),
+            node_labels: other.node_labels.or(self.node_labels),
+            hostname: other.hostname.or(self.hostname),
+            data_dir: other.data_dir.or(self.data_dir),
+            max_pods: other.max_pods.or(self.max_pods),
+            server_addr: other.server_addr.or(self.server_addr),
+            server_port: other.server_port.or(self.server_port),
+            server_tls_cert_file: other.server_tls_cert_file.or(self.server_tls_cert_file),
+            server_tls_private_key_file: other
+                .server_tls_private_key_file
+                .or(self.server_tls_private_key_file),
+        }
+    }
+
+    fn build(self: Self, fallbacks: ConfigBuilderFallbacks) -> Config {
+        let empty_ip_addr = IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0));
+
+        let hostname = self.hostname.unwrap_or_else(fallbacks.hostname);
+        let data_dir = self.data_dir.unwrap_or_else(fallbacks.data_dir);
+        let server_addr = self.server_addr.unwrap_or(empty_ip_addr);
+        let server_tls_cert_file = self
+            .server_tls_cert_file
+            .unwrap_or_else(|| (fallbacks.cert_path)(&data_dir));
+        let server_tls_private_key_file = self
+            .server_tls_private_key_file
+            .unwrap_or_else(|| (fallbacks.key_path)(&data_dir));
+        let node_ip = self
+            .node_ip
+            .unwrap_or_else(|| (fallbacks.node_ip)(&mut hostname.clone(), &server_addr));
+        let node_name = self
+            .node_name
+            .unwrap_or_else(|| sanitize_hostname(&hostname));
+
+        Config {
+            node_ip,
+            node_name,
+            node_labels: self.node_labels.unwrap_or_else(HashMap::new),
+            hostname,
+            data_dir,
+            max_pods: self.max_pods.unwrap_or(110),
+            server_config: ServerConfig {
+                tls_cert_file: server_tls_cert_file,
+                tls_private_key_file: server_tls_private_key_file,
+                addr: server_addr,
+                port: self.server_port.unwrap_or(3000),
+            },
+        }
+    }
+}
+
+fn stringise_values(t: HashMap<String, config_file::Value>) -> HashMap<String, String> {
+    let stringised = t.iter().map(|(k, v)| (k.clone(), format!("{}", v)));
+    HashMap::from_iter(stringised)
 }
 
 /// CLI options that can be configured for Kubelet
@@ -172,28 +324,25 @@ pub struct Opts {
     #[structopt(
         short = "a",
         long = "addr",
-        default_value = "0.0.0.0",
         env = "KRUSTLET_ADDRESS",
         help = "The address krustlet should listen on"
     )]
-    addr: IpAddr,
+    addr: Option<IpAddr>,
 
     #[structopt(
         short = "p",
         long = "port",
-        default_value = "3000",
         env = "KRUSTLET_PORT",
         help = "The port krustlet should listen on"
     )]
-    port: u16,
+    port: Option<u16>,
 
     #[structopt(
         long = "max-pods",
-        default_value = "110",
         env = "MAX_PODS",
         help = "The maximum pods for this kubelet (reported to apiserver)"
     )]
-    max_pods: u16,
+    max_pods: Option<u16>,
 
     #[structopt(
         long = "tls-cert-file",
@@ -327,5 +476,233 @@ fn split_one_label(in_string: &str) -> Option<(String, String)> {
             Some(val) => Some((key.to_string(), val.to_string())),
             None => Some((key.to_string(), String::new())),
         },
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn builder_from_json_string(json: &str) -> ConfigBuilder {
+        let source = config_file::File::from_str(json, config_file::FileFormat::Json);
+        ConfigBuilder::from_config_source(source)
+    }
+
+    fn fallbacks() -> ConfigBuilderFallbacks {
+        ConfigBuilderFallbacks {
+            node_ip: |_, _| IpAddr::V4(std::net::Ipv4Addr::new(4, 4, 4, 4)),
+            hostname: || "fallback-hostname".to_owned(),
+            data_dir: || PathBuf::from("/fallback/data/dir"),
+            cert_path: |_| PathBuf::from("/fallback/cert/path"),
+            key_path: |_| PathBuf::from("/fallback/key/path"),
+        }
+    }
+
+    #[test]
+    fn config_file_inputs_are_respected_if_present() {
+        let config_builder = builder_from_json_string(
+            r#"{
+            "port": "1234",
+            "addr": "172.182.192.1",
+            "hostname": "krusty-host",
+            "data_dir": "/krusty/data/dir",
+            "max_pods": "400",
+            "node_ip": "173.183.193.2",
+            "node_labels": {
+                "label1": "val1",
+                "label2": "val2"
+            },
+            "node_name": "krusty-node",
+            "tls_cert_file": "/my/secure/cert.pfx",
+            "tls_private_key_file": "/the/key"
+        }"#,
+        );
+        let config = config_builder.build(fallbacks());
+        assert_eq!(config.server_config.port, 1234);
+        assert_eq!(format!("{}", config.server_config.addr), "172.182.192.1");
+        assert_eq!(
+            config.server_config.tls_cert_file.to_string_lossy(),
+            "/my/secure/cert.pfx"
+        );
+        assert_eq!(
+            config.server_config.tls_private_key_file.to_string_lossy(),
+            "/the/key"
+        );
+        assert_eq!(config.node_name, "krusty-node");
+        assert_eq!(config.hostname, "krusty-host");
+        assert_eq!(config.data_dir.to_string_lossy(), "/krusty/data/dir");
+        assert_eq!(format!("{}", config.node_ip), "173.183.193.2");
+        assert_eq!(config.max_pods, 400);
+        assert_eq!(config.node_labels.len(), 2);
+        assert_eq!(config.node_labels.get("label1"), Some(&("val1".to_owned())));
+    }
+
+    #[test]
+    fn config_fallbacks_are_respected() {
+        let config_builder = builder_from_json_string(
+            r#"{
+            "port": "2345",
+            "addr": "173.183.193.2",
+            "node_labels": {
+                "label": "val"
+            },
+            "node_name": "krustsome-node"
+        }"#,
+        );
+        let config = config_builder.build(fallbacks());
+        assert_eq!(config.server_config.port, 2345);
+        assert_eq!(format!("{}", config.server_config.addr), "173.183.193.2");
+        assert_eq!(
+            config.server_config.tls_cert_file.to_string_lossy(),
+            "/fallback/cert/path"
+        );
+        assert_eq!(
+            config.server_config.tls_private_key_file.to_string_lossy(),
+            "/fallback/key/path"
+        );
+        assert_eq!(config.node_name, "krustsome-node");
+        assert_eq!(config.hostname, "fallback-hostname");
+        assert_eq!(config.data_dir.to_string_lossy(), "/fallback/data/dir");
+        assert_eq!(format!("{}", config.node_ip), "4.4.4.4");
+        assert_eq!(config.node_labels.get("label"), Some(&("val".to_owned())));
+    }
+
+    #[test]
+    fn defaults_are_respected() {
+        let config_builder = builder_from_json_string(
+            r#"{
+        }"#,
+        );
+        let config = config_builder.build(fallbacks());
+        assert_eq!(config.server_config.port, 3000);
+        assert_eq!(config.max_pods, 110);
+        assert_eq!(format!("{}", config.server_config.addr), "0.0.0.0");
+        assert_eq!(
+            config.server_config.tls_cert_file.to_string_lossy(),
+            "/fallback/cert/path"
+        );
+        assert_eq!(
+            config.server_config.tls_private_key_file.to_string_lossy(),
+            "/fallback/key/path"
+        );
+        assert_eq!(config.node_name, "fallback-hostname");
+        assert_eq!(config.hostname, "fallback-hostname");
+        assert_eq!(config.data_dir.to_string_lossy(), "/fallback/data/dir");
+        assert_eq!(format!("{}", config.node_ip), "4.4.4.4");
+        assert_eq!(config.node_labels.len(), 0);
+    }
+
+    #[test]
+    fn derived_defaults_are_respected() {
+        let config_builder = builder_from_json_string(
+            r#"{
+                "hostname": "k"
+        }"#,
+        );
+        let config = config_builder.build(fallbacks());
+        assert_eq!(config.node_name, "k");
+        assert_eq!(config.hostname, "k");
+    }
+
+    #[test]
+    fn merging_overrides_all_values() {
+        let base_values = builder_from_json_string(
+            r#"{
+            "port": "1234",
+            "addr": "172.182.192.1",
+            "hostname": "krusty-host",
+            "data_dir": "/krusty/data/dir",
+            "node_ip": "173.183.193.2",
+            "node_labels": {
+                "label1": "val1",
+                "label2": "val2"
+            },
+            "node_name": "krusty-node",
+            "tls_cert_file": "/my/secure/cert.pfx",
+            "tls_private_key_file": "/the/key"
+        }"#,
+        );
+        let override_values = builder_from_json_string(
+            r#"{
+            "port": "5678",
+            "addr": "171.181.191.21",
+            "hostname": "krusty-host-2",
+            "data_dir": "/krusty/data/dir/2",
+            "node_ip": "173.183.193.22",
+            "node_labels": {
+                "label21": "val21",
+                "label22": "val22"
+            },
+            "node_name": "krusty-node-2",
+            "tls_cert_file": "/my/secure/cert-2.pfx",
+            "tls_private_key_file": "/the/2nd/key"
+        }"#,
+        );
+        let config_builder = base_values.with_override(override_values);
+        let config = config_builder.build(fallbacks());
+        assert_eq!(config.server_config.port, 5678);
+        assert_eq!(format!("{}", config.server_config.addr), "171.181.191.21");
+        assert_eq!(
+            config.server_config.tls_cert_file.to_string_lossy(),
+            "/my/secure/cert-2.pfx"
+        );
+        assert_eq!(
+            config.server_config.tls_private_key_file.to_string_lossy(),
+            "/the/2nd/key"
+        );
+        assert_eq!(config.node_name, "krusty-node-2");
+        assert_eq!(config.hostname, "krusty-host-2");
+        assert_eq!(config.data_dir.to_string_lossy(), "/krusty/data/dir/2");
+        assert_eq!(format!("{}", config.node_ip), "173.183.193.22");
+        assert_eq!(config.node_labels.len(), 2);
+        assert_eq!(
+            config.node_labels.get("label21"),
+            Some(&("val21".to_owned()))
+        );
+    }
+
+    #[test]
+    fn merging_respects_non_overridden_values() {
+        let base_values = builder_from_json_string(
+            r#"{
+            "port": "1234",
+            "addr": "172.182.192.1",
+            "hostname": "krusty-host",
+            "data_dir": "/krusty/data/dir",
+            "node_ip": "173.183.193.2",
+            "node_labels": {
+                "label1": "val1",
+                "label2": "val2"
+            },
+            "node_name": "krusty-node",
+            "tls_cert_file": "/my/secure/cert.pfx",
+            "tls_private_key_file": "/the/key"
+        }"#,
+        );
+        let override_values = builder_from_json_string(
+            r#"{
+            "port": "2345",
+            "node_name": "krusterrific-node",
+            "tls_private_key_file": "/the/other/key"
+        }"#,
+        );
+        let config_builder = base_values.with_override(override_values);
+        let config = config_builder.build(fallbacks());
+        assert_eq!(config.server_config.port, 2345);
+        assert_eq!(format!("{}", config.server_config.addr), "172.182.192.1");
+        assert_eq!(
+            config.server_config.tls_cert_file.to_string_lossy(),
+            "/my/secure/cert.pfx"
+        );
+        assert_eq!(
+            config.server_config.tls_private_key_file.to_string_lossy(),
+            "/the/other/key"
+        );
+        assert_eq!(config.node_name, "krusterrific-node");
+        assert_eq!(config.hostname, "krusty-host");
+        assert_eq!(config.data_dir.to_string_lossy(), "/krusty/data/dir");
+        assert_eq!(format!("{}", config.node_ip), "173.183.193.2");
+        assert_eq!(config.node_labels.len(), 2);
+        assert_eq!(config.node_labels.get("label1"), Some(&("val1".to_owned())));
     }
 }
