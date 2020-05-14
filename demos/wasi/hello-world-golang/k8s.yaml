@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hello-world-wasi-golang
+data:
+  myval: "cool stuff"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hello-world-wasi-golang
+spec:
+  containers:
+    - name: hello-world-wasi-golang
+      image: webassembly.azurecr.io/hello-world-wasi-golang:v0.1.0
+      args:
+        - arg1
+        - arg2
+      env:
+        - name: FOO
+          value: bar
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: CONFIG_MAP_VAL
+          valueFrom:
+            configMapKeyRef:
+              key: myval
+              name: hello-world-wasi-golang
+  tolerations:
+    - key: "krustlet/arch"
+      operator: "Equal"
+      value: "wasm32-wasi"
+      effect: "NoExecute"
