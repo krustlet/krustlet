@@ -326,12 +326,13 @@ impl ClientProtocol {
 /// A token granted during the OAuth2-like workflow for OCI registries.
 #[derive(serde::Deserialize, Default)]
 struct RegistryToken {
-    access_token: String,
+    #[serde(alias = "access_token")]
+    token: String,
 }
 
 impl RegistryToken {
     fn bearer_token(&self) -> String {
-        format!("Bearer {}", self.access_token)
+        format!("Bearer {}", self.token)
     }
 }
 
@@ -412,7 +413,7 @@ mod test {
 
         let tok = c.token.expect("token is available");
         // We test that the token is longer than a minimal hash.
-        assert!(tok.access_token.len() > 64);
+        assert!(tok.token.len() > 64);
     }
 
     #[tokio::test]
