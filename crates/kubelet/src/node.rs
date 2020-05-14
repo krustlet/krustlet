@@ -1,16 +1,17 @@
 use crate::config::Config;
 use crate::provider::Provider;
 use chrono::prelude::*;
+use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::coordination::v1::Lease;
 use k8s_openapi::api::core::v1::Node as KubeNode;
+use k8s_openapi::api::core::v1::Pod;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
-use kube::api::{Api, DeleteParams, PatchParams, PostParams};
+use kube::api::{Api, DeleteParams, ListParams, PatchParams, PostParams};
 use kube::error::ErrorResponse;
 use kube::Error;
 use log::{debug, error, info, warn};
 use std::collections::BTreeMap;
 use std::sync::Arc;
-
 const KUBELET_VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 macro_rules! retry {
@@ -166,6 +167,7 @@ pub async fn create_node<P: 'static + Provider + Sync + Send>(
     info!("Successfully created node '{}'", &config.node_name);
 }
 
+/// Fetch the uid of a node by name.
 pub async fn node_uid(client: &kube::Client, node_name: &str) -> anyhow::Result<String> {
     let node_client: Api<KubeNode> = Api::all(client.clone());
     match retry!(node_client.get(node_name).await, times: 4, log_error: |e| error!("Failed to get node to cordon: {:?}", e))
@@ -185,33 +187,102 @@ pub async fn node_uid(client: &kube::Client, node_name: &str) -> anyhow::Result<
     }
 }
 
-pub async fn cordon_node(client: &kube::Client, node_name: &str) {
-    debug!("Cordining node.");
-    let node_client: Api<KubeNode> = Api::all(client.clone());
-    let patch = serde_json::to_vec(&cordon_patch()).unwrap();
-    let mut params = PatchParams::default();
-    params.patch_strategy = kube::api::PatchStrategy::Merge;
-    let resp = node_client.patch(node_name, &params, patch).await;
-    match &resp {
-        Ok(_) => debug!("Node cordoned '{}'", node_name),
-        Err(e) => error!("Failed to cordon node '{}': {}", node_name, e),
-    }
+/// Cordons node and evicts all pods.
+pub async fn drain_node(client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
+    cordon_node(client, node_name).await?;
+    evict_pods(client, node_name).await?;
+    Ok(())
 }
 
-fn cordon_patch() -> serde_json::Value {
-    serde_json::json!({
-        "apiVersion": "v1",
-        "kind": "Node",
-        "spec": {
-            "taints": [
-                {
-                    "effect": "NoSchedule",
-                    "key": "node.kubernetes.io/unschedulable",
-                    "operator": "Exists"
+/// Fetches list of pods on this node and deletes them.
+pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
+    let pod_client: Api<Pod> = Api::all(client.clone());
+    let node_selector = format!("spec.nodeName={}", node_name);
+    let params = ListParams {
+        field_selector: Some(node_selector),
+        ..Default::default()
+    };
+    let kube::api::ObjectList { items: pods, .. } = pod_client.list(&params).await?;
+
+    warn!("Evicting {} pods.", pods.len());
+
+    // TODO: Filter mirror pods,daemonsets, kube-system?
+    for pod in &pods {
+        if let Some(name) = pod.metadata.as_ref().and_then(|meta| meta.name.as_ref()) {
+            let namespace = pod
+                .metadata
+                .as_ref()
+                .and_then(|meta| meta.namespace.clone())
+                .unwrap_or_else(|| "default".to_owned());
+            match evict_pod(&client, name, &namespace).await {
+                Ok(_) => (),
+                Err(e) => {
+                    // Absorb the error and attempt to delete other pods with best effort.
+                    error!("Error evicting pod: {:?}", e)
                 }
-            ]
+            }
+        } else {
+            error!("Pod with no name: {:?}", pod.metadata);
+        }
+    }
+    Ok(())
+}
+
+async fn evict_pod(client: &kube::Client, name: &str, namespace: &str) -> anyhow::Result<()> {
+    let ns_client: Api<Pod> = Api::namespaced(client.clone(), namespace);
+    let lp = ListParams::default()
+        .fields(&format!("metadata.name={}", name))
+        .fields(&format!("metadata.namespace={}", namespace));
+
+    // The delete call may return a "pending" response, we must watch for the actual delete event.
+    // TODO Timeout?
+    let mut stream = ns_client.watch(&lp, "0").await?.boxed();
+
+    warn!("Evicting namespace '{}' pod '{}'", namespace, name);
+    let params = Default::default();
+    let response = ns_client.delete(name, &params).await?;
+
+    if response.is_left() {
+        warn!("Waiting for pod '{}' eviction.", name);
+        while let Some(status) = stream.try_next().await? {
+            match status {
+                kube::api::WatchEvent::Deleted(_) => {
+                    warn!("Pod '{}' evicted: {:?}", name, status);
+                    break;
+                }
+                _ => (),
+            }
+        }
+    } else {
+        warn!("Pod '{}' evicted.", name);
+    }
+    Ok(())
+}
+
+/// Deregister this node with the kube-apiserver.
+pub async fn delete_node(client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
+    warn!("Deleting node {}", node_name);
+    let params = Default::default();
+    let node_client: Api<KubeNode> = Api::all(client.clone());
+    let response = node_client.delete(node_name, &params).await?;
+    warn!("Node deleted: {:?}", response);
+    Ok(())
+}
+
+/// Mark this node as unschedulable.
+pub async fn cordon_node(client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
+    warn!("Cordoning node.");
+    let node_client: Api<KubeNode> = Api::all(client.clone());
+    let patch = serde_json::to_vec(&serde_json::json!({
+        "spec": {
+            "unschedulable": true
         },
-    })
+    }))?;
+    let mut params = PatchParams::default();
+    params.patch_strategy = kube::api::PatchStrategy::Merge;
+    let response = node_client.patch(node_name, &params, patch).await?;
+    warn!("Node cordoned '{}': {:?}", node_name, &response);
+    Ok(())
 }
 
 /// Update the timestamps on the Node object.
