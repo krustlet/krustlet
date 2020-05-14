@@ -131,14 +131,7 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
-    let client = kube::Client::try_default().await?;
-
-    let nodes: Api<Node> = Api::all(client);
-
-    let node = nodes.get("krustlet-wasi").await?;
-
+async fn verify_wasi_node(node: Node) -> () {
     let node_status = node.status.expect("node reported no status");
     assert_eq!(
         node_status
@@ -179,44 +172,11 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         }
     );
+}
 
-    let client: kube::Client = nodes.into();
-    let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
-    secrets
-        .create(
-            &PostParams::default(),
-            &serde_json::from_value(json!({
-                "apiVersion": "v1",
-                "kind": "Secret",
-                "metadata": {
-                    "name": "hello-wasi-secret"
-                },
-                "stringData": {
-                    "myval": "a cool secret"
-                }
-            }))?,
-        )
-        .await?;
-
-    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), "default");
-    config_maps
-        .create(
-            &PostParams::default(),
-            &serde_json::from_value(json!({
-                "apiVersion": "v1",
-                "kind": "ConfigMap",
-                "metadata": {
-                    "name": "hello-wasi-configmap"
-                },
-                "data": {
-                    "myval": "a cool configmap"
-                }
-            }))?,
-        )
-        .await?;
+async fn create_wasi_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
     // Create a temp directory to use for the host path
     let tempdir = tempfile::tempdir()?;
-    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
         "kind": "Pod",
@@ -313,13 +273,139 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
 
     assert!(went_ready, "pod never went ready");
 
-    let mut logs = pods.log_stream("hello-wasi", &LogParams::default()).await?;
+    Ok(())
+}
+
+async fn set_up_wasi_test_environment(client: kube::Client) -> anyhow::Result<()> {
+    let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
+    secrets
+        .create(
+            &PostParams::default(),
+            &serde_json::from_value(json!({
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {
+                    "name": "hello-wasi-secret"
+                },
+                "stringData": {
+                    "myval": "a cool secret"
+                }
+            }))?,
+        )
+        .await?;
+
+    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), "default");
+    config_maps
+        .create(
+            &PostParams::default(),
+            &serde_json::from_value(json!({
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": {
+                    "name": "hello-wasi-configmap"
+                },
+                "data": {
+                    "myval": "a cool configmap"
+                }
+            }))?,
+        )
+        .await?;
+
+    Ok(())
+}
+
+async fn clean_up_wasi_test_resources() -> () {
+    let client = kube::Client::try_default()
+        .await
+        .expect("Failed to create client");
+    println!("did first await");
+    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
+    pods.delete("hello-wasi", &DeleteParams::default())
+        .await
+        .expect("Failed to delete pod");
+    let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
+    secrets
+        .delete("hello-wasi-secret", &DeleteParams::default())
+        .await
+        .expect("Failed to delete secret");
+    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), "default");
+    config_maps
+        .delete("hello-wasi-configmap", &DeleteParams::default())
+        .await
+        .expect("Failed to delete configmap");
+}
+
+struct WasiTestResourceCleaner {}
+
+impl Drop for WasiTestResourceCleaner {
+    fn drop(&mut self) {
+        let t = std::thread::spawn(move || {
+            let mut rt =
+                tokio::runtime::Runtime::new().expect("Failed to reate Tokio runtime for cleanup");
+            rt.block_on(clean_up_wasi_test_resources());
+        });
+
+        t.join().expect("Failed to clean up WASI test resources");
+    }
+}
+
+#[tokio::test]
+async fn test_wasi_provider() -> anyhow::Result<()> {
+    let client = kube::Client::try_default().await?;
+
+    let nodes: Api<Node> = Api::all(client);
+
+    let node = nodes.get("krustlet-wasi").await?;
+
+    verify_wasi_node(node).await;
+
+    let client: kube::Client = nodes.into();
+
+    set_up_wasi_test_environment(client.clone()).await?;
+
+    let _cleaner = WasiTestResourceCleaner {};
+
+    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
+
+    create_wasi_pod(client.clone(), &pods).await?;
+
+    assert_pod_log_equals(&pods, "hello-wasi", "Hello, world!\n").await?;
+
+    assert_pod_exited_successfully(&pods, "hello-wasi").await?;
+
+    // TODO: Create a module that actually reads from a directory and outputs to logs
+    assert_container_file_contains(
+        "secret-test/myval",
+        "a cool secret",
+        "unable to open secret file",
+    )
+    .await?;
+    assert_container_file_contains(
+        "configmap-test/myval",
+        "a cool configmap",
+        "unable to open configmap file",
+    )
+    .await?;
+
+    Ok(())
+}
+
+async fn assert_pod_log_equals(
+    pods: &Api<Pod>,
+    pod_name: &str,
+    expected_log: &str,
+) -> anyhow::Result<()> {
+    let mut logs = pods.log_stream(pod_name, &LogParams::default()).await?;
 
     while let Some(line) = logs.try_next().await? {
-        assert_eq!("Hello, world!\n", String::from_utf8_lossy(&line));
+        assert_eq!(expected_log, String::from_utf8_lossy(&line));
     }
 
-    let pod = pods.get("hello-wasi").await?;
+    Ok(())
+}
+
+async fn assert_pod_exited_successfully(pods: &Api<Pod>, pod_name: &str) -> anyhow::Result<()> {
+    let pod = pods.get(pod_name).await?;
 
     let state = (|| {
         pod.status?.container_statuses?[0]
@@ -331,31 +417,23 @@ async fn test_wasi_provider() -> Result<(), Box<dyn std::error::Error>> {
     .expect("Could not fetch terminated states");
     assert_eq!(state.exit_code, 0);
 
-    // TODO: Create a module that actually reads from a directory and outputs to logs
+    Ok(())
+}
+
+async fn assert_container_file_contains(
+    container_file_path: &str,
+    expected_content: &str,
+    file_error: &str,
+) -> anyhow::Result<()> {
     let file_path_base = dirs::home_dir()
         .expect("home dir does not exist")
         .join(".krustlet/volumes/hello-wasi-default");
-    let secret_file_bytes = tokio::fs::read(file_path_base.join("secret-test/myval"))
+    let container_file_bytes = tokio::fs::read(file_path_base.join(container_file_path))
         .await
-        .expect("unable to open secret file");
-    let configmap_file_bytes = tokio::fs::read(file_path_base.join("configmap-test/myval"))
-        .await
-        .expect("unable to open configmap file");
-    assert_eq!("a cool secret".to_owned().into_bytes(), secret_file_bytes);
+        .expect(file_error);
     assert_eq!(
-        "a cool configmap".to_owned().into_bytes(),
-        configmap_file_bytes
+        expected_content.to_owned().into_bytes(),
+        container_file_bytes
     );
-
-    // cleanup
-    // TODO: Find an actual way to perform cleanup automatically, even in the case of failures
-    pods.delete("hello-wasi", &DeleteParams::default()).await?;
-    secrets
-        .delete("hello-wasi-secret", &DeleteParams::default())
-        .await?;
-    config_maps
-        .delete("hello-wasi-configmap", &DeleteParams::default())
-        .await?;
-
     Ok(())
 }
