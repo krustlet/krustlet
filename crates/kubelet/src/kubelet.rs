@@ -1,7 +1,7 @@
 ///! This library contains code for running a kubelet. Use this to create a new
 ///! Kubelet with a specific handler (called a `Provider`)
 use crate::config::Config;
-use crate::node::{create_node, delete_node, drain_node, update_node};
+use crate::node::{create_node, drain_node, update_node};
 use crate::queue::PodQueue;
 use crate::server::start_webserver;
 use crate::status::{update_pod_status, Phase};
@@ -17,6 +17,7 @@ use kube::{
 use log::{debug, error, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tokio::signal::ctrl_c;
 use tokio::sync::mpsc;
 
 /// A Kubelet server backed by a given `Provider`.
@@ -60,7 +61,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
 
         // Flag to indicate graceful shutdown has started.
         let signal = Arc::new(AtomicBool::new(false));
-        signal_hook::flag::register(signal_hook::SIGINT, Arc::clone(&signal))?;
+        let signal_task = start_signal_task(Arc::clone(&signal)).fuse();
 
         // Start the webserver
         let webserver = start_webserver(self.provider.clone(), &self.config.server_config).fuse();
@@ -70,19 +71,19 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
         let error_handler = start_error_handler(error_receiver, client.clone()).fuse();
 
         // Start updating the node lease periodically
-        let node_updater = start_node_updater(
-            Arc::clone(&signal),
-            client.clone(),
-            self.config.node_name.clone(),
-        )
-        .fuse();
+        let node_updater = start_node_updater(client.clone(), self.config.node_name.clone()).fuse();
 
         // If any of these tasks fail, we can initiate graceful shutdown.
         let services = async {
-            futures::pin_mut!(webserver, error_handler, node_updater);
+            futures::pin_mut!(webserver, error_handler, node_updater, signal_task);
 
             futures::select! {
-                res = error_handler => error!("Error handler task completed with result: {:?}", &res),
+                res = error_handler => if let Err(e) = res {
+                    error!("Error handler task completed with error: {:?}", &e);
+                },
+                res = signal_task => if let Err(e) = res {
+                    error!("Signal task completed with error {:?}", &e);
+                },
                 res = webserver => error!("Webserver task completed with result {:?}", &res),
                 res = node_updater => if let Err(e) = res {
                     error!("Node updater task completed with error {:?}", &e);
@@ -122,8 +123,8 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
         };
 
         // Services will not return an error, so this will wait for both to return, or core to
-        // return an error. Services will return if signal is set because node_updater checks this
-        // and will exit.
+        // return an error. Services will return if signal is set because pod_informer will drop
+        // error_sender and error_handler will exit.
         futures::try_join!(core, services)?;
         Ok(())
     }
@@ -141,6 +142,14 @@ impl<P> Clone for Kubelet<P> {
     }
 }
 
+/// Awaits SIGINT and sets graceful shutdown flag if detected.
+async fn start_signal_task(signal: Arc<AtomicBool>) -> anyhow::Result<()> {
+    ctrl_c().await?;
+    warn!("Caught keyboard interrupt.");
+    signal.store(true, Ordering::Relaxed);
+    Ok(())
+}
+
 /// Listens for updates to pods on this node and forwards them to queue.
 async fn start_pod_informer<P: 'static + Provider + Sync + Send>(
     client: kube::Client,
@@ -155,31 +164,37 @@ async fn start_pod_informer<P: 'static + Provider + Sync + Send>(
     let api = Api::<KubePod>::all(client);
     let informer = Informer::new(api).params(params);
     loop {
-        // TODO Should these results be ignored if Err? It seems reasonable to just keep trying,
-        // especially since this function is critical for a graceful shutdown.
-        let mut stream = informer.poll().await?.boxed();
-        while let Some(event) = stream.try_next().await? {
-            debug!("Handling Kubernetes pod event: {:?}", event);
-            match queue.enqueue(event).await {
-                Ok(()) => debug!("Enqueued event for processing"),
-                Err(e) => warn!("Error enqueuing pod event: {}", e),
-            };
+        let mut stream = match informer.poll().await {
+            Ok(stream) => stream.boxed(),
+            Err(e) => {
+                warn!("Error polling pod informer: {:?}", e);
+                tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+        loop {
+            match stream.try_next().await {
+                Ok(Some(event)) => {
+                    debug!("Handling Kubernetes pod event: {:?}", event);
+                    match queue.enqueue(event).await {
+                        Ok(()) => debug!("Enqueued event for processing"),
+                        Err(e) => warn!("Error enqueuing pod event: {}", e),
+                    };
+                }
+                Ok(None) => break,
+                Err(e) => warn!("Error streaming pod events: {:?}", e),
+            }
         }
     }
 }
 
 /// Periodically renew node lease. Exits if signal is caught.
-async fn start_node_updater(
-    signal: Arc<AtomicBool>,
-    client: kube::Client,
-    node_name: String,
-) -> anyhow::Result<()> {
+async fn start_node_updater(client: kube::Client, node_name: String) -> anyhow::Result<()> {
     let sleep_interval = std::time::Duration::from_secs(10);
-    while !signal.load(Ordering::Relaxed) {
+    loop {
         update_node(&client, &node_name).await;
         tokio::time::delay_for(sleep_interval).await;
     }
-    Ok(())
 }
 
 /// Checks for shutdown signal and cleans up resources gracefully.
@@ -193,7 +208,6 @@ async fn start_signal_handler(
         if signal.load(Ordering::Relaxed) {
             warn!("Signal caught.");
             drain_node(&client, &node_name).await?;
-            delete_node(&client, &node_name).await?;
             break Ok(());
         }
         tokio::time::delay_for(duration).await;

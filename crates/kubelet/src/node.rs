@@ -1,10 +1,11 @@
 use crate::config::Config;
+use crate::pod::Pod;
 use crate::provider::Provider;
 use chrono::prelude::*;
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::coordination::v1::Lease;
 use k8s_openapi::api::core::v1::Node as KubeNode;
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::api::core::v1::Pod as KubePod;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 use kube::api::{Api, DeleteParams, ListParams, PatchParams, PostParams};
 use kube::error::ErrorResponse;
@@ -196,7 +197,7 @@ pub async fn drain_node(client: &kube::Client, node_name: &str) -> anyhow::Resul
 
 /// Fetches list of pods on this node and deletes them.
 pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
-    let pod_client: Api<Pod> = Api::all(client.clone());
+    let pod_client: Api<KubePod> = Api::all(client.clone());
     let node_selector = format!("spec.nodeName={}", node_name);
     let params = ListParams {
         field_selector: Some(node_selector),
@@ -204,51 +205,57 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
     };
     let kube::api::ObjectList { items: pods, .. } = pod_client.list(&params).await?;
 
+    let lp = ListParams::default().fields(&format!("spec.nodeName={}", node_name));
+
+    // The delete call may return a "pending" response, we must watch for the actual delete event.
+    // TODO I dont know what the version number does here.
+    let mut stream = pod_client.watch(&lp, "0").await?.boxed();
+
     warn!("Evicting {} pods.", pods.len());
 
     // TODO: Filter mirror pods,daemonsets, kube-system?
-    for pod in &pods {
-        if let Some(name) = pod.metadata.as_ref().and_then(|meta| meta.name.as_ref()) {
-            let namespace = pod
-                .metadata
-                .as_ref()
-                .and_then(|meta| meta.namespace.clone())
-                .unwrap_or_else(|| "default".to_owned());
-            match evict_pod(&client, name, &namespace).await {
-                Ok(_) => (),
-                Err(e) => {
-                    // Absorb the error and attempt to delete other pods with best effort.
-                    error!("Error evicting pod: {:?}", e)
-                }
+    for pod in pods {
+        let pod = Pod::new(pod);
+        match evict_pod(&client, pod.name(), pod.namespace(), &mut stream).await {
+            Ok(_) => (),
+            Err(e) => {
+                // Absorb the error and attempt to delete other pods with best effort.
+                error!("Error evicting pod: {:?}", e)
             }
-        } else {
-            error!("Pod with no name: {:?}", pod.metadata);
         }
     }
     Ok(())
 }
 
-async fn evict_pod(client: &kube::Client, name: &str, namespace: &str) -> anyhow::Result<()> {
-    let ns_client: Api<Pod> = Api::namespaced(client.clone(), namespace);
-    let lp = ListParams::default()
-        .fields(&format!("metadata.name={}", name))
-        .fields(&format!("metadata.namespace={}", namespace));
+type PodStream = std::pin::Pin<
+    Box<
+        dyn futures::Stream<Item = Result<kube::api::WatchEvent<KubePod>, kube::error::Error>>
+            + Send,
+    >,
+>;
 
-    // The delete call may return a "pending" response, we must watch for the actual delete event.
-    // TODO Timeout?
-    let mut stream = ns_client.watch(&lp, "0").await?.boxed();
-
+async fn evict_pod(
+    client: &kube::Client,
+    name: &str,
+    namespace: &str,
+    stream: &mut PodStream,
+) -> anyhow::Result<()> {
+    let ns_client: Api<KubePod> = Api::namespaced(client.clone(), namespace);
     warn!("Evicting namespace '{}' pod '{}'", namespace, name);
     let params = Default::default();
     let response = ns_client.delete(name, &params).await?;
 
     if response.is_left() {
+        // TODO Timeout?
         warn!("Waiting for pod '{}' eviction.", name);
-        while let Some(status) = stream.try_next().await? {
-            match status {
-                kube::api::WatchEvent::Deleted(_) => {
-                    warn!("Pod '{}' evicted: {:?}", name, status);
-                    break;
+        while let Some(event) = stream.try_next().await? {
+            match event {
+                kube::api::WatchEvent::Deleted(s) => {
+                    let pod = Pod::new(s);
+                    if (name == pod.name()) & (namespace == pod.namespace()) {
+                        warn!("Pod '{}' evicted.", name);
+                        break;
+                    }
                 }
                 _ => (),
             }
@@ -256,16 +263,6 @@ async fn evict_pod(client: &kube::Client, name: &str, namespace: &str) -> anyhow
     } else {
         warn!("Pod '{}' evicted.", name);
     }
-    Ok(())
-}
-
-/// Deregister this node with the kube-apiserver.
-pub async fn delete_node(client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
-    warn!("Deleting node {}", node_name);
-    let params = Default::default();
-    let node_client: Api<KubeNode> = Api::all(client.clone());
-    let response = node_client.delete(node_name, &params).await?;
-    warn!("Node deleted: {:?}", response);
     Ok(())
 }
 
