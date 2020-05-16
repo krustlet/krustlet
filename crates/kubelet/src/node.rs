@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::pod::Pod;
 use crate::provider::Provider;
+use crate::status::{ContainerStatus, Status};
 use chrono::prelude::*;
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::coordination::v1::Lease;
@@ -11,7 +12,7 @@ use kube::api::{Api, DeleteParams, ListParams, PatchParams, PostParams};
 use kube::error::ErrorResponse;
 use kube::Error;
 use log::{debug, error, info, warn};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 const KUBELET_VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
@@ -208,14 +209,36 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
     let lp = ListParams::default().fields(&format!("spec.nodeName={}", node_name));
 
     // The delete call may return a "pending" response, we must watch for the actual delete event.
-    // TODO I dont know what the version number does here.
     let mut stream = pod_client.watch(&lp, "0").await?.boxed();
 
     warn!("Evicting {} pods.", pods.len());
 
-    // TODO: Filter mirror pods,daemonsets, kube-system?
     for pod in pods {
         let pod = Pod::new(pod);
+        if pod.is_daemonset() {
+            warn!("Skipping eviction of DaemonSet '{}'", pod.name());
+            continue;
+        }
+        if pod.is_static() {
+            let mut container_statuses = HashMap::new();
+            for container in pod.containers() {
+                container_statuses.insert(
+                    container.name.clone(),
+                    ContainerStatus::Terminated {
+                        timestamp: Utc::now(),
+                        message: "Evicted on node shutdown.".to_string(),
+                        failed: false,
+                    },
+                );
+            }
+            let status = Status {
+                message: Some("Evicted on node shutdown.".to_string()),
+                container_statuses,
+            };
+            pod.patch_status(client.clone(), status).await;
+            warn!("Marked static pod as terminated.");
+            continue;
+        }
         match evict_pod(&client, pod.name(), pod.namespace(), &mut stream).await {
             Ok(_) => (),
             Err(e) => {
@@ -277,8 +300,8 @@ pub async fn cordon_node(client: &kube::Client, node_name: &str) -> anyhow::Resu
     }))?;
     let mut params = PatchParams::default();
     params.patch_strategy = kube::api::PatchStrategy::Merge;
-    let response = node_client.patch(node_name, &params, patch).await?;
-    warn!("Node cordoned '{}': {:?}", node_name, &response);
+    node_client.patch(node_name, &params, patch).await?;
+    warn!("Node cordoned '{}'.", node_name);
     Ok(())
 }
 
