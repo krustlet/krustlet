@@ -14,7 +14,7 @@ use kube::{
     runtime::Informer,
     Api,
 };
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::signal::ctrl_c;
@@ -89,6 +89,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
                     error!("Node updater task completed with error {:?}", &e);
                 }
             };
+            // Use relaxed ordering because we just need other tasks to eventually catch the signal.
             signal.store(true, Ordering::Relaxed);
             Ok::<(), anyhow::Error>(())
         };
@@ -206,7 +207,7 @@ async fn start_signal_handler(
     let duration = std::time::Duration::from_millis(100);
     loop {
         if signal.load(Ordering::Relaxed) {
-            warn!("Signal caught.");
+            info!("Signal caught.");
             drain_node(&client, &node_name).await?;
             break Ok(());
         }

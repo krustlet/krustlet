@@ -95,9 +95,8 @@ impl Pod {
     pub fn is_daemonset(&self) -> bool {
         if let Some(owners) = &self.0.meta().owner_references {
             for owner in owners {
-                match owner.kind.as_ref() {
-                    "DaemonSet" => return true,
-                    _ => (),
+                if owner.kind == "DaemonSet" {
+                    return true;
                 }
             }
         }

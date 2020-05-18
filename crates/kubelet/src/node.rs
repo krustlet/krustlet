@@ -8,7 +8,7 @@ use k8s_openapi::api::coordination::v1::Lease;
 use k8s_openapi::api::core::v1::Node as KubeNode;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
-use kube::api::{Api, DeleteParams, ListParams, PatchParams, PostParams};
+use kube::api::{Api, DeleteParams, ListParams, ObjectMeta, PatchParams, PostParams};
 use kube::error::ErrorResponse;
 use kube::Error;
 use log::{debug, error, info, warn};
@@ -174,14 +174,15 @@ pub async fn node_uid(client: &kube::Client, node_name: &str) -> anyhow::Result<
     let node_client: Api<KubeNode> = Api::all(client.clone());
     match retry!(node_client.get(node_name).await, times: 4, log_error: |e| error!("Failed to get node to cordon: {:?}", e))
     {
-        Ok(node) => match node.metadata.and_then(|meta| meta.uid) {
-            Some(uid) => Ok(uid),
-            None => {
-                let err = format!("Node missing metadata or uid {}.", node_name);
-                error!("{}", &err);
-                anyhow::bail!(err);
-            }
-        },
+        Ok(KubeNode {
+            metadata: Some(ObjectMeta { uid: Some(uid), .. }),
+            ..
+        }) => Ok(uid),
+        Ok(_) => {
+            let err = format!("Node missing metadata or uid {}.", node_name);
+            error!("{}", &err);
+            anyhow::bail!(err);
+        }
         Err(e) => {
             error!("Error fetching node {} id: {:?}.", node_name, e);
             anyhow::bail!(e);
@@ -211,15 +212,14 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
     // The delete call may return a "pending" response, we must watch for the actual delete event.
     let mut stream = pod_client.watch(&lp, "0").await?.boxed();
 
-    warn!("Evicting {} pods.", pods.len());
+    info!("Evicting {} pods.", pods.len());
 
     for pod in pods {
         let pod = Pod::new(pod);
         if pod.is_daemonset() {
-            warn!("Skipping eviction of DaemonSet '{}'", pod.name());
+            info!("Skipping eviction of DaemonSet '{}'", pod.name());
             continue;
-        }
-        if pod.is_static() {
+        } else if pod.is_static() {
             let mut container_statuses = HashMap::new();
             for container in pod.containers() {
                 container_statuses.insert(
@@ -236,14 +236,15 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
                 container_statuses,
             };
             pod.patch_status(client.clone(), status).await;
-            warn!("Marked static pod as terminated.");
+            info!("Marked static pod as terminated.");
             continue;
-        }
-        match evict_pod(&client, pod.name(), pod.namespace(), &mut stream).await {
-            Ok(_) => (),
-            Err(e) => {
-                // Absorb the error and attempt to delete other pods with best effort.
-                error!("Error evicting pod: {:?}", e)
+        } else {
+            match evict_pod(&client, pod.name(), pod.namespace(), &mut stream).await {
+                Ok(_) => (),
+                Err(e) => {
+                    // Absorb the error and attempt to delete other pods with best effort.
+                    error!("Error evicting pod: {:?}", e)
+                }
             }
         }
     }
@@ -264,19 +265,19 @@ async fn evict_pod(
     stream: &mut PodStream,
 ) -> anyhow::Result<()> {
     let ns_client: Api<KubePod> = Api::namespaced(client.clone(), namespace);
-    warn!("Evicting namespace '{}' pod '{}'", namespace, name);
+    info!("Evicting namespace '{}' pod '{}'", namespace, name);
     let params = Default::default();
     let response = ns_client.delete(name, &params).await?;
 
     if response.is_left() {
         // TODO Timeout?
-        warn!("Waiting for pod '{}' eviction.", name);
+        info!("Waiting for pod '{}' eviction.", name);
         while let Some(event) = stream.try_next().await? {
             match event {
                 kube::api::WatchEvent::Deleted(s) => {
                     let pod = Pod::new(s);
-                    if (name == pod.name()) & (namespace == pod.namespace()) {
-                        warn!("Pod '{}' evicted.", name);
+                    if name == pod.name() && namespace == pod.namespace() {
+                        info!("Pod '{}' evicted.", name);
                         break;
                     }
                 }
@@ -284,14 +285,14 @@ async fn evict_pod(
             }
         }
     } else {
-        warn!("Pod '{}' evicted.", name);
+        info!("Pod '{}' evicted.", name);
     }
     Ok(())
 }
 
 /// Mark this node as unschedulable.
 pub async fn cordon_node(client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
-    warn!("Cordoning node.");
+    info!("Cordoning node {}.", node_name);
     let node_client: Api<KubeNode> = Api::all(client.clone());
     let patch = serde_json::to_vec(&serde_json::json!({
         "spec": {
@@ -301,7 +302,7 @@ pub async fn cordon_node(client: &kube::Client, node_name: &str) -> anyhow::Resu
     let mut params = PatchParams::default();
     params.patch_strategy = kube::api::PatchStrategy::Merge;
     node_client.patch(node_name, &params, patch).await?;
-    warn!("Node cordoned '{}'.", node_name);
+    info!("Node cordoned '{}'.", node_name);
     Ok(())
 }
 
