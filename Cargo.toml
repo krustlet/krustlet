@@ -12,6 +12,26 @@ authors = [
 ]
 edition = "2018"
 default-run = "krustlet-wascc"
+license-file = "LICENSE"
+description = "A Kubernetes kubelet implementation in Rust, used for running WebAssembly modules in Kubernetes"
+repository = "https://github.com/deislabs/krustlet"
+documentation = "https://github.com/deislabs/krustlet/tree/master/docs"
+readme = "README.md"
+keywords = [
+    "wasm",
+    "wasi",
+    "webassembly",
+    "kubernetes",
+]
+exclude = [
+    "docs/*",
+    "demos/*",
+    ".github/*",
+    ".gitignore"
+]
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 anyhow = "1.0"

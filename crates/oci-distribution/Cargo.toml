@@ -11,6 +11,17 @@ authors = [
     "Ryan Levick <rylevick@microsoft.com>",
 ]
 edition = "2018"
+license-file = "../../LICENSE"
+description = "An OCI implementation in Rust"
+repository = "https://github.com/deislabs/krustlet"
+readme = "README.md"
+keywords = [
+    "oci",
+    "containers",
+]
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 reqwest = { version = "0.10", features = ["json", "stream"] }

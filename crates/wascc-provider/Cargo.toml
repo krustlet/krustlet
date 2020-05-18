@@ -11,6 +11,7 @@ authors = [
     "Ryan Levick <rylevick@microsoft.com>",
 ]
 edition = "2018"
+publish = false
 
 [dependencies]
 anyhow = "1.0"

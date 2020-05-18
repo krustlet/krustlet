@@ -53,11 +53,12 @@ jobs:
     if: github.event_name == 'release'
     steps:
       - uses: actions/checkout@v2
-      - name: publish to crates.io
-        uses: actions-rs/cargo@v1
-        with:
-          command: publish
-          args: --token ${{ secrets.CargoToken }}
+      - name: publish kubelet to crates.io
+        working-directory: ./crates/krustlet
+        run: cargo publish --token ${{ secrets.CargoToken }}
+      - name: publish oci-distribution to crates.io
+        working-directory: ./crates/oci-distribution
+        run: cargo publish --token ${{ secrets.CargoToken }}
 
   publish:
     name: publish release assets

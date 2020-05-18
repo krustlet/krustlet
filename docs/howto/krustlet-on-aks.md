@@ -197,10 +197,10 @@ $ sudo mkdir -p /etc/krustlet && sudo chown krustlet:krustlet /etc/krustlet
 $ mv {krustlet.pfx,kubeconfig-sa} /etc/krustlet && chmod 600 /etc/krustlet/*
 ```
 
-Once that is in place, we'll install the latest release of krustlet following [the install
+Once that is in place, we'll install the latest release of Krustlet following [the install
 guide](../intro/install.md).
 
-Next we'll enable krustlet as a systemd service. There is an example
+Next we'll enable Krustlet as a systemd service. There is an example
 [`krustlet.service`](./assets/krustlet.service) that you can either copy to the box, but it is
 probably easier just to copy and paste it to `/etc/systemd/system/krustlet.service` on the VM. Make
 sure to change the value of `PFX_PASSWORD` to the password you set for your certificate.
