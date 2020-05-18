@@ -14,7 +14,6 @@ edition = "2018"
 license-file = "../../LICENSE"
 description = "A Kubernetes kubelet implementation in Rust"
 repository = "https://github.com/deislabs/krustlet"
-readme = "README.md"
 keywords = [
     "wasm",
     "wasi",
