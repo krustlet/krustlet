@@ -1,8 +1,9 @@
 use anyhow::bail;
-use log::{error, info};
+use log::{debug, error, info};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
 use tempfile::NamedTempFile;
 use tokio::sync::{
     oneshot,
@@ -169,6 +170,11 @@ impl WasiRuntime {
 
             for (key, value) in data.dirs.iter() {
                 let guest_dir = value.as_ref().unwrap_or(key);
+                debug!(
+                    "mounting hostpath {} as guestpath {}",
+                    key.display(),
+                    guest_dir.display()
+                );
                 ctx_builder_snapshot =
                     ctx_builder_snapshot.preopened_dir(preopen_dir(key)?, guest_dir);
                 ctx_builder_unstable =
