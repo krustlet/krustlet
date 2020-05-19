@@ -1,6 +1,6 @@
 [package]
 name = "wasi-provider"
-version = "0.2.0"
+version = "0.2.1"
 authors = [
     "Matt Butcher <matt.butcher@microsoft.com>",
     "Matthew Fisher <matt.fisher@microsoft.com>",
@@ -22,7 +22,7 @@ wasmtime = "0.16"
 wasmtime-wasi = "0.16"
 wasi-common = "0.16"
 tempfile = "3.1"
-kubelet = { path = "../kubelet", version = "0.2.0" }
+kubelet = { path = "../kubelet", version = "0.2" }
 wat = "1.0"
 tokio = { version = "0.2", features = ["fs", "stream", "macros", "io-util", "sync"] }
 chrono = { version = "0.4", features = ["serde"] }
