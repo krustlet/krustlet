@@ -53,5 +53,5 @@ cli = ["structopt"]
 docs = ["cli"]
 
 [package.metadata.docs.rs]
-
+features = ["docs"]
 rustdoc-args = ["--cfg", "feature=\"docs\""]
