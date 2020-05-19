@@ -1,6 +1,6 @@
 [package]
 name = "krustlet"
-version = "0.2.0"
+version = "0.2.1"
 authors = [
     "Matt Butcher <matt.butcher@microsoft.com>",
     "Matthew Fisher <matt.fisher@microsoft.com>",
@@ -38,10 +38,10 @@ anyhow = "1.0"
 tokio = { version = "0.2", features = ["macros"] }
 kube = "0.33"
 env_logger = "0.7"
-kubelet = { path = "./crates/kubelet", version = "0.2.0", features = ["cli"] }
-wascc-provider = { path = "./crates/wascc-provider", version = "0.2.0" }
-wasi-provider = { path = "./crates/wasi-provider", version = "0.2.0" }
-oci-distribution = { path = "./crates/oci-distribution", version = "0.1.0" }
+kubelet = { path = "./crates/kubelet", version = "0.2", features = ["cli"] }
+wascc-provider = { path = "./crates/wascc-provider", version = "0.2" }
+wasi-provider = { path = "./crates/wasi-provider", version = "0.2" }
+oci-distribution = { path = "./crates/oci-distribution", version = "0.1" }
 
 [dev-dependencies]
 futures = "0.3"
