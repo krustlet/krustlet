@@ -649,8 +649,8 @@ mod test {
             server_config: ServerConfig {
                 addr: IpAddr::from(Ipv4Addr::new(127, 0, 0, 1)),
                 port: 8080,
-                pfx_password: String::new(),
-                pfx_path: PathBuf::new(),
+                tls_cert_file: PathBuf::new(),
+                tls_private_key_file: PathBuf::new(),
             },
             data_dir: PathBuf::new(),
             node_labels,

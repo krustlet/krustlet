@@ -58,6 +58,6 @@ jobs:
         run: |
           just bootstrap-ssl
           just build
-          ./target/debug/krustlet-wascc --node-name krustlet-wascc --port 3000 --pfx-path ./config/certificate.pfx &
-          ./target/debug/krustlet-wasi --node-name krustlet-wasi --port 3001 --pfx-path ./config/certificate.pfx &
+          ./target/debug/krustlet-wascc --node-name krustlet-wascc --port 3000 --tls-cert-file ./config/host.cert --tls-private-key-file ./config/host.key &
+          ./target/debug/krustlet-wasi --node-name krustlet-wasi --port 3001 --tls-cert-file ./config/host.cert --tls-private-key-file ./config/host.key &
           just test-e2e

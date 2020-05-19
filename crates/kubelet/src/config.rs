@@ -7,7 +7,6 @@ use std::net::IpAddr;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 
-use rpassword;
 #[cfg(feature = "cli")]
 use structopt::StructOpt;
 
@@ -48,10 +47,10 @@ pub struct ServerConfig {
     pub addr: IpAddr,
     /// The port the Kubelet server is running on
     pub port: u16,
-    /// The path to a pfx file needed for TLS
-    pub pfx_path: PathBuf,
-    /// The password for decrypting the pfx file
-    pub pfx_password: String,
+    /// Path to kubelet TLS certificate.
+    pub tls_cert_file: PathBuf,
+    /// Path to kubelet TLS private key.
+    pub tls_private_key_file: PathBuf,
 }
 
 impl Config {
@@ -77,8 +76,8 @@ impl Config {
                     IpAddr::V6(_) => "::".parse().unwrap(),
                 },
                 port: DEFAULT_PORT,
-                pfx_password: String::new(),
-                pfx_path: default_pfx_path(),
+                tls_cert_file: default_cert_path(),
+                tls_private_key_file: default_key_path(),
             },
         })
     }
@@ -114,9 +113,9 @@ impl Config {
             .collect();
 
         let port = opts.port;
-        let pfx_path = opts.pfx_path.unwrap_or_else(default_pfx_path);
 
-        let pfx_password = opts.pfx_password.unwrap_or_else(read_password_from_tty);
+        let tls_cert_file = opts.tls_cert_file.unwrap_or_else(default_cert_path);
+        let tls_private_key_file = opts.tls_private_key_file.unwrap_or_else(default_key_path);
 
         let data_dir = opts
             .data_dir
@@ -134,8 +133,8 @@ impl Config {
             server_config: ServerConfig {
                 addr,
                 port,
-                pfx_path,
-                pfx_password,
+                tls_cert_file,
+                tls_private_key_file,
             },
         }
     }
@@ -190,18 +189,18 @@ pub struct Opts {
     max_pods: u16,
 
     #[structopt(
-        long = "pfx-path",
-        env = "PFX_PATH",
-        help = "The path to the pfx bundle for ssl configuration"
+        long = "tls-cert-file",
+        env = "TLS_CERT_FILE",
+        help = "The path to kubelet TLS certificate."
     )]
-    pfx_path: Option<PathBuf>,
+    tls_cert_file: Option<PathBuf>,
 
     #[structopt(
-        long = "pfx-password",
-        env = "PFX_PASSWORD",
-        help = "The password to unencrypt the pfx bundle"
+        long = "tls-private-key-file",
+        env = "TLS_PRIVATE_KEY_FILE",
+        help = "The path to kubelet TLS key."
     )]
-    pfx_password: Option<String>,
+    tls_private_key_file: Option<PathBuf>,
 
     #[structopt(
         short = "n",
@@ -297,10 +296,16 @@ fn default_node_ip(hostname: &mut String, preferred_ip_family: &IpAddr) -> anyho
         .ip())
 }
 
-fn default_pfx_path() -> PathBuf {
+fn default_key_path() -> PathBuf {
     dirs::home_dir()
         .unwrap()
-        .join(".krustlet/config/certificate.pfx")
+        .join(".krustlet/config/krustlet.key")
+}
+
+fn default_cert_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap()
+        .join(".krustlet/config/krustlet.crt")
 }
 
 fn is_same_ip_family(first: &IpAddr, second: &IpAddr) -> bool {
@@ -308,10 +313,6 @@ fn is_same_ip_family(first: &IpAddr, second: &IpAddr) -> bool {
         IpAddr::V4(_) => second.is_ipv4(),
         IpAddr::V6(_) => second.is_ipv6(),
     }
-}
-
-fn read_password_from_tty() -> String {
-    rpassword::read_password_from_tty(Some("PFX file password: ")).unwrap()
 }
 
 fn split_one_label(in_string: &str) -> Option<(String, String)> {
