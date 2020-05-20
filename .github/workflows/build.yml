@@ -2,7 +2,7 @@ name: Build and Test
 on:
   pull_request:
     paths-ignore:
-      - 'docs/**'
+      - "docs/**"
 jobs:
   build:
     runs-on: ${{ matrix.config.os }}
@@ -30,7 +30,7 @@ jobs:
           url: ${{ matrix.config.url }}
           pathInArchive: ${{ matrix.config.pathInArchive }}
       # hack(bacongobbler): install rustfmt to work around darwin toolchain issues
-      - name: '(macOS) install dev tools'
+      - name: "(macOS) install dev tools"
         if: runner.os == 'macOS'
         run: |
           rustup component add rustfmt --toolchain stable-x86_64-apple-darwin
@@ -58,6 +58,6 @@ jobs:
         run: |
           just bootstrap-ssl
           just build
-          ./target/debug/krustlet-wascc --node-name krustlet-wascc --port 3000 --tls-cert-file ./config/host.cert --tls-private-key-file ./config/host.key &
-          ./target/debug/krustlet-wasi --node-name krustlet-wasi --port 3001 --tls-cert-file ./config/host.cert --tls-private-key-file ./config/host.key &
+          ./target/debug/krustlet-wascc --node-name krustlet-wascc --port 3000 --tls-cert-file ./config/krustlet.crt --tls-private-key-file ./config/krustlet.key &
+          ./target/debug/krustlet-wasi --node-name krustlet-wasi --port 3001 --tls-cert-file ./config/krustlet.crt --tls-private-key-file ./config/krustlet.key &
           just test-e2e

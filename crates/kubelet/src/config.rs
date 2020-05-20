@@ -61,12 +61,15 @@ impl Config {
     /// indicate the preferred IP family to use for defaults
     pub fn default_config(preferred_ip_family: &IpAddr) -> anyhow::Result<Self> {
         let hostname = default_hostname()?;
+        let data_dir = default_data_dir()?;
+        let tls_cert_file = default_cert_path(&data_dir);
+        let tls_private_key_file = default_key_path(&data_dir);
         Ok(Config {
             node_ip: default_node_ip(&mut hostname.clone(), preferred_ip_family)?,
             node_name: sanitize_hostname(&hostname),
             node_labels: HashMap::new(),
             hostname,
-            data_dir: default_data_dir()?,
+            data_dir,
             max_pods: DEFAULT_MAX_PODS,
             server_config: ServerConfig {
                 addr: match preferred_ip_family {
@@ -76,8 +79,8 @@ impl Config {
                     IpAddr::V6(_) => "::".parse().unwrap(),
                 },
                 port: DEFAULT_PORT,
-                tls_cert_file: default_cert_path(),
-                tls_private_key_file: default_key_path(),
+                tls_cert_file,
+                tls_private_key_file,
             },
         })
     }
@@ -114,12 +117,16 @@ impl Config {
 
         let port = opts.port;
 
-        let tls_cert_file = opts.tls_cert_file.unwrap_or_else(default_cert_path);
-        let tls_private_key_file = opts.tls_private_key_file.unwrap_or_else(default_key_path);
-
         let data_dir = opts
             .data_dir
             .unwrap_or_else(|| default_data_dir().expect("unable to get default directory"));
+
+        let tls_cert_file = opts
+            .tls_cert_file
+            .unwrap_or_else(|| default_cert_path(&data_dir));
+        let tls_private_key_file = opts
+            .tls_private_key_file
+            .unwrap_or_else(|| default_key_path(&data_dir));
 
         let max_pods = opts.max_pods;
 
@@ -191,14 +198,14 @@ pub struct Opts {
     #[structopt(
         long = "tls-cert-file",
         env = "TLS_CERT_FILE",
-        help = "The path to kubelet TLS certificate."
+        help = "The path to kubelet TLS certificate. Defaults to $KRUSTLET_DATA_DIR/config/krustlet.crt"
     )]
     tls_cert_file: Option<PathBuf>,
 
     #[structopt(
         long = "tls-private-key-file",
         env = "TLS_PRIVATE_KEY_FILE",
-        help = "The path to kubelet TLS key."
+        help = "The path to kubelet TLS key. Defaults to $KRUSTLET_DATA_DIR/config/krustlet.key"
     )]
     tls_private_key_file: Option<PathBuf>,
 
@@ -296,16 +303,12 @@ fn default_node_ip(hostname: &mut String, preferred_ip_family: &IpAddr) -> anyho
         .ip())
 }
 
-fn default_key_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap()
-        .join(".krustlet/config/krustlet.key")
+fn default_key_path(data_dir: &PathBuf) -> PathBuf {
+    data_dir.join("config/krustlet.key")
 }
 
-fn default_cert_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap()
-        .join(".krustlet/config/krustlet.crt")
+fn default_cert_path(data_dir: &PathBuf) -> PathBuf {
+    data_dir.join("config/krustlet.crt")
 }
 
 fn is_same_ip_family(first: &IpAddr, second: &IpAddr) -> bool {

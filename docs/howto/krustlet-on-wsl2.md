@@ -52,7 +52,58 @@ $ export mainIP=$(ifconfig eth0 | grep "inet " | awk '{ print $2 }')
 The hostname being "applied" from Windows, the default hostname will not resolve to this address,
 therefore you need to pass the `--node-ip` and `--node-name` flag to Krustlet.
 
-## Step 2: Install and run Krustlet
+## Step 2: Create Certificate
+
+Krustlet requires a certificate for securing communication with the Kubernetes API. Because
+Kubernetes has its own certificates, we'll need to get a signed certificate from the Kubernetes API
+that we can use. First things first, let's create a certificate signing request (CSR):
+
+```shell
+$ mkdir -p ~/.krustlet/config
+$ cd $_
+$ openssl req -new -sha256 -newkey rsa:2048 -keyout krustlet.key -out krustlet.csr -nodes -subj "/C=US/ST=./L=./O=./OU=./CN=krustlet"
+Generating a RSA private key
+.................+++++
+....................................................+++++
+writing new private key to 'krustlet.key'
+```
+
+This will create a CSR and a new key for the certificate, using `krustlet` as the hostname of the
+server.
+
+Now that it is created, we'll need to send the request to Kubernetes:
+
+```shell
+$ cat <<EOF | kubectl apply -f -
+apiVersion: certificates.k8s.io/v1beta1
+kind: CertificateSigningRequest
+metadata:
+  name: krustlet
+spec:
+  request: $(cat krustlet.csr | base64 | tr -d '\n')
+  usages:
+  - digital signature
+  - key encipherment
+  - server auth
+EOF
+certificatesigningrequest.certificates.k8s.io/krustlet created
+```
+
+Once that runs, an admin (that is probably you! at least it should be if you are trying to add a
+node to the cluster) needs to approve the request:
+
+```shell
+$ kubectl certificate approve krustlet
+certificatesigningrequest.certificates.k8s.io/krustlet approved
+```
+
+After approval, you can download the cert like so:
+
+```shell
+$ kubectl get csr krustlet -o jsonpath='{.status.certificate}' | base64 --decode > krustlet.crt
+```
+
+## Step 3: Install and run Krustlet
 
 First, install the latest release of Krustlet following [the install guide](../intro/install.md).
 
@@ -71,7 +122,7 @@ Context "docker-desktop" modified.
 Once you have done that, run the following commands to run Krustlet's WASI provider:
 
 ```shell
-$ krustlet-wasi --node-ip $mainIP --node-name krustlet
+$ krustlet-wasi --node-ip $mainIP --node-name krustlet --tls-cert-file=./krustlet.crt --tls-private-key-file=./krustlet.key
 ```
 
 In another terminal, run `kubectl get nodes -o wide` and you should see output that looks similar to
