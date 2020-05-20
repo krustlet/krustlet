@@ -103,13 +103,6 @@ $ kubectl get csr krustlet -o jsonpath='{.status.certificate}' \
     | base64 --decode > krustlet.crt
 ```
 
-Lastly, combine the key and the cert into a PFX bundle, choosing your own password instead of
-"password":
-
-```shell
-$ openssl pkcs12 -export -out krustlet.pfx -inkey krustlet.key -in krustlet.crt -password "pass:password"
-```
-
 ## Step 3: Setup inlets server
 
 Create a Kubernetes secret for the inlets server:
@@ -234,7 +227,7 @@ export NODE_IP=$(kubectl get service inlets -o jsonpath="{.spec.clusterIP}")
 ## Step 5: Run the `krustlet` and verify the node is available
 
 ```shell
-krustlet-wasi --node-ip $NODE_IP --pfx-password password
+krustlet-wasi --node-ip $NODE_IP --pfx-password password --tls-cert-file=./krustlet.crt --tls-private-key-file=./krustlet.key
 ```
 
 Show that the krustlet node has joined the cluster:

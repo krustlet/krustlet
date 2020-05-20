@@ -175,20 +175,14 @@ $ kubectl get csr krustlet --output=jsonpath='{.status.certificate}' \
     | base64 --decode > krustlet.crt
 ```
 
-Lastly, combine the key and the cert into a PFX bundle, choosing your own password instead of
-"password":
-
-```shell
-$ openssl pkcs12 -export -out krustlet.pfx -inkey krustlet.key -in krustlet.crt -password "pass:password"
-```
-
 ## Step 3: Copy assets to VM
 
 The first thing we'll need to do is copy up the assets we generated in steps 1 and 2. Copy them to
 the VM by typing:
 
 ```shell
-$ gcloud compute scp krustlet.pfx ${INSTANCE}: --project=${PROJECT} --zone=${ZONE}
+$ gcloud compute scp krustlet.crt ${INSTANCE}: --project=${PROJECT} --zone=${ZONE}
+$ gcloud compute scp krustlet.key ${INSTANCE}: --project=${PROJECT} --zone=${ZONE}
 $ gcloud compute scp kubeconfig-sa ${INSTANCE}: --project=${PROJECT} --zone=${ZONE}
 ```
 
@@ -209,8 +203,8 @@ $ KUBECONFIG=${PWD}/kubeconfig-sa krustlet-wasi \
 --hostname="krustlet" \
 --node-ip=${IP} \
 --node-name="krustlet" \
---pfx-password="password" \
---pfx-path=./krustlet.pfx
+--tls-cert-file=./krustlet.crt \
+--tls-private-key-file=./krustlet.key
 ```
 
 > **NOTE** To increase the level of debugging, you may prefix the command with `RUST_LOG=info` or
@@ -294,8 +288,7 @@ spec:
 
 ## Step 6: Run Krustlet as a service
 
-Create `krustlet.service` in `/etc/systemd/system/krustlet.service` on the VM. Make
-sure to change the value of `PFX_PASSWORD` to the password you set for your certificate.
+Create `krustlet.service` in `/etc/systemd/system/krustlet.service` on the VM.
 
 ```
 [Unit]
@@ -306,8 +299,8 @@ Restart=on-failure
 RestartSec=5s
 Environment=KUBECONFIG=/etc/krustlet/kubeconfig-sa
 Environment=NODE_NAME=krustlet
-Environment=PFX_PATH=/etc/krustlet/krustlet.pfx
-Environment=PFX_PASSWORD=password
+Environment=TLS_CERT_FILE=/etc/krustlet/krustlet.crt
+Environment=TLS_PRIVATE_KEY_FILE=/etc/krustlet/krustlet.key
 Environment=KRUSTLET_DATA_DIR=/etc/krustlet
 Environment=RUST_LOG=wascc_provider=info,wasi_provider=info,main=info
 ExecStart=/usr/local/bin/krustlet-wasi
@@ -329,7 +322,7 @@ Then:
 
 ```shell
 $ sudo mkdir -p /etc/krustlet && sudo chown root:root /etc/krustlet
-$ sudo mv {krustlet.pfx,kubeconfig-sa} /etc/krustlet && chmod 600 /etc/krustlet/*
+$ sudo mv {krustlet.*,kubeconfig-sa} /etc/krustlet && chmod 600 /etc/krustlet/*
 ```
 
 Once you have done that, run the following commands to make sure the unit is configured to start on

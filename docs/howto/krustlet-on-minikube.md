@@ -66,13 +66,6 @@ After approval, you can download the cert like so:
 $ kubectl get csr krustlet -o jsonpath='{.status.certificate}' | base64 --decode > krustlet.crt
 ```
 
-Lastly, combine the key and the cert into a PFX bundle, choosing your own password instead of
-"password":
-
-```shell
-$ openssl pkcs12 -export -out certificate.pfx -inkey krustlet.key -in krustlet.crt -password "pass:password"
-```
-
 ## Step 2: Determine the default gateway
 
 The default gateway when you [set up minikube with the VirtualBox driver](kubernetes-on-minikube.md)
@@ -87,7 +80,7 @@ First, install the latest release of Krustlet following [the install guide](../i
 Once you have done that, run the following commands to run Krustlet's WASI provider:
 
 ```shell
-$ krustlet-wasi --node-ip 10.0.2.2 --pfx-password password
+$ krustlet-wasi --node-ip 10.0.2.2 --pfx-password password --tls-cert-file=./krustlet.crt --tls-private-key-file=./krustlet.key
 ```
 
 In another terminal, run `kubectl get nodes -o wide` and you should see output that looks similar to

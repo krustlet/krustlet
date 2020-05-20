@@ -37,7 +37,7 @@ done
 NODE_LABELS="${NODE_LABELS:-}"
 
 echo "Generating certificate signing request..."
-openssl req -new -sha256 -newkey rsa:2048 -keyout /tmp/krustlet.key -out /tmp/krustlet.csr -nodes -config <(
+openssl req -new -sha256 -newkey rsa:2048 -keyout /etc/krustlet/krustlet.key -out /tmp/krustlet.csr -nodes -config <(
 cat <<-EOF
 [req]
 default_bits = 2048
@@ -107,7 +107,7 @@ for attempt in `seq 0 $RETRY_ATTEMPTS`; do
     /usr/local/bin/kubectl get --kubeconfig /etc/eksctl/kubeconfig.yaml csr $(hostname) -o jsonpath='{.status.certificate}' > /tmp/krustlet.cert.base64 || rc=$?
     
     if [[ $rc -eq 0 ]] && [ -s /tmp/krustlet.cert.base64 ]; then
-        base64 --decode /tmp/krustlet.cert.base64 > /tmp/krustlet.cert || rc=$?
+        base64 --decode /tmp/krustlet.cert.base64 > /etc/krustlet/krustlet.crt || rc=$?
 
         if [[ $rc -eq 0 ]]; then
             break
@@ -123,12 +123,10 @@ for attempt in `seq 0 $RETRY_ATTEMPTS`; do
     sleep $sleep_sec
 done
 
-echo "Creating server PFX file..."
-openssl pkcs12 -export -out /etc/krustlet/cert.pfx -inkey /tmp/krustlet.key -in /tmp/krustlet.cert -password "pass:krustlet"
-chown root:root /etc/krustlet/cert.pfx
-chmod 640 /etc/krustlet/cert.pfx
+chown root:root /etc/krustlet/krustlet.*
+chmod 640 /etc/krustlet/krustlet.*
 
-rm /tmp/krustlet.key /tmp/krustlet.csr /tmp/krustlet.cert
+rm /tmp/krustlet.key /tmp/krustlet.csr
 
 if [[ -n "$NODE_LABELS" ]]; then
     cat <<EOF > /etc/eksctl/krustlet.local.env

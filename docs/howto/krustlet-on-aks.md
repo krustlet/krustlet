@@ -94,13 +94,6 @@ $ kubectl get csr krustlet -o jsonpath='{.status.certificate}' \
     | base64 --decode > krustlet.crt
 ```
 
-Lastly, combine the key and the cert into a PFX bundle, choosing your own password instead of
-"password":
-
-```shell
-$ openssl pkcs12 -export -out krustlet.pfx -inkey krustlet.key -in krustlet.crt -password "pass:password"
-```
-
 ## Step 3: Creating and accessing a new VM
 
 Now we need to create a VM in the same resource group as the AKS cluster. In order for the
@@ -171,14 +164,15 @@ step process because we need to copy them to the pod and then copy them to the s
 another terminal in the same directory and then copy them to the pod:
 
 ```shell
-$ kubectl cp krustlet.pfx $(kubectl get pod -l run=aks-ssh -o jsonpath='{.items[0].metadata.name}'):/
+$ kubectl cp krustlet.crt $(kubectl get pod -l run=aks-ssh -o jsonpath='{.items[0].metadata.name}'):/
+$ kubectl cp krustlet.key $(kubectl get pod -l run=aks-ssh -o jsonpath='{.items[0].metadata.name}'):/
 $ kubectl cp kubeconfig-sa $(kubectl get pod -l run=aks-ssh -o jsonpath='{.items[0].metadata.name}'):/
 ```
 
 Now return to your terminal in the pod and copy them to the new VM:
 
 ```shell
-$ scp -i id_rsa {krustlet.pfx,kubeconfig-sa} krustlet@<private IP from above>:~/
+$ scp -i id_rsa {krustlet.*,kubeconfig-sa} krustlet@<private IP from above>:~/
 ```
 
 Then go ahead and SSH to the VM:
@@ -194,7 +188,7 @@ directory for Krustlet and place all of our assets there:
 
 ```shell
 $ sudo mkdir -p /etc/krustlet && sudo chown krustlet:krustlet /etc/krustlet
-$ mv {krustlet.pfx,kubeconfig-sa} /etc/krustlet && chmod 600 /etc/krustlet/*
+$ mv {krustlet.*,kubeconfig-sa} /etc/krustlet && chmod 600 /etc/krustlet/*
 ```
 
 Once that is in place, we'll install the latest release of Krustlet following [the install

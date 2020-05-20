@@ -104,13 +104,6 @@ $ microk8s.kubectl get csr krustlet --output=jsonpath='{.status.certificate}' \
     | base64 --decode > krustlet.crt
 ```
 
-Lastly, combine the key and the cert into a PFX bundle, choosing your own password instead of
-"password":
-
-```shell
-$ openssl pkcs12 -export -out krustlet.pfx -inkey krustlet.key -in krustlet.crt -password "pass:password"
-```
-
 ## Step 3: Install and configure Krustlet
 
 Install the latest release of Krustlet following [the install guide](../intro/install.md).
@@ -131,8 +124,8 @@ $ KUBECONFIG=/var/snap/microk8s/current/credentials/client.config \
 ./krustlet-wasi \
 --node-ip=127.0.0.1 \
 --node-name=krustlet \
---pfx-password="password" \
---pfx-path=./krustlet.pfx
+--tls-cert-file=./krustlet.crt \
+--tls-private-key-file=./krustlet.key
 ```
 
 In another terminal:
