@@ -14,7 +14,8 @@ use kube::Error;
 use log::{debug, error, info, warn};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
-const KUBELET_VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
+const KUBELET_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 macro_rules! retry {
     ($action:expr, times: $num_times:expr, error: $on_err:expr) => {{
@@ -273,15 +274,12 @@ async fn evict_pod(
         // TODO Timeout?
         info!("Waiting for pod '{}' eviction.", name);
         while let Some(event) = stream.try_next().await? {
-            match event {
-                kube::api::WatchEvent::Deleted(s) => {
-                    let pod = Pod::new(s);
-                    if name == pod.name() && namespace == pod.namespace() {
-                        info!("Pod '{}' evicted.", name);
-                        break;
-                    }
+            if let kube::api::WatchEvent::Deleted(s) = event {
+                let pod = Pod::new(s);
+                if name == pod.name() && namespace == pod.namespace() {
+                    info!("Pod '{}' evicted.", name);
+                    break;
                 }
-                _ => (),
             }
         }
     } else {
@@ -671,8 +669,8 @@ impl NodeBuilder {
             .push(k8s_openapi::api::core::v1::NodeCondition {
                 type_: type_.to_string(),
                 status: status.to_string(),
-                last_heartbeat_time: Some(Time(timestamp.clone())),
-                last_transition_time: Some(Time(timestamp.clone())),
+                last_heartbeat_time: Some(Time(*timestamp)),
+                last_transition_time: Some(Time(*timestamp)),
                 reason: Some(reason.to_string()),
                 message: Some(message.to_string()),
             });

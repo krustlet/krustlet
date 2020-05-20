@@ -7,7 +7,6 @@ use std::net::IpAddr;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 
-use rpassword;
 #[cfg(feature = "cli")]
 use structopt::StructOpt;
 

@@ -104,8 +104,13 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
 
         // Create a queue that locks on events per pod
         let queue = PodQueue::new(self.provider.clone(), error_sender);
-        let pod_informer =
-            start_pod_informer::<T>(client.clone(), self.config.node_name.clone(), queue).fuse();
+        let pod_informer = start_pod_informer::<T>(
+            client.clone(),
+            self.config.node_name.clone(),
+            queue,
+            Arc::clone(&signal),
+        )
+        .fuse();
 
         // These must all be running for graceful shutdown. An error here exits ungracefully.
         let core = async {
@@ -156,6 +161,7 @@ async fn start_pod_informer<P: 'static + Provider + Sync + Send>(
     client: kube::Client,
     node_name: String,
     mut queue: PodQueue<P>,
+    signal: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let node_selector = format!("spec.nodeName={}", node_name);
     let params = ListParams {
@@ -177,6 +183,14 @@ async fn start_pod_informer<P: 'static + Provider + Sync + Send>(
             match stream.try_next().await {
                 Ok(Some(event)) => {
                     debug!("Handling Kubernetes pod event: {:?}", event);
+                    if let kube::api::WatchEvent::Added(_) = event {
+                        if signal.load(Ordering::Relaxed) {
+                            warn!(
+                                "Node is shutting down and unschedulable. Dropping Add Pod event."
+                            );
+                            continue;
+                        }
+                    }
                     match queue.enqueue(event).await {
                         Ok(()) => debug!("Enqueued event for processing"),
                         Err(e) => warn!("Error enqueuing pod event: {}", e),
