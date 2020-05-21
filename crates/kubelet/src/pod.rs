@@ -84,6 +84,25 @@ impl Pod {
             .unwrap_or_else(|| &EMPTY_MAP)
     }
 
+    /// Indicate if this pod is a static pod.
+    /// TODO: A missing owner_references field was an indication of static pod in my testing but I
+    /// dont know how reliable this is.
+    pub fn is_static(&self) -> bool {
+        self.0.meta().owner_references.is_none()
+    }
+
+    /// Indicate if this pod is part of a Daemonset
+    pub fn is_daemonset(&self) -> bool {
+        if let Some(owners) = &self.0.meta().owner_references {
+            for owner in owners {
+                if owner.kind == "DaemonSet" {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     ///  Get a specific annotation from the pod
     pub fn get_annotation(&self, key: &str) -> Option<&str> {
         Some(self.annotations().get(key)?.as_str())
