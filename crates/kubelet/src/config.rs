@@ -141,12 +141,14 @@ impl Config {
         Config::new_from_builder(builder)
     }
 
-    /// Parses any present config file and command line flags and sets the proper defaults. The version
+    /// Parses the specified config file (or the default config file if none is specified)
+    /// and command line flags and sets the proper defaults. The version
     /// of your application should be passed to set the proper version for CLI flags
     #[cfg(any(feature = "cli", feature = "docs"))]
     #[cfg_attr(feature = "docs", doc(cfg(feature = "cli")))]
-    pub fn new_from_file_and_flags(version: &str, filename: &str) -> Self {
-        let config_source = config_file::File::with_name(filename);
+    pub fn new_from_file_and_flags(version: &str, config_file_path: Option<PathBuf>) -> Self {
+        let config_source =
+            config_file::File::from(config_file_path.unwrap_or_else(default_config_file_path));
         Config::new_from_file_and_flags_impl(version, config_source)
     }
 
@@ -458,6 +460,16 @@ fn default_key_path(data_dir: &PathBuf) -> PathBuf {
 
 fn default_cert_path(data_dir: &PathBuf) -> PathBuf {
     data_dir.join("config/krustlet.crt")
+}
+
+fn default_config_file_path() -> PathBuf {
+    // TODO: should we also allow override on the command line?
+    match std::env::var("KRUSTLET_CONFIG") {
+        Ok(p) => PathBuf::from(p),
+        Err(_) => dirs::home_dir()
+            .unwrap()
+            .join(".krustlet/config/config.json"),
+    }
 }
 
 fn is_same_ip_family(first: &IpAddr, second: &IpAddr) -> bool {
