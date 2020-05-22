@@ -24,7 +24,7 @@ jobs:
             }
     steps:
       - uses: actions/checkout@v2
-      - uses: engineerd/configurator@v0.0.1
+      - uses: engineerd/configurator@v0.0.2
         with:
           name: ${{ matrix.config.name }}
           url: ${{ matrix.config.url }}
@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: engineerd/setup-kind@v0.3.0
+      - uses: engineerd/setup-kind@v0.4.0
       - uses: engineerd/configurator@v0.0.1
         with:
           name: just
