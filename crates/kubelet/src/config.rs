@@ -123,10 +123,11 @@ impl Config {
         build_result.unwrap() // TODO: assuming okay to panic since that's what fallbacks do
     }
 
-    /// Parses the krustlet-config file and sets the proper defaults
-    pub fn new_from_file_only(filename: &str) -> Self {
-        let source = config_file::File::with_name(filename);
-        let builder = ConfigBuilder::from_config_source(source).unwrap();
+    /// Parses the specified config file and sets the proper defaults.
+    /// If the specified file does not exist, this function panics.
+    /// It is up to callers of the function to ensure any file they specify exists.
+    pub fn new_from_file_only(filename: PathBuf) -> Self {
+        let builder = ConfigBuilder::from_config_file(filename).unwrap();
         Config::new_from_builder(builder)
     }
 
@@ -141,30 +142,41 @@ impl Config {
         Config::new_from_builder(builder)
     }
 
-    /// Parses the specified config file (or the default config file if none is specified)
-    /// and command line flags and sets the proper defaults. The version
-    /// of your application should be passed to set the proper version for CLI flags
+    /// Parses the specified config file (or the default config file if no file is
+    /// specified and the default config file exists) and command line flags and
+    /// sets the proper defaults. The version of your application should be passed
+    /// to set the proper version for CLI flags.
+    ///
+    /// If the config file is specified but does not exist, this function panics.
+    /// It is up to callers of the function to ensure any file they specify exists.
+    /// If no file is specified, and the default config file does not exist, then
+    /// this is not an error and the configuration is determined solely from the
+    /// CLI flags.
     #[cfg(any(feature = "cli", feature = "docs"))]
     #[cfg_attr(feature = "docs", doc(cfg(feature = "cli")))]
     pub fn new_from_file_and_flags(version: &str, config_file_path: Option<PathBuf>) -> Self {
-        let config_source =
-            config_file::File::from(config_file_path.unwrap_or_else(default_config_file_path));
-        Config::new_from_file_and_flags_impl(version, config_source)
+        match config_file_path {
+            None => {
+                let default_path = default_config_file_path();
+                if default_path.exists() {
+                    Config::new_from_file_and_flags_impl(version, default_path)
+                } else {
+                    Config::new_from_flags_only(version)
+                }
+            }
+            Some(path) => Config::new_from_file_and_flags_impl(version, path),
+        }
     }
 
     #[cfg(any(feature = "cli", feature = "docs"))]
     #[cfg_attr(feature = "docs", doc(cfg(feature = "cli")))]
-    fn new_from_file_and_flags_impl<T>(version: &str, config_source: T) -> Self
-    where
-        T: 'static,
-        T: config_file::Source + Send + Sync,
-    {
+    fn new_from_file_and_flags_impl(version: &str, config_file_path: PathBuf) -> Self {
         // TODO: reduce duplication
         let app = Opts::clap().version(version);
         let opts = Opts::from_clap(&app.get_matches());
         let cli_builder = ConfigBuilder::from_opts(opts);
 
-        let config_file_builder = ConfigBuilder::from_config_source(config_source);
+        let config_file_builder = ConfigBuilder::from_config_file(config_file_path);
 
         let builder = config_file_builder.unwrap().with_override(cli_builder); // if the config file is actually malformed then we should halt even if there are CLI values
         Config::new_from_builder(builder)
@@ -212,8 +224,14 @@ impl ConfigBuilder {
         }
     }
 
-    // TODO: probably need to surface errors rather than just defaulting,
-    // e.g. JSON parse error
+    fn from_config_file(config_file_path: PathBuf) -> anyhow::Result<ConfigBuilder> {
+        if !config_file_path.exists() {
+            return Ok(ConfigBuilder::default());
+        }
+        let config_source = config_file::File::from(config_file_path);
+        ConfigBuilder::from_config_source(config_source)
+    }
+
     fn from_config_source<T>(source: T) -> anyhow::Result<ConfigBuilder>
     where
         T: 'static,
@@ -222,7 +240,6 @@ impl ConfigBuilder {
         let mut settings = config_file::Config::default();
         match settings.merge(source) {
             Ok(s) => Ok(ConfigBuilder::from_config_settings(s.clone())),
-            Err(config_file::ConfigError::NotFound(_)) => Ok(ConfigBuilder::default()),
             Err(e) => Err(anyhow::Error::new(e)),
         }
     }
@@ -473,13 +490,9 @@ fn default_cert_path(data_dir: &PathBuf) -> PathBuf {
 }
 
 fn default_config_file_path() -> PathBuf {
-    // TODO: should we also allow override on the command line?
-    match std::env::var("KRUSTLET_CONFIG") {
-        Ok(p) => PathBuf::from(p),
-        Err(_) => dirs::home_dir()
-            .unwrap()
-            .join(".krustlet/config/config.json"),
-    }
+    dirs::home_dir()
+        .unwrap()
+        .join(".krustlet/config/config.json")
 }
 
 fn is_same_ip_family(first: &IpAddr, second: &IpAddr) -> bool {
