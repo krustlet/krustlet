@@ -71,6 +71,17 @@ struct ConfigBuilder {
     pub server_tls_private_key_file: Option<PathBuf>,
 }
 
+const NODE_IP_CONFIG_KEY: &str = "node_ip";
+const HOSTNAME_CONFIG_KEY: &str = "hostname";
+const NODE_NAME_CONFIG_KEY: &str = "node_name";
+const DATA_DIR_CONFIG_KEY: &str = "data_dir";
+const NODE_LABELS_CONFIG_KEY: &str = "node_labels";
+const MAX_PODS_CONFIG_KEY: &str = "max_pods";
+const SERVER_ADDR_CONFIG_KEY: &str = "addr";
+const SERVER_PORT_CONFIG_KEY: &str = "port";
+const SERVER_TLS_CERT_FILE_CONFIG_KEY: &str = "tls_cert_file";
+const SERVER_TLS_PRIVATE_KEY_FILE_CONFIG_KEY: &str = "tls_private_key_file";
+
 struct ConfigBuilderFallbacks {
     hostname: fn() -> String,
     data_dir: fn() -> PathBuf,
@@ -246,34 +257,42 @@ impl ConfigBuilder {
 
     fn from_config_settings(settings: config_file::Config) -> ConfigBuilder {
         let port = settings
-            .get_str("port")
+            .get_str(SERVER_PORT_CONFIG_KEY)
             .ok()
             .map(|s| s.parse::<u16>().map_err(anyhow::Error::new));
         let max_pods = settings
-            .get_str("max_pods")
+            .get_str(MAX_PODS_CONFIG_KEY)
             .ok()
             .map(|s| s.parse::<u16>().map_err(anyhow::Error::new));
-        let node_labels: Option<HashMap<String, String>> =
-            settings.get_table("node_labels").map(stringise_values).ok();
+        let node_labels: Option<HashMap<String, String>> = settings
+            .get_table(NODE_LABELS_CONFIG_KEY)
+            .map(stringise_values)
+            .ok();
 
         ConfigBuilder {
-            hostname: settings.get_str("hostname").ok(),
-            data_dir: settings.get_str("data_dir").map(PathBuf::from).ok(),
+            hostname: settings.get_str(HOSTNAME_CONFIG_KEY).ok(),
+            data_dir: settings
+                .get_str(DATA_DIR_CONFIG_KEY)
+                .map(PathBuf::from)
+                .ok(),
             node_ip: settings
-                .get_str("node_ip")
+                .get_str(NODE_IP_CONFIG_KEY)
                 .ok()
                 .map(|s| s.parse().map_err(anyhow::Error::new)),
             node_labels,
-            node_name: settings.get_str("node_name").ok(),
+            node_name: settings.get_str(NODE_NAME_CONFIG_KEY).ok(),
             max_pods,
             server_addr: settings
-                .get_str("addr")
+                .get_str(SERVER_ADDR_CONFIG_KEY)
                 .ok()
                 .map(|s| s.parse().map_err(anyhow::Error::new)),
             server_port: port,
-            server_tls_cert_file: settings.get_str("tls_cert_file").map(PathBuf::from).ok(),
+            server_tls_cert_file: settings
+                .get_str(SERVER_TLS_CERT_FILE_CONFIG_KEY)
+                .map(PathBuf::from)
+                .ok(),
             server_tls_private_key_file: settings
-                .get_str("tls_private_key_file")
+                .get_str(SERVER_TLS_PRIVATE_KEY_FILE_CONFIG_KEY)
                 .map(PathBuf::from)
                 .ok(),
         }
