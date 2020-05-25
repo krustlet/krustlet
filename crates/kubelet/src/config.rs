@@ -54,20 +54,19 @@ pub struct ServerConfig {
     pub tls_private_key_file: PathBuf,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 struct ConfigBuilder {
-    // TODO: consider if these should all be plain strings so we don't have to
-    // parse them until we are ready to build (relevant for overrides in the
-    // case where a value is invalid). Otherwise perhaps they should be Results
-    // rather than Options.
-    pub node_ip: Option<IpAddr>,
+    // Some -> Ok(v) = it was present and the value parsed as v
+    //      -> Err(e) = it was present but bad - e described the problem
+    // None = it wasn't present
+    pub node_ip: Option<anyhow::Result<IpAddr>>,
     pub hostname: Option<String>,
     pub node_name: Option<String>,
     pub data_dir: Option<PathBuf>,
     pub node_labels: Option<HashMap<String, String>>,
-    pub max_pods: Option<u16>,
-    pub server_addr: Option<IpAddr>,
-    pub server_port: Option<u16>,
+    pub max_pods: Option<anyhow::Result<u16>>,
+    pub server_addr: Option<anyhow::Result<IpAddr>>,
+    pub server_port: Option<anyhow::Result<u16>>,
     pub server_tls_cert_file: Option<PathBuf>,
     pub server_tls_private_key_file: Option<PathBuf>,
 }
@@ -120,13 +119,14 @@ impl Config {
             key_path: default_key_path,
             node_ip: |hn, ip| default_node_ip(hn, ip).expect("unable to get default node IP"),
         };
-        ConfigBuilder::build(builder, fallbacks)
+        let build_result = ConfigBuilder::build(builder, fallbacks);
+        build_result.unwrap() // TODO: assuming okay to panic since that's what fallbacks do
     }
 
     /// Parses the krustlet-config file and sets the proper defaults
     pub fn new_from_file_only(filename: &str) -> Self {
         let source = config_file::File::with_name(filename);
-        let builder = ConfigBuilder::from_config_source(source);
+        let builder = ConfigBuilder::from_config_source(source).unwrap();
         Config::new_from_builder(builder)
     }
 
@@ -166,7 +166,7 @@ impl Config {
 
         let config_file_builder = ConfigBuilder::from_config_source(config_source);
 
-        let builder = config_file_builder.with_override(cli_builder);
+        let builder = config_file_builder.unwrap().with_override(cli_builder); // if the config file is actually malformed then we should halt even if there are CLI values
         Config::new_from_builder(builder)
     }
 }
@@ -182,6 +182,10 @@ impl Default for Config {
     }
 }
 
+fn ok_result_of<T>(value: Option<T>) -> Option<anyhow::Result<T>> {
+    value.map(Ok)
+}
+
 impl ConfigBuilder {
     fn from_opts(opts: Opts) -> Self {
         let node_labels: Vec<(String, String)> = opts
@@ -191,7 +195,7 @@ impl ConfigBuilder {
             .collect();
 
         ConfigBuilder {
-            node_ip: opts.node_ip,
+            node_ip: ok_result_of(opts.node_ip),
             node_name: opts.node_name,
             node_labels: if node_labels.is_empty() {
                 None
@@ -200,9 +204,9 @@ impl ConfigBuilder {
             },
             hostname: opts.hostname,
             data_dir: opts.data_dir,
-            max_pods: opts.max_pods,
-            server_addr: opts.addr,
-            server_port: opts.port,
+            max_pods: ok_result_of(opts.max_pods),
+            server_addr: ok_result_of(opts.addr),
+            server_port: ok_result_of(opts.port),
             server_tls_cert_file: opts.tls_cert_file,
             server_tls_private_key_file: opts.tls_private_key_file,
         }
@@ -210,15 +214,16 @@ impl ConfigBuilder {
 
     // TODO: probably need to surface errors rather than just defaulting,
     // e.g. JSON parse error
-    fn from_config_source<T>(source: T) -> ConfigBuilder
+    fn from_config_source<T>(source: T) -> anyhow::Result<ConfigBuilder>
     where
         T: 'static,
         T: config_file::Source + Send + Sync,
     {
         let mut settings = config_file::Config::default();
         match settings.merge(source) {
-            Ok(s) => ConfigBuilder::from_config_settings(s.clone()),
-            Err(_) => ConfigBuilder::default(),
+            Ok(s) => Ok(ConfigBuilder::from_config_settings(s.clone())),
+            Err(config_file::ConfigError::NotFound(_)) => Ok(ConfigBuilder::default()),
+            Err(e) => Err(anyhow::Error::new(e)),
         }
     }
 
@@ -226,11 +231,11 @@ impl ConfigBuilder {
         let port = settings
             .get_str("port")
             .ok()
-            .and_then(|s| s.parse::<u16>().ok());
+            .map(|s| s.parse::<u16>().map_err(anyhow::Error::new));
         let max_pods = settings
             .get_str("max_pods")
             .ok()
-            .and_then(|s| s.parse::<u16>().ok());
+            .map(|s| s.parse::<u16>().map_err(anyhow::Error::new));
         let node_labels: Option<HashMap<String, String>> =
             settings.get_table("node_labels").map(stringise_values).ok();
 
@@ -240,11 +245,14 @@ impl ConfigBuilder {
             node_ip: settings
                 .get_str("node_ip")
                 .ok()
-                .and_then(|s| s.parse().ok()),
+                .map(|s| s.parse().map_err(anyhow::Error::new)),
             node_labels,
             node_name: settings.get_str("node_name").ok(),
             max_pods,
-            server_addr: settings.get_str("addr").ok().and_then(|s| s.parse().ok()),
+            server_addr: settings
+                .get_str("addr")
+                .ok()
+                .map(|s| s.parse().map_err(anyhow::Error::new)),
             server_port: port,
             server_tls_cert_file: settings.get_str("tls_cert_file").map(PathBuf::from).ok(),
             server_tls_private_key_file: settings
@@ -271,39 +279,41 @@ impl ConfigBuilder {
         }
     }
 
-    fn build(self: Self, fallbacks: ConfigBuilderFallbacks) -> Config {
+    fn build(self: Self, fallbacks: ConfigBuilderFallbacks) -> anyhow::Result<Config> {
         let empty_ip_addr = IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0));
 
         let hostname = self.hostname.unwrap_or_else(fallbacks.hostname);
         let data_dir = self.data_dir.unwrap_or_else(fallbacks.data_dir);
-        let server_addr = self.server_addr.unwrap_or(empty_ip_addr);
+        let server_addr = self.server_addr.unwrap_or(Ok(empty_ip_addr))?;
         let server_tls_cert_file = self
             .server_tls_cert_file
             .unwrap_or_else(|| (fallbacks.cert_path)(&data_dir));
         let server_tls_private_key_file = self
             .server_tls_private_key_file
             .unwrap_or_else(|| (fallbacks.key_path)(&data_dir));
+        let server_port = self.server_port.unwrap_or(Ok(3000))?;
         let node_ip = self
             .node_ip
-            .unwrap_or_else(|| (fallbacks.node_ip)(&mut hostname.clone(), &server_addr));
+            .unwrap_or_else(|| Ok((fallbacks.node_ip)(&mut hostname.clone(), &server_addr)))?;
         let node_name = self
             .node_name
             .unwrap_or_else(|| sanitize_hostname(&hostname));
+        let max_pods = self.max_pods.unwrap_or(Ok(110))?;
 
-        Config {
+        Ok(Config {
             node_ip,
             node_name,
             node_labels: self.node_labels.unwrap_or_else(HashMap::new),
             hostname,
             data_dir,
-            max_pods: self.max_pods.unwrap_or(110),
+            max_pods,
             server_config: ServerConfig {
                 tls_cert_file: server_tls_cert_file,
                 tls_private_key_file: server_tls_private_key_file,
                 addr: server_addr,
-                port: self.server_port.unwrap_or(3000),
+                port: server_port,
             },
-        }
+        })
     }
 }
 
@@ -495,7 +505,7 @@ fn split_one_label(in_string: &str) -> Option<(String, String)> {
 mod test {
     use super::*;
 
-    fn builder_from_json_string(json: &str) -> ConfigBuilder {
+    fn builder_from_json_string(json: &str) -> anyhow::Result<ConfigBuilder> {
         let source = config_file::File::from_str(json, config_file::FileFormat::Json);
         ConfigBuilder::from_config_source(source)
     }
@@ -529,7 +539,7 @@ mod test {
             "tls_private_key_file": "/the/key"
         }"#,
         );
-        let config = config_builder.build(fallbacks());
+        let config = config_builder.unwrap().build(fallbacks()).unwrap();
         assert_eq!(config.server_config.port, 1234);
         assert_eq!(format!("{}", config.server_config.addr), "172.182.192.1");
         assert_eq!(
@@ -561,7 +571,7 @@ mod test {
             "node_name": "krustsome-node"
         }"#,
         );
-        let config = config_builder.build(fallbacks());
+        let config = config_builder.unwrap().build(fallbacks()).unwrap();
         assert_eq!(config.server_config.port, 2345);
         assert_eq!(format!("{}", config.server_config.addr), "173.183.193.2");
         assert_eq!(
@@ -585,7 +595,7 @@ mod test {
             r#"{
         }"#,
         );
-        let config = config_builder.build(fallbacks());
+        let config = config_builder.unwrap().build(fallbacks()).unwrap();
         assert_eq!(config.server_config.port, 3000);
         assert_eq!(config.max_pods, 110);
         assert_eq!(format!("{}", config.server_config.addr), "0.0.0.0");
@@ -611,7 +621,7 @@ mod test {
                 "hostname": "k"
         }"#,
         );
-        let config = config_builder.build(fallbacks());
+        let config = config_builder.unwrap().build(fallbacks()).unwrap();
         assert_eq!(config.node_name, "k");
         assert_eq!(config.hostname, "k");
     }
@@ -650,8 +660,8 @@ mod test {
             "tls_private_key_file": "/the/2nd/key"
         }"#,
         );
-        let config_builder = base_values.with_override(override_values);
-        let config = config_builder.build(fallbacks());
+        let config_builder = base_values.unwrap().with_override(override_values.unwrap());
+        let config = config_builder.build(fallbacks()).unwrap();
         assert_eq!(config.server_config.port, 5678);
         assert_eq!(format!("{}", config.server_config.addr), "171.181.191.21");
         assert_eq!(
@@ -698,8 +708,8 @@ mod test {
             "tls_private_key_file": "/the/other/key"
         }"#,
         );
-        let config_builder = base_values.with_override(override_values);
-        let config = config_builder.build(fallbacks());
+        let config_builder = base_values.unwrap().with_override(override_values.unwrap());
+        let config = config_builder.build(fallbacks()).unwrap();
         assert_eq!(config.server_config.port, 2345);
         assert_eq!(format!("{}", config.server_config.addr), "172.182.192.1");
         assert_eq!(
@@ -716,5 +726,107 @@ mod test {
         assert_eq!(format!("{}", config.node_ip), "173.183.193.2");
         assert_eq!(config.node_labels.len(), 2);
         assert_eq!(config.node_labels.get("label1"), Some(&("val1".to_owned())));
+    }
+
+    #[test]
+    fn malformed_config_file_is_reported() {
+        let config_builder = builder_from_json_string(
+            r#"{
+            "port": "2345",
+            "addr": "173.183.193.2",
+            "node_name": "krustsome-node",
+        }"#,
+        );
+        let error =
+            config_builder.expect_err("Expected malformed config to produce error but was okay");
+        assert!(
+            error.to_string().contains("comma"),
+            "Expected malformed config descriptive error"
+        );
+    }
+
+    #[test]
+    fn malformed_config_value_is_reported() {
+        let config_builder = builder_from_json_string(
+            r#"{
+            "port": "qqqqqqqqqqq",
+            "addr": "173.183.193.2",
+            "node_name": "krustsome-node"
+        }"#,
+        );
+        let error = config_builder
+            .unwrap()
+            .build(fallbacks())
+            .expect_err("Expected config error but was okay");
+        assert!(
+            error.to_string().contains("invalid digit"),
+            error.to_string()
+        );
+    }
+
+    #[test]
+    fn out_of_range_config_value_is_reported() {
+        let config_builder = builder_from_json_string(
+            r#"{
+            "port": "8675309",
+            "addr": "173.183.193.2",
+            "node_name": "krustsome-node"
+        }"#,
+        );
+        let error = config_builder
+            .unwrap()
+            .build(fallbacks())
+            .expect_err("Expected config error but was okay");
+        assert!(
+            error.to_string().contains("number too large"),
+            error.to_string()
+        );
+    }
+
+    #[test]
+    fn if_invalid_config_value_is_overridden_by_valid_one_it_is_not_an_error() {
+        let config_builder_1 = builder_from_json_string(
+            r#"{
+            "port": "8675309"
+        }"#,
+        )
+        .unwrap();
+        let config_builder_2 = builder_from_json_string(
+            r#"{
+            "port": "1234"
+        }"#,
+        )
+        .unwrap();
+        let config_builder = config_builder_1.with_override(config_builder_2);
+        let config = config_builder.build(fallbacks());
+        assert!(
+            config.is_ok(),
+            format!("Merged config had error {}", config.unwrap_err())
+        );
+        assert_eq!(config.unwrap().server_config.port, 1234);
+    }
+
+    #[test]
+    fn if_invalid_config_value_is_not_overridden_it_is_still_an_error() {
+        let config_builder_1 = builder_from_json_string(
+            r#"{
+            "port": "qqqqqqqq"
+        }"#,
+        )
+        .unwrap();
+        let config_builder_2 = builder_from_json_string(
+            r#"{
+            "node_name": "krustsome-node"
+        }"#,
+        )
+        .unwrap();
+        let config_builder = config_builder_1.with_override(config_builder_2);
+        let error = config_builder
+            .build(fallbacks())
+            .expect_err("Expected config error but was okay");
+        assert!(
+            error.to_string().contains("invalid digit"),
+            error.to_string()
+        );
     }
 }
