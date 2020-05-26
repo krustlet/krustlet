@@ -33,23 +33,28 @@ exclude = [
 [badges]
 maintenance = { status = "actively-developed" }
 
+[features]
+default = ["native-tls"]
+native-tls = ["kube/native-tls", "kubelet/kube-native-tls", "wasi-provider/native-tls", "wascc-provider/native-tls", "oci-distribution/native-tls"]
+rustls-tls = ["kube/rustls-tls", "kubelet/rustls-tls", "wasi-provider/rustls-tls", "wascc-provider/rustls-tls", "oci-distribution/rustls-tls"]
+
 [dependencies]
 anyhow = "1.0"
 tokio = { version = "0.2", features = ["macros"] }
-kube = "0.33"
+kube = { version= "0.34", default-features = false }
 env_logger = "0.7"
-kubelet = { path = "./crates/kubelet", version = "0.2", features = ["cli"] }
-wascc-provider = { path = "./crates/wascc-provider", version = "0.2" }
-wasi-provider = { path = "./crates/wasi-provider", version = "0.2" }
-oci-distribution = { path = "./crates/oci-distribution", version = "0.1" }
+kubelet = { path = "./crates/kubelet", version = "0.2", default-features = false, features = ["cli"] }
+wascc-provider = { path = "./crates/wascc-provider", version = "0.2", default-features = false }
+wasi-provider = { path = "./crates/wasi-provider", version = "0.2", default-features = false }
+oci-distribution = { path = "./crates/oci-distribution", version = "0.1", default-features = false }
 
 [dev-dependencies]
 futures = "0.3"
 serde_derive = "1.0"
 serde_json = "1.0"
 serde = "1.0"
-k8s-openapi = { version = "0.7.1", default-features = false, features = ["v1_17"] }
-reqwest = "0.10"
+k8s-openapi = { version = "0.8", default-features = false, features = ["v1_17"] }
+reqwest = { version = "0.10", default-features = false }
 dirs = "2.0"
 tempfile = "3.1"
 

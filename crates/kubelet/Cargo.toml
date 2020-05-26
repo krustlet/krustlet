@@ -25,6 +25,13 @@ keywords = [
 [badges]
 maintenance = { status = "actively-developed" }
 
+[features]
+default = ["kube-native-tls"]
+kube-native-tls = ["kube/native-tls", "oci-distribution/native-tls"]
+rustls-tls = ["kube/rustls-tls", "oci-distribution/rustls-tls"]
+cli = ["structopt"]
+docs = ["cli"]
+
 [dependencies]
 async-trait = "0.1"
 dirs = "2.0"
@@ -36,8 +43,8 @@ hyper = { version = "0.13", default-features = false, features = ["stream"] }
 log = "0.4"
 reqwest = "0.10"
 tokio  = { version = "0.2", features = ["fs", "stream", "macros", "signal"] }
-kube = "0.33"
-k8s-openapi = { version = "0.7", default-features = false, features = ["v1_17"] }
+kube = { version= "0.34", default-features = false }
+k8s-openapi = { version = "0.8", default-features = false, features = ["v1_17"] }
 chrono = { version = "0.4", features = ["serde"] }
 structopt = { version = "0.3", features = ["wrap_help"], optional = true }
 hostname = "0.3"
@@ -45,14 +52,13 @@ native-tls = "0.2"
 tokio-tls = "0.3"
 thiserror = "1.0"
 lazy_static = "1.4"
-oci-distribution = { path = "../oci-distribution", version = "0.1.0" }
+oci-distribution = { path = "../oci-distribution", version = "0.1", default-features = false }
 url = "2.1"
 warp = { version = "0.2", features = ['tls'] }
 http = "0.2"
 
-[features]
-cli = ["structopt"]
-docs = ["cli"]
+[dev-dependencies]
+reqwest = {version = "0.10", default-features = false }
 
 [package.metadata.docs.rs]
 features = ["docs"]
