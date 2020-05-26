@@ -327,14 +327,14 @@ impl ConfigBuilder {
         let server_tls_private_key_file = self
             .server_tls_private_key_file
             .unwrap_or_else(|| (fallbacks.key_path)(&data_dir));
-        let server_port = self.server_port.unwrap_or(Ok(3000))?;
+        let server_port = self.server_port.unwrap_or(Ok(DEFAULT_PORT))?;
         let node_ip = self
             .node_ip
             .unwrap_or_else(|| Ok((fallbacks.node_ip)(&mut hostname.clone(), &server_addr)))?;
         let node_name = self
             .node_name
             .unwrap_or_else(|| sanitize_hostname(&hostname));
-        let max_pods = self.max_pods.unwrap_or(Ok(110))?;
+        let max_pods = self.max_pods.unwrap_or(Ok(DEFAULT_MAX_PODS))?;
 
         Ok(Config {
             node_ip,
