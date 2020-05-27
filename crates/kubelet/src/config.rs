@@ -319,21 +319,31 @@ impl ConfigBuilder {
 
         let hostname = self.hostname.unwrap_or_else(fallbacks.hostname);
         let data_dir = self.data_dir.unwrap_or_else(fallbacks.data_dir);
-        let server_addr = self.server_addr.unwrap_or(Ok(empty_ip_addr))?;
+        let server_addr = self
+            .server_addr
+            .unwrap_or(Ok(empty_ip_addr))
+            .map_err(|e| invalid_config_value_error(e, "server address"))?;
         let server_tls_cert_file = self
             .server_tls_cert_file
             .unwrap_or_else(|| (fallbacks.cert_path)(&data_dir));
         let server_tls_private_key_file = self
             .server_tls_private_key_file
             .unwrap_or_else(|| (fallbacks.key_path)(&data_dir));
-        let server_port = self.server_port.unwrap_or(Ok(DEFAULT_PORT))?;
+        let server_port = self
+            .server_port
+            .unwrap_or(Ok(DEFAULT_PORT))
+            .map_err(|e| invalid_config_value_error(e, "server port"))?;
         let node_ip = self
             .node_ip
-            .unwrap_or_else(|| Ok((fallbacks.node_ip)(&mut hostname.clone(), &server_addr)))?;
+            .unwrap_or_else(|| Ok((fallbacks.node_ip)(&mut hostname.clone(), &server_addr)))
+            .map_err(|e| invalid_config_value_error(e, "node IP"))?;
         let node_name = self
             .node_name
             .unwrap_or_else(|| sanitize_hostname(&hostname));
-        let max_pods = self.max_pods.unwrap_or(Ok(DEFAULT_MAX_PODS))?;
+        let max_pods = self
+            .max_pods
+            .unwrap_or(Ok(DEFAULT_MAX_PODS))
+            .map_err(|e| invalid_config_value_error(e, "maximum pods"))?;
 
         Ok(Config {
             node_ip,
@@ -530,6 +540,11 @@ fn split_one_label(in_string: &str) -> Option<(String, String)> {
             None => Some((key.to_string(), String::new())),
         },
     }
+}
+
+fn invalid_config_value_error(e: anyhow::Error, value_name: &str) -> anyhow::Error {
+    let context = format!("invalid {} in configuration file: {}", value_name, e);
+    e.context(context)
 }
 
 #[cfg(test)]
@@ -793,6 +808,22 @@ mod test {
             error.to_string().contains("invalid digit"),
             error.to_string()
         );
+    }
+
+    #[test]
+    fn malformed_config_value_says_which_value() {
+        let config_builder = builder_from_json_string(
+            r#"{
+            "port": "qqqqqqqqqqq",
+            "addr": "173.183.193.2",
+            "node_name": "krustsome-node"
+        }"#,
+        );
+        let error = config_builder
+            .unwrap()
+            .build(fallbacks())
+            .expect_err("Expected config error but was okay");
+        assert!(error.to_string().contains("server port"), error.to_string());
     }
 
     #[test]
