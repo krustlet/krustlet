@@ -137,7 +137,7 @@ impl Config {
     /// Parses the specified config file and sets the proper defaults.
     /// If the specified file does not exist, this function panics.
     /// It is up to callers of the function to ensure any file they specify exists.
-    pub fn new_from_file_only(filename: PathBuf) -> Self {
+    pub fn new_from_file(filename: PathBuf) -> Self {
         let builder = ConfigBuilder::from_config_file(filename).unwrap();
         Config::new_from_builder(builder)
     }
@@ -146,7 +146,7 @@ impl Config {
     /// of your application should be passed to set the proper version for the CLI
     #[cfg(any(feature = "cli", feature = "docs"))]
     #[cfg_attr(feature = "docs", doc(cfg(feature = "cli")))]
-    pub fn new_from_flags_only(version: &str) -> Self {
+    pub fn new_from_flags(version: &str) -> Self {
         let app = Opts::clap().version(version);
         let opts = Opts::from_clap(&app.get_matches());
         let builder = ConfigBuilder::from_opts(opts);
@@ -172,7 +172,7 @@ impl Config {
                 if default_path.exists() {
                     Config::new_from_file_and_flags_impl(version, default_path)
                 } else {
-                    Config::new_from_flags_only(version)
+                    Config::new_from_flags(version)
                 }
             }
             Some(path) => Config::new_from_file_and_flags_impl(version, path),
