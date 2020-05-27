@@ -245,8 +245,7 @@ impl ConfigBuilder {
 
     fn from_config_source<T>(source: T) -> anyhow::Result<ConfigBuilder>
     where
-        T: 'static,
-        T: config_file::Source + Send + Sync,
+        T: 'static + config_file::Source + Send + Sync,
     {
         let mut settings = config_file::Config::default();
         match settings.merge(source) {
