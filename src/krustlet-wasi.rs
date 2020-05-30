@@ -9,7 +9,7 @@ async fn main() -> anyhow::Result<()> {
     // a new Kubelet, all you need to implement is a provider.
     let config = Config::new_from_flags(env!("CARGO_PKG_VERSION"));
 
-    let kubeconfig = kube::Config::infer().await?;
+    let kubeconfig = kubelet::tls_bootstrapper::bootstrap(&config.hostname).await?;
 
     // Initialize the logger
     env_logger::init();
@@ -20,6 +20,6 @@ async fn main() -> anyhow::Result<()> {
     let store = FileModuleStore::new(client, &module_store_path);
 
     let provider = WasiProvider::new(store, &config, kubeconfig.clone()).await?;
-    let kubelet = Kubelet::new(provider, kubeconfig, config);
+    let kubelet = Kubelet::new(provider, kubeconfig, config).await?;
     kubelet.start().await
 }

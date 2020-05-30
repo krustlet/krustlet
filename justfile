@@ -1,4 +1,4 @@
-export RUST_LOG := "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,main=debug"
+export RUST_LOG := "debug"
 export PFX_PASSWORD := "testing"
 export KEY_DIR := env_var_or_default('KEY_DIR', '$HOME/.krustlet/config')
 

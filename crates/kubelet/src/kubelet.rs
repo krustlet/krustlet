@@ -41,12 +41,16 @@ pub struct Kubelet<P> {
 impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
     /// Create a new Kubelet with a provider, a kubernetes configuration,
     /// and a kubelet configuration
-    pub fn new(provider: T, kube_config: kube::Config, config: Config) -> Self {
-        Self {
+    pub async fn new(
+        provider: T,
+        kube_config: kube::Config,
+        config: Config,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
             provider: Arc::new(provider),
             kube_config,
             config,
-        }
+        })
     }
 
     /// Begin answering requests for the Kubelet.
