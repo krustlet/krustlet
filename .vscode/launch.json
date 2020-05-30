@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [{
+    "type": "lldb",
+    "request": "launch",
+    "name": "Kubelet",
+    "args": [],
+    "program": "${workspaceFolder}/target/debug/krustlet",
+    "windows": {
+      "program": "${workspaceFolder}/target/debug/krustlet.exe"
+    },
+    "cwd": "${workspaceFolder}",
+    "stopOnEntry": false,
+    "sourceLanguages": ["rust"],
+    "sourceMap": {
+      "/rustc/*": "${env:HOME}/.rustup/toolchains/stable-x86_64-apple-darwin/lib/rustlib/src/rust"
+    }
+  }]
+}
