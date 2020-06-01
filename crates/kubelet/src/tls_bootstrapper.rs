@@ -28,8 +28,12 @@ const BOOTSTRAP_TOKEN_FILE: &str = "/etc/kubernetes/bootstrap-kubelet.conf";
 const KUBECONFIG: &str = "KUBECONFIG";
 
 pub async fn bootstrap(hostname: &str) -> anyhow::Result<Config> {
+    println!("attempting to bootstrap for host: {:?}", hostname);
+    let exists = kubeconfig_exists();
+    println!("kubeconfig_exists returns {}", exists);
     // kubelet searches for and finds a bootstrap-kubeconfig file
-    if kubeconfig_exists() && false {
+    if exists {
+        println!("config found - bootstrap aborted");
         Config::infer()
             .await
             .map_err(|e| anyhow::anyhow!("Unable to load config from host: {}", e))
@@ -49,6 +53,7 @@ pub async fn bootstrap(hostname: &str) -> anyhow::Result<Config> {
         // TODO: if configured, kubelet automatically requests renewal of the certificate when it is close to expiry
         // The renewed certificate is approved and issued, either automatically or manually, depending on configuration.
         let original_kubeconfig = env::var(KUBECONFIG)?;
+        println!("original_kubeconfig set to {}", original_kubeconfig);
         env::set_var(KUBECONFIG, BOOTSTRAP_TOKEN_FILE);
         let conf = kube::Config::infer().await?;
         let client = kube::Client::try_from(conf)?;
@@ -88,7 +93,6 @@ pub async fn bootstrap(hostname: &str) -> anyhow::Result<Config> {
             serde_json::from_value(csr_json).expect("Unable to generate valid CSR JSON");
 
         csrs.create(&PostParams::default(), &post_data).await?;
-        //println!("{:?}", resp.status.unwrap().certificate.unwrap());
 
         // Wait for CSR signing
         let inf: Informer<CertificateSigningRequest> = Informer::new(csrs)
@@ -244,6 +248,10 @@ pub fn kubeconfig_exists() -> bool {
 
 /// Returns kubeconfig path from specified environment variable.
 pub fn kubeconfig_path() -> Option<PathBuf> {
+    println!(
+        "kubeconfig_path evaluates to: {:?}",
+        env::var_os(KUBECONFIG)?
+    );
     env::var_os(KUBECONFIG).map(PathBuf::from)
 }
 
