@@ -51,6 +51,7 @@ mod node;
 mod pod;
 mod queue;
 mod server;
+mod bootstrapping;
 
 pub mod config;
 pub mod handle;
@@ -58,7 +59,6 @@ pub mod image_client;
 pub mod module_store;
 pub mod provider;
 pub mod status;
-pub mod tls_bootstrapper;
 pub mod volumes;
 
 pub use self::kubelet::Kubelet;
@@ -66,5 +66,6 @@ pub use handle::{LogHandleFactory, PodHandle, RuntimeHandle};
 pub use logs::{stream_logs, LogSendError, LogSender};
 pub use node::NodeBuilder;
 pub use pod::Pod;
+pub use bootstrapping::bootstrap;
 #[doc(inline)]
 pub use provider::Provider;

@@ -9,7 +9,7 @@ async fn main() -> anyhow::Result<()> {
     // a new Kubelet, all you need to implement is a provider.
     let config = Config::new_from_flags(env!("CARGO_PKG_VERSION"));
 
-    let kubeconfig = kubelet::tls_bootstrapper::bootstrap(&config.hostname).await?;
+    let kubeconfig = kubelet::bootstrap(&config.node_name, &config.bootstrap_file).await?;
 
     // Initialize the logger
     env_logger::init();

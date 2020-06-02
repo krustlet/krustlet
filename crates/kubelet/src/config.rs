@@ -14,6 +14,7 @@ use std::collections::HashMap;
 
 const DEFAULT_PORT: u16 = 3000;
 const DEFAULT_MAX_PODS: u16 = 110;
+const BOOTSTRAP_FILE: &str = "/etc/kubernetes/bootstrap-kubelet.conf";
 
 /// The configuration needed for a kubelet to run properly.
 ///
@@ -39,6 +40,8 @@ pub struct Config {
     pub node_labels: HashMap<String, String>,
     /// The maximum pods for this kubelet (reported to apiserver)
     pub max_pods: u16,
+    /// The location of the tls bootstrapping file
+    pub bootstrap_file: PathBuf,
 }
 /// The configuration for the Kubelet server.
 #[derive(Clone, Debug)]
@@ -71,6 +74,7 @@ impl Config {
             hostname,
             data_dir,
             max_pods: DEFAULT_MAX_PODS,
+            bootstrap_file: PathBuf::from(BOOTSTRAP_FILE),
             server_config: ServerConfig {
                 addr: match preferred_ip_family {
                     // Just unwrap these because they are programmer error if they
@@ -130,6 +134,8 @@ impl Config {
 
         let max_pods = opts.max_pods;
 
+        let bootstrap_file = opts.bootstrap_file;
+
         Config {
             node_ip,
             node_name,
@@ -137,6 +143,7 @@ impl Config {
             hostname,
             data_dir,
             max_pods,
+            bootstrap_file,
             server_config: ServerConfig {
                 addr,
                 port,
@@ -253,6 +260,14 @@ pub struct Opts {
         help = "The data path (logs, container images, etc) for krustlet storage. Defaults to $HOME/.krustlet"
     )]
     data_dir: Option<PathBuf>,
+
+    #[structopt(
+        long = "bootstrap-file",
+        env = "KRUSTLET_BOOTSTRAP_FILE",
+        help = "The path to the bootstrap config",
+        default_value = "/etc/kubernetes/bootstrap-kubelet.conf"
+    )]
+    bootstrap_file: PathBuf,
 }
 
 fn default_hostname() -> anyhow::Result<String> {
