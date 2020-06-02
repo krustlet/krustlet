@@ -419,7 +419,7 @@ pub struct Opts {
         short = "n",
         long = "node-ip",
         env = "KRUSTLET_NODE_IP",
-        help = "The IP address of the node registered with the Kubernetes master. Defaults to the IP address of the node name in DNS as a best effort try at a default"
+        help = "The IP address of the node registered with the Kubernetes master. Defaults to the IP address of the host name in DNS as a best effort try at a default"
     )]
     node_ip: Option<IpAddr>,
 
