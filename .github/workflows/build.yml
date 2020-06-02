@@ -53,7 +53,7 @@ jobs:
         env:
           KRUSTLET_NODE_IP: "172.17.0.1"
           # The default location for the cert is not accessible on build hosts, so do it in the current dir
-          KEY_DIR: "./config"
+          CONFIG_DIR: "./config"
           PFX_PASSWORD: "testing"
         run: |
           just bootstrap-ssl
