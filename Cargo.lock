@@ -1704,7 +1704,7 @@ dependencies = [
  "log 0.4.8",
  "native-tls",
  "oci-distribution",
- "openssl",
+ "rcgen",
  "reqwest",
  "serde",
  "serde_json",
@@ -2147,6 +2147,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pem"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1581760c757a756a41f0ee3ff01256227bdf64cb752839779b95ffb01c59793"
+dependencies = [
+ "base64 0.11.0",
+ "lazy_static",
+ "regex",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2489,6 +2500,18 @@ dependencies = [
  "crossbeam-utils",
  "lazy_static",
  "num_cpus",
+]
+
+[[package]]
+name = "rcgen"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c4c907ce15a2c29b03fb48c62a1c965b2d59ce2cbbd737373a01ab041f7217a"
+dependencies = [
+ "chrono",
+ "pem",
+ "ring",
+ "yasna",
 ]
 
 [[package]]
@@ -4331,6 +4354,15 @@ dependencies = [
  "filetime",
  "libc",
  "log 0.4.8",
+]
+
+[[package]]
+name = "yasna"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0de7bff972b4f2a06c85f6d8454b09df153af7e3a4ec2aac81db1b105b684ddb"
+dependencies = [
+ "chrono",
 ]
 
 [[package]]
