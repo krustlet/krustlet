@@ -18,21 +18,20 @@ use kube::config::Kubeconfig;
 use kube::runtime::Informer;
 use kube::Config;
 use log::{debug, info};
-use openssl::hash::MessageDigest;
-use openssl::pkey::{PKey, Private};
-use openssl::{
-    rsa::Rsa,
-    x509::{X509NameBuilder, X509ReqBuilder},
+use rcgen::{
+    Certificate, CertificateParams, DistinguishedName, DnType, KeyPair, PKCS_ECDSA_P256_SHA256,
 };
+
+use crate::config::Config as KubeletConfig;
 
 const KUBECONFIG: &str = "KUBECONFIG";
 const APPROVED_TYPE: &str = "Approved";
 
 pub async fn bootstrap<K: AsRef<Path>>(
-    node_name: &str,
+    config: &KubeletConfig,
     bootstrap_file: K,
 ) -> anyhow::Result<Config> {
-    debug!("Starting bootstrap for {}", node_name);
+    debug!("Starting bootstrap for {}", config.node_name);
     let exists = kubeconfig_exists();
     // kubelet searches for and finds a bootstrap-kubeconfig file
     if exists {
@@ -50,9 +49,8 @@ pub async fn bootstrap<K: AsRef<Path>>(
         env::set_var(KUBECONFIG, bootstrap_file.as_ref().as_os_str());
         let conf = kube::Config::infer().await?;
         let client = kube::Client::try_from(conf)?;
-        // Function handles defaulting
-        let privkey = gen_pkey()?;
-        let csr = gen_csr(node_name, &privkey)?;
+
+        let cert_bundle = gen_cert_bundle(config)?;
         let bootstrap_config = read_from(&bootstrap_file)?;
         let named_cluster = bootstrap_config
             .clusters
@@ -76,10 +74,10 @@ pub async fn bootstrap<K: AsRef<Path>>(
           "apiVersion": "certificates.k8s.io/v1beta1",
           "kind": "CertificateSigningRequest",
           "metadata": {
-            "name": node_name,
+            "name": config.node_name,
           },
           "spec": {
-            "request": csr,
+            "request": base64::encode(cert_bundle.serialize_request_pem()?.as_bytes()),
             "signerName": "kubernetes.io/kube-apiserver-client-kubelet",
             "usages": [
               "digital signature",
@@ -96,7 +94,7 @@ pub async fn bootstrap<K: AsRef<Path>>(
 
         // Wait for CSR signing
         let inf: Informer<CertificateSigningRequest> = Informer::new(csrs)
-            .params(ListParams::default().fields(&format!("metadata.name={}", node_name)));
+            .params(ListParams::default().fields(&format!("metadata.name={}", config.node_name)));
 
         let mut watcher = inf.poll().await?.boxed();
         let mut generated_kubeconfig = Vec::new();
@@ -106,15 +104,19 @@ pub async fn bootstrap<K: AsRef<Path>>(
                     // Do we have a cert?
                     let status = m.status.unwrap();
                     match status.certificate {
-                        Some(certificate) => {
+                        Some(cert) => {
                             match status.conditions {
                                 Some(v) => {
                                     if v.into_iter()
                                         .find(|c| c.type_.as_str() == APPROVED_TYPE)
                                         .is_some()
                                     {
-                                        generated_kubeconfig =
-                                            gen_kubeconfig(ca_data, server, certificate, privkey)?;
+                                        generated_kubeconfig = gen_kubeconfig(
+                                            ca_data,
+                                            server,
+                                            cert,
+                                            cert_bundle.serialize_private_key_pem(),
+                                        )?;
                                         break;
                                     } else {
                                         info!(
@@ -156,40 +158,32 @@ pub async fn bootstrap<K: AsRef<Path>>(
     }
 }
 
-fn gen_pkey() -> anyhow::Result<PKey<Private>> {
-    let rsa = Rsa::generate(2048)?;
-    Ok(PKey::from_rsa(rsa)?)
-}
+fn gen_cert_bundle(config: &KubeletConfig) -> anyhow::Result<Certificate> {
+    let mut params = CertificateParams::default();
+    params.not_before = chrono::Utc::now();
+    params.not_after = chrono::Utc::now() + chrono::Duration::weeks(52);
+    let mut distinguished_name = DistinguishedName::new();
+    distinguished_name.push(DnType::OrganizationName, "system:nodes");
+    distinguished_name.push(
+        DnType::CommonName,
+        &format!("system:node:{}", config.node_name),
+    );
+    params.distinguished_name = distinguished_name;
+    params
+        .key_pair
+        .replace(KeyPair::generate(&PKCS_ECDSA_P256_SHA256)?);
 
-fn gen_csr(node_name: &str, privkey: &PKey<Private>) -> anyhow::Result<String> {
-    let mut req_builder = X509ReqBuilder::new()?;
-    req_builder.set_pubkey(privkey)?;
+    params.alg = &PKCS_ECDSA_P256_SHA256;
 
-    let mut x509_name = X509NameBuilder::new()?;
-    x509_name.append_entry_by_text("CN", &format!("system:node:{}", node_name))?;
-    x509_name.append_entry_by_text("O", "system:nodes")?;
-    let x509_name = x509_name.build();
-    req_builder.set_subject_name(&x509_name)?;
-
-    req_builder.sign(&privkey, MessageDigest::sha256())?;
-    let req = req_builder.build();
-
-    let pem = req.to_pem().unwrap();
-    let csr = match String::from_utf8(pem) {
-        Ok(v) => base64::encode(v),
-        Err(e) => e.to_string(),
-    };
-
-    Ok(csr)
+    Ok(Certificate::from_params(params)?)
 }
 
 fn gen_kubeconfig(
     ca_data: String,
     server: String,
     client_cert_data: k8s_openapi::ByteString,
-    client_key: PKey<Private>,
+    client_key: String,
 ) -> anyhow::Result<Vec<u8>> {
-    let pem = client_key.private_key_to_pem_pkcs8()?;
     let json = serde_json::json!({
         "kind": "Config",
         "apiVersion": "v1",
@@ -205,7 +199,7 @@ fn gen_kubeconfig(
             "name": "krustlet",
             "user": {
                 "client-certificate-data": client_cert_data,
-                "client-key-data": base64::encode(&pem)
+                "client-key-data": base64::encode(client_key.as_bytes())
             }
         }],
         "contexts": [{
