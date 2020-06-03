@@ -22,7 +22,7 @@
 //!     let provider = WasccProvider::new(store, &kubelet_config, kubeconfig.clone()).await.unwrap();
 //!
 //!     // Instantiate the Kubelet
-//!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config);
+//!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config).await.unwrap();
 //!     // Start the Kubelet and block on it
 //!     kubelet.start().await.unwrap();
 //! }

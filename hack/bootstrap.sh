@@ -30,7 +30,8 @@ NAMESPACE=kube-system
 
 NEW_CONTEXT=tls-bootstrap-token-user@kubernetes
 config_dir=${CONFIG_DIR:-$HOME/.krustlet/config}
-KUBECONFIG_FILE="${config_dir}/bootstrap.conf"
+file_name=${FILE_NAME:-bootstrap.conf}
+KUBECONFIG_FILE="${config_dir}/${file_name}"
 TOKEN_USER=tls-bootstrap-token-user
 
 TOKEN=$(echo -n "${token_id}.${token_secret}")
