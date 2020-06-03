@@ -16,14 +16,14 @@ test:
 test-e2e:
     cargo test --test integration_tests
 
-run-wascc: bootstrap
-    KUBECONFIG=$(eval echo $CONFIG_DIR)/kubeconfig cargo run --bin krustlet-wascc -- --node-name krustlet-wascc --port 3000 --bootstrap-file $(eval echo $CONFIG_DIR)/bootstrap.conf
+run-wascc: (bootstrap "bootstrap-wascc.conf")
+    KUBECONFIG=$(eval echo $CONFIG_DIR)/kubeconfig cargo run --bin krustlet-wascc -- --node-name krustlet-wascc --port 3000 --bootstrap-file $(eval echo $CONFIG_DIR)/bootstrap-wascc.conf --tls-cert-file $(eval echo $CONFIG_DIR)/krustlet-wascc.crt --tls-private-key-file $(eval echo $CONFIG_DIR)/krustlet-wascc.key
 
-run-wasi: bootstrap
-    KUBECONFIG=$(eval echo $CONFIG_DIR)/kubeconfig cargo run --bin krustlet-wasi -- --node-name krustlet-wasi --port 3001 --bootstrap-file $(eval echo $CONFIG_DIR)/bootstrap.conf
+run-wasi: (bootstrap "bootstrap-wasi.conf")
+    KUBECONFIG=$(eval echo $CONFIG_DIR)/kubeconfig cargo run --bin krustlet-wasi -- --node-name krustlet-wasi --port 3001 --bootstrap-file $(eval echo $CONFIG_DIR)/bootstrap-wasi.conf --tls-cert-file $(eval echo $CONFIG_DIR)/krustlet-wasi.crt --tls-private-key-file $(eval echo $CONFIG_DIR)/krustlet-wasi.key
 
-bootstrap:
+bootstrap file_name="bootstrap.conf":
     @# This is to get around an issue with the default function returning a string that gets escaped
     @mkdir -p $(eval echo $CONFIG_DIR)
-    @test -f  $(eval echo $CONFIG_DIR)/kubeconfig || CONFIG_DIR=$(eval echo $CONFIG_DIR) ./hack/bootstrap.sh
+    @test -f  $(eval echo $CONFIG_DIR)/kubeconfig || CONFIG_DIR=$(eval echo $CONFIG_DIR) FILE_NAME={{file_name}} ./hack/bootstrap.sh
     @chmod 600 $(eval echo $CONFIG_DIR)/*
