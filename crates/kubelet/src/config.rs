@@ -71,16 +71,16 @@ struct ConfigBuilder {
     pub server_tls_private_key_file: Option<PathBuf>,
 }
 
-const NODE_IP_CONFIG_KEY: &str = "node_ip";
+const NODE_IP_CONFIG_KEY: &str = "nodeIP";
 const HOSTNAME_CONFIG_KEY: &str = "hostname";
-const NODE_NAME_CONFIG_KEY: &str = "node_name";
-const DATA_DIR_CONFIG_KEY: &str = "data_dir";
-const NODE_LABELS_CONFIG_KEY: &str = "node_labels";
-const MAX_PODS_CONFIG_KEY: &str = "max_pods";
-const SERVER_ADDR_CONFIG_KEY: &str = "addr";
-const SERVER_PORT_CONFIG_KEY: &str = "port";
-const SERVER_TLS_CERT_FILE_CONFIG_KEY: &str = "tls_cert_file";
-const SERVER_TLS_PRIVATE_KEY_FILE_CONFIG_KEY: &str = "tls_private_key_file";
+const NODE_NAME_CONFIG_KEY: &str = "nodeName";
+const DATA_DIR_CONFIG_KEY: &str = "dataDir";
+const NODE_LABELS_CONFIG_KEY: &str = "nodeLabels";
+const MAX_PODS_CONFIG_KEY: &str = "maxPods";
+const SERVER_ADDR_CONFIG_KEY: &str = "listenerAddress";
+const SERVER_PORT_CONFIG_KEY: &str = "listenerPort";
+const SERVER_TLS_CERT_FILE_CONFIG_KEY: &str = "tlsCertificateFile";
+const SERVER_TLS_PRIVATE_KEY_FILE_CONFIG_KEY: &str = "tlsPrivateKeyFile";
 
 struct ConfigBuilderFallbacks {
     hostname: fn() -> String,
@@ -570,19 +570,19 @@ mod test {
     fn config_file_inputs_are_respected_if_present() {
         let config_builder = builder_from_json_string(
             r#"{
-            "port": "1234",
-            "addr": "172.182.192.1",
+            "listenerPort": "1234",
+            "listenerAddress": "172.182.192.1",
             "hostname": "krusty-host",
-            "data_dir": "/krusty/data/dir",
-            "max_pods": "400",
-            "node_ip": "173.183.193.2",
-            "node_labels": {
+            "dataDir": "/krusty/data/dir",
+            "maxPods": "400",
+            "nodeIP": "173.183.193.2",
+            "nodeLabels": {
                 "label1": "val1",
                 "label2": "val2"
             },
-            "node_name": "krusty-node",
-            "tls_cert_file": "/my/secure/cert.pfx",
-            "tls_private_key_file": "/the/key"
+            "nodeName": "krusty-node",
+            "tlsCertificateFile": "/my/secure/cert.pfx",
+            "tlsPrivateKeyFile": "/the/key"
         }"#,
         );
         let config = config_builder.unwrap().build(fallbacks()).unwrap();
@@ -609,12 +609,12 @@ mod test {
     fn config_fallbacks_are_respected() {
         let config_builder = builder_from_json_string(
             r#"{
-            "port": "2345",
-            "addr": "173.183.193.2",
-            "node_labels": {
+            "listenerPort": "2345",
+            "listenerAddress": "173.183.193.2",
+            "nodeLabels": {
                 "label": "val"
             },
-            "node_name": "krustsome-node"
+            "nodeName": "krustsome-node"
         }"#,
         );
         let config = config_builder.unwrap().build(fallbacks()).unwrap();
@@ -676,34 +676,34 @@ mod test {
     fn merging_overrides_all_values() {
         let base_values = builder_from_json_string(
             r#"{
-            "port": "1234",
-            "addr": "172.182.192.1",
+            "listenerPort": "1234",
+            "listenerAddress": "172.182.192.1",
             "hostname": "krusty-host",
-            "data_dir": "/krusty/data/dir",
-            "node_ip": "173.183.193.2",
-            "node_labels": {
+            "dataDir": "/krusty/data/dir",
+            "nodeIP": "173.183.193.2",
+            "nodeLabels": {
                 "label1": "val1",
                 "label2": "val2"
             },
-            "node_name": "krusty-node",
-            "tls_cert_file": "/my/secure/cert.pfx",
-            "tls_private_key_file": "/the/key"
+            "nodeName": "krusty-node",
+            "tlsCertificateFile": "/my/secure/cert.pfx",
+            "tlsPrivateKeyFile": "/the/key"
         }"#,
         );
         let override_values = builder_from_json_string(
             r#"{
-            "port": "5678",
-            "addr": "171.181.191.21",
+            "listenerPort": "5678",
+            "listenerAddress": "171.181.191.21",
             "hostname": "krusty-host-2",
-            "data_dir": "/krusty/data/dir/2",
-            "node_ip": "173.183.193.22",
-            "node_labels": {
+            "dataDir": "/krusty/data/dir/2",
+            "nodeIP": "173.183.193.22",
+            "nodeLabels": {
                 "label21": "val21",
                 "label22": "val22"
             },
-            "node_name": "krusty-node-2",
-            "tls_cert_file": "/my/secure/cert-2.pfx",
-            "tls_private_key_file": "/the/2nd/key"
+            "nodeName": "krusty-node-2",
+            "tlsCertificateFile": "/my/secure/cert-2.pfx",
+            "tlsPrivateKeyFile": "/the/2nd/key"
         }"#,
         );
         let config_builder = base_values.unwrap().with_override(override_values.unwrap());
@@ -733,25 +733,25 @@ mod test {
     fn merging_respects_non_overridden_values() {
         let base_values = builder_from_json_string(
             r#"{
-            "port": "1234",
-            "addr": "172.182.192.1",
+            "listenerPort": "1234",
+            "listenerAddress": "172.182.192.1",
             "hostname": "krusty-host",
-            "data_dir": "/krusty/data/dir",
-            "node_ip": "173.183.193.2",
-            "node_labels": {
+            "dataDir": "/krusty/data/dir",
+            "nodeIP": "173.183.193.2",
+            "nodeLabels": {
                 "label1": "val1",
                 "label2": "val2"
             },
-            "node_name": "krusty-node",
-            "tls_cert_file": "/my/secure/cert.pfx",
-            "tls_private_key_file": "/the/key"
+            "nodeName": "krusty-node",
+            "tlsCertificateFile": "/my/secure/cert.pfx",
+            "tlsPrivateKeyFile": "/the/key"
         }"#,
         );
         let override_values = builder_from_json_string(
             r#"{
-            "port": "2345",
-            "node_name": "krusterrific-node",
-            "tls_private_key_file": "/the/other/key"
+            "listenerPort": "2345",
+            "nodeName": "krusterrific-node",
+            "tlsPrivateKeyFile": "/the/other/key"
         }"#,
         );
         let config_builder = base_values.unwrap().with_override(override_values.unwrap());
@@ -778,9 +778,9 @@ mod test {
     fn malformed_config_file_is_reported() {
         let config_builder = builder_from_json_string(
             r#"{
-            "port": "2345",
-            "addr": "173.183.193.2",
-            "node_name": "krustsome-node",
+            "listenerPort": "2345",
+            "listenerAddress": "173.183.193.2",
+            "nodeName": "krustsome-node",
         }"#,
         );
         let error =
@@ -795,9 +795,9 @@ mod test {
     fn malformed_config_value_is_reported() {
         let config_builder = builder_from_json_string(
             r#"{
-            "port": "qqqqqqqqqqq",
-            "addr": "173.183.193.2",
-            "node_name": "krustsome-node"
+            "listenerPort": "qqqqqqqqqqq",
+            "listenerAddress": "173.183.193.2",
+            "nodeName": "krustsome-node"
         }"#,
         );
         let error = config_builder
@@ -814,9 +814,9 @@ mod test {
     fn malformed_config_value_says_which_value() {
         let config_builder = builder_from_json_string(
             r#"{
-            "port": "qqqqqqqqqqq",
-            "addr": "173.183.193.2",
-            "node_name": "krustsome-node"
+            "listenerPort": "qqqqqqqqqqq",
+            "listenerAddress": "173.183.193.2",
+            "nodeName": "krustsome-node"
         }"#,
         );
         let error = config_builder
@@ -830,9 +830,9 @@ mod test {
     fn out_of_range_config_value_is_reported() {
         let config_builder = builder_from_json_string(
             r#"{
-            "port": "8675309",
-            "addr": "173.183.193.2",
-            "node_name": "krustsome-node"
+            "listenerPort": "8675309",
+            "listenerAddress": "173.183.193.2",
+            "nodeName": "krustsome-node"
         }"#,
         );
         let error = config_builder
@@ -849,13 +849,13 @@ mod test {
     fn if_invalid_config_value_is_overridden_by_valid_one_it_is_not_an_error() {
         let config_builder_1 = builder_from_json_string(
             r#"{
-            "port": "8675309"
+            "listenerPort": "8675309"
         }"#,
         )
         .unwrap();
         let config_builder_2 = builder_from_json_string(
             r#"{
-            "port": "1234"
+            "listenerPort": "1234"
         }"#,
         )
         .unwrap();
@@ -872,13 +872,13 @@ mod test {
     fn if_invalid_config_value_is_not_overridden_it_is_still_an_error() {
         let config_builder_1 = builder_from_json_string(
             r#"{
-            "port": "qqqqqqqq"
+            "listenerPort": "qqqqqqqq"
         }"#,
         )
         .unwrap();
         let config_builder_2 = builder_from_json_string(
             r#"{
-            "node_name": "krustsome-node"
+            "nodeName": "krustsome-node"
         }"#,
         )
         .unwrap();
