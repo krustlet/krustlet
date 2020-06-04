@@ -13,6 +13,8 @@ use structopt::StructOpt;
 
 use std::collections::HashMap;
 
+use serde::Deserialize;
+
 const DEFAULT_PORT: u16 = 3000;
 const DEFAULT_MAX_PODS: u16 = 110;
 
@@ -54,33 +56,44 @@ pub struct ServerConfig {
     pub tls_private_key_file: PathBuf,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Deserialize)]
 struct ConfigBuilder {
     // Some -> Ok(v) = it was present and the value parsed as v
     //      -> Err(e) = it was present but bad - e described the problem
     // None = it wasn't present
+    #[serde(
+        default,
+        rename = "nodeIP",
+        deserialize_with = "try_deserialize_ip_addr"
+    )]
     pub node_ip: Option<anyhow::Result<IpAddr>>,
+    #[serde(default, rename = "hostname")]
     pub hostname: Option<String>,
+    #[serde(default, rename = "nodeName")]
     pub node_name: Option<String>,
+    #[serde(default, rename = "dataDir")]
     pub data_dir: Option<PathBuf>,
+    #[serde(default, rename = "nodeLabels")]
     pub node_labels: Option<HashMap<String, String>>,
+    #[serde(default, rename = "maxPods", deserialize_with = "try_deserialize_u16")]
     pub max_pods: Option<anyhow::Result<u16>>,
+    #[serde(
+        default,
+        rename = "listenerAddress",
+        deserialize_with = "try_deserialize_ip_addr"
+    )]
     pub server_addr: Option<anyhow::Result<IpAddr>>,
+    #[serde(
+        default,
+        rename = "listenerPort",
+        deserialize_with = "try_deserialize_u16"
+    )]
     pub server_port: Option<anyhow::Result<u16>>,
+    #[serde(default, rename = "tlsCertificateFile")]
     pub server_tls_cert_file: Option<PathBuf>,
+    #[serde(default, rename = "tlsPrivateKeyFile")]
     pub server_tls_private_key_file: Option<PathBuf>,
 }
-
-const NODE_IP_CONFIG_KEY: &str = "nodeIP";
-const HOSTNAME_CONFIG_KEY: &str = "hostname";
-const NODE_NAME_CONFIG_KEY: &str = "nodeName";
-const DATA_DIR_CONFIG_KEY: &str = "dataDir";
-const NODE_LABELS_CONFIG_KEY: &str = "nodeLabels";
-const MAX_PODS_CONFIG_KEY: &str = "maxPods";
-const SERVER_ADDR_CONFIG_KEY: &str = "listenerAddress";
-const SERVER_PORT_CONFIG_KEY: &str = "listenerPort";
-const SERVER_TLS_CERT_FILE_CONFIG_KEY: &str = "tlsCertificateFile";
-const SERVER_TLS_PRIVATE_KEY_FILE_CONFIG_KEY: &str = "tlsPrivateKeyFile";
 
 struct ConfigBuilderFallbacks {
     hostname: fn() -> String,
@@ -239,62 +252,12 @@ impl ConfigBuilder {
         if !config_file_path.exists() {
             return Ok(ConfigBuilder::default());
         }
-        let config_source = config_file::File::from(config_file_path);
-        ConfigBuilder::from_config_source(config_source)
+        let config_text = std::fs::read_to_string(config_file_path)?;
+        ConfigBuilder::from_json_text(&config_text)
     }
 
-    fn from_config_source<T>(source: T) -> anyhow::Result<ConfigBuilder>
-    where
-        T: 'static + config_file::Source + Send + Sync,
-    {
-        let mut settings = config_file::Config::default();
-        match settings.merge(source) {
-            Ok(s) => Ok(ConfigBuilder::from_config_settings(s.clone())),
-            Err(e) => Err(anyhow::Error::new(e)),
-        }
-    }
-
-    fn from_config_settings(settings: config_file::Config) -> ConfigBuilder {
-        let port = settings
-            .get_str(SERVER_PORT_CONFIG_KEY)
-            .ok()
-            .map(|s| s.parse::<u16>().map_err(anyhow::Error::new));
-        let max_pods = settings
-            .get_str(MAX_PODS_CONFIG_KEY)
-            .ok()
-            .map(|s| s.parse::<u16>().map_err(anyhow::Error::new));
-        let node_labels: Option<HashMap<String, String>> = settings
-            .get_table(NODE_LABELS_CONFIG_KEY)
-            .map(stringise_values)
-            .ok();
-
-        ConfigBuilder {
-            hostname: settings.get_str(HOSTNAME_CONFIG_KEY).ok(),
-            data_dir: settings
-                .get_str(DATA_DIR_CONFIG_KEY)
-                .map(PathBuf::from)
-                .ok(),
-            node_ip: settings
-                .get_str(NODE_IP_CONFIG_KEY)
-                .ok()
-                .map(|s| s.parse().map_err(anyhow::Error::new)),
-            node_labels,
-            node_name: settings.get_str(NODE_NAME_CONFIG_KEY).ok(),
-            max_pods,
-            server_addr: settings
-                .get_str(SERVER_ADDR_CONFIG_KEY)
-                .ok()
-                .map(|s| s.parse().map_err(anyhow::Error::new)),
-            server_port: port,
-            server_tls_cert_file: settings
-                .get_str(SERVER_TLS_CERT_FILE_CONFIG_KEY)
-                .map(PathBuf::from)
-                .ok(),
-            server_tls_private_key_file: settings
-                .get_str(SERVER_TLS_PRIVATE_KEY_FILE_CONFIG_KEY)
-                .map(PathBuf::from)
-                .ok(),
-        }
+    fn from_json_text(text: &str) -> anyhow::Result<ConfigBuilder> {
+        serde_json::from_str(text).map_err(anyhow::Error::new)
     }
 
     fn with_override(self: Self, other: Self) -> Self {
@@ -362,9 +325,21 @@ impl ConfigBuilder {
     }
 }
 
-fn stringise_values(t: HashMap<String, config_file::Value>) -> HashMap<String, String> {
-    let stringised = t.iter().map(|(k, v)| (k.clone(), format!("{}", v)));
-    HashMap::from_iter(stringised)
+fn try_deserialize_ip_addr<'de, D>(d: D) -> Result<Option<anyhow::Result<IpAddr>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(d)?;
+    let addr = s.parse::<IpAddr>().map_err(anyhow::Error::new);
+    Ok(Some(addr))
+}
+
+fn try_deserialize_u16<'de, D>(d: D) -> Result<Option<anyhow::Result<u16>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let n = u16::deserialize(d).map_err(|e| anyhow::Error::msg(format!("{}", e)));
+    Ok(Some(n))
 }
 
 /// CLI options that can be configured for Kubelet
@@ -552,8 +527,9 @@ mod test {
     use super::*;
 
     fn builder_from_json_string(json: &str) -> anyhow::Result<ConfigBuilder> {
-        let source = config_file::File::from_str(json, config_file::FileFormat::Json);
-        ConfigBuilder::from_config_source(source)
+        // let source = config_file::File::from_str(json, config_file::FileFormat::Json);
+        // ConfigBuilder::from_config_source(source)
+        ConfigBuilder::from_json_text(json)
     }
 
     fn fallbacks() -> ConfigBuilderFallbacks {
@@ -570,11 +546,11 @@ mod test {
     fn config_file_inputs_are_respected_if_present() {
         let config_builder = builder_from_json_string(
             r#"{
-            "listenerPort": "1234",
+            "listenerPort": 1234,
             "listenerAddress": "172.182.192.1",
             "hostname": "krusty-host",
             "dataDir": "/krusty/data/dir",
-            "maxPods": "400",
+            "maxPods": 400,
             "nodeIP": "173.183.193.2",
             "nodeLabels": {
                 "label1": "val1",
@@ -609,7 +585,7 @@ mod test {
     fn config_fallbacks_are_respected() {
         let config_builder = builder_from_json_string(
             r#"{
-            "listenerPort": "2345",
+            "listenerPort": 2345,
             "listenerAddress": "173.183.193.2",
             "nodeLabels": {
                 "label": "val"
@@ -676,10 +652,11 @@ mod test {
     fn merging_overrides_all_values() {
         let base_values = builder_from_json_string(
             r#"{
-            "listenerPort": "1234",
+            "listenerPort": 1234,
             "listenerAddress": "172.182.192.1",
             "hostname": "krusty-host",
             "dataDir": "/krusty/data/dir",
+            "maxPods": 20,
             "nodeIP": "173.183.193.2",
             "nodeLabels": {
                 "label1": "val1",
@@ -692,10 +669,11 @@ mod test {
         );
         let override_values = builder_from_json_string(
             r#"{
-            "listenerPort": "5678",
+            "listenerPort": 5678,
             "listenerAddress": "171.181.191.21",
             "hostname": "krusty-host-2",
             "dataDir": "/krusty/data/dir/2",
+            "maxPods": 30,
             "nodeIP": "173.183.193.22",
             "nodeLabels": {
                 "label21": "val21",
@@ -720,6 +698,7 @@ mod test {
         );
         assert_eq!(config.node_name, "krusty-node-2");
         assert_eq!(config.hostname, "krusty-host-2");
+        assert_eq!(config.max_pods, 30);
         assert_eq!(config.data_dir.to_string_lossy(), "/krusty/data/dir/2");
         assert_eq!(format!("{}", config.node_ip), "173.183.193.22");
         assert_eq!(config.node_labels.len(), 2);
@@ -733,7 +712,7 @@ mod test {
     fn merging_respects_non_overridden_values() {
         let base_values = builder_from_json_string(
             r#"{
-            "listenerPort": "1234",
+            "listenerPort": 1234,
             "listenerAddress": "172.182.192.1",
             "hostname": "krusty-host",
             "dataDir": "/krusty/data/dir",
@@ -749,7 +728,7 @@ mod test {
         );
         let override_values = builder_from_json_string(
             r#"{
-            "listenerPort": "2345",
+            "listenerPort": 2345,
             "nodeName": "krusterrific-node",
             "tlsPrivateKeyFile": "/the/other/key"
         }"#,
@@ -778,7 +757,7 @@ mod test {
     fn malformed_config_file_is_reported() {
         let config_builder = builder_from_json_string(
             r#"{
-            "listenerPort": "2345",
+            "listenerPort": 2345,
             "listenerAddress": "173.183.193.2",
             "nodeName": "krustsome-node",
         }"#,
@@ -805,8 +784,8 @@ mod test {
             .build(fallbacks())
             .expect_err("Expected config error but was okay");
         assert!(
-            error.to_string().contains("invalid digit"),
-            error.to_string()
+            error.to_string().contains("invalid type"),
+            format!("Expected 'invalid type' but got '{}'", error.to_string())
         );
     }
 
@@ -830,7 +809,7 @@ mod test {
     fn out_of_range_config_value_is_reported() {
         let config_builder = builder_from_json_string(
             r#"{
-            "listenerPort": "8675309",
+            "listenerPort": 8675309,
             "listenerAddress": "173.183.193.2",
             "nodeName": "krustsome-node"
         }"#,
@@ -840,8 +819,8 @@ mod test {
             .build(fallbacks())
             .expect_err("Expected config error but was okay");
         assert!(
-            error.to_string().contains("number too large"),
-            error.to_string()
+            error.to_string().contains("invalid value"),
+            format!("Expected 'invalid value' but got '{}'", error.to_string())
         );
     }
 
@@ -849,13 +828,13 @@ mod test {
     fn if_invalid_config_value_is_overridden_by_valid_one_it_is_not_an_error() {
         let config_builder_1 = builder_from_json_string(
             r#"{
-            "listenerPort": "8675309"
+            "listenerPort": 8675309
         }"#,
         )
         .unwrap();
         let config_builder_2 = builder_from_json_string(
             r#"{
-            "listenerPort": "1234"
+            "listenerPort": 1234
         }"#,
         )
         .unwrap();
@@ -887,8 +866,8 @@ mod test {
             .build(fallbacks())
             .expect_err("Expected config error but was okay");
         assert!(
-            error.to_string().contains("invalid digit"),
-            error.to_string()
+            error.to_string().contains("invalid type"),
+            format!("Expected 'invalid type' but got '{}'", error.to_string())
         );
     }
 }
