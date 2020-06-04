@@ -456,7 +456,7 @@ pub struct Opts {
         long = "bootstrap-file",
         env = "KRUSTLET_BOOTSTRAP_FILE",
         help = "The path to the bootstrap config",
-        default_value = "/etc/kubernetes/bootstrap-kubelet.conf"
+        default_value = BOOTSTRAP_FILE
     )]
     bootstrap_file: PathBuf,
 }

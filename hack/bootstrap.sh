@@ -34,6 +34,8 @@ file_name=${FILE_NAME:-bootstrap.conf}
 KUBECONFIG_FILE="${config_dir}/${file_name}"
 TOKEN_USER=tls-bootstrap-token-user
 
+mkdir -p ${config_dir}
+
 TOKEN=$(echo -n "${token_id}.${token_secret}")
 
 # Create dedicated kubeconfig
