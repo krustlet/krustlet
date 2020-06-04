@@ -151,8 +151,7 @@ impl Config {
             key_path: default_key_path,
             node_ip: |hn, ip| default_node_ip(hn, ip).expect("unable to get default node IP"),
         };
-        let build_result = ConfigBuilder::build(builder, fallbacks);
-        build_result.unwrap() // TODO: assuming okay to panic since that's what fallbacks do
+        ConfigBuilder::build(builder, fallbacks).unwrap()
     }
 
     /// Parses the specified config file and sets the proper defaults.
@@ -260,12 +259,15 @@ impl ConfigBuilder {
         if !config_file_path.exists() {
             return Ok(ConfigBuilder::default());
         }
-        let config_text = std::fs::read_to_string(config_file_path)?;
-        ConfigBuilder::from_json_text(&config_text)
+        let config_file = std::fs::File::open(config_file_path)?;
+        ConfigBuilder::from_reader(config_file)
     }
 
-    fn from_json_text(text: &str) -> anyhow::Result<ConfigBuilder> {
-        serde_json::from_str(text).map_err(anyhow::Error::new)
+    fn from_reader<R>(reader: R) -> anyhow::Result<ConfigBuilder>
+    where
+        R: std::io::Read,
+    {
+        serde_json::from_reader(reader).map_err(anyhow::Error::new)
     }
 
     fn with_override(self: Self, other: Self) -> Self {
@@ -373,14 +375,14 @@ pub struct Opts {
         short = "p",
         long = "port",
         env = "KRUSTLET_PORT",
-        help = "The port krustlet should listen on"
+        help = "The port krustlet should listen on. Defaults to 3000"
     )]
     port: Option<u16>,
 
     #[structopt(
         long = "max-pods",
         env = "MAX_PODS",
-        help = "The maximum pods for this kubelet (reported to apiserver)"
+        help = "The maximum pods for this kubelet (reported to apiserver). Defaults to 110"
     )]
     max_pods: Option<u16>,
 
@@ -535,9 +537,7 @@ mod test {
     use super::*;
 
     fn builder_from_json_string(json: &str) -> anyhow::Result<ConfigBuilder> {
-        // let source = config_file::File::from_str(json, config_file::FileFormat::Json);
-        // ConfigBuilder::from_config_source(source)
-        ConfigBuilder::from_json_text(json)
+        ConfigBuilder::from_reader(json.as_bytes())
     }
 
     fn fallbacks() -> ConfigBuilderFallbacks {
