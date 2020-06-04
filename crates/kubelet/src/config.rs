@@ -1,7 +1,15 @@
 //! Configuration for a Kubelet
 //!
-//! The best way to configure the kubelet is by using [`Config::default_config`]
-//! or by turning on the "cli" feature and using [`Config::new_from_flags`].
+//! You must provide a Config when instantiating a kubelet. Although you can create a Config
+//! directly, it is usually easier to use one of the following functions:
+//!
+//! * [`Config::default_config`] - use the defaults for everything
+//! * [`Config::new_from_file`] - use the values in the specified file
+//! * [`Config::new_from_flags`] - use the values specified on the command line or in
+//!   environment variables (requires you to turn on the "cli" feature)
+//! * [`Config::new_from_file_and_flags`] - use the values specified on the command line
+//!   or in environment variables, but falling back to the specified configuration file
+//!   (requires you to turn on the "cli" feature)
 
 use std::iter::FromIterator;
 use std::net::IpAddr;
