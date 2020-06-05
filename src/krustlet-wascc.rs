@@ -7,7 +7,7 @@ use wascc_provider::WasccProvider;
 async fn main() -> anyhow::Result<()> {
     // The provider is responsible for all the "back end" logic. If you are creating
     // a new Kubelet, all you need to implement is a provider.
-    let config = Config::new_from_flags(env!("CARGO_PKG_VERSION"));
+    let config = Config::new_from_file_and_flags(env!("CARGO_PKG_VERSION"), None);
 
     let kubeconfig = kube::Config::infer().await?;
 

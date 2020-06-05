@@ -318,7 +318,6 @@ async fn clean_up_wasi_test_resources() -> () {
     let client = kube::Client::try_default()
         .await
         .expect("Failed to create client");
-    println!("did first await");
     let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
     pods.delete("hello-wasi", &DeleteParams::default())
         .await
