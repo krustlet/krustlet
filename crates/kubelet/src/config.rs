@@ -84,6 +84,8 @@ struct ConfigBuilder {
     pub node_name: Option<String>,
     #[serde(default, rename = "dataDir")]
     pub data_dir: Option<PathBuf>,
+    #[serde(default, rename = "bootstrapFile")]
+    pub bootstrap_file: Option<PathBuf>,
     #[serde(default, rename = "nodeLabels")]
     pub node_labels: Option<HashMap<String, String>>,
     #[serde(default, rename = "maxPods", deserialize_with = "try_deserialize_u16")]
@@ -109,6 +111,7 @@ struct ConfigBuilder {
 struct ConfigBuilderFallbacks {
     hostname: fn() -> String,
     data_dir: fn() -> PathBuf,
+    bootstrap_file: fn() -> PathBuf,
     cert_path: fn(data_dir: &PathBuf) -> PathBuf,
     key_path: fn(data_dir: &PathBuf) -> PathBuf,
     node_ip: fn(hostname: &mut String, preferred_ip_family: &IpAddr) -> IpAddr,
@@ -154,6 +157,7 @@ impl Config {
             cert_path: default_cert_path,
             key_path: default_key_path,
             node_ip: |hn, ip| default_node_ip(hn, ip).expect("unable to get default node IP"),
+            bootstrap_file: || PathBuf::from(BOOTSTRAP_FILE),
         };
         ConfigBuilder::build(builder, fallbacks).unwrap()
     }
@@ -249,6 +253,7 @@ impl ConfigBuilder {
             } else {
                 Some(HashMap::from_iter(node_labels))
             },
+            bootstrap_file: Some(opts.bootstrap_file),
             hostname: opts.hostname,
             data_dir: opts.data_dir,
             max_pods: ok_result_of(opts.max_pods),
@@ -285,6 +290,7 @@ impl ConfigBuilder {
             server_addr: other.server_addr.or(self.server_addr),
             server_port: other.server_port.or(self.server_port),
             server_tls_cert_file: other.server_tls_cert_file.or(self.server_tls_cert_file),
+            bootstrap_file: other.bootstrap_file.or(self.bootstrap_file),
             server_tls_private_key_file: other
                 .server_tls_private_key_file
                 .or(self.server_tls_private_key_file),
@@ -296,6 +302,7 @@ impl ConfigBuilder {
 
         let hostname = self.hostname.unwrap_or_else(fallbacks.hostname);
         let data_dir = self.data_dir.unwrap_or_else(fallbacks.data_dir);
+        let bootstrap_file = self.bootstrap_file.unwrap_or_else(fallbacks.bootstrap_file);
         let server_addr = self
             .server_addr
             .unwrap_or(Ok(empty_ip_addr))
@@ -321,8 +328,6 @@ impl ConfigBuilder {
             .max_pods
             .unwrap_or(Ok(DEFAULT_MAX_PODS))
             .map_err(|e| invalid_config_value_error(e, "maximum pods"))?;
-
-        let bootstrap_file = opts.bootstrap_file;
 
         Ok(Config {
             node_ip,
@@ -562,6 +567,7 @@ mod test {
             data_dir: || PathBuf::from("/fallback/data/dir"),
             cert_path: |_| PathBuf::from("/fallback/cert/path"),
             key_path: |_| PathBuf::from("/fallback/key/path"),
+            bootstrap_file: || PathBuf::from("/fallback/bootstrap_file.txt"),
         }
     }
 
@@ -581,7 +587,8 @@ mod test {
             },
             "nodeName": "krusty-node",
             "tlsCertificateFile": "/my/secure/cert.pfx",
-            "tlsPrivateKeyFile": "/the/key"
+            "tlsPrivateKeyFile": "/the/key",
+            "bootstrapFile": "/the/bootstrap/file.txt"
         }"#,
         );
         let config = config_builder.unwrap().build(fallbacks()).unwrap();
@@ -594,6 +601,10 @@ mod test {
         assert_eq!(
             config.server_config.tls_private_key_file.to_string_lossy(),
             "/the/key"
+        );
+        assert_eq!(
+            config.bootstrap_file.to_string_lossy(),
+            "/the/bootstrap/file.txt"
         );
         assert_eq!(config.node_name, "krusty-node");
         assert_eq!(config.hostname, "krusty-host");
