@@ -8,7 +8,7 @@ use k8s_openapi::api::coordination::v1::Lease;
 use k8s_openapi::api::core::v1::Node as KubeNode;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
-use kube::api::{Api, DeleteParams, ListParams, ObjectMeta, PatchParams, PostParams};
+use kube::api::{Api, ListParams, ObjectMeta, PatchParams, PostParams};
 use kube::error::ErrorResponse;
 use kube::Error;
 use log::{debug, error, info, warn};
@@ -59,10 +59,6 @@ macro_rules! retry {
 
 /// Create a node
 ///
-/// This creates a Kubernetes Node that describes our Kubelet, failing with a log message
-/// if one already exists. If one does exist, we simply re-use it. You may call that
-/// hacky, but I call it... hacky.
-///
 /// A node comes with a lease, and we maintain the lease to tell Kubernetes that the
 /// node remains alive and functional. Note that this will not work in
 /// versions of Kubernetes prior to 1.14.
@@ -72,6 +68,22 @@ pub async fn create_node<P: 'static + Provider + Sync + Send>(
     provider: Arc<P>,
 ) {
     let node_client: Api<KubeNode> = Api::all(client.clone());
+
+    match retry!(node_client.get(&config.node_name).await, times: 4, break_on: &Error::Api(ErrorResponse { code: 404, .. }))
+    {
+        Ok(_) => {
+            debug!("Node already exists, skipping node creation");
+            return;
+        }
+        Err(Error::Api(ErrorResponse { code: 404, .. })) => (),
+        Err(e) => {
+            error!(
+                "Exhausted retries when trying to talk to API: {}. Not retrying.",
+                e
+            );
+            return;
+        }
+    };
 
     let mut builder = Node::builder();
 
@@ -121,40 +133,11 @@ pub async fn create_node<P: 'static + Provider + Sync + Send>(
     }
 
     let node = builder.build().into_inner();
-
-    match retry!(node_client.create(&PostParams::default(), &node).await, times: 4, break_on: &Error::Api(ErrorResponse { code: 409, .. }))
-    {
+    match retry!(node_client.create(&PostParams::default(), &node).await, times: 4) {
         Ok(node) => {
             let node_uid = node.metadata.unwrap().uid.unwrap();
             if let Err(e) = create_lease(&node_uid, &config.node_name, &client).await {
                 error!("Failed to create lease: {}", e);
-                return;
-            }
-        }
-        Err(Error::Api(ErrorResponse { code: 409, .. })) => {
-            debug!(
-                "Node '{}' exists already. Going to fetch existing node...",
-                &config.node_name
-            );
-
-            if let Err(e) = retry!(node_client.get(&config.node_name).await, times: 4, log_error: |e| debug!(
-                "Error fetching node after failed create: {}. Retrying...",
-                e
-            )) {
-                error!(
-                    "Exhausted retries fetching node after failed create: {}. Not retrying.",
-                    e
-                );
-                return;
-            }
-
-            debug!(
-                "Node '{}' found, updating current node definition...",
-                &config.node_name
-            );
-
-            if let Err(e) = replace_node(client, &config.node_name, &node).await {
-                error!("Failed to replace node: {}.", e);
                 return;
             }
         }
@@ -193,7 +176,6 @@ pub async fn node_uid(client: &kube::Client, node_name: &str) -> anyhow::Result<
 
 /// Cordons node and evicts all pods.
 pub async fn drain_node(client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
-    cordon_node(client, node_name).await?;
     evict_pods(client, node_name).await?;
     Ok(())
 }
@@ -288,36 +270,47 @@ async fn evict_pod(
     Ok(())
 }
 
-/// Mark this node as unschedulable.
-pub async fn cordon_node(client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
-    info!("Cordoning node {}.", node_name);
-    let node_client: Api<KubeNode> = Api::all(client.clone());
-    let patch = serde_json::to_vec(&serde_json::json!({
-        "spec": {
-            "unschedulable": true
-        },
-    }))?;
-    let mut params = PatchParams::default();
-    params.patch_strategy = kube::api::PatchStrategy::Merge;
-    node_client.patch(node_name, &params, patch).await?;
-    info!("Node cordoned '{}'.", node_name);
-    Ok(())
-}
-
 /// Update the timestamps on the Node object.
 ///
 /// This is how we report liveness to the upstream.
-///
-/// We trap errors because... well... quite frankly there is nothing useful
-/// to do if the Kubernetes API is unavailable, and we can merrily continue
-/// doing our processing of the pod queue.
+/// If we are unable to update the node after several retries we panic, as we could be in an
+/// inconsistent state
 pub async fn update_node(client: &kube::Client, node_name: &str) {
     debug!("Updating node '{}'", node_name);
     if let Ok(uid) = node_uid(client, node_name).await {
         debug!("Node to update '{}' fetched.", node_name);
         retry!(update_lease(&uid, node_name, client).await, times: 4)
             .expect("Could not update lease");
+        retry!(update_node_status(node_name, client).await, times: 4)
+            .expect("Could not update node status");
     }
+}
+
+async fn update_node_status(node_name: &str, client: &kube::Client) -> anyhow::Result<()> {
+    // TODO: Update the lastTransitionTime properly
+    let status_patch = serde_json::json!({
+        "status": {
+            "conditions": [
+                {
+                    "lastHeartbeatTime": Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+                    "message": "kubelet is posting ready status",
+                    "reason": "KubeletReady",
+                    "status": "True",
+                    "type": "Ready"
+                }
+            ],
+        }
+    });
+    let node_client: Api<KubeNode> = Api::all(client.clone());
+    let _node = node_client
+        .patch_status(
+            node_name,
+            &PatchParams::default(),
+            serde_json::to_vec(&status_patch)?,
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("Unable to patch node status: {}", e))?;
+    Ok(())
 }
 
 /// Create a node lease
@@ -386,46 +379,6 @@ async fn update_lease(
         Err(e) => error!("Failed to update lease for '{}': {}", node_name, e),
     }
     resp
-}
-
-async fn replace_node(
-    client: &kube::Client,
-    node_name: &str,
-    node: &KubeNode,
-) -> Result<(), Error> {
-    debug!("Replacing existing node '{}'", node_name);
-    let node_client: Api<KubeNode> = Api::all(client.clone());
-
-    // HACK WARNING: So it turns out we need to have the proper
-    // permissions in order to update the node status, so this
-    // is a hacky workaround for now where we delete and
-    // recreate the node. This is being tracked in https://github.com/deislabs/krustlet/issues/150
-
-    // Delete the node
-    debug!(
-        "Deleting existing node '{}' in order to recreate it",
-        node_name
-    );
-    retry!(
-        node_client
-            .delete(node_name, &DeleteParams::default())
-            .await,
-        times: 4,
-        log_error: |e| debug!("Could not delete node during replacement: {}", e)
-    )?;
-    debug!("Recreating recently deleted existing node '{}'", node_name);
-    // Create the node
-    let node = retry!(node_client.create(&PostParams::default(), node).await, times: 4, log_error: |e| debug!("Could not create node during replacement: {}", e))?;
-    // Create the lease
-    create_lease(
-        &node.metadata.and_then(|m| m.uid).unwrap(),
-        node_name,
-        &client,
-    )
-    .await?;
-
-    debug!("Successfully replaced node '{}'", node_name);
-    Ok(())
 }
 
 /// Define a new coordination.Lease object for Kubernetes
@@ -787,6 +740,7 @@ mod test {
                 tls_cert_file: PathBuf::new(),
                 tls_private_key_file: PathBuf::new(),
             },
+            bootstrap_file: "doesnt/matter".into(),
             data_dir: PathBuf::new(),
             node_labels,
             max_pods: 110,

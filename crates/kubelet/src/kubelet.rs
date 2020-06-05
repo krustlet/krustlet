@@ -6,6 +6,7 @@ use crate::queue::PodQueue;
 use crate::server::start_webserver;
 use crate::status::{update_pod_status, Phase};
 use crate::Provider;
+
 use futures::future::FutureExt;
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::Pod as KubePod;
@@ -41,12 +42,16 @@ pub struct Kubelet<P> {
 impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
     /// Create a new Kubelet with a provider, a kubernetes configuration,
     /// and a kubelet configuration
-    pub fn new(provider: T, kube_config: kube::Config, config: Config) -> Self {
-        Self {
+    pub async fn new(
+        provider: T,
+        kube_config: kube::Config,
+        config: Config,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
             provider: Arc::new(provider),
             kube_config,
             config,
-        }
+        })
     }
 
     /// Begin answering requests for the Kubelet.
@@ -56,7 +61,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
     pub async fn start(&self) -> anyhow::Result<()> {
         let client = kube::Client::new(self.kube_config.clone());
 
-        // Create the node. If it already exists, "adopt" the node definition
+        // Create the node. If it already exists, this will exit
         create_node(&client, &self.config, self.provider.clone()).await;
 
         // Flag to indicate graceful shutdown has started.
@@ -70,7 +75,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
             mpsc::channel::<(KubePod, anyhow::Error)>(self.config.max_pods as usize);
         let error_handler = start_error_handler(error_receiver, client.clone()).fuse();
 
-        // Start updating the node lease periodically
+        // Start updating the node lease and status periodically
         let node_updater = start_node_updater(client.clone(), self.config.node_name.clone()).fuse();
 
         // If any of these tasks fail, we can initiate graceful shutdown.
@@ -203,7 +208,7 @@ async fn start_pod_informer<P: 'static + Provider + Sync + Send>(
     }
 }
 
-/// Periodically renew node lease. Exits if signal is caught.
+/// Periodically renew node lease and status. Exits if signal is caught.
 async fn start_node_updater(client: kube::Client, node_name: String) -> anyhow::Result<()> {
     let sleep_interval = std::time::Duration::from_secs(10);
     loop {

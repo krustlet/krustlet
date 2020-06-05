@@ -36,7 +36,7 @@
 //!     let kubelet_config = Config::default();
 //!
 //!     // Instantiate the Kubelet
-//!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config);
+//!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config).await.unwrap();
 //!     // Start the Kubelet and block on it
 //!     kubelet.start().await.unwrap();
 //! };
@@ -45,6 +45,7 @@
 #![deny(missing_docs)]
 #![cfg_attr(feature = "docs", feature(doc_cfg))]
 
+mod bootstrapping;
 mod kubelet;
 mod logs;
 mod node;
@@ -61,6 +62,7 @@ pub mod status;
 pub mod volumes;
 
 pub use self::kubelet::Kubelet;
+pub use bootstrapping::bootstrap;
 pub use handle::{LogHandleFactory, PodHandle, RuntimeHandle};
 pub use logs::{stream_logs, LogSendError, LogSender};
 pub use node::NodeBuilder;
