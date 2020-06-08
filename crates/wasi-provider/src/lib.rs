@@ -110,6 +110,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         info!("Starting containers for pod {:?}", pod_name);
         for container in pod.containers() {
             let env = Self::env_vars(&container, &pod, &client).await;
+            let args = container.args.clone().unwrap_or_default();
             let module_data = modules
                 .remove(&container.name)
                 .expect("FATAL ERROR: module map not properly populated");
@@ -142,7 +143,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
             let runtime = WasiRuntime::new(
                 module_data,
                 env,
-                Vec::default(),
+                args,
                 container_volumes,
                 self.log_path.clone(),
             )
