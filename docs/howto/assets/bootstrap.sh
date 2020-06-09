@@ -4,8 +4,7 @@ set -euo pipefail
 export LC_CTYPE=C
 
 token_id="$(</dev/urandom tr -dc a-z0-9 | head -c "${1:-6}";echo;)"
-# This needs to use /dev/random so it is cryptographically safe
-token_secret="$(</dev/random tr -dc a-z0-9 | head -c "${1:-16}";echo;)"
+token_secret="$(< /dev/urandom tr -dc a-z0-9 | head -c "${1:-16}";echo;)"
 
 # support gnu and BSD date command
 expiration=$(date -u "+%Y-%m-%dT%H:%M:%SZ" --date "1 hour" 2>/dev/null ||

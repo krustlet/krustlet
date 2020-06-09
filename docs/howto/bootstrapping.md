@@ -6,7 +6,7 @@ certificates. This document describes how the functionality works.
 ## Initialization
 Krustlet follows the same [initialization
 flow](https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet-tls-bootstrapping/#initialization-process)
-as Kubelet (with the exception of automatic renewal of certs that are close to expiry). 
+as Kubelet (with the exception of automatic renewal of certs that are close to expiry).
 
 ## Instructions
 
@@ -24,18 +24,18 @@ kubeconfig that has access to create `Secrets` in the `kube-system` namespace an
 
 ### Generating a token and kubeconfig
 
-We have a useful bootstrapping [bash script](../../hack/bootstrap.sh) that can be used for
+We have a useful bootstrapping [bash script](./assets/bootstrap.sh) that can be used for
 generating a token and creating a bootstrap kubeconfig file. If you have cloned the repo, you can
 run:
 
 ```bash
-$ ./hack/bootstrap.sh
+$ ./docs/howto/assets/bootstrap.sh
 ```
 
 If you are the trusting sort, you can pipe it in from the internet:
 
 ```bash
-$ bash <(curl https://raw.githubusercontent.com/deislabs/krustlet/master/hack/bootstrap.sh)
+$ bash <(curl https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/bootstrap.sh)
 ```
 
 This will output a ready-to-use bootstrap config to `$HOME/.krustlet/config/bootstrap.conf`
@@ -60,8 +60,7 @@ string. The token will look something like this: `ke3uxh.vhxb3ttj1nquno5t`. That
 generate a token with a simple bash command like so:
 
 ```bash
-# The second one needs to use /dev/random so it is cryptographically safe
-$ echo "$(< /dev/urandom tr -dc a-z0-9 | head -c${1:-6};echo;).$(< /dev/random tr -dc a-z0-9 | head -c${1:-16};echo;)"
+$ echo "$(< /dev/urandom tr -dc a-z0-9 | head -c${1:-6};echo;).$(< /dev/urandom tr -dc a-z0-9 | head -c${1:-16};echo;)"
 ```
 
 ##### Creating the secret
@@ -97,7 +96,7 @@ several pieces of information:
 - The generated bootstrap token
 
 You can either assemble a kubeconfig by hand or use similar steps to what is found in the [bootstrap
-script](../../hack/bootstrap.sh)
+script](./assets/bootstrap.sh)
 
 ##### An example bootstrap config
 This is an example of a bootstrap config file for reference if creating your own workflow

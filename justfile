@@ -25,5 +25,5 @@ run-wasi: bootstrap
 bootstrap:
     @# This is to get around an issue with the default function returning a string that gets escaped
     @mkdir -p $(eval echo $CONFIG_DIR)
-    @test -f  $(eval echo $CONFIG_DIR)/bootstrap.conf || CONFIG_DIR=$(eval echo $CONFIG_DIR) ./hack/bootstrap.sh
+    @test -f  $(eval echo $CONFIG_DIR)/bootstrap.conf || CONFIG_DIR=$(eval echo $CONFIG_DIR) ./docs/howto/assets/bootstrap.sh
     @chmod 600 $(eval echo $CONFIG_DIR)/*
