@@ -6,7 +6,7 @@ metadata:
     app: fileserver-wascc
 spec:
   containers:
-    - image: webassembly.azurecr.io/fileserver-wascc:v0.1.0
+    - image: webassembly.azurecr.io/fileserver-wascc:v0.2.0
       imagePullPolicy: Always
       name: fileserver-wascc
       env:

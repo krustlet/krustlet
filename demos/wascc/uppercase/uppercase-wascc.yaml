@@ -1,14 +1,14 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: uppercase 
+  name: uppercase
   labels:
-    app: uppercase 
+    app: uppercase
 spec:
   containers:
-    - image: webassembly.azurecr.io/uppercase-wascc:v0.2 
+    - image: webassembly.azurecr.io/uppercase-wascc:v0.3
       imagePullPolicy: Always
-      name: uppercase 
+      name: uppercase
       env:
       - name: PORT
         value: "8080"
