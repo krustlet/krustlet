@@ -174,19 +174,23 @@ async fn verify_wasi_node(node: Node) -> () {
     );
 }
 
+const SIMPLE_WASI_POD: &str = "hello-wasi";
+const VERBOSE_WASI_POD: &str = "hello-world-verbose";
+
 async fn create_wasi_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
+    let pod_name = SIMPLE_WASI_POD;
     // Create a temp directory to use for the host path
     let tempdir = tempfile::tempdir()?;
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
         "kind": "Pod",
         "metadata": {
-            "name": "hello-wasi"
+            "name": pod_name
         },
         "spec": {
             "containers": [
                 {
-                    "name": "hello-wasi",
+                    "name": pod_name,
                     "image": "webassembly.azurecr.io/hello-wasm:v1",
                     "volumeMounts": [
                         {
@@ -242,10 +246,51 @@ async fn create_wasi_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resul
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
+    wait_for_pod(client, pod_name).await
+}
+
+async fn create_fancy_schmancy_wasi_pod(
+    client: kube::Client,
+    pods: &Api<Pod>,
+) -> anyhow::Result<()> {
+    let pod_name = VERBOSE_WASI_POD;
+    let p = serde_json::from_value(json!({
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+            "name": pod_name
+        },
+        "spec": {
+            "containers": [
+                {
+                    "name": pod_name,
+                    "image": "webassembly.azurecr.io/hello-world-wasi-rust:v0.1.0",
+                    "args": [ "arg1", "arg2" ],
+                },
+            ],
+            "tolerations": [
+                {
+                    "effect": "NoExecute",
+                    "key": "krustlet/arch",
+                    "operator": "Equal",
+                    "value": "wasm32-wasi"
+                },
+            ],
+        }
+    }))?;
+
+    let pod = pods.create(&PostParams::default(), &p).await?;
+
+    assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
+
+    wait_for_pod(client, pod_name).await
+}
+
+async fn wait_for_pod(client: kube::Client, pod_name: &str) -> anyhow::Result<()> {
     let api = Api::namespaced(client.clone(), "default");
     let inf: Informer<Pod> = Informer::new(api).params(
         ListParams::default()
-            .fields("metadata.name=hello-wasi")
+            .fields(&format!("metadata.name={}", pod_name))
             .timeout(30),
     );
 
@@ -271,7 +316,7 @@ async fn create_wasi_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resul
         }
     }
 
-    assert!(went_ready, "pod never went ready");
+    assert!(went_ready, format!("pod {} never went ready", pod_name));
 
     Ok(())
 }
@@ -318,10 +363,7 @@ async fn clean_up_wasi_test_resources() -> () {
     let client = kube::Client::try_default()
         .await
         .expect("Failed to create client");
-    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
-    pods.delete("hello-wasi", &DeleteParams::default())
-        .await
-        .expect("Failed to delete pod");
+
     let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
     secrets
         .delete("hello-wasi-secret", &DeleteParams::default())
@@ -332,6 +374,14 @@ async fn clean_up_wasi_test_resources() -> () {
         .delete("hello-wasi-configmap", &DeleteParams::default())
         .await
         .expect("Failed to delete configmap");
+
+    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
+    pods.delete(SIMPLE_WASI_POD, &DeleteParams::default())
+        .await
+        .expect("Failed to delete pod");
+    pods.delete(VERBOSE_WASI_POD, &DeleteParams::default())
+        .await
+        .expect("Failed to delete pod");
 }
 
 struct WasiTestResourceCleaner {}
@@ -368,9 +418,9 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
 
     create_wasi_pod(client.clone(), &pods).await?;
 
-    assert_pod_log_equals(&pods, "hello-wasi", "Hello, world!\n").await?;
+    assert_pod_log_equals(&pods, SIMPLE_WASI_POD, "Hello, world!\n").await?;
 
-    assert_pod_exited_successfully(&pods, "hello-wasi").await?;
+    assert_pod_exited_successfully(&pods, SIMPLE_WASI_POD).await?;
 
     // TODO: Create a module that actually reads from a directory and outputs to logs
     assert_container_file_contains(
@@ -386,6 +436,10 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
     )
     .await?;
 
+    create_fancy_schmancy_wasi_pod(client.clone(), &pods).await?;
+
+    assert_pod_log_contains(&pods, VERBOSE_WASI_POD, r#"Args are: ["arg1", "arg2"]"#).await?;
+
     Ok(())
 }
 
@@ -396,10 +450,38 @@ async fn assert_pod_log_equals(
 ) -> anyhow::Result<()> {
     let mut logs = pods.log_stream(pod_name, &LogParams::default()).await?;
 
-    while let Some(line) = logs.try_next().await? {
-        assert_eq!(expected_log, String::from_utf8_lossy(&line));
+    while let Some(chunk) = logs.try_next().await? {
+        assert_eq!(expected_log, String::from_utf8_lossy(&chunk));
     }
 
+    Ok(())
+}
+
+async fn assert_pod_log_contains(
+    pods: &Api<Pod>,
+    pod_name: &str,
+    expected_log: &str,
+) -> anyhow::Result<()> {
+    let mut logs = pods.log_stream(pod_name, &LogParams::default()).await?;
+    let mut log_chunks: Vec<String> = Vec::default();
+
+    while let Some(chunk) = logs.try_next().await? {
+        let chunk_text = String::from_utf8_lossy(&chunk);
+        if chunk_text.contains(expected_log) {
+            return Ok(()); // can early exit if the expected value is entirely within a chunk
+        } else {
+            log_chunks.push(chunk_text.to_string());
+        }
+    }
+
+    let actual_log_text = log_chunks.join("");
+    assert!(
+        actual_log_text.contains(expected_log),
+        format!(
+            "Expected log containing {} but got {}",
+            expected_log, actual_log_text
+        )
+    );
     Ok(())
 }
 
