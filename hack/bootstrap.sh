@@ -9,7 +9,7 @@ token_secret="$(</dev/random tr -dc a-z0-9 | head -c "${1:-16}";echo;)"
 
 # support gnu and BSD date command
 expiration=$(date -u "+%Y-%m-%dT%H:%M:%SZ" --date "1 hour" 2>/dev/null ||
-  date -v1H -u "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+  date -v+1H -u "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
 
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
