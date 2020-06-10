@@ -47,20 +47,6 @@ jobs:
           name: krustlet
           path: _dist/krustlet-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.arch }}.tar.gz
 
-  crates:
-    name: publish to crates.io
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags')
-    steps:
-      - uses: actions/checkout@v2
-      # OCI distribution needs to go first because kubelet has a dependency on it
-      - name: publish oci-distribution to crates.io
-        working-directory: ./crates/oci-distribution
-        run: cargo publish --token ${{ secrets.CargoToken }}
-      - name: publish kubelet to crates.io
-        working-directory: ./crates/kubelet
-        run: cargo publish --token ${{ secrets.CargoToken }}
-
   publish:
     name: publish release assets
     runs-on: ubuntu-latest
@@ -90,3 +76,18 @@ jobs:
           source_dir: krustlet
           container_name: releases
           connection_string: ${{ secrets.AzureStorageConnectionString }}
+
+  crates:
+    name: publish to crates.io
+    runs-on: ubuntu-latest
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags')
+    steps:
+      - uses: actions/checkout@v2
+      # OCI distribution needs to go first because kubelet has a dependency on it
+      - name: publish oci-distribution to crates.io
+        working-directory: ./crates/oci-distribution
+        run: cargo publish --token ${{ secrets.CargoToken }}
+      - name: publish kubelet to crates.io
+        working-directory: ./crates/kubelet
+        run: cargo publish --token ${{ secrets.CargoToken }}
