@@ -4,7 +4,7 @@ TARGET = target/wasm32-unknown-unknown
 DEBUG = $(TARGET)/debug
 RELEASE = $(TARGET)/release
 KEYDIR ?= .keys
-VERSION = 0.1.0
+VERSION = 0.2.0
 NAME = fileserver
 
 .PHONY: all bench build check clean doc test update keys

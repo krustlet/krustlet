@@ -1,10 +1,10 @@
 COLOR ?= always # Valid COLOR options: {always, auto, never}
 CARGO = cargo --color $(COLOR)
-TARGET = ../../../target/wasm32-unknown-unknown
+TARGET = target/wasm32-unknown-unknown
 DEBUG = $(TARGET)/debug
 RELEASE = $(TARGET)/release
 KEYDIR ?= .keys
-VERSION = 0.2
+VERSION = 0.3
 
 .PHONY: all bench build check clean doc test update keys
 
@@ -37,7 +37,7 @@ release: keys
 	wascap sign $(RELEASE)/uppercase.wasm $(RELEASE)/uppercase_signed.wasm -i $(KEYDIR)/account.nk -u $(KEYDIR)/module.nk -s -l -n uppercase
 
 push:
-	wasm-to-oci push ../../../target/wasm32-unknown-unknown/release/uppercase_signed.wasm webassembly.azurecr.io/uppercase-wascc:v$(VERSION)
+	wasm-to-oci push $(RELEASE)/uppercase_signed.wasm webassembly.azurecr.io/uppercase-wascc:v$(VERSION)
 
 
 keys: $(KEYDIR)/account.nk $(KEYDIR)/module.nk

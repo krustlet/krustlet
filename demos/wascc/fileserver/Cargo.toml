@@ -1,6 +1,6 @@
 [package]
 name = "fileserver"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Matt Fisher <matt.fisher@microsoft.com"]
 edition = "2018"
 
@@ -8,8 +8,8 @@ edition = "2018"
 crate-type = ["cdylib"]
 
 [dependencies]
-wascc-actor = "0.6"
-wascc-codec = "0.6"
+wascc-actor = "0.7"
+wascc-codec = "0.7"
 
 [profile.release]
 opt-level = "s"

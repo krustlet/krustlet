@@ -1,15 +1,13 @@
 [package]
-name = "uppercase"
-version = "0.3.0"
-authors = ["Brian Ketelsen <mail@bjk.fyi"]
+name = "greet-wascc"
+version = "0.5.0"
+authors = ["Matthew Fisher <matt.fisher@microsoft.com"]
 edition = "2018"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-log = '0.4.8'
-serde = { version = "1.0.104", features = ["derive"]}
 wascc-actor = "0.7"
 wascc-codec = "0.7"
 
