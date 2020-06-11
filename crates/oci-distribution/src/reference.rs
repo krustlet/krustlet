@@ -18,6 +18,12 @@ impl std::fmt::Debug for Reference {
     }
 }
 
+impl std::fmt::Display for Reference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.whole)
+    }
+}
+
 impl Reference {
     /// Get the original reference.
     pub fn whole(&self) -> &str {

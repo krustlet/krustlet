@@ -162,6 +162,37 @@ impl Client {
         }
     }
 
+    /// Fetch a manifest's digest from the remote OCI Distribution service.
+    ///
+    /// If the connection has already gone through authentication, this will
+    /// use the bearer token. Otherwise, this will attempt an anonymous pull.
+    pub async fn fetch_manifest_digest(&self, image: &Reference) -> anyhow::Result<String> {
+        let url = image.to_v2_manifest_url(self.config.protocol.as_str());
+        debug!("Pulling image manifest from {}", url);
+        let request = self.client.get(&url);
+
+        let res = request.headers(self.auth_headers()).send().await?;
+
+        // The OCI spec technically does not allow any codes but 200, 500, 401, and 404.
+        // Obviously, HTTP servers are going to send other codes. This tries to catch the
+        // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
+        match res.status() {
+            reqwest::StatusCode::OK => digest_header_value(res),
+            s if s.is_client_error() => {
+                // According to the OCI spec, we should see an error in the message body.
+                let err = res.json::<OciEnvelope>().await?;
+                // FIXME: This should not have to wrap the error.
+                Err(anyhow::anyhow!("{} on {}", err.errors[0], url))
+            }
+            s if s.is_server_error() => Err(anyhow::anyhow!("Server error at {}", url)),
+            s => Err(anyhow::anyhow!(
+                "An unexpected error occured: code={}, message='{}'",
+                s,
+                res.text().await?
+            )),
+        }
+    }
+
     /// Pull a manifest from the remote OCI Distribution service.
     ///
     /// If the connection has already gone through authentication, this will
@@ -328,6 +359,18 @@ impl Challenge for BearerChallenge {
     }
 }
 
+fn digest_header_value(response: reqwest::Response) -> anyhow::Result<String> {
+    let headers = response.headers();
+    let digest_header = headers.get("Docker-Content-Digest");
+    match digest_header {
+        None => Err(anyhow::anyhow!("resgistry did not return a digest header")),
+        Some(hv) => hv
+            .to_str()
+            .map(|s| s.to_string())
+            .map_err(anyhow::Error::new),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -380,6 +423,31 @@ mod test {
         // The test on the manifest checks all fields. This is just a brief sanity check.
         assert_eq!(manifest.schema_version, 2);
         assert!(!manifest.layers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_digest() {
+        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
+
+        // Currently, pull_manifest does not perform Authz, so this will fail.
+        let c = Client::default();
+        c.fetch_manifest_digest(&image)
+            .await
+            .expect_err("pull manifest should fail");
+
+        // But this should pass
+        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
+        let mut c = Client::default();
+        c.auth(&image, None).await.expect("authenticated");
+        let digest = c
+            .fetch_manifest_digest(&image)
+            .await
+            .expect("pull manifest should not fail");
+
+        assert_eq!(
+            digest,
+            "sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7"
+        );
     }
 
     #[tokio::test]

@@ -29,11 +29,27 @@ use std::sync::Arc;
 ///
 /// #[async_trait]
 /// impl ModuleStore for InMemoryStore {
-///     async fn get(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
+///     async fn get_local(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
 ///         match self.modules.get(image_ref) {
 ///             Some(bytes) => Ok(bytes.clone()),
 ///             None => todo!("Fetch the bytes from some sort of remore store (e.g., OCI Distribution)")
 ///         }
+///     }
+///
+///     async fn is_present_by_ref(&self, image_ref: &Reference) -> bool {
+///         self.modules.get(image_ref).is_some()
+///     }
+///
+///     async fn is_present_by_digest(&self, digest: String) -> bool {
+///         false
+///     }
+///
+///     async fn pull(&self, image_ref: &Reference) -> anyhow::Result<()> {
+///         Err(anyhow::anyhow!("InMemoryStore does not support registry pull"))
+///     }
+///
+///     async fn resolve_registry_digest(&self, image_ref: &Reference) -> anyhow::Result<String> {
+///         Err(anyhow::anyhow!("InMemoryStore does not support registry pull"))
 ///     }
 /// }
 /// ```
@@ -41,8 +57,60 @@ use std::sync::Arc;
 pub trait ModuleStore {
     /// Get a module's data given its image `Reference`.
     ///
-    /// It is up to the implementation to establish caching and network fetching policies.
-    async fn get(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>>;
+    /// It is up to the implementation to establish caching policies.
+    /// However, the implementation must fail if the image is not present
+    /// locally.
+    async fn get_local(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>>;
+
+    /// Whether the specified module is already present in the store.
+    async fn is_present_by_ref(&self, image_ref: &Reference) -> bool;
+
+    /// Whether the module with the specified digest is already present in the store.
+    async fn is_present_by_digest(&self, digest: String) -> bool;
+
+    /// Pull a module from a remote source into the store.
+    async fn pull(&self, image_ref: &Reference) -> anyhow::Result<()>;
+
+    /// Get the digest of the specified module in its source registry.
+    async fn resolve_registry_digest(&self, image_ref: &Reference) -> anyhow::Result<String>;
+
+    /// Get a module's data given its image `Reference`
+    async fn get(
+        &self,
+        image_ref: &Reference,
+        pull_policy: Option<String>,
+    ) -> anyhow::Result<Vec<u8>> {
+        // Specification from https://kubernetes.io/docs/concepts/configuration/overview/#container-images):
+        let effective_pull_policy = pull_policy.unwrap_or(match image_ref.tag() {
+            Some("latest") | None => "Always".to_owned(),
+            _ => "IfNotPresent".to_owned(),
+        });
+
+        match effective_pull_policy.as_str() {
+            "IfNotPresent" => {
+                if !self.is_present_by_ref(image_ref).await {
+                    self.pull(image_ref).await?
+                }
+            }
+            "Always" => {
+                if !self
+                    .is_present_by_digest(self.resolve_registry_digest(image_ref).await?)
+                    .await
+                {
+                    self.pull(image_ref).await?
+                }
+            }
+            "Never" => (),
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unrecognized image pull policy {}",
+                    effective_pull_policy
+                ))
+            }
+        };
+
+        self.get_local(image_ref).await
+    }
 
     /// Fetch all container modules for a given `Pod` storing the name of the
     /// container and the module's data as key/value pairs in a hashmap.
@@ -64,7 +132,13 @@ pub trait ModuleStore {
                 .clone()
                 .expect("FATAL ERROR: container must have an image");
             let reference = Reference::try_from(image).unwrap();
-            async move { Ok((container.name.clone(), self.get(&reference).await?)) }
+            let pull_policy = container.image_pull_policy.clone();
+            async move {
+                Ok((
+                    container.name.clone(),
+                    self.get(&reference, pull_policy).await?,
+                ))
+            }
         });
 
         // Collect the container modules into a HashMap for quick lookup
@@ -115,20 +189,40 @@ impl<C> FileModuleStore<C> {
 
 #[async_trait]
 impl<C: ImageClient + Send> ModuleStore for FileModuleStore<C> {
-    async fn get(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
+    async fn get_local(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
         let path = self.pull_file_path(image_ref);
         if !path.exists() {
-            debug!(
-                "Image ref '{:?}' doesn't exist on disk. Fetching remotely...",
+            return Err(anyhow::anyhow!(
+                "Image ref {} not available locally",
                 image_ref
-            );
-            let contents = self.client.lock().await.pull(image_ref).await?;
-            self.store(image_ref, &contents).await?;
-            return Ok(contents);
+            ));
         }
 
         debug!("Fetching image ref '{:?}' from disk", image_ref);
         Ok(tokio::fs::read(path).await?)
+    }
+
+    async fn is_present_by_ref(&self, image_ref: &Reference) -> bool {
+        let path = self.pull_file_path(image_ref);
+        path.exists()
+    }
+
+    async fn is_present_by_digest(&self, digest: String) -> bool {
+        panic!(format!(
+            "TODO: is_present_by_digest not implemented while looking for {}",
+            digest
+        ));
+    }
+
+    async fn pull(&self, image_ref: &Reference) -> anyhow::Result<()> {
+        debug!("Pulling image ref '{:?}' from registry", image_ref);
+        let contents = self.client.lock().await.pull(image_ref).await?;
+        self.store(image_ref, &contents).await?;
+        Ok(())
+    }
+
+    async fn resolve_registry_digest(&self, image_ref: &Reference) -> anyhow::Result<String> {
+        self.client.lock().await.fetch_digest(image_ref).await
     }
 }
 
