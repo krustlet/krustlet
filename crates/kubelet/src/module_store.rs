@@ -97,7 +97,7 @@ impl<C> FileModuleStore<C> {
     fn pull_path(&self, r: &Reference) -> PathBuf {
         let mut path = self.root_dir.join(r.registry());
         path.push(r.repository());
-        path.push(r.tag());
+        path.push(r.tag().unwrap_or("latest"));
         path
     }
 
