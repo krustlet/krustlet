@@ -24,111 +24,21 @@ page](https://github.com/inlets/inlets/releases).
 
 Move the binary to `/usr/local/bin`, or place it somewhere on your `$PATH`.
 
-## Step 1: Create a service account user for the node
+## Step 1: Get a bootstrap config
 
-We will need to create a Kubernetes configuration file (known as the kubeconfig) and service account
-for krustlet to use to register nodes and access specific secrets.
+Krustlet requires a bootstrap token and config the first time it runs. Follow the guide
+[here](bootstrapping.md) to generate a bootstrap config and then return to this document. This will
+If you already have a kubeconfig available that you generated through another process, you can
+proceed to the next step. However, the credentials Krustlet uses must be part of the `system:nodes`
+group in order for things to function properly.
 
-This can be done by using the Kubernetes manifest in the [assets](./assets) directory:
+## Step 2: Create the inlets service
 
-```shell
-$ kubectl apply -n kube-system -f ./docs/howto/assets/krustlet-service-account.yaml
-```
-
-You can also do this by using the manifest straight from GitHub:
-
-```shell
-$ kubectl apply -n kube-system -f https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/krustlet-service-account.yaml
-```
-
-Now that things are all set up, we need to generate the kubeconfig. You can do this by running
-(assuming you are in the root of the krustlet repo):
+In order to start Krustlet with the correct node IP address, you'll need to create the `inlets`
+service in Kubernetes like so:
 
 ```shell
-$ ./docs/howto/assets/generate-kubeconfig.sh
-```
-
-Or if you are feeling a bit more trusting, you can run it straight from the repo:
-
-```shell
-bash <(curl https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/generate-kubeconfig.sh)
-```
-
-Either way, it will output a file called `kubeconfig-sa` in your current directory. Save this for
-later.
-
-## Step 2: Create Certificate
-
-Krustlet requires a certificate for securing communication with the Kubernetes API. Because
-Kubernetes has its own certificates, we'll need to get a signed certificate from the Kubernetes API
-that we can use. First things first, let's create a certificate signing request (CSR):
-
-```shell
-$ openssl req -new -sha256 -newkey rsa:2048 -keyout krustlet.key -out krustlet.csr -nodes -subj "/C=US/ST=./L=./O=./OU=./CN=krustlet"
-```
-
-This will create a CSR and a new key for the certificate, using `krustlet` as the hostname of the
-server.
-
-Now that it is created, we'll need to send the request to Kubernetes:
-
-```shell
-$ cat <<EOF | kubectl apply -f -
-apiVersion: certificates.k8s.io/v1beta1
-kind: CertificateSigningRequest
-metadata:
-  name: krustlet
-spec:
-  request: $(cat krustlet.csr | base64 | tr -d '\n')
-  usages:
-  - digital signature
-  - key encipherment
-  - server auth
-EOF
-certificatesigningrequest.certificates.k8s.io/krustlet created
-```
-
-Once that runs, an admin (that is probably you! at least it should be if you are trying to add a
-node to the cluster) needs to approve the request:
-
-```shell
-$ kubectl certificate approve krustlet
-certificatesigningrequest.certificates.k8s.io/krustlet approved
-```
-
-After approval, you can download the cert like so:
-
-```shell
-$ kubectl get csr krustlet -o jsonpath='{.status.certificate}' \
-    | base64 --decode > krustlet.crt
-```
-
-## Step 3: Setup inlets server
-
-Create a Kubernetes secret for the inlets server:
-
-```shell
-export TOKEN=$(head -c 16 /dev/urandom |shasum|cut -d- -f1)
-echo $TOKEN > token.txt
-
-kubectl create secret generic inlets-token --from-literal token=${TOKEN}
-```
-
-Then, create a Kubernetes secret for krustlet's TLS certificates. These will be used by the inlets
-server so that the kubelet can access the tunnel using the expected TLS certificates.
-
-```shell
-kubectl create secret ghosttunnel-tls generic \
-  --from-file tls.crt=krustlet.crt \
-  --from-file tls.key=krustlet.key
-```
-
-The inlets OSS version exposes services with HTTP within the cluster, so this example uses
-`ghosttunnel` as a tiny reverse proxy to mount the krustlet's TLS certificates so that the kubelet
-gets a valid HTTPS response.
-
-```yaml
-$ cat <<EOF | kubectl apply -f -
+cat <<EOF | kubectl apply -f -                            
 apiVersion: v1
 kind: Service
 metadata:
@@ -148,7 +58,56 @@ spec:
       name: data
   selector:
     app: inlets
----
+EOF
+```
+
+Once it has been created, run the following command to have the node IP available for next steps.
+This is a stable IP and won't change.
+
+```shell
+export NODE_IP=$(kubectl get service inlets -o jsonpath="{.spec.clusterIP}")
+```
+
+## Step 3: Run `krustlet`
+
+You'll need the certificates generated from the bootstrap process for our next steps, so go ahead
+and start krustlet:
+
+```shell
+# Since you are running locally, this step is important. Otherwise krustlet will pick up on your
+# local config and not be able to update the node status properly
+export KUBECONFIG=~/.krustlet/config/kubeconfig
+krustlet-wasi --node-ip $NODE_IP --tls-cert-file=~/.krustlet/config/krustlet.crt --tls-private-key-file=~/.krustlet/config/krustlet.key --bootstrap-file=~/.krustlet/config/bootstrap.conf
+```
+
+Then open another terminal for the next steps.
+
+## Step 4: Setup inlets server
+
+Create a Kubernetes secret for the inlets server:
+
+```shell
+export TOKEN=$(head -c 16 /dev/urandom |shasum|cut -d- -f1)
+echo $TOKEN > token.txt
+
+kubectl create secret generic inlets-token --from-literal token=${TOKEN}
+```
+
+Then, create a Kubernetes secret for krustlet's TLS certificates. These will be used by the inlets
+server so that the kubelet can access the tunnel using the expected TLS certificates.
+
+```shell
+kubectl create secret ghosttunnel-tls generic \
+  --from-file tls.crt=~/.krustlet/config/krustlet.crt \
+  --from-file tls.key=~/.krustlet/config/krustlet.key
+```
+
+The inlets OSS version exposes services with HTTP within the cluster, so this example uses
+`ghosttunnel` as a tiny reverse proxy to mount the krustlet's TLS certificates so that the kubelet
+gets a valid HTTPS response. The service created before will expose it to the cluster
+
+```yaml
+$ cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -199,7 +158,7 @@ spec:
 EOF
 ```
 
-## Step 4: Run the inlets client
+## Step 5: Run the inlets client
 
 Port-forward or expose the inlets server with:
 
@@ -218,17 +177,8 @@ inlets client \
   --remote ws://127.0.0.1:8000 --token $(token.txt)
 ```
 
-Get the inlets server's service IP. This is a stable IP and won't change.
 
-```shell
-export NODE_IP=$(kubectl get service inlets -o jsonpath="{.spec.clusterIP}")
-```
-
-## Step 5: Run the `krustlet` and verify the node is available
-
-```shell
-krustlet-wasi --node-ip $NODE_IP --pfx-password password --tls-cert-file=./krustlet.crt --tls-private-key-file=./krustlet.key
-```
+## Step 6: Verify the node is available
 
 Show that the krustlet node has joined the cluster:
 
