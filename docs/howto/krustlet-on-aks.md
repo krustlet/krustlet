@@ -130,7 +130,6 @@ There is an example [`krustlet.service`](./assets/krustlet.service) that you can
 box, but it is probably easier just to copy and paste it to `/etc/systemd/system/krustlet.service`
 on the VM, changing any environment variables to your own configuration if desired
 
-
 ## Step 4: Get a bootstrap config for your Krustlet node
 
 Krustlet requires a bootstrap token and config the first time it runs. In another terminal on your

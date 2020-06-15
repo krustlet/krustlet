@@ -42,39 +42,6 @@ gke-cluster-default-pool-6d70a85d-19r8   Ready    <none>   1m      v1.17.4-gke.1
 > **NOTE** If you chose to create a single-zone cluster, replace `--region=${REGION}` with
 `--zone=${ZONE}` in the above `gcloud` commands.
 
-## Step 1: Create a service account user for the node
-
-We will create a service account for Krustlet to use to register nodes and access specific secrets.
-
-This can be done by using the Kubernetes manifest in the [assets](./assets) directory:
-
-```shell
-$ kubectl apply --namespace=kube-system --filename=./docs/howto/assets/krustlet-service-account.yaml
-```
-
-Or by using the manifest directly from GitHub:
-
-```shell
-$ kubectl apply \
---namespace=kube-system \
---filename=https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/krustlet-service-account.yaml
-```
-
-Now that things are all set up, we need to generate the kubeconfig. You can do this by running
-(assuming you are in the root of the krustlet repo):
-
-```shell
-$ ./docs/howto/assets/generate-kubeconfig.sh
-```
-
-Or if you are feeling more trusting, you can run it straight from the repo:
-
-```shell
-bash <(curl https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/generate-kubeconfig.sh)
-```
-
-Either way, it will output a file called `kubeconfig-sa` in your current directory. Save this for
-later.
 
 ## Step 1: Create Compute Engine VM
 
@@ -108,82 +75,25 @@ $ IP=$(gcloud compute instances describe ${INSTANCE} \
 --format="value(networkInterfaces[0].networkIP)") && echo ${IP}
 ```
 
-## Step 2: Create Certificate
+## Step 2: Get a bootstrap config for your Krustlet node
 
-Krustlet requires a certificate for securing communication with the Kubernetes API. Because
-Kubernetes has its own certificates, we'll need to get a signed certificate from the Kubernetes
-API that we can use.
+Krustlet requires a bootstrap token and config the first time it runs. Follow the guide
+[here](bootstrapping.md), setting the `CONFIG_DIR` variable to `./`, to generate a bootstrap config
+and then return to this document. If you already have a kubeconfig available that you generated
+through another process, you can proceed to the next step. However, the credentials Krustlet uses
+must be part of the `system:nodes` group in order for things to function properly.
 
-In order for the Kubernetes cluster to resolve the name of the VM running the Krustlet, we'll
-include aliases for the VM's name in the certificate.
+NOTE: You may be wondering why you can't run this on the VM you just provisioned. We need access to
+the Kubernetes API in order to create the bootstrap token, so the script used to generate the
+bootstrap config needs to be run on a machine with the proper Kubernetes credentials
 
-First things first, let's create a certificate signing request (CSR):
-
-```shell
-$ ALIASES="DNS:${INSTANCE},DNS:${INSTANCE}.${ZONE},IP:${IP}" && echo ${ALIASES}
-$ openssl req -new -sha256 -newkey rsa:2048 -keyout ./krustlet.key -out ./krustlet.csr -nodes -config <(
-cat <<-EOF
-[req]
-default_bits = 2048
-prompt = no
-default_md = sha256
-req_extensions = req_ext
-distinguished_name = dn
-[dn]
-O=.
-CN=${INSTANCE}
-[req_ext]
-subjectAltName = ${ALIASES}
-EOF
-)
-Generating a RSA private key
-....................+++++
-............................................+++++
-writing new private key to './krustlet.key'
-```
-
-This will create a CSR and a new key for the certificate. Now that it is created, we'll need to
-send the request to Kubernetes:
-
-```shell
-$ cat <<EOF | kubectl apply --filename=-
-apiVersion: certificates.k8s.io/v1beta1
-kind: CertificateSigningRequest
-metadata:
-  name: krustlet
-spec:
-  request: $(cat krustlet.csr | base64 | tr -d '\n')
-  usages:
-  - digital signature
-  - key encipherment
-  - server auth
-EOF
-certificatesigningrequest.certificates.k8s.io/krustlet created
-```
-
-You should then approve the request:
-
-```shell
-$ kubectl certificate approve krustlet
-certificatesigningrequest.certificates.k8s.io/krustlet approved
-```
-
-After approval, you can download the cert like so:
-
-```shell
-$ kubectl get csr krustlet --output=jsonpath='{.status.certificate}' \
-    | base64 --decode > krustlet.crt
-```
-
-## Step 3: Copy assets to VM
+## Step 3: Copy bootstrap config to VM
 
 The first thing we'll need to do is copy up the assets we generated in steps 1 and 2. Copy them to
 the VM by typing:
 
 ```shell
-$ gcloud compute scp krustlet.crt ${INSTANCE}: --project=${PROJECT} --zone=${ZONE}
-$ gcloud compute scp krustlet.key ${INSTANCE}: --project=${PROJECT} --zone=${ZONE}
-$ gcloud compute scp kubeconfig-sa ${INSTANCE}: --project=${PROJECT} --zone=${ZONE}
+$ gcloud compute scp bootstrap.conf ${INSTANCE}: --project=${PROJECT} --zone=${ZONE}
 ```
 
 We can then SSH into the instance by typing:
@@ -199,12 +109,13 @@ Install the latest release of krustlet following [the install guide](../intro/in
 There are two flavors of Krustlet (`krustlet-wasi` and `krustlet-wascc`), let's use the first:
 
 ```shell
-$ KUBECONFIG=${PWD}/kubeconfig-sa krustlet-wasi \
+$ KUBECONFIG=${PWD}/kubeconfig krustlet-wasi \
 --hostname="krustlet" \
 --node-ip=${IP} \
 --node-name="krustlet" \
 --tls-cert-file=./krustlet.crt \
---tls-private-key-file=./krustlet.key
+--tls-private-key-file=./krustlet.key \
+--bootstrap-file=./bootstrap.conf
 ```
 
 > **NOTE** To increase the level of debugging, you may prefix the command with `RUST_LOG=info` or
@@ -212,10 +123,21 @@ $ KUBECONFIG=${PWD}/kubeconfig-sa krustlet-wasi \
 
 > **NOTE** The value of `${IP}` was determined in step #1.
 
+### Step 4a: Approving the serving CSR
+Once you have started Krustlet, there is one more manual step (though this could be automated
+depending on your setup) to perform. The client certs Krustlet needs are generally approved
+automatically by the API. However, the serving certs require manual approval. To do this, you'll
+need the hostname you specified for the `--hostname` flag or the output of `hostname` if you didn't
+specify anything. From another terminal that's configured to access the cluster, run:
 
+```bash
+$ kubectl certificate approve <hostname>-tls
+```
 
-From another terminal that's configured to access the cluster, you should be able to enumerate the
-cluster's nodes including the Krustlet by typing:
+NOTE: You will only need to do this approval step the first time Krustlet starts. It will generate
+and save all of the needed credentials to your machine
+
+You should be able to enumerate the cluster's nodes including the Krustlet by typing:
 
 ```shell
 $ kubectl get nodes
@@ -297,12 +219,13 @@ Description=Krustlet, a kubelet implementation for running WASM
 [Service]
 Restart=on-failure
 RestartSec=5s
-Environment=KUBECONFIG=/etc/krustlet/kubeconfig-sa
+Environment=KUBECONFIG=/etc/krustlet/config/kubeconfig
 Environment=NODE_NAME=krustlet
-Environment=TLS_CERT_FILE=/etc/krustlet/krustlet.crt
-Environment=TLS_PRIVATE_KEY_FILE=/etc/krustlet/krustlet.key
+Environment=TLS_CERT_FILE=/etc/krustlet/config/krustlet.crt
+Environment=TLS_PRIVATE_KEY_FILE=/etc/krustlet/config/krustlet.key
 Environment=KRUSTLET_DATA_DIR=/etc/krustlet
 Environment=RUST_LOG=wascc_provider=info,wasi_provider=info,main=info
+Environment=KRUSTLET_BOOTSTRAP_FILE=/etc/krustlet/config/bootstrap.conf
 ExecStart=/usr/local/bin/krustlet-wasi
 User=root
 Group=root
@@ -321,7 +244,7 @@ $ sudo chmod 644 /etc/systemd/system/krustlet.service
 Then:
 
 ```shell
-$ sudo mkdir -p /etc/krustlet && sudo chown root:root /etc/krustlet
+$ sudo mkdir -p /etc/krustlet/config && sudo chown -R root:root /etc/krustlet
 $ sudo mv {krustlet.*,kubeconfig-sa} /etc/krustlet && chmod 600 /etc/krustlet/*
 ```
 
