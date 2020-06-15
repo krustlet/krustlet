@@ -9,7 +9,7 @@ compiled releases can be manually downloaded and installed.
 
 1. Download your desired version from [the releases
    page](https://github.com/deislabs/krustlet/releases)
-1. Unpack it (`tar -xzf krustlet-v0.2.0-Linux-amd64.tar.gz`)
+1. Unpack it (`tar -xzf krustlet-v0.3.0-linux-amd64.tar.gz`)
 1. Find the desired Krustlet provider in the unpacked directory, and move it to its desired
    destination (`mv krustlet-wasi /usr/local/bin/`)
 
@@ -18,7 +18,7 @@ find Krustlet, check to make sure that your `$PATH` environment variable is set 
 
 ### Validating
 If you'd like to validate the download, checksums can be downloaded from
-https://krustlet.blob.core.windows.net/releases/checksums-v0.2.0.txt
+https://krustlet.blob.core.windows.net/releases/checksums-v0.3.0.txt
 
 ## From Canary Builds
 

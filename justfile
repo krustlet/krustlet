@@ -4,8 +4,8 @@ export CONFIG_DIR := env_var_or_default('CONFIG_DIR', '$HOME/.krustlet/config')
 
 run: run-wascc
 
-build:
-    cargo build
+build +FLAGS='':
+    cargo build {{FLAGS}}
 
 test:
     cargo fmt --all -- --check
