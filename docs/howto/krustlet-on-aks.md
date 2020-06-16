@@ -166,6 +166,7 @@ $ sudo systemctl enable krustlet && sudo systemctl start krustlet
 ```
 
 ### Step 5a: Approving the serving CSR
+
 Once you have started Krustlet, there is one more manual step (though this could be automated
 depending on your setup) to perform. The client certs Krustlet needs are generally approved
 automatically by the API. However, the serving certs require manual approval. To do this, you'll

@@ -5,8 +5,8 @@ Description=Krustlet, a kubelet implementation for running WASM
 Restart=on-failure
 RestartSec=5s
 Environment=KUBECONFIG=/etc/krustlet/config/kubeconfig
-Environment=TLS_CERT_FILE=/etc/krustlet/config/krustlet.crt
-Environment=TLS_PRIVATE_KEY_FILE=/etc/krustlet/config/krustlet.key
+Environment=KRUSTLET_CERT_FILE=/etc/krustlet/config/krustlet.crt
+Environment=KRUSTLET_PRIVATE_KEY_FILE=/etc/krustlet/config/krustlet.key
 Environment=KRUSTLET_DATA_DIR=/etc/krustlet
 Environment=RUST_LOG=wascc_provider=info,wasi_provider=info,main=info
 Environment=KRUSTLET_BOOTSTRAP_FILE=/etc/krustlet/config/bootstrap.conf

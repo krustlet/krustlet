@@ -113,8 +113,8 @@ $ KUBECONFIG=${PWD}/kubeconfig krustlet-wasi \
 --hostname="krustlet" \
 --node-ip=${IP} \
 --node-name="krustlet" \
---tls-cert-file=./krustlet.crt \
---tls-private-key-file=./krustlet.key \
+--cert-file=./krustlet.crt \
+--private-key-file=./krustlet.key \
 --bootstrap-file=./bootstrap.conf
 ```
 
@@ -124,6 +124,7 @@ $ KUBECONFIG=${PWD}/kubeconfig krustlet-wasi \
 > **NOTE** The value of `${IP}` was determined in step #1.
 
 ### Step 4a: Approving the serving CSR
+
 Once you have started Krustlet, there is one more manual step (though this could be automated
 depending on your setup) to perform. The client certs Krustlet needs are generally approved
 automatically by the API. However, the serving certs require manual approval. To do this, you'll
@@ -221,8 +222,8 @@ Restart=on-failure
 RestartSec=5s
 Environment=KUBECONFIG=/etc/krustlet/config/kubeconfig
 Environment=NODE_NAME=krustlet
-Environment=TLS_CERT_FILE=/etc/krustlet/config/krustlet.crt
-Environment=TLS_PRIVATE_KEY_FILE=/etc/krustlet/config/krustlet.key
+Environment=KRUSTLET_CERT_FILE=/etc/krustlet/config/krustlet.crt
+Environment=KRUSTLET_PRIVATE_KEY_FILE=/etc/krustlet/config/krustlet.key
 Environment=KRUSTLET_DATA_DIR=/etc/krustlet
 Environment=RUST_LOG=wascc_provider=info,wasi_provider=info,main=info
 Environment=KRUSTLET_BOOTSTRAP_FILE=/etc/krustlet/config/bootstrap.conf
@@ -245,7 +246,7 @@ Then:
 
 ```shell
 $ sudo mkdir -p /etc/krustlet/config && sudo chown -R root:root /etc/krustlet
-$ sudo mv {krustlet.*,kubeconfig-sa} /etc/krustlet && chmod 600 /etc/krustlet/*
+$ sudo mv {krustlet.*,kubeconfig} /etc/krustlet && chmod 600 /etc/krustlet/*
 ```
 
 Once you have done that, run the following commands to make sure the unit is configured to start on

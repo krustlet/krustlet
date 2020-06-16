@@ -45,6 +45,7 @@ The same flags can be passed to `just run-wasi` and `just run-wascc` if you want
 [run](#running) the project instead.
 
 #### Caveats
+
 The underlying dependencies for Rustls do not support certs with IP SANs (subject alternate names).
 Because of this, the serving certs requested during bootstrap will not work as they require at least
 1 IP SAN. This means that you'll need to handle provisioning your TLS cert and key (using `kubectl
