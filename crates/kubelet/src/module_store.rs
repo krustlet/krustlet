@@ -267,9 +267,10 @@ impl<C> Clone for FileModuleStore<C> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::iter::FromIterator;
 
     #[tokio::test]
-    async fn test_can_parse_pull_policies() {
+    async fn can_parse_pull_policies() {
         assert_eq!(None, ModulePullPolicy::parse(None).unwrap());
         assert_eq!(
             ModulePullPolicy::Always,
@@ -293,5 +294,63 @@ mod test {
             ModulePullPolicy::parse(Some("IfMoonMadeOfGreenCheese".to_owned())).is_err(),
             "Expected parse failure but didn't get one"
         );
+    }
+
+    struct FakeImageClient {
+        images: HashMap<&'static str, Vec<u8>>,
+    }
+
+    impl FakeImageClient {
+        fn new(entries: Vec<(&'static str, Vec<u8>)>) -> Self {
+            let client = FakeImageClient {
+                images: HashMap::from_iter(entries),
+            };
+            client
+        }
+    }
+    #[async_trait]
+    impl ImageClient for FakeImageClient {
+        async fn pull(&mut self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
+            match self.images.get(image_ref.whole()) {
+                Some(v) => Ok(v.clone()),
+                None => Err(anyhow::anyhow!("error pulling module")),
+            }
+        }
+
+        async fn fetch_digest(&mut self, _image_ref: &Reference) -> anyhow::Result<String> {
+            Ok("sha123:456".to_owned())
+        }
+    }
+
+    struct TemporaryDirectory {
+        path: PathBuf,
+    }
+
+    impl Drop for TemporaryDirectory {
+        fn drop(&mut self) -> () {
+            std::fs::remove_dir_all(&self.path).expect("Failed to remove temp directory");
+        }
+    }
+
+    fn create_temp_dir() -> TemporaryDirectory {
+        let os_temp_dir = std::env::temp_dir();
+        let subdirectory = PathBuf::from(format!("krustlet-fms-tests-{}", uuid::Uuid::new_v4()));
+        let path = os_temp_dir.join(subdirectory);
+        std::fs::create_dir(&path).expect("Failed to create temp directory");
+        TemporaryDirectory { path }
+    }
+
+    #[tokio::test]
+    async fn file_module_store_can_get_via_client() -> anyhow::Result<()> {
+        let fake_client = FakeImageClient::new(vec![("foo/bar:1.0", vec![1, 2, 3])]);
+        let fake_ref = Reference::try_from("foo/bar:1.0")?;
+        let scratch_dir = create_temp_dir();
+        let store = FileModuleStore::new(fake_client, &scratch_dir.path);
+        let module_bytes = store
+            .get(&fake_ref, Some(ModulePullPolicy::IfNotPresent))
+            .await?;
+        assert_eq!(3, module_bytes.len());
+        assert_eq!(2, module_bytes[1]);
+        Ok(())
     }
 }
