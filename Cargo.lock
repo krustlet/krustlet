@@ -1636,7 +1636,7 @@ dependencies = [
 
 [[package]]
 name = "krustlet"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "dirs",
@@ -1687,7 +1687,7 @@ dependencies = [
 
 [[package]]
 name = "kubelet"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3825,7 +3825,7 @@ dependencies = [
 
 [[package]]
 name = "wascc-provider"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3877,7 +3877,7 @@ dependencies = [
 
 [[package]]
 name = "wasi-provider"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
