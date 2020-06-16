@@ -6,14 +6,14 @@
 //! # Example
 //! ```rust,no_run
 //! use kubelet::{Kubelet, config::Config};
-//! use kubelet::module_store::FileModuleStore;
+//! use kubelet::store::oci::FileStore;
 //! use wascc_provider::WasccProvider;
 //!
 //! async fn start() {
 //!     // Get a configuration for the Kubelet
 //!     let kubelet_config = Config::default();
 //!     let client = oci_distribution::Client::default();
-//!     let store = FileModuleStore::new(client, &std::path::PathBuf::from(""));
+//!     let store = FileStore::new(client, &std::path::PathBuf::from(""));
 //!
 //!     // Load a kubernetes configuration
 //!     let kubeconfig = kube::Config::infer().await.unwrap();
@@ -33,12 +33,15 @@
 use async_trait::async_trait;
 use k8s_openapi::api::core::v1::{ContainerStatus as KubeContainerStatus, Pod as KubePod};
 use kube::{api::DeleteParams, Api};
-use kubelet::handle::{key_from_pod, pod_key, PodHandle, RuntimeHandle, Stop};
-use kubelet::module_store::ModuleStore;
+use kubelet::container::{Handle as ContainerHandle, Status as ContainerStatus};
+use kubelet::handle::StopHandler;
+use kubelet::node::Builder;
+use kubelet::pod::{key_from_pod, pod_key, Handle};
+use kubelet::pod::{update_status, Phase, Pod, Status as PodStatus};
+use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
-use kubelet::status::{update_pod_status, ContainerStatus, Phase, Status};
-use kubelet::volumes::VolumeRef;
-use kubelet::{NodeBuilder, Pod, Provider};
+use kubelet::store::Store;
+use kubelet::volume::Ref;
 use log::{debug, error, info, trace};
 use tempfile::NamedTempFile;
 use tokio::sync::watch::{self, Receiver};
@@ -77,8 +80,8 @@ const VOLUME_DIR: &str = "volumes";
 /// Kubernetes' view of environment variables is an unordered map of string to string.
 type EnvVars = std::collections::HashMap<String, String>;
 
-/// A [kubelet::handle::Stop] implementation for a wascc actor
-pub struct ActorStopper {
+/// A [kubelet::handle::Handle] implementation for a wascc actor
+pub struct ActorHandle {
     /// The public key of the wascc Actor that will be stopped
     pub key: String,
     host: Arc<Mutex<WasccHost>>,
@@ -86,7 +89,7 @@ pub struct ActorStopper {
 }
 
 #[async_trait::async_trait]
-impl Stop for ActorStopper {
+impl StopHandler for ActorHandle {
     async fn stop(&mut self) -> anyhow::Result<()> {
         debug!("stopping wascc instance {}", self.key);
         let host = self.host.clone();
@@ -118,7 +121,7 @@ impl Stop for ActorStopper {
 /// from Kubernetes.
 #[derive(Clone)]
 pub struct WasccProvider<S> {
-    handles: Arc<RwLock<HashMap<String, PodHandle<ActorStopper, LogHandleFactory>>>>,
+    handles: Arc<RwLock<HashMap<String, Handle<ActorHandle, LogHandleFactory>>>>,
     store: S,
     volume_path: PathBuf,
     log_path: PathBuf,
@@ -126,7 +129,7 @@ pub struct WasccProvider<S> {
     host: Arc<Mutex<WasccHost>>,
 }
 
-impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
+impl<S: Store + Send + Sync> WasccProvider<S> {
     /// Returns a new wasCC provider configured to use the proper data directory
     /// (including creating it if necessary)
     pub async fn new(
@@ -189,10 +192,10 @@ impl<S: ModuleStore + Send + Sync> WasccProvider<S> {
 }
 
 #[async_trait]
-impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
+impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
     const ARCH: &'static str = TARGET_WASM32_WASCC;
 
-    async fn node(&self, builder: &mut NodeBuilder) -> anyhow::Result<()> {
+    async fn node(&self, builder: &mut Builder) -> anyhow::Result<()> {
         builder.set_architecture("wasm-wasi");
         builder.add_taint("NoExecute", "krustlet/arch", Self::ARCH);
         Ok(())
@@ -209,7 +212,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
         let mut container_handles = HashMap::new();
         let client = kube::Client::new(self.kubeconfig.clone());
-        let volumes = VolumeRef::volumes_from_pod(&self.volume_path, &pod, &client).await?;
+        let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
         for container in pod.containers() {
             let env = Self::env_vars(&container, &pod, &client).await;
             let volume_bindings: Vec<VolumeBinding> =
@@ -273,7 +276,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
                             message: format!("Error while starting container: {:?}", e),
                         },
                     );
-                    let status = Status {
+                    let status = PodStatus {
                         message: None,
                         container_statuses,
                     };
@@ -291,7 +294,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
             let mut handles = self.handles.write().await;
             handles.insert(
                 key_from_pod(&pod),
-                PodHandle::new(container_handles, pod, client, None)?,
+                Handle::new(container_handles, pod, client, None)?,
             );
         }
 
@@ -359,8 +362,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
                         }
                     );
                     let client = kube::client::Client::new(self.kubeconfig.clone());
-                    update_pod_status(client.clone(), &pod_namespace, &pod_name, &json_status)
-                        .await?;
+                    update_status(client.clone(), &pod_namespace, &pod_name, &json_status).await?;
 
                     let pod_client: Api<KubePod> = Api::namespaced(client.clone(), &pod_namespace);
                     let dp = DeleteParams {
@@ -412,7 +414,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasccProvider<S> {
         namespace: String,
         pod_name: String,
         container_name: String,
-        sender: kubelet::LogSender,
+        sender: kubelet::log::Sender,
     ) -> anyhow::Result<()> {
         let mut handles = self.handles.write().await;
         let handle = handles
@@ -439,7 +441,7 @@ fn wascc_run_http(
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
     status_recv: Receiver<ContainerStatus>,
-) -> anyhow::Result<RuntimeHandle<ActorStopper, LogHandleFactory>> {
+) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
     let mut caps: Vec<Capability> = Vec::new();
 
     caps.push(Capability {
@@ -466,7 +468,7 @@ struct LogHandleFactory {
     temp: NamedTempFile,
 }
 
-impl kubelet::handle::LogHandleFactory<tokio::fs::File> for LogHandleFactory {
+impl kubelet::log::HandleFactory<tokio::fs::File> for LogHandleFactory {
     /// Creates `tokio::fs::File` on demand for log reading.
     fn new_handle(&self) -> tokio::fs::File {
         tokio::fs::File::from_std(self.temp.reopen().unwrap())
@@ -484,7 +486,7 @@ fn wascc_run(
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
     status_recv: Receiver<ContainerStatus>,
-) -> anyhow::Result<RuntimeHandle<ActorStopper, LogHandleFactory>> {
+) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
     info!("sending actor to wascc host");
     let log_output = NamedTempFile::new_in(log_path)?;
     let mut logenv: HashMap<String, String> = HashMap::new();
@@ -545,8 +547,8 @@ fn wascc_run(
     let log_handle_factory = LogHandleFactory { temp: log_output };
 
     info!("wascc actor executing");
-    Ok(RuntimeHandle::new(
-        ActorStopper {
+    Ok(ContainerHandle::new(
+        ActorHandle {
             host,
             key: pk,
             volumes,

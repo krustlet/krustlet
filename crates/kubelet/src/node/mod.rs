@@ -1,7 +1,10 @@
+//! `node` contains wrappers around the Kubernetes node API, containing ways to create and update
+//! nodes operating within the cluster.
 use crate::config::Config;
+use crate::container::Status as ContainerStatus;
 use crate::pod::Pod;
+use crate::pod::Status as PodStatus;
 use crate::provider::Provider;
-use crate::status::{ContainerStatus, Status};
 use chrono::prelude::*;
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::coordination::v1::Lease;
@@ -62,7 +65,7 @@ macro_rules! retry {
 /// A node comes with a lease, and we maintain the lease to tell Kubernetes that the
 /// node remains alive and functional. Note that this will not work in
 /// versions of Kubernetes prior to 1.14.
-pub async fn create_node<P: 'static + Provider + Sync + Send>(
+pub async fn create<P: 'static + Provider + Sync + Send>(
     client: &kube::Client,
     config: &Config,
     provider: Arc<P>,
@@ -154,7 +157,7 @@ pub async fn create_node<P: 'static + Provider + Sync + Send>(
 }
 
 /// Fetch the uid of a node by name.
-pub async fn node_uid(client: &kube::Client, node_name: &str) -> anyhow::Result<String> {
+pub async fn uid(client: &kube::Client, node_name: &str) -> anyhow::Result<String> {
     let node_client: Api<KubeNode> = Api::all(client.clone());
     match retry!(node_client.get(node_name).await, times: 4, log_error: |e| error!("Failed to get node to cordon: {:?}", e))
     {
@@ -175,7 +178,7 @@ pub async fn node_uid(client: &kube::Client, node_name: &str) -> anyhow::Result<
 }
 
 /// Cordons node and evicts all pods.
-pub async fn drain_node(client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
+pub async fn drain(client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
     evict_pods(client, node_name).await?;
     Ok(())
 }
@@ -214,7 +217,7 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
                     },
                 );
             }
-            let status = Status {
+            let status = PodStatus {
                 message: Some("Evicted on node shutdown.".to_string()),
                 container_statuses,
             };
@@ -275,18 +278,18 @@ async fn evict_pod(
 /// This is how we report liveness to the upstream.
 /// If we are unable to update the node after several retries we panic, as we could be in an
 /// inconsistent state
-pub async fn update_node(client: &kube::Client, node_name: &str) {
+pub async fn update(client: &kube::Client, node_name: &str) {
     debug!("Updating node '{}'", node_name);
-    if let Ok(uid) = node_uid(client, node_name).await {
+    if let Ok(uid) = uid(client, node_name).await {
         debug!("Node to update '{}' fetched.", node_name);
         retry!(update_lease(&uid, node_name, client).await, times: 4)
             .expect("Could not update lease");
-        retry!(update_node_status(node_name, client).await, times: 4)
+        retry!(update_status(node_name, client).await, times: 4)
             .expect("Could not update node status");
     }
 }
 
-async fn update_node_status(node_name: &str, client: &kube::Client) -> anyhow::Result<()> {
+async fn update_status(node_name: &str, client: &kube::Client) -> anyhow::Result<()> {
     // TODO: Update the lastTransitionTime properly
     let status_patch = serde_json::json!({
         "status": {
@@ -428,7 +431,7 @@ fn lease_spec_definition(node_name: &str) -> serde_json::Value {
 /// Defines the labels that will be applied to this node
 ///
 /// Default values and passed node-labels arguments are injected by config.
-fn node_labels_definition(arch: &str, config: &Config, builder: &mut NodeBuilder) {
+fn node_labels_definition(arch: &str, config: &Config, builder: &mut Builder) {
     // Add mandatory static labels
     builder.add_label("beta.kubernetes.io/os", "linux");
     builder.add_label("kubernetes.io/os", "linux");
@@ -491,7 +494,7 @@ pub struct Node(k8s_openapi::api::core::v1::Node);
 
 impl Node {
     /// Create builder for node definition.
-    pub fn builder() -> NodeBuilder {
+    pub fn builder() -> Builder {
         Default::default()
     }
 
@@ -509,7 +512,7 @@ impl From<KubeNode> for Node {
 }
 
 /// Builder for node definition.
-pub struct NodeBuilder {
+pub struct Builder {
     name: String,
     annotations: BTreeMap<String, String>,
     labels: BTreeMap<String, String>,
@@ -527,7 +530,7 @@ pub struct NodeBuilder {
     addresses: Vec<k8s_openapi::api::core::v1::NodeAddress>,
 }
 
-impl NodeBuilder {
+impl Builder {
     /// Create new builder with defaults.
     pub fn new() -> Self {
         Default::default()
@@ -676,9 +679,9 @@ impl NodeBuilder {
     }
 }
 
-impl Default for NodeBuilder {
-    fn default() -> NodeBuilder {
-        NodeBuilder {
+impl Default for Builder {
+    fn default() -> Builder {
+        Builder {
             name: "krustlet".to_string(),
             annotations: BTreeMap::new(),
             labels: BTreeMap::new(),

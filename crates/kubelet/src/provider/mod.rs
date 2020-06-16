@@ -1,14 +1,15 @@
-//! Traits and types need to create backend providers for a Kubelet
+//! Traits and types needed to create backend providers for a Kubelet
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use k8s_openapi::api::core::v1::{ConfigMap, Container, EnvVarSource, Pod as KubePod, Secret};
 use kube::api::{Api, WatchEvent};
 use log::{error, info};
 use thiserror::Error;
 
-use crate::logs::LogSender;
+use crate::log::Sender;
+use crate::node::Builder;
 use crate::pod::Pod;
-use crate::NodeBuilder;
-use std::collections::HashMap;
 
 /// A back-end for a Kubelet.
 ///
@@ -26,7 +27,8 @@ use std::collections::HashMap;
 /// # Example
 /// ```rust
 /// use async_trait::async_trait;
-/// use kubelet::{Provider, Pod};
+/// use kubelet::pod::Pod;
+/// use kubelet::provider::Provider;
 ///
 /// struct MyProvider;
 ///
@@ -37,11 +39,11 @@ use std::collections::HashMap;
 ///     async fn add(&self, pod: Pod) -> anyhow::Result<()> {
 ///         todo!("Implement Provider::add")
 ///     }
-///     
+///
 ///     // Implement the rest of the methods using `async` for the ones that return futures ...
 ///     # async fn modify(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
 ///     # async fn delete(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
-///     # async fn logs(&self, namespace: String, pod: String, container: String, sender: kubelet::LogSender) -> anyhow::Result<()> { todo!() }
+///     # async fn logs(&self, namespace: String, pod: String, container: String, sender: kubelet::log::Sender) -> anyhow::Result<()> { todo!() }
 /// }
 /// ```
 #[async_trait]
@@ -50,7 +52,7 @@ pub trait Provider {
     const ARCH: &'static str;
 
     /// Allows provider to populate node information.
-    async fn node(&self, _builder: &mut NodeBuilder) -> anyhow::Result<()> {
+    async fn node(&self, _builder: &mut Builder) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -75,7 +77,7 @@ pub trait Provider {
         namespace: String,
         pod: String,
         container: String,
-        sender: LogSender,
+        sender: Sender,
     ) -> anyhow::Result<()>;
 
     /// Execute a given command on a workload and then return the result.

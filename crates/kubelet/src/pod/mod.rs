@@ -1,6 +1,14 @@
+//! `pod` is a collection of utilities surrounding the Kubernetes pod API.
+mod handle;
+mod queue;
+mod status;
+
+pub use handle::{key_from_pod, pod_key, Handle};
+pub(crate) use queue::Queue;
+pub use status::{update_status, Phase, Status};
+
 use std::collections::HashMap;
 
-use crate::status::{Phase, Status};
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::{
     Container as KubeContainer, ContainerStatus as KubeContainerStatus, Pod as KubePod,
