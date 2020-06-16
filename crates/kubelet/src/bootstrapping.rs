@@ -149,7 +149,7 @@ async fn bootstrap_auth<K: AsRef<Path>>(
 
 async fn bootstrap_tls(config: &KubeletConfig, kubeconfig: Config) -> anyhow::Result<()> {
     debug!("Starting bootstrap of TLS serving certs");
-    if config.server_config.tls_cert_file.exists() {
+    if config.server_config.cert_file.exists() {
         return Ok(());
     }
 
@@ -215,10 +215,10 @@ async fn bootstrap_tls(config: &KubeletConfig, kubeconfig: Config) -> anyhow::Re
     let private_key = cert_bundle.serialize_private_key_pem();
     debug!(
         "Got certificate from API, writing cert to {:?} and private key to {:?}",
-        config.server_config.tls_cert_file, config.server_config.tls_private_key_file
+        config.server_config.cert_file, config.server_config.private_key_file
     );
-    write(&config.server_config.tls_cert_file, &certificate).await?;
-    write(&config.server_config.tls_private_key_file, &private_key).await?;
+    write(&config.server_config.cert_file, &certificate).await?;
+    write(&config.server_config.private_key_file, &private_key).await?;
 
     Ok(())
 }

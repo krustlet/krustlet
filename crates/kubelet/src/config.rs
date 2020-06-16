@@ -62,9 +62,9 @@ pub struct ServerConfig {
     /// The port the Kubelet server is running on
     pub port: u16,
     /// Path to kubelet TLS certificate.
-    pub tls_cert_file: PathBuf,
+    pub cert_file: PathBuf,
     /// Path to kubelet TLS private key.
-    pub tls_private_key_file: PathBuf,
+    pub private_key_file: PathBuf,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -126,8 +126,8 @@ impl Config {
     pub fn default_config(preferred_ip_family: &IpAddr) -> anyhow::Result<Self> {
         let hostname = default_hostname()?;
         let data_dir = default_data_dir()?;
-        let tls_cert_file = default_cert_path(&data_dir);
-        let tls_private_key_file = default_key_path(&data_dir);
+        let cert_file = default_cert_path(&data_dir);
+        let private_key_file = default_key_path(&data_dir);
         Ok(Config {
             node_ip: default_node_ip(&mut hostname.clone(), preferred_ip_family)?,
             node_name: sanitize_hostname(&hostname),
@@ -144,8 +144,8 @@ impl Config {
                     IpAddr::V6(_) => "::".parse().unwrap(),
                 },
                 port: DEFAULT_PORT,
-                tls_cert_file,
-                tls_private_key_file,
+                cert_file,
+                private_key_file,
             },
         })
     }
@@ -259,8 +259,8 @@ impl ConfigBuilder {
             max_pods: ok_result_of(opts.max_pods),
             server_addr: ok_result_of(opts.addr),
             server_port: ok_result_of(opts.port),
-            server_tls_cert_file: opts.tls_cert_file,
-            server_tls_private_key_file: opts.tls_private_key_file,
+            server_tls_cert_file: opts.cert_file,
+            server_tls_private_key_file: opts.private_key_file,
         }
     }
 
@@ -338,8 +338,8 @@ impl ConfigBuilder {
             max_pods,
             bootstrap_file,
             server_config: ServerConfig {
-                tls_cert_file: server_tls_cert_file,
-                tls_private_key_file: server_tls_private_key_file,
+                cert_file: server_tls_cert_file,
+                private_key_file: server_tls_private_key_file,
                 addr: server_addr,
                 port: server_port,
             },
@@ -399,18 +399,18 @@ pub struct Opts {
     max_pods: Option<u16>,
 
     #[structopt(
-        long = "tls-cert-file",
-        env = "TLS_CERT_FILE",
+        long = "cert-file",
+        env = "KRUSTLET_CERT_FILE",
         help = "The path to kubelet TLS certificate. Defaults to $KRUSTLET_DATA_DIR/config/krustlet.crt"
     )]
-    tls_cert_file: Option<PathBuf>,
+    cert_file: Option<PathBuf>,
 
     #[structopt(
-        long = "tls-private-key-file",
-        env = "TLS_PRIVATE_KEY_FILE",
+        long = "private-key-file",
+        env = "KRUSTLET_PRIVATE_KEY_FILE",
         help = "The path to kubelet TLS key. Defaults to $KRUSTLET_DATA_DIR/config/krustlet.key"
     )]
-    tls_private_key_file: Option<PathBuf>,
+    private_key_file: Option<PathBuf>,
 
     #[structopt(
         short = "n",
@@ -595,11 +595,11 @@ mod test {
         assert_eq!(config.server_config.port, 1234);
         assert_eq!(format!("{}", config.server_config.addr), "172.182.192.1");
         assert_eq!(
-            config.server_config.tls_cert_file.to_string_lossy(),
+            config.server_config.cert_file.to_string_lossy(),
             "/my/secure/cert.pfx"
         );
         assert_eq!(
-            config.server_config.tls_private_key_file.to_string_lossy(),
+            config.server_config.private_key_file.to_string_lossy(),
             "/the/key"
         );
         assert_eq!(
@@ -631,11 +631,11 @@ mod test {
         assert_eq!(config.server_config.port, 2345);
         assert_eq!(format!("{}", config.server_config.addr), "173.183.193.2");
         assert_eq!(
-            config.server_config.tls_cert_file.to_string_lossy(),
+            config.server_config.cert_file.to_string_lossy(),
             "/fallback/cert/path"
         );
         assert_eq!(
-            config.server_config.tls_private_key_file.to_string_lossy(),
+            config.server_config.private_key_file.to_string_lossy(),
             "/fallback/key/path"
         );
         assert_eq!(config.node_name, "krustsome-node");
@@ -656,11 +656,11 @@ mod test {
         assert_eq!(config.max_pods, 110);
         assert_eq!(format!("{}", config.server_config.addr), "0.0.0.0");
         assert_eq!(
-            config.server_config.tls_cert_file.to_string_lossy(),
+            config.server_config.cert_file.to_string_lossy(),
             "/fallback/cert/path"
         );
         assert_eq!(
-            config.server_config.tls_private_key_file.to_string_lossy(),
+            config.server_config.private_key_file.to_string_lossy(),
             "/fallback/key/path"
         );
         assert_eq!(config.node_name, "fallback-hostname");
@@ -723,11 +723,11 @@ mod test {
         assert_eq!(config.server_config.port, 5678);
         assert_eq!(format!("{}", config.server_config.addr), "171.181.191.21");
         assert_eq!(
-            config.server_config.tls_cert_file.to_string_lossy(),
+            config.server_config.cert_file.to_string_lossy(),
             "/my/secure/cert-2.pfx"
         );
         assert_eq!(
-            config.server_config.tls_private_key_file.to_string_lossy(),
+            config.server_config.private_key_file.to_string_lossy(),
             "/the/2nd/key"
         );
         assert_eq!(config.node_name, "krusty-node-2");
@@ -772,11 +772,11 @@ mod test {
         assert_eq!(config.server_config.port, 2345);
         assert_eq!(format!("{}", config.server_config.addr), "172.182.192.1");
         assert_eq!(
-            config.server_config.tls_cert_file.to_string_lossy(),
+            config.server_config.cert_file.to_string_lossy(),
             "/my/secure/cert.pfx"
         );
         assert_eq!(
-            config.server_config.tls_private_key_file.to_string_lossy(),
+            config.server_config.private_key_file.to_string_lossy(),
             "/the/other/key"
         );
         assert_eq!(config.node_name, "krusterrific-node");
