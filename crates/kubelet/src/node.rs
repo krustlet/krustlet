@@ -737,8 +737,8 @@ mod test {
             server_config: ServerConfig {
                 addr: IpAddr::from(Ipv4Addr::new(127, 0, 0, 1)),
                 port: 8080,
-                tls_cert_file: PathBuf::new(),
-                tls_private_key_file: PathBuf::new(),
+                cert_file: PathBuf::new(),
+                private_key_file: PathBuf::new(),
             },
             bootstrap_file: "doesnt/matter".into(),
             data_dir: PathBuf::new(),

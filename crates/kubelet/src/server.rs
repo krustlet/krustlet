@@ -45,8 +45,8 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
 
     warp::serve(routes)
         .tls()
-        .cert_path(&config.tls_cert_file)
-        .key_path(&config.tls_private_key_file)
+        .cert_path(&config.cert_file)
+        .key_path(&config.private_key_file)
         .run((config.addr, config.port))
         .await;
     Ok(())

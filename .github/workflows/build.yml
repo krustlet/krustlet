@@ -57,11 +57,11 @@ jobs:
         run: |
           just bootstrap
           just build
-          KUBECONFIG=${CONFIG_DIR}/kubeconfig-wascc ./target/debug/krustlet-wascc --node-name krustlet-wascc --port 3000 --bootstrap-file ${CONFIG_DIR}/bootstrap.conf --tls-cert-file ./config/krustlet-wascc.crt --tls-private-key-file ./config/krustlet-wascc.key &
+          KUBECONFIG=${CONFIG_DIR}/kubeconfig-wascc ./target/debug/krustlet-wascc --node-name krustlet-wascc --port 3000 --bootstrap-file ${CONFIG_DIR}/bootstrap.conf --cert-file ./config/krustlet-wascc.crt --private-key-file ./config/krustlet-wascc.key &
           # Wait for things to start before approving certs and then delete so we don't overlap with the same hostname
           sleep 5 && kubectl certificate approve $(hostname)-tls
           sleep 2 && kubectl delete csr $(hostname)-tls 
-          KUBECONFIG=${CONFIG_DIR}/kubeconfig-wasi ./target/debug/krustlet-wasi --node-name krustlet-wasi --port 3001 --bootstrap-file ${CONFIG_DIR}/bootstrap.conf --tls-cert-file ./config/krustlet-wasi.crt --tls-private-key-file ./config/krustlet-wasi.key &
+          KUBECONFIG=${CONFIG_DIR}/kubeconfig-wasi ./target/debug/krustlet-wasi --node-name krustlet-wasi --port 3001 --bootstrap-file ${CONFIG_DIR}/bootstrap.conf --cert-file ./config/krustlet-wasi.crt --private-key-file ./config/krustlet-wasi.key &
           sleep 5 && kubectl certificate approve $(hostname)-tls
           sleep 2 && kubectl delete csr $(hostname)-tls 
           just test-e2e
