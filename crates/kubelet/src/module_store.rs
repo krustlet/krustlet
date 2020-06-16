@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Specifies how the store should check for module updates
+#[derive(PartialEq, Debug)]
 pub enum ModulePullPolicy {
     /// Always return the module as it currently appears in the
     /// upstream registry
@@ -260,5 +261,37 @@ impl<C> Clone for FileModuleStore<C> {
             root_dir: self.root_dir.clone(),
             client: self.client.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_can_parse_pull_policies() {
+        assert_eq!(None, ModulePullPolicy::parse(None).unwrap());
+        assert_eq!(
+            ModulePullPolicy::Always,
+            ModulePullPolicy::parse(Some("Always".to_owned()))
+                .unwrap()
+                .unwrap()
+        );
+        assert_eq!(
+            ModulePullPolicy::IfNotPresent,
+            ModulePullPolicy::parse(Some("IfNotPresent".to_owned()))
+                .unwrap()
+                .unwrap()
+        );
+        assert_eq!(
+            ModulePullPolicy::Never,
+            ModulePullPolicy::parse(Some("Never".to_owned()))
+                .unwrap()
+                .unwrap()
+        );
+        assert!(
+            ModulePullPolicy::parse(Some("IfMoonMadeOfGreenCheese".to_owned())).is_err(),
+            "Expected parse failure but didn't get one"
+        );
     }
 }
