@@ -8,7 +8,7 @@ To build krustlet, you will need
 
 - The latest stable version of Rust
 - The latest version of [just](https://github.com/casey/just)
-- openssl
+- openssl (Or use the [`rustls-tls`](#building-without-openssl) feature)
 - git
 
 If you want to test krustlet, you will also require
@@ -28,6 +28,28 @@ We use `just` to build our programs, but you can use `cargo` if you want:
 ```console
 $ just build
 ```
+
+### Building without openssl
+
+WARNING: This is an advanced use case and is still not fully fleshed out. We do not recommend this
+for most developers
+
+If you are on a system that doesn't have OpenSSL (or has the incorrect version), you have the option
+to build Krustlet using the Rustls project (Rust native TLS implementation):
+
+```shell
+$ just build --no-default-features --features rustls-tls
+```
+
+The same flags can be passed to `just run-wasi` and `just run-wascc` if you want to just
+[run](#running) the project instead.
+
+#### Caveats
+
+The underlying dependencies for Rustls do not support certs with IP SANs (subject alternate names).
+Because of this, the serving certs requested during bootstrap will not work as they require at least
+1 IP SAN. This means that you'll need to handle provisioning your TLS cert and key (using `kubectl
+csr` and `kubectl certificate approve`) out of band before you start running Krustlet. 
 
 ### Building on WSL (Windows Subsystem for Linux)
 
