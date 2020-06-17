@@ -238,6 +238,8 @@ fn ok_result_of<T>(value: Option<T>) -> Option<anyhow::Result<T>> {
 }
 
 impl ConfigBuilder {
+    #[cfg(any(feature = "cli", feature = "docs"))]
+    #[cfg_attr(feature = "docs", doc(cfg(feature = "cli")))]
     fn from_opts(opts: Opts) -> Self {
         let node_labels: Vec<(String, String)> = opts
             .node_labels

@@ -1,5 +1,5 @@
 use kubelet::config::Config;
-use kubelet::module_store::FileModuleStore;
+use kubelet::store::oci::FileStore;
 use kubelet::Kubelet;
 use wasi_provider::WasiProvider;
 
@@ -15,9 +15,9 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let client = oci_distribution::Client::default();
-    let mut module_store_path = config.data_dir.join(".oci");
-    module_store_path.push("modules");
-    let store = FileModuleStore::new(client, &module_store_path);
+    let mut store_path = config.data_dir.join(".oci");
+    store_path.push("modules");
+    let store = FileStore::new(client, &store_path);
 
     let provider = WasiProvider::new(store, &config, kubeconfig.clone()).await?;
     let kubelet = Kubelet::new(provider, kubeconfig, config).await?;

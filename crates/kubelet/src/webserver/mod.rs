@@ -1,5 +1,5 @@
 use crate::config::ServerConfig;
-use crate::logs::{LogOptions, LogSender};
+use crate::log::{Options, Sender};
 use crate::provider::{NotImplementedError, Provider};
 use http::status::StatusCode;
 use http::Response;
@@ -14,10 +14,10 @@ use warp::Filter;
 
 const PING: &str = "this is the Krustlet HTTP server";
 
-/// Start the Krustlet HTTP(S) server                                                                                                                                                                                                                       │
-///                                                                                                                                                                                                                                                         │
+/// Start the Krustlet HTTP(S) server
+///
 /// This is a primitive implementation of an HTTP provider for the internal API.
-pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
+pub(crate) async fn start<T: 'static + Provider + Send + Sync>(
     provider: Arc<T>,
     config: &ServerConfig,
 ) -> anyhow::Result<()> {
@@ -27,7 +27,7 @@ pub async fn start_webserver<T: 'static + Provider + Send + Sync>(
     let logs_provider = provider.clone();
     let logs = warp::get()
         .and(warp::path!("containerLogs" / String / String / String))
-        .and(warp::query::<LogOptions>())
+        .and(warp::query::<Options>())
         .and_then(move |namespace, pod, container, opts| {
             let provider = logs_provider.clone();
             get_container_logs(provider, namespace, pod, container, opts)
@@ -60,14 +60,14 @@ async fn get_container_logs<T: 'static + Provider + Send + Sync>(
     namespace: String,
     pod: String,
     container: String,
-    opts: LogOptions,
+    opts: Options,
 ) -> Result<Response<Body>, Infallible> {
     debug!(
         "Got container log request for container {} in pod {} in namespace {}. Options: {:?}.",
         container, pod, namespace, opts
     );
     let (sender, log_body) = Body::channel();
-    let log_sender = LogSender::new(sender, opts);
+    let log_sender = Sender::new(sender, opts);
 
     match provider.logs(namespace, pod, container, log_sender).await {
         Ok(()) => Ok(Response::new(log_body)),

@@ -10,10 +10,10 @@ use k8s_openapi::ByteString;
 use kube::api::Api;
 use log::{debug, error};
 
-use crate::Pod;
+use crate::pod::Pod;
 
 #[derive(Debug)]
-enum VolumeType {
+enum Type {
     ConfigMap,
     Secret,
     HostPath,
@@ -23,12 +23,12 @@ enum VolumeType {
 /// Secret volume, dropping this reference will clean up the temporary volume. [AsRef] and
 /// [std::ops::Deref] are implemented for this type so you can still use it like a normal PathBuf
 #[derive(Debug)]
-pub struct VolumeRef {
+pub struct Ref {
     host_path: PathBuf,
-    volume_type: VolumeType,
+    volume_type: Type,
 }
 
-impl VolumeRef {
+impl Ref {
     /// Resolves the volumes for a pod, including preparing temporary directories containing the
     /// contents of secrets and configmaps. Returns a HashMap of volume names to a PathBuf for the
     /// directory where the volume is mounted
@@ -50,11 +50,11 @@ impl VolumeRef {
                         // Every other volume type should mount to the given host_path except for a
                         // hostpath volume type. So we need to handle that special case here
                         match &v.host_path {
-                            Some(hostpath) => VolumeRef {
+                            Some(hostpath) => Ref {
                                 host_path: PathBuf::from(&hostpath.path),
                                 volume_type,
                             },
-                            None => VolumeRef {
+                            None => Ref {
                                 host_path,
                                 volume_type,
                             },
@@ -72,13 +72,13 @@ impl VolumeRef {
     }
 }
 
-impl AsRef<PathBuf> for VolumeRef {
+impl AsRef<PathBuf> for Ref {
     fn as_ref(&self) -> &PathBuf {
         &self.host_path
     }
 }
 
-impl Deref for VolumeRef {
+impl Deref for Ref {
     type Target = PathBuf;
 
     fn deref(&self) -> &Self::Target {
@@ -86,9 +86,9 @@ impl Deref for VolumeRef {
     }
 }
 
-impl Drop for VolumeRef {
+impl Drop for Ref {
     fn drop(&mut self) {
-        if matches!(self.volume_type, VolumeType::ConfigMap | VolumeType::Secret) {
+        if matches!(self.volume_type, Type::ConfigMap | Type::Secret) {
             // TODO: Currently there is no way to do this async (though there is an async destructors proposal)
             debug!(
                 "deleting {:?} directory {:?}",
@@ -111,7 +111,7 @@ async fn configure(
     namespace: &str,
     client: &kube::Client,
     path: &PathBuf,
-) -> anyhow::Result<VolumeType> {
+) -> anyhow::Result<Type> {
     if let Some(cm) = &vol.config_map {
         populate_from_config_map(
             &cm.name
@@ -135,7 +135,7 @@ async fn configure(
     } else if let Some(hostpath) = &vol.host_path {
         // Check the the directory exists on the host
         tokio::fs::metadata(&hostpath.path).await?;
-        Ok(VolumeType::HostPath)
+        Ok(Type::HostPath)
     } else {
         Err(anyhow::anyhow!(
             "Unsupported volume type. Currently supported types: ConfigMap, Secret, and HostPath"
@@ -148,7 +148,7 @@ async fn populate_from_secret(
     namespace: &str,
     client: &kube::Client,
     path: &PathBuf,
-) -> anyhow::Result<VolumeType> {
+) -> anyhow::Result<Type> {
     tokio::fs::create_dir_all(path).await?;
     let secret_client: Api<Secret> = Api::namespaced(client.clone(), namespace);
     let secret = secret_client.get(name).await?;
@@ -162,7 +162,7 @@ async fn populate_from_secret(
         .into_iter()
         .collect::<tokio::io::Result<_>>()?;
 
-    Ok(VolumeType::Secret)
+    Ok(Type::Secret)
 }
 
 async fn populate_from_config_map(
@@ -170,7 +170,7 @@ async fn populate_from_config_map(
     namespace: &str,
     client: &kube::Client,
     path: &PathBuf,
-) -> anyhow::Result<VolumeType> {
+) -> anyhow::Result<Type> {
     tokio::fs::create_dir_all(path).await?;
     let cm_client: Api<ConfigMap> = Api::namespaced(client.clone(), namespace);
     let config_map = cm_client.get(name).await?;
@@ -192,7 +192,7 @@ async fn populate_from_config_map(
         .chain(data)
         .collect::<tokio::io::Result<_>>()?;
 
-    Ok(VolumeType::ConfigMap)
+    Ok(Type::ConfigMap)
 }
 
 fn pod_dir_name(pod: &Pod) -> String {

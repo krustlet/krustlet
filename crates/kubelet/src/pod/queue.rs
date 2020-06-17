@@ -7,8 +7,8 @@ use log::{debug, error};
 use tokio::sync::{mpsc::Sender, watch};
 use tokio::task::JoinHandle;
 
-use crate::handle::pod_key;
-use crate::Provider;
+use crate::pod::pod_key;
+use crate::provider::Provider;
 
 /// A per-pod queue that takes incoming Kubernetes events and broadcasts them to the correct queue
 /// for that pod.
@@ -17,7 +17,7 @@ use crate::Provider;
 /// the main kubelet process). This queue will only handle the latest update. So if a modify comes
 /// in while it is still handling a create and then another modify comes in after, only the second
 /// modify will be handled, which is ok given that each event contains the whole pod object
-pub struct PodQueue<P> {
+pub(crate) struct Queue<P> {
     provider: Arc<P>,
     handlers: HashMap<String, Worker>,
     error_sender: Sender<(KubePod, anyhow::Error)>,
@@ -57,9 +57,9 @@ impl Worker {
     }
 }
 
-impl<P: 'static + Provider + Sync + Send> PodQueue<P> {
+impl<P: 'static + Provider + Sync + Send> Queue<P> {
     pub fn new(provider: Arc<P>, error_sender: Sender<(KubePod, anyhow::Error)>) -> Self {
-        PodQueue {
+        Queue {
             provider,
             handlers: HashMap::new(),
             error_sender,

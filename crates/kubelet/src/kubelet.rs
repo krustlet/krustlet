@@ -1,11 +1,11 @@
 ///! This library contains code for running a kubelet. Use this to create a new
 ///! Kubelet with a specific handler (called a `Provider`)
 use crate::config::Config;
-use crate::node::{create_node, drain_node, update_node};
-use crate::queue::PodQueue;
-use crate::server::start_webserver;
-use crate::status::{update_pod_status, Phase};
-use crate::Provider;
+use crate::node;
+use crate::pod::Queue;
+use crate::pod::{update_status, Phase};
+use crate::provider::Provider;
+use crate::webserver::start as start_webserver;
 
 use futures::future::FutureExt;
 use futures::{StreamExt, TryStreamExt};
@@ -62,7 +62,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
         let client = kube::Client::new(self.kube_config.clone());
 
         // Create the node. If it already exists, this will exit
-        create_node(&client, &self.config, self.provider.clone()).await;
+        node::create(&client, &self.config, self.provider.clone()).await;
 
         // Flag to indicate graceful shutdown has started.
         let signal = Arc::new(AtomicBool::new(false));
@@ -108,7 +108,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
         .fuse();
 
         // Create a queue that locks on events per pod
-        let queue = PodQueue::new(self.provider.clone(), error_sender);
+        let queue = Queue::new(self.provider.clone(), error_sender);
         let pod_informer = start_pod_informer::<T>(
             client.clone(),
             self.config.node_name.clone(),
@@ -165,7 +165,7 @@ async fn start_signal_task(signal: Arc<AtomicBool>) -> anyhow::Result<()> {
 async fn start_pod_informer<P: 'static + Provider + Sync + Send>(
     client: kube::Client,
     node_name: String,
-    mut queue: PodQueue<P>,
+    mut queue: Queue<P>,
     signal: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let node_selector = format!("spec.nodeName={}", node_name);
@@ -212,7 +212,7 @@ async fn start_pod_informer<P: 'static + Provider + Sync + Send>(
 async fn start_node_updater(client: kube::Client, node_name: String) -> anyhow::Result<()> {
     let sleep_interval = std::time::Duration::from_secs(10);
     loop {
-        update_node(&client, &node_name).await;
+        node::update(&client, &node_name).await;
         tokio::time::delay_for(sleep_interval).await;
     }
 }
@@ -227,7 +227,7 @@ async fn start_signal_handler(
     loop {
         if signal.load(Ordering::Relaxed) {
             info!("Signal caught.");
-            drain_node(&client, &node_name).await?;
+            node::drain(&client, &node_name).await?;
             break Ok(());
         }
         tokio::time::delay_for(duration).await;
@@ -258,7 +258,7 @@ async fn start_error_handler(
             json_status
         );
         let pod_name = pod.name();
-        match update_pod_status(
+        match update_status(
             client.clone(),
             &pod.namespace().unwrap_or_default(),
             &pod_name,
@@ -279,7 +279,7 @@ async fn start_error_handler(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::Pod;
+    use crate::pod::Pod;
     use k8s_openapi::api::core::v1::{
         Container, EnvVar, EnvVarSource, ObjectFieldSelector, PodSpec, PodStatus,
     };
@@ -311,7 +311,7 @@ mod test {
             _namespace: String,
             _pod: String,
             _container: String,
-            _sender: crate::LogSender,
+            _sender: crate::log::Sender,
         ) -> anyhow::Result<()> {
             Ok(())
         }
