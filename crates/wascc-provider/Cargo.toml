@@ -38,4 +38,4 @@ wascc-httpsrv = { version = "0.6", features = ["static_plugin"] }
 k8s-openapi = { version = "0.8", default-features = false, features = ["v1_17"] }
 
 [dev-dependencies]
-oci-distribution = { path = "../oci-distribution", version = "0.1" }
+oci-distribution = { path = "../oci-distribution", version = "0.2" }
