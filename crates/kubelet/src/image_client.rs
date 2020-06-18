@@ -19,20 +19,29 @@ pub trait ImageClient {
     /// use kubelet::image_client::ImageClient;
     /// use oci_distribution::Reference;
     ///
-    /// struct InMemoryClient(std::collections::HashMap<Reference, Vec<u8>>);
+    /// struct InMemoryClient(std::collections::HashMap<Reference, (Vec<u8>, String)>);
     ///
     /// #[async_trait]
     /// impl ImageClient for InMemoryClient {
-    ///     async fn pull(&mut self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
-    ///         let image = self
+    ///     async fn pull_with_digest(&mut self, image_ref: &Reference) -> anyhow::Result<(Vec<u8>, Option<String>)> {
+    ///         let (image, digest) = self
     ///             .0
     ///             .get(image_ref)
     ///             .ok_or(anyhow::anyhow!("Couldn't find image"))?;
-    ///         Ok(image.clone())
+    ///         Ok((image.clone(), Some(digest.to_string())))
     ///     }
     /// }
     /// ```
-    async fn pull(&mut self, image_ref: &Reference) -> anyhow::Result<Vec<u8>>;
+    async fn pull(&mut self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
+        let (content, _) = self.pull_with_digest(image_ref).await?;
+        Ok(content)
+    }
+
+    /// TODO: write some docs
+    async fn pull_with_digest(
+        &mut self,
+        image_ref: &Reference,
+    ) -> anyhow::Result<(Vec<u8>, Option<String>)>;
 
     /// Fetch the digest for the given image reference from a storage location.
     ///
@@ -49,7 +58,10 @@ pub trait ImageClient {
 
 #[async_trait]
 impl ImageClient for oci_distribution::Client {
-    async fn pull(&mut self, image: &Reference) -> anyhow::Result<Vec<u8>> {
+    async fn pull_with_digest(
+        &mut self,
+        image: &Reference,
+    ) -> anyhow::Result<(Vec<u8>, Option<String>)> {
         self.pull_image(image).await
     }
 

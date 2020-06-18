@@ -53,13 +53,16 @@ impl Client {
     ///
     /// The client will check if it's already been authenticated and if
     /// not will attempt to do.
-    pub async fn pull_image(&mut self, image: &Reference) -> anyhow::Result<Vec<u8>> {
+    pub async fn pull_image(
+        &mut self,
+        image: &Reference,
+    ) -> anyhow::Result<(Vec<u8>, Option<String>)> {
         debug!("Pulling image: {:?}", image);
         if self.token.is_none() {
             self.auth(image, None).await?;
         }
 
-        let manifest = self.pull_manifest(image).await?;
+        let (manifest, digest) = self.pull_manifest(image).await?;
 
         let layers = manifest.layers.into_iter().map(|layer| {
             // This avoids moving `self` which is &mut Self
@@ -81,7 +84,7 @@ impl Client {
             result = layer;
         }
 
-        Ok(result)
+        Ok((result, Some(digest)))
     }
 
     /// According to the v2 specification, 200 and 401 error codes MUST return the
@@ -177,7 +180,7 @@ impl Client {
         // Obviously, HTTP servers are going to send other codes. This tries to catch the
         // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
         match res.status() {
-            reqwest::StatusCode::OK => digest_header_value(res),
+            reqwest::StatusCode::OK => digest_header_value(&res),
             s if s.is_client_error() => {
                 // According to the OCI spec, we should see an error in the message body.
                 let err = res.json::<OciEnvelope>().await?;
@@ -197,7 +200,7 @@ impl Client {
     ///
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
-    pub async fn pull_manifest(&self, image: &Reference) -> anyhow::Result<OciManifest> {
+    pub async fn pull_manifest(&self, image: &Reference) -> anyhow::Result<(OciManifest, String)> {
         let url = image.to_v2_manifest_url(self.config.protocol.as_str());
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
@@ -209,14 +212,16 @@ impl Client {
         // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
         match res.status() {
             reqwest::StatusCode::OK => {
+                let digest = digest_header_value(&res)?;
                 let text = res.text().await?;
                 debug!("Parsing response as OciManifest: {}", text);
-                Ok(serde_json::from_str(&text).with_context(|| {
+                let manifest = serde_json::from_str(&text).with_context(|| {
                     format!(
                         "Failed to parse response from pulling manifest for '{:?}' as an OciManifest",
                         image
                     )
-                })?)
+                })?;
+                Ok((manifest, digest))
             }
             s if s.is_client_error() => {
                 // According to the OCI spec, we should see an error in the message body.
@@ -359,7 +364,7 @@ impl Challenge for BearerChallenge {
     }
 }
 
-fn digest_header_value(response: reqwest::Response) -> anyhow::Result<String> {
+fn digest_header_value(response: &reqwest::Response) -> anyhow::Result<String> {
     let headers = response.headers();
     let digest_header = headers.get("Docker-Content-Digest");
     match digest_header {
@@ -415,7 +420,7 @@ mod test {
         // Currently, pull_manifest does not perform Authz, so this will fail.
         let mut c = Client::default();
         c.auth(&image, None).await.expect("authenticated");
-        let manifest = c
+        let (manifest, _) = c
             .pull_manifest(&image)
             .await
             .expect("pull manifest should not fail");
@@ -455,7 +460,7 @@ mod test {
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
         let mut c = Client::default();
         c.auth(&image, None).await.expect("authenticated");
-        let manifest = c
+        let (manifest, _) = c
             .pull_manifest(&image)
             .await
             .expect("failed to pull manifest");
@@ -477,8 +482,9 @@ mod test {
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
         let mut c = Client::default();
 
-        let contents = c.pull_image(&image).await.expect("failed to pull manifest");
+        let (contents, digest) = c.pull_image(&image).await.expect("failed to pull manifest");
 
         assert!(contents.len() != 0);
+        assert!(digest.is_some());
     }
 }

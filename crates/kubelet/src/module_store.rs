@@ -207,10 +207,26 @@ impl<C> FileModuleStore<C> {
         self.pull_path(r).join("module.wasm")
     }
 
-    async fn store(&self, image_ref: &Reference, contents: &[u8]) -> anyhow::Result<()> {
+    fn digest_file_path(&self, r: &Reference) -> PathBuf {
+        self.pull_path(r).join("digest.txt")
+    }
+
+    async fn store(
+        &self,
+        image_ref: &Reference,
+        digest: Option<String>,
+        contents: &[u8],
+    ) -> anyhow::Result<()> {
         tokio::fs::create_dir_all(self.pull_path(image_ref)).await?;
-        let path = self.pull_file_path(image_ref);
-        tokio::fs::write(&path, contents).await?;
+        let digest_path = self.digest_file_path(image_ref);
+        if digest_path.exists() {
+            tokio::fs::remove_file(&digest_path).await?;
+        }
+        let module_path = self.pull_file_path(image_ref);
+        tokio::fs::write(&module_path, contents).await?;
+        if let Some(d) = digest {
+            tokio::fs::write(&digest_path, d).await?;
+        }
         Ok(())
     }
 }
@@ -245,8 +261,8 @@ impl<C: ImageClient + Send> ModuleStore for FileModuleStore<C> {
 
     async fn pull(&self, image_ref: &Reference) -> anyhow::Result<()> {
         debug!("Pulling image ref '{:?}' from registry", image_ref);
-        let contents = self.client.lock().await.pull(image_ref).await?;
-        self.store(image_ref, &contents).await?;
+        let (contents, digest) = self.client.lock().await.pull_with_digest(image_ref).await?;
+        self.store(image_ref, digest, &contents).await?;
         Ok(())
     }
 
@@ -297,11 +313,11 @@ mod test {
     }
 
     struct FakeImageClient {
-        images: HashMap<&'static str, Vec<u8>>,
+        images: HashMap<&'static str, (Vec<u8>, Option<String>)>,
     }
 
     impl FakeImageClient {
-        fn new(entries: Vec<(&'static str, Vec<u8>)>) -> Self {
+        fn new(entries: Vec<(&'static str, (Vec<u8>, Option<String>))>) -> Self {
             let client = FakeImageClient {
                 images: HashMap::from_iter(entries),
             };
@@ -310,7 +326,10 @@ mod test {
     }
     #[async_trait]
     impl ImageClient for FakeImageClient {
-        async fn pull(&mut self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
+        async fn pull_with_digest(
+            &mut self,
+            image_ref: &Reference,
+        ) -> anyhow::Result<(Vec<u8>, Option<String>)> {
             match self.images.get(image_ref.whole()) {
                 Some(v) => Ok(v.clone()),
                 None => Err(anyhow::anyhow!("error pulling module")),
@@ -342,7 +361,10 @@ mod test {
 
     #[tokio::test]
     async fn file_module_store_can_get_via_client() -> anyhow::Result<()> {
-        let fake_client = FakeImageClient::new(vec![("foo/bar:1.0", vec![1, 2, 3])]);
+        let fake_client = FakeImageClient::new(vec![(
+            "foo/bar:1.0",
+            (vec![1, 2, 3], Some("sha256:123".to_owned())),
+        )]);
         let fake_ref = Reference::try_from("foo/bar:1.0")?;
         let scratch_dir = create_temp_dir();
         let store = FileModuleStore::new(fake_client, &scratch_dir.path);
