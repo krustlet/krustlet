@@ -18,7 +18,9 @@ in-depth information about Krustlet, plunge right into the [topic guides](docs/t
 Looking for the developer guide? [Start here](docs/community/developers.md). If you are interested
 in the project, please feel free to join us in our weekly public call [on
 Zoom](https://zoom.us/j/200921512?pwd=N3hBblRaUE1FL3luVkJ6ZzZsM0NIUT09) at 9:00 am Pacific Time
-every Monday
+every Monday. You can [download the meeting
+invite](https://raw.githubusercontent.com/deislabs/krustlet/master/docs/community/assets/community_meeting.ics)
+as well.
 
 ## Code of Conduct
 
