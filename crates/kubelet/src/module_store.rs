@@ -70,11 +70,11 @@ impl ModulePullPolicy {
 ///         }
 ///     }
 ///
-///     async fn is_present_by_ref(&self, image_ref: &Reference) -> bool {
+///     async fn is_present(&self, image_ref: &Reference) -> bool {
 ///         self.modules.get(image_ref).is_some()
 ///     }
 ///
-///     async fn is_present_by_digest(&self, digest: String) -> bool {
+///     async fn is_present_with_digest(&self, image_ref: &Reference, digest: String) -> bool {
 ///         false
 ///     }
 ///
@@ -97,10 +97,10 @@ pub trait ModuleStore {
     async fn get_local(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>>;
 
     /// Whether the specified module is already present in the store.
-    async fn is_present_by_ref(&self, image_ref: &Reference) -> bool;
+    async fn is_present(&self, image_ref: &Reference) -> bool;
 
-    /// Whether the module with the specified digest is already present in the store.
-    async fn is_present_by_digest(&self, digest: String) -> bool;
+    /// Whether the specified module is already present in the store with the specified digest.
+    async fn is_present_with_digest(&self, image_ref: &Reference, digest: String) -> bool;
 
     /// Pull a module from a remote source into the store.
     async fn pull(&self, image_ref: &Reference) -> anyhow::Result<()>;
@@ -122,13 +122,16 @@ pub trait ModuleStore {
 
         match effective_pull_policy {
             ModulePullPolicy::IfNotPresent => {
-                if !self.is_present_by_ref(image_ref).await {
+                if !self.is_present(image_ref).await {
                     self.pull(image_ref).await?
                 }
             }
             ModulePullPolicy::Always => {
                 if !self
-                    .is_present_by_digest(self.resolve_registry_digest(image_ref).await?)
+                    .is_present_with_digest(
+                        image_ref,
+                        self.resolve_registry_digest(image_ref).await?,
+                    )
                     .await
                 {
                     self.pull(image_ref).await?
@@ -246,17 +249,14 @@ impl<C: ImageClient + Send> ModuleStore for FileModuleStore<C> {
         Ok(tokio::fs::read(path).await?)
     }
 
-    async fn is_present_by_ref(&self, image_ref: &Reference) -> bool {
+    async fn is_present(&self, image_ref: &Reference) -> bool {
         let path = self.pull_file_path(image_ref);
         path.exists()
     }
 
-    async fn is_present_by_digest(&self, _digest: String) -> bool {
-        // panic!(format!(
-        //     "TODO: is_present_by_digest not implemented while looking for {}",
-        //     digest
-        // ));
-        todo!("is_present_by_digest not implemented");
+    async fn is_present_with_digest(&self, image_ref: &Reference, digest: String) -> bool {
+        let path = self.digest_file_path(image_ref);
+        path.exists() && file_content_is(path, digest).await
     }
 
     async fn pull(&self, image_ref: &Reference) -> anyhow::Result<()> {
@@ -268,6 +268,16 @@ impl<C: ImageClient + Send> ModuleStore for FileModuleStore<C> {
 
     async fn resolve_registry_digest(&self, image_ref: &Reference) -> anyhow::Result<String> {
         self.client.lock().await.fetch_digest(image_ref).await
+    }
+}
+
+async fn file_content_is(path: PathBuf, text: String) -> bool {
+    match tokio::fs::read(path).await {
+        Err(_) => false,
+        Ok(content) => {
+            let file_text = String::from_utf8_lossy(&content);
+            file_text == text
+        }
     }
 }
 
@@ -283,7 +293,7 @@ impl<C> Clone for FileModuleStore<C> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::iter::FromIterator;
+    use std::sync::RwLock;
 
     #[tokio::test]
     async fn can_parse_pull_policies() {
@@ -312,16 +322,32 @@ mod test {
         );
     }
 
+    #[derive(Clone)]
     struct FakeImageClient {
-        images: HashMap<&'static str, (Vec<u8>, Option<String>)>,
+        images: Arc<RwLock<HashMap<String, (Vec<u8>, Option<String>)>>>,
     }
 
     impl FakeImageClient {
-        fn new(entries: Vec<(&'static str, (Vec<u8>, Option<String>))>) -> Self {
+        fn new(entries: Vec<(&'static str, Vec<u8>, &'static str)>) -> Self {
             let client = FakeImageClient {
-                images: HashMap::from_iter(entries),
+                images: Default::default(),
             };
+            for (name, content, digest) in entries {
+                let mut images = client
+                    .images
+                    .write()
+                    .expect("should be able to write to images");
+                images.insert(name.to_owned(), (content, Some(digest.to_owned())));
+            }
             client
+        }
+
+        fn update(&mut self, key: &str, content: Vec<u8>, digest: &str) -> () {
+            let mut images = self
+                .images
+                .write()
+                .expect("should be able to write to images");
+            images.insert(key.to_owned(), (content, Some(digest.to_owned())));
         }
     }
     #[async_trait]
@@ -330,7 +356,11 @@ mod test {
             &mut self,
             image_ref: &Reference,
         ) -> anyhow::Result<(Vec<u8>, Option<String>)> {
-            match self.images.get(image_ref.whole()) {
+            let images = self
+                .images
+                .read()
+                .expect("should be able to read from images");
+            match images.get(image_ref.whole()) {
                 Some(v) => Ok(v.clone()),
                 None => Err(anyhow::anyhow!("error pulling module")),
             }
@@ -360,11 +390,8 @@ mod test {
     }
 
     #[tokio::test]
-    async fn file_module_store_can_get_via_client() -> anyhow::Result<()> {
-        let fake_client = FakeImageClient::new(vec![(
-            "foo/bar:1.0",
-            (vec![1, 2, 3], Some("sha256:123".to_owned())),
-        )]);
+    async fn file_module_store_can_pull_if_policy_if_not_present() -> anyhow::Result<()> {
+        let fake_client = FakeImageClient::new(vec![("foo/bar:1.0", vec![1, 2, 3], "sha256:123")]);
         let fake_ref = Reference::try_from("foo/bar:1.0")?;
         let scratch_dir = create_temp_dir();
         let store = FileModuleStore::new(fake_client, &scratch_dir.path);
@@ -373,6 +400,58 @@ mod test {
             .await?;
         assert_eq!(3, module_bytes.len());
         assert_eq!(2, module_bytes[1]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn file_module_store_can_pull_if_policy_always() -> anyhow::Result<()> {
+        let fake_client = FakeImageClient::new(vec![("foo/bar:1.0", vec![1, 2, 3], "sha256:123")]);
+        let fake_ref = Reference::try_from("foo/bar:1.0")?;
+        let scratch_dir = create_temp_dir();
+        let store = FileModuleStore::new(fake_client, &scratch_dir.path);
+        let module_bytes = store.get(&fake_ref, Some(ModulePullPolicy::Always)).await?;
+        assert_eq!(3, module_bytes.len());
+        assert_eq!(2, module_bytes[1]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn file_module_store_ignores_updates_if_policy_if_not_present() -> anyhow::Result<()> {
+        let mut fake_client =
+            FakeImageClient::new(vec![("foo/bar:1.0", vec![1, 2, 3], "sha256:123")]);
+        let fake_ref = Reference::try_from("foo/bar:1.0")?;
+        let scratch_dir = create_temp_dir();
+        let store = FileModuleStore::new(fake_client.clone(), &scratch_dir.path);
+        let module_bytes_orig = store
+            .get(&fake_ref, Some(ModulePullPolicy::IfNotPresent))
+            .await?;
+        assert_eq!(3, module_bytes_orig.len());
+        assert_eq!(2, module_bytes_orig[1]);
+        fake_client.update("foo/bar:1.0", vec![4, 5, 6, 7], "sha256:4567");
+        let module_bytes_after = store
+            .get(&fake_ref, Some(ModulePullPolicy::IfNotPresent))
+            .await?;
+        assert_eq!(3, module_bytes_after.len());
+        assert_eq!(2, module_bytes_after[1]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn file_module_store_gets_updates_if_policy_always() -> anyhow::Result<()> {
+        let mut fake_client =
+            FakeImageClient::new(vec![("foo/bar:1.0", vec![1, 2, 3], "sha256:123")]);
+        let fake_ref = Reference::try_from("foo/bar:1.0")?;
+        let scratch_dir = create_temp_dir();
+        let store = FileModuleStore::new(fake_client.clone(), &scratch_dir.path);
+        let module_bytes_orig = store
+            .get(&fake_ref, Some(ModulePullPolicy::IfNotPresent))
+            .await?;
+        assert_eq!(3, module_bytes_orig.len());
+        assert_eq!(2, module_bytes_orig[1]);
+        fake_client.update("foo/bar:1.0", vec![4, 5, 6, 7], "sha256:4567");
+        let module_bytes_after = store.get(&fake_ref, Some(ModulePullPolicy::Always)).await?;
+        assert_eq!(4, module_bytes_after.len());
+        assert_eq!(5, module_bytes_after[1]);
         Ok(())
     }
 }
