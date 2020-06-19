@@ -482,4 +482,68 @@ mod test {
         assert_eq!(5, module_bytes_after[1]);
         Ok(())
     }
+
+    #[tokio::test]
+    async fn file_module_store_copes_with_no_tag() -> anyhow::Result<()> {
+        let fake_client = FakeImageClient::new(vec![("foo/bar", vec![2, 3], "sha256:23")]);
+        let fake_ref = Reference::try_from("foo/bar")?;
+        let scratch_dir = create_temp_dir();
+        let store = FileModuleStore::new(fake_client, &scratch_dir.path);
+        let module_bytes = store.get(&fake_ref, Some(ModulePullPolicy::Always)).await?;
+        assert_eq!(2, module_bytes.len());
+        assert_eq!(3, module_bytes[1]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn file_module_store_can_pull_if_tag_given_but_policy_omitted() -> anyhow::Result<()> {
+        let mut fake_client =
+            FakeImageClient::new(vec![("foo/bar:2.0", vec![6, 7, 8], "sha256:678")]);
+        let fake_ref = Reference::try_from("foo/bar:2.0")?;
+        let scratch_dir = create_temp_dir();
+        let store = FileModuleStore::new(fake_client.clone(), &scratch_dir.path);
+        let module_bytes_orig = store.get(&fake_ref, None).await?;
+        assert_eq!(3, module_bytes_orig.len());
+        assert_eq!(7, module_bytes_orig[1]);
+        fake_client.update("foo/bar:2.0", vec![8, 9], "sha256:89");
+        // But with no policy it should *not* re-fetch a tag that's in cache
+        let module_bytes_after = store.get(&fake_ref, None).await?;
+        assert_eq!(3, module_bytes_after.len());
+        assert_eq!(7, module_bytes_after[1]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn file_module_store_always_pulls_if_tag_latest_and_policy_omitted() -> anyhow::Result<()>
+    {
+        let mut fake_client =
+            FakeImageClient::new(vec![("foo/bar:latest", vec![3, 4], "sha256:34")]);
+        let fake_ref = Reference::try_from("foo/bar:latest")?;
+        let scratch_dir = create_temp_dir();
+        let store = FileModuleStore::new(fake_client.clone(), &scratch_dir.path);
+        let module_bytes_orig = store.get(&fake_ref, None).await?;
+        assert_eq!(2, module_bytes_orig.len());
+        assert_eq!(4, module_bytes_orig[1]);
+        fake_client.update("foo/bar:latest", vec![5, 6, 7], "sha256:567");
+        let module_bytes_after = store.get(&fake_ref, None).await?;
+        assert_eq!(3, module_bytes_after.len());
+        assert_eq!(6, module_bytes_after[1]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn file_module_store_always_pulls_if_tag_and_policy_omitted() -> anyhow::Result<()> {
+        let mut fake_client = FakeImageClient::new(vec![("foo/bar", vec![3, 4], "sha256:34")]);
+        let fake_ref = Reference::try_from("foo/bar")?;
+        let scratch_dir = create_temp_dir();
+        let store = FileModuleStore::new(fake_client.clone(), &scratch_dir.path);
+        let module_bytes_orig = store.get(&fake_ref, None).await?;
+        assert_eq!(2, module_bytes_orig.len());
+        assert_eq!(4, module_bytes_orig[1]);
+        fake_client.update("foo/bar", vec![5, 6, 7], "sha256:567");
+        let module_bytes_after = store.get(&fake_ref, None).await?;
+        assert_eq!(3, module_bytes_after.len());
+        assert_eq!(6, module_bytes_after[1]);
+        Ok(())
+    }
 }
