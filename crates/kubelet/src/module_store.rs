@@ -416,6 +416,34 @@ mod test {
     }
 
     #[tokio::test]
+    async fn file_module_store_does_not_pull_if_policy_never() -> anyhow::Result<()> {
+        let fake_client = FakeImageClient::new(vec![("foo/bar:1.0", vec![1, 2, 3], "sha256:123")]);
+        let fake_ref = Reference::try_from("foo/bar:1.0")?;
+        let scratch_dir = create_temp_dir();
+        let store = FileModuleStore::new(fake_client, &scratch_dir.path);
+        let module_bytes = store.get(&fake_ref, Some(ModulePullPolicy::Never)).await;
+        assert!(
+            module_bytes.is_err(),
+            "expected get with pull policy Never to fail but it worked"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn file_module_store_can_reuse_cached_if_policy_never() -> anyhow::Result<()> {
+        let fake_client = FakeImageClient::new(vec![("foo/bar:1.0", vec![1, 2, 3], "sha256:123")]);
+        let fake_ref = Reference::try_from("foo/bar:1.0")?;
+        let scratch_dir = create_temp_dir();
+        let store = FileModuleStore::new(fake_client, &scratch_dir.path);
+        let prime_cache = store.get(&fake_ref, Some(ModulePullPolicy::Always)).await;
+        assert!(prime_cache.is_ok());
+        let module_bytes = store.get(&fake_ref, Some(ModulePullPolicy::Never)).await?;
+        assert_eq!(3, module_bytes.len());
+        assert_eq!(2, module_bytes[1]);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn file_module_store_ignores_updates_if_policy_if_not_present() -> anyhow::Result<()> {
         let mut fake_client =
             FakeImageClient::new(vec![("foo/bar:1.0", vec![1, 2, 3], "sha256:123")]);
