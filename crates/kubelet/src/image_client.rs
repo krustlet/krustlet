@@ -53,10 +53,7 @@ pub trait ImageClient {
     /// be overridden.
     async fn fetch_digest(&mut self, image_ref: &Reference) -> anyhow::Result<String> {
         let (_, digest) = self.pull_with_digest(image_ref).await?;
-        digest.ok_or(anyhow::anyhow!(
-            "image {} does not have a digest",
-            image_ref
-        ))
+        digest.ok_or_else(|| anyhow::anyhow!("image {} does not have a digest", image_ref))
     }
 }
 
