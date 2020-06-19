@@ -59,7 +59,6 @@ url = "2.1"
 warp = { version = "0.2", features = ['tls'] }
 http = "0.2"
 rcgen = "0.8"
-sha2 = "0.9.0"
 uuid = { version = "0.8.1", features = ["v4"] }
 
 [dev-dependencies]
