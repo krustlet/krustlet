@@ -4,14 +4,23 @@
 //! in order to fetch module an image when the module store does not
 //! contain it
 use async_trait::async_trait;
-use digest::Digest;
 
 use oci_distribution::Reference;
 
 /// An image client capable of fetching images from a storage location
 #[async_trait]
 pub trait ImageClient {
-    /// Given a certain image reference pull the image data from a storage location
+    /// Given a certain image reference pull the image data from a storage location.
+    ///
+    /// The default implementation pulls the image data and digest, and returns
+    /// the data.
+    async fn pull(&mut self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
+        let (content, _) = self.pull_with_digest(image_ref).await?;
+        Ok(content)
+    }
+
+    /// Fetch the image data and, if available, image digest for the given image
+    /// reference from a storage location.
     ///
     /// # Example
     /// ```rust
@@ -32,12 +41,6 @@ pub trait ImageClient {
     ///     }
     /// }
     /// ```
-    async fn pull(&mut self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
-        let (content, _) = self.pull_with_digest(image_ref).await?;
-        Ok(content)
-    }
-
-    /// TODO: write some docs
     async fn pull_with_digest(
         &mut self,
         image_ref: &Reference,
@@ -45,14 +48,15 @@ pub trait ImageClient {
 
     /// Fetch the digest for the given image reference from a storage location.
     ///
-    /// The default implementation pulls the entire image and calculates the digest;
-    /// clients should provide an implementation that takes advantage of the storage
-    /// location's pre-calculated digests if possible.
+    /// The default implementation pulls the image data and digest, and returns
+    /// the digest. This is inefficient for most real-world clients, and so should
+    /// be overridden.
     async fn fetch_digest(&mut self, image_ref: &Reference) -> anyhow::Result<String> {
-        let image = self.pull(image_ref).await?;
-        let digest = sha2::Sha256::digest(&image);
-        let digest_text = format!("sha256:{:x}", digest);
-        Ok(digest_text)
+        let (_, digest) = self.pull_with_digest(image_ref).await?;
+        digest.ok_or(anyhow::anyhow!(
+            "image {} does not have a digest",
+            image_ref
+        ))
     }
 }
 
