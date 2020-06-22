@@ -261,8 +261,9 @@ impl<C: ImageClient + Send> ModuleStore for FileModuleStore<C> {
 
     async fn pull(&self, image_ref: &Reference) -> anyhow::Result<()> {
         debug!("Pulling image ref '{:?}' from registry", image_ref);
-        let (contents, digest) = self.client.lock().await.pull_with_digest(image_ref).await?;
-        self.store(image_ref, digest, &contents).await?;
+        let image_data = self.client.lock().await.pull_with_digest(image_ref).await?;
+        self.store(image_ref, image_data.digest, &image_data.content)
+            .await?;
         Ok(())
     }
 
@@ -293,6 +294,7 @@ impl<C> Clone for FileModuleStore<C> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use oci_distribution::client::ImageData;
     use std::sync::RwLock;
 
     #[tokio::test]
@@ -324,7 +326,7 @@ mod test {
 
     #[derive(Clone)]
     struct FakeImageClient {
-        images: Arc<RwLock<HashMap<String, (Vec<u8>, Option<String>)>>>,
+        images: Arc<RwLock<HashMap<String, ImageData>>>,
     }
 
     impl FakeImageClient {
@@ -337,7 +339,13 @@ mod test {
                     .images
                     .write()
                     .expect("should be able to write to images");
-                images.insert(name.to_owned(), (content, Some(digest.to_owned())));
+                images.insert(
+                    name.to_owned(),
+                    ImageData {
+                        content,
+                        digest: Some(digest.to_owned()),
+                    },
+                );
             }
             client
         }
@@ -347,15 +355,18 @@ mod test {
                 .images
                 .write()
                 .expect("should be able to write to images");
-            images.insert(key.to_owned(), (content, Some(digest.to_owned())));
+            images.insert(
+                key.to_owned(),
+                ImageData {
+                    content,
+                    digest: Some(digest.to_owned()),
+                },
+            );
         }
     }
     #[async_trait]
     impl ImageClient for FakeImageClient {
-        async fn pull_with_digest(
-            &mut self,
-            image_ref: &Reference,
-        ) -> anyhow::Result<(Vec<u8>, Option<String>)> {
+        async fn pull_with_digest(&mut self, image_ref: &Reference) -> anyhow::Result<ImageData> {
             let images = self
                 .images
                 .read()

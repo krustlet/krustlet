@@ -18,6 +18,15 @@ use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate
 
 const OCI_VERSION_KEY: &str = "Docker-Distribution-Api-Version";
 
+/// The data for an image or module.
+#[derive(Clone)]
+pub struct ImageData {
+    /// The content of the image or module.
+    pub content: Vec<u8>,
+    /// The digest of the image or module.
+    pub digest: Option<String>,
+}
+
 /// The OCI client connects to an OCI registry and fetches OCI images.
 ///
 /// An OCI registry is a container registry that adheres to the OCI Distribution
@@ -53,10 +62,7 @@ impl Client {
     ///
     /// The client will check if it's already been authenticated and if
     /// not will attempt to do.
-    pub async fn pull_image(
-        &mut self,
-        image: &Reference,
-    ) -> anyhow::Result<(Vec<u8>, Option<String>)> {
+    pub async fn pull_image(&mut self, image: &Reference) -> anyhow::Result<ImageData> {
         debug!("Pulling image: {:?}", image);
         if self.token.is_none() {
             self.auth(image, None).await?;
@@ -84,7 +90,10 @@ impl Client {
             result = layer;
         }
 
-        Ok((result, Some(digest)))
+        Ok(ImageData {
+            content: result,
+            digest: Some(digest),
+        })
     }
 
     /// According to the v2 specification, 200 and 401 error codes MUST return the
@@ -482,9 +491,9 @@ mod test {
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
         let mut c = Client::default();
 
-        let (contents, digest) = c.pull_image(&image).await.expect("failed to pull manifest");
+        let image_data = c.pull_image(&image).await.expect("failed to pull manifest");
 
-        assert!(contents.len() != 0);
-        assert!(digest.is_some());
+        assert!(image_data.content.len() != 0);
+        assert!(image_data.digest.is_some());
     }
 }
