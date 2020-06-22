@@ -41,7 +41,7 @@ rustls-tls = ["kube/rustls-tls", "kubelet/rustls-tls", "wasi-provider/rustls-tls
 [dependencies]
 anyhow = "1.0"
 tokio = { version = "0.2", features = ["macros"] }
-kube = { version= "0.34", default-features = false }
+kube = { version= "0.35", default-features = false }
 env_logger = "0.7"
 kubelet = { path = "./crates/kubelet", version = "0.3", default-features = false, features = ["cli"] }
 wascc-provider = { path = "./crates/wascc-provider", version = "0.3", default-features = false }

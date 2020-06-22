@@ -1658,9 +1658,9 @@ dependencies = [
 
 [[package]]
 name = "kube"
-version = "0.34.0"
+version = "0.35.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa1b018930b98da87122377ee0f5093d3fb25df762db489c1a321d92e0177afb"
+checksum = "2c0578635e15e33e500d784ce9bdb82b2a0cd18eda82fdc88108eba405b02709"
 dependencies = [
  "Inflector",
  "base64 0.12.1",
@@ -1674,6 +1674,7 @@ dependencies = [
  "k8s-openapi",
  "log 0.4.8",
  "openssl",
+ "pem 0.8.1",
  "reqwest",
  "rustls 0.17.0",
  "serde",
@@ -2158,6 +2159,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pem"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59698ea79df9bf77104aefd39cc3ec990cb9693fb59c3b0a70ddf2646fdffb4b"
+dependencies = [
+ "base64 0.12.1",
+ "once_cell",
+ "regex",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2509,7 +2521,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c4c907ce15a2c29b03fb48c62a1c965b2d59ce2cbbd737373a01ab041f7217a"
 dependencies = [
  "chrono",
- "pem",
+ "pem 0.7.0",
  "ring",
  "yasna",
 ]
