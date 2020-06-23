@@ -10,14 +10,14 @@ use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 
 use super::client::Client;
-use crate::store::CachingStore;
+use crate::store::LocalStore;
 
 /// A module store that keeps modules cached on the file system
 ///
 /// This type is generic over the type of client used
 /// to fetch modules from a remote store. This client is expected
 /// to be a [`Client`]
-pub type FileStore<C> = CachingStore<FileStorer, C>;
+pub type FileStore<C> = LocalStore<FileStorer, C>;
 
 impl<C: Client + Send> FileStore<C> {
     /// Create a new `FileStore`
@@ -76,6 +76,11 @@ impl Storer for FileStorer {
     async fn store(&mut self, image_ref: &Reference, image_data: ImageData) -> anyhow::Result<()> {
         tokio::fs::create_dir_all(self.pull_path(image_ref)).await?;
         let digest_path = self.digest_file_path(image_ref);
+        // We delete the digest file before writing the image file, rather
+        // than simply overwriting the digest file after writing the image file.
+        // This addresses failure modes where, for example, the image file
+        // gets updated but the digest file write fails and the store ends
+        // up associating the wrong digest with the file on disk.
         if digest_path.exists() {
             tokio::fs::remove_file(&digest_path).await?;
         }
@@ -120,7 +125,7 @@ async fn file_content_is(path: PathBuf, text: String) -> bool {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::store::ModulePullPolicy;
+    use crate::store::PullPolicy;
     use crate::store::Store;
     use oci_distribution::client::ImageData;
     use std::collections::HashMap;
@@ -129,27 +134,27 @@ mod test {
 
     #[tokio::test]
     async fn can_parse_pull_policies() {
-        assert_eq!(None, ModulePullPolicy::parse(None).unwrap());
+        assert_eq!(None, PullPolicy::parse(None).unwrap());
         assert_eq!(
-            ModulePullPolicy::Always,
-            ModulePullPolicy::parse(Some("Always".to_owned()))
+            PullPolicy::Always,
+            PullPolicy::parse(Some("Always".to_owned()))
                 .unwrap()
                 .unwrap()
         );
         assert_eq!(
-            ModulePullPolicy::IfNotPresent,
-            ModulePullPolicy::parse(Some("IfNotPresent".to_owned()))
+            PullPolicy::IfNotPresent,
+            PullPolicy::parse(Some("IfNotPresent".to_owned()))
                 .unwrap()
                 .unwrap()
         );
         assert_eq!(
-            ModulePullPolicy::Never,
-            ModulePullPolicy::parse(Some("Never".to_owned()))
+            PullPolicy::Never,
+            PullPolicy::parse(Some("Never".to_owned()))
                 .unwrap()
                 .unwrap()
         );
         assert!(
-            ModulePullPolicy::parse(Some("IfMoonMadeOfGreenCheese".to_owned())).is_err(),
+            PullPolicy::parse(Some("IfMoonMadeOfGreenCheese".to_owned())).is_err(),
             "Expected parse failure but didn't get one"
         );
     }
@@ -232,9 +237,7 @@ mod test {
         let fake_ref = Reference::try_from("foo/bar:1.0")?;
         let scratch_dir = create_temp_dir();
         let store = FileStore::new(fake_client, &scratch_dir.path);
-        let module_bytes = store
-            .get(&fake_ref, Some(ModulePullPolicy::IfNotPresent))
-            .await?;
+        let module_bytes = store.get(&fake_ref, Some(PullPolicy::IfNotPresent)).await?;
         assert_eq!(3, module_bytes.len());
         assert_eq!(2, module_bytes[1]);
         Ok(())
@@ -246,7 +249,7 @@ mod test {
         let fake_ref = Reference::try_from("foo/bar:1.0")?;
         let scratch_dir = create_temp_dir();
         let store = FileStore::new(fake_client, &scratch_dir.path);
-        let module_bytes = store.get(&fake_ref, Some(ModulePullPolicy::Always)).await?;
+        let module_bytes = store.get(&fake_ref, Some(PullPolicy::Always)).await?;
         assert_eq!(3, module_bytes.len());
         assert_eq!(2, module_bytes[1]);
         Ok(())
@@ -258,7 +261,7 @@ mod test {
         let fake_ref = Reference::try_from("foo/bar:1.0")?;
         let scratch_dir = create_temp_dir();
         let store = FileStore::new(fake_client, &scratch_dir.path);
-        let module_bytes = store.get(&fake_ref, Some(ModulePullPolicy::Never)).await;
+        let module_bytes = store.get(&fake_ref, Some(PullPolicy::Never)).await;
         assert!(
             module_bytes.is_err(),
             "expected get with pull policy Never to fail but it worked"
@@ -272,9 +275,9 @@ mod test {
         let fake_ref = Reference::try_from("foo/bar:1.0")?;
         let scratch_dir = create_temp_dir();
         let store = FileStore::new(fake_client, &scratch_dir.path);
-        let prime_cache = store.get(&fake_ref, Some(ModulePullPolicy::Always)).await;
+        let prime_cache = store.get(&fake_ref, Some(PullPolicy::Always)).await;
         assert!(prime_cache.is_ok());
-        let module_bytes = store.get(&fake_ref, Some(ModulePullPolicy::Never)).await?;
+        let module_bytes = store.get(&fake_ref, Some(PullPolicy::Never)).await?;
         assert_eq!(3, module_bytes.len());
         assert_eq!(2, module_bytes[1]);
         Ok(())
@@ -287,15 +290,11 @@ mod test {
         let fake_ref = Reference::try_from("foo/bar:1.0")?;
         let scratch_dir = create_temp_dir();
         let store = FileStore::new(fake_client.clone(), &scratch_dir.path);
-        let module_bytes_orig = store
-            .get(&fake_ref, Some(ModulePullPolicy::IfNotPresent))
-            .await?;
+        let module_bytes_orig = store.get(&fake_ref, Some(PullPolicy::IfNotPresent)).await?;
         assert_eq!(3, module_bytes_orig.len());
         assert_eq!(2, module_bytes_orig[1]);
         fake_client.update("foo/bar:1.0", vec![4, 5, 6, 7], "sha256:4567");
-        let module_bytes_after = store
-            .get(&fake_ref, Some(ModulePullPolicy::IfNotPresent))
-            .await?;
+        let module_bytes_after = store.get(&fake_ref, Some(PullPolicy::IfNotPresent)).await?;
         assert_eq!(3, module_bytes_after.len());
         assert_eq!(2, module_bytes_after[1]);
         Ok(())
@@ -308,13 +307,11 @@ mod test {
         let fake_ref = Reference::try_from("foo/bar:1.0")?;
         let scratch_dir = create_temp_dir();
         let store = FileStore::new(fake_client.clone(), &scratch_dir.path);
-        let module_bytes_orig = store
-            .get(&fake_ref, Some(ModulePullPolicy::IfNotPresent))
-            .await?;
+        let module_bytes_orig = store.get(&fake_ref, Some(PullPolicy::IfNotPresent)).await?;
         assert_eq!(3, module_bytes_orig.len());
         assert_eq!(2, module_bytes_orig[1]);
         fake_client.update("foo/bar:1.0", vec![4, 5, 6, 7], "sha256:4567");
-        let module_bytes_after = store.get(&fake_ref, Some(ModulePullPolicy::Always)).await?;
+        let module_bytes_after = store.get(&fake_ref, Some(PullPolicy::Always)).await?;
         assert_eq!(4, module_bytes_after.len());
         assert_eq!(5, module_bytes_after[1]);
         Ok(())
@@ -326,7 +323,7 @@ mod test {
         let fake_ref = Reference::try_from("foo/bar")?;
         let scratch_dir = create_temp_dir();
         let store = FileStore::new(fake_client, &scratch_dir.path);
-        let module_bytes = store.get(&fake_ref, Some(ModulePullPolicy::Always)).await?;
+        let module_bytes = store.get(&fake_ref, Some(PullPolicy::Always)).await?;
         assert_eq!(2, module_bytes.len());
         assert_eq!(3, module_bytes[1]);
         Ok(())

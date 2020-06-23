@@ -17,7 +17,7 @@ use crate::store::oci::Client;
 
 /// Specifies how the store should check for module updates
 #[derive(PartialEq, Debug)]
-pub enum ModulePullPolicy {
+pub enum PullPolicy {
     /// Always return the module as it currently appears in the
     /// upstream registry
     Always,
@@ -30,16 +30,16 @@ pub enum ModulePullPolicy {
     Never,
 }
 
-impl ModulePullPolicy {
+impl PullPolicy {
     /// Parses a module pull policy from a Kubernetes ImagePullPolicy string
-    pub fn parse(name: Option<String>) -> anyhow::Result<Option<ModulePullPolicy>> {
+    pub fn parse(name: Option<String>) -> anyhow::Result<Option<Self>> {
         match name {
             None => Ok(None),
-            Some(n) => ModulePullPolicy::parse_str(&n[..]),
+            Some(n) => Self::parse_str(&n[..]),
         }
     }
 
-    fn parse_str(name: &str) -> anyhow::Result<Option<ModulePullPolicy>> {
+    fn parse_str(name: &str) -> anyhow::Result<Option<Self>> {
         match name {
             "Always" => Ok(Some(Self::Always)),
             "IfNotPresent" => Ok(Some(Self::IfNotPresent)),
@@ -57,7 +57,7 @@ impl ModulePullPolicy {
 ///  ```rust
 /// use async_trait::async_trait;
 /// use oci_distribution::Reference;
-/// use kubelet::store::ModulePullPolicy;
+/// use kubelet::store::PullPolicy;
 /// use kubelet::store::Store;
 /// use std::collections::HashMap;
 ///
@@ -67,9 +67,9 @@ impl ModulePullPolicy {
 ///
 /// #[async_trait]
 /// impl Store for InMemoryStore {
-///     async fn get(&self, image_ref: &Reference, pull_policy: Option<ModulePullPolicy>) -> anyhow::Result<Vec<u8>> {
+///     async fn get(&self, image_ref: &Reference, pull_policy: Option<PullPolicy>) -> anyhow::Result<Vec<u8>> {
 ///         match pull_policy {
-///             Some(ModulePullPolicy::Never) => (),
+///             Some(PullPolicy::Never) => (),
 ///             _ => todo!("Implement support for pull policies"),
 ///         }
 ///         match self.modules.get(image_ref) {
@@ -85,7 +85,7 @@ pub trait Store {
     async fn get(
         &self,
         image_ref: &Reference,
-        pull_policy: Option<ModulePullPolicy>,
+        pull_policy: Option<PullPolicy>,
     ) -> anyhow::Result<Vec<u8>>;
 
     /// Fetch all container modules for a given `Pod` storing the name of the
@@ -108,7 +108,7 @@ pub trait Store {
                 .clone()
                 .expect("FATAL ERROR: container must have an image");
             let reference = Reference::try_from(image).unwrap();
-            let pull_policy = ModulePullPolicy::parse(container.image_pull_policy.clone()).unwrap();
+            let pull_policy = PullPolicy::parse(container.image_pull_policy.clone()).unwrap();
             async move {
                 Ok((
                     container.name.clone(),
@@ -127,12 +127,12 @@ pub trait Store {
 
 /// A `Store` implementation which obtains module data from remote registries
 /// but caches it in local storage.
-pub struct CachingStore<S: Storer, C: Client> {
+pub struct LocalStore<S: Storer, C: Client> {
     storer: Arc<RwLock<S>>,
     client: Arc<Mutex<C>>,
 }
 
-impl<S: Storer, C: Client> CachingStore<S, C> {
+impl<S: Storer, C: Client> LocalStore<S, C> {
     async fn pull(&self, image_ref: &Reference) -> anyhow::Result<()> {
         debug!("Pulling image ref '{:?}' from registry", image_ref);
         let image_data = self.client.lock().await.pull(image_ref).await?;
@@ -146,25 +146,25 @@ impl<S: Storer, C: Client> CachingStore<S, C> {
 }
 
 #[async_trait]
-impl<S: Storer + Sync + Send, C: Client + Sync + Send> Store for CachingStore<S, C> {
+impl<S: Storer + Sync + Send, C: Client + Sync + Send> Store for LocalStore<S, C> {
     async fn get(
         &self,
         image_ref: &Reference,
-        pull_policy: Option<ModulePullPolicy>,
+        pull_policy: Option<PullPolicy>,
     ) -> anyhow::Result<Vec<u8>> {
         // Specification from https://kubernetes.io/docs/concepts/configuration/overview/#container-images):
         let effective_pull_policy = pull_policy.unwrap_or(match image_ref.tag() {
-            Some("latest") | None => ModulePullPolicy::Always,
-            _ => ModulePullPolicy::IfNotPresent,
+            Some("latest") | None => PullPolicy::Always,
+            _ => PullPolicy::IfNotPresent,
         });
 
         match effective_pull_policy {
-            ModulePullPolicy::IfNotPresent => {
+            PullPolicy::IfNotPresent => {
                 if !self.storer.read().await.is_present(image_ref).await {
                     self.pull(image_ref).await?
                 }
             }
-            ModulePullPolicy::Always => {
+            PullPolicy::Always => {
                 let digest = self.client.lock().await.fetch_digest(image_ref).await?;
                 let already_got_with_digest = self
                     .storer
@@ -176,14 +176,14 @@ impl<S: Storer + Sync + Send, C: Client + Sync + Send> Store for CachingStore<S,
                     self.pull(image_ref).await?
                 }
             }
-            ModulePullPolicy::Never => (),
+            PullPolicy::Never => (),
         };
 
         self.storer.read().await.get_local(image_ref).await
     }
 }
 
-/// A backing store for the standard implementation of `Store`. The Storer
+/// A backing store for the `LocalStore` implementation of `Store`. The Storer
 /// handles local I/O for module data and acts as a cache implementation.
 #[async_trait]
 pub trait Storer {
