@@ -21,7 +21,7 @@ rustls-tls = ["kube/rustls-tls", "kubelet/rustls-tls"]
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-kube = { version= "0.34", default-features = false }
+kube = { version= "0.35", default-features = false }
 log = "0.4"
 wasmtime = "0.16"
 wasmtime-wasi = "0.16"
