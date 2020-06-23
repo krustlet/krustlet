@@ -1,129 +1,42 @@
-//! A convenience handle type for providers
-//!
-//! A collection of handle types for use in providers. These are entirely
-//! optional, but abstract away much of the logic around managing logging,
-//! status updates, and stopping pods
-
 use std::collections::HashMap;
-use std::io::SeekFrom;
 
 use log::{debug, error, info};
-use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt};
+use tokio::io::{AsyncRead, AsyncSeek};
 use tokio::stream::{StreamExt, StreamMap};
-use tokio::sync::watch::Receiver;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use crate::logs::{stream_logs, LogSender};
+use crate::container::Handle as ContainerHandle;
+use crate::handle::StopHandler;
+use crate::log::{HandleFactory, Sender};
+use crate::pod::Pod;
+use crate::pod::Status;
 use crate::provider::ProviderError;
-use crate::status::{ContainerStatus, Status};
-use crate::volumes::VolumeRef;
-use crate::Pod;
+use crate::volume::Ref;
 
-/// Any provider wanting to use the [`RuntimeHandle`] and
-/// [`PodHandle`] will need to have some sort of "stopper" that implement
-/// this Trait. Because the logic for stopping a running "container" can vary
-/// from provider to provider, this allows for flexibility in implementing how
-/// to stop each runtime
-#[async_trait::async_trait]
-pub trait Stop {
-    /// Should send a signal for the running process to stop. It should not wait
-    /// for the process to complete
-    async fn stop(&mut self) -> anyhow::Result<()>;
-    /// Wait for the running process to complete.
-    async fn wait(&mut self) -> anyhow::Result<()>;
-}
-
-/// Trait to describe necessary behavior for creating multiple log readers.
-/// TODO: Both providers make a handle containing a tempfile. If this is a common pattern,
-/// it might make sense to provide that implementation here. This would add `tempfile` as a
-/// dependency of `kubelet`.
-pub trait LogHandleFactory<R>: Sync + Send {
-    /// Create new log reader.
-    fn new_handle(&self) -> R;
-}
-
-/// Represents a handle to a running "container" (whatever that might be). This
-/// can be used on its own, however, it is generally better to use it as a part
-/// of a [`PodHandle`], which manages a group of containers in a Kubernetes
-/// Pod
-pub struct RuntimeHandle<S, H> {
-    stopper: S,
-    handle_factory: H,
-    status_channel: Receiver<ContainerStatus>,
-}
-
-impl<S: Stop, H> RuntimeHandle<S, H> {
-    /// Create a new handle with the given stopper for stopping the runtime,
-    /// a reader for log output and status channel.
-    ///
-    /// The status channel is a [Tokio watch `Receiver`][Receiver]. The sender part
-    /// of the channel should be given to the running process and the receiver half
-    /// passed to this constructor to be used for reporting current status
-    pub fn new(stopper: S, handle_factory: H, status_channel: Receiver<ContainerStatus>) -> Self {
-        Self {
-            stopper,
-            handle_factory,
-            status_channel,
-        }
-    }
-
-    /// Signal the running instance to stop. Use [`RuntimeHandle::wait`] to wait for the process to
-    /// exit. This uses the underlying [`Stop`] implementation passed to the constructor
-    pub async fn stop(&mut self) -> anyhow::Result<()> {
-        self.stopper.stop().await
-    }
-
-    /// Streams output from the running process into the given sender.
-    /// Optionally tails the output and/or continues to watch the file and stream changes.
-    pub(crate) async fn output<R>(&mut self, sender: LogSender) -> anyhow::Result<()>
-    where
-        R: AsyncRead + AsyncSeek + Unpin + Send + 'static,
-        H: LogHandleFactory<R>,
-    {
-        let mut handle = self.handle_factory.new_handle();
-        handle.seek(SeekFrom::Start(0)).await?;
-        tokio::spawn(stream_logs(handle, sender));
-        Ok(())
-    }
-
-    /// Returns a clone of the status_channel for use in reporting the status to
-    /// another process
-    pub(crate) fn status(&self) -> Receiver<ContainerStatus> {
-        self.status_channel.clone()
-    }
-
-    /// Wait for the running process to complete. Generally speaking,
-    /// [`RuntimeHandle::stop`] should be called first. This uses the underlying
-    /// [`Stop`] implementation passed to the constructor
-    pub(crate) async fn wait(&mut self) -> anyhow::Result<()> {
-        self.stopper.wait().await
-    }
-}
-
-/// PodHandle is the top level handle into managing a pod. It manages updating
+/// Handle is the top level handle into managing a pod. It manages updating
 /// statuses for the containers in the pod and can be used to stop the pod and
 /// access logs
-pub struct PodHandle<S, H> {
-    container_handles: RwLock<HashMap<String, RuntimeHandle<S, H>>>,
+pub struct Handle<H, F> {
+    container_handles: RwLock<HashMap<String, ContainerHandle<H, F>>>,
     status_handle: JoinHandle<()>,
     pod: Pod,
     // Storage for the volume references so they don't get dropped until the runtime handle is
     // dropped
-    _volumes: HashMap<String, VolumeRef>,
+    _volumes: HashMap<String, Ref>,
 }
 
-impl<S: Stop, H> PodHandle<S, H> {
+impl<H: StopHandler, F> Handle<H, F> {
     /// Creates a new pod handle that manages the given map of container names to
-    /// [`RuntimeHandle`]s. The given pod and client are used to maintain a reference to the
+    /// [`ContainerHandle`]s. The given pod and client are used to maintain a reference to the
     /// kubernetes object and to be able to update the status of that object. The optional volumes
     /// parameter allows a caller to pass a map of volumes to keep reference to (so that they will
     /// be dropped along with the pod)
     pub fn new(
-        container_handles: HashMap<String, RuntimeHandle<S, H>>,
+        container_handles: HashMap<String, ContainerHandle<H, F>>,
         pod: Pod,
         client: kube::Client,
-        volumes: Option<HashMap<String, VolumeRef>>,
+        volumes: Option<HashMap<String, Ref>>,
     ) -> anyhow::Result<Self> {
         let mut channel_map = StreamMap::with_capacity(container_handles.len());
         for (name, handle) in container_handles.iter() {
@@ -161,10 +74,10 @@ impl<S: Stop, H> PodHandle<S, H> {
 
     /// Streams output from the specified container into the given sender.
     /// Optionally tails the output and/or continues to watch the file and stream changes.
-    pub async fn output<R>(&mut self, container_name: &str, sender: LogSender) -> anyhow::Result<()>
+    pub async fn output<R>(&mut self, container_name: &str, sender: Sender) -> anyhow::Result<()>
     where
         R: AsyncRead + AsyncSeek + Unpin + Send + 'static,
-        H: LogHandleFactory<R>,
+        F: HandleFactory<R>,
     {
         let mut handles = self.container_handles.write().await;
         let handle =

@@ -44,10 +44,10 @@ This will output a ready-to-use bootstrap config to `$HOME/.krustlet/config/boot
 The script also exposes a few configuration options by means of environment variables. These are
 detailed in the table below:
 
-| Name | Description | Default |
-| ---- | ----------- | -------- |
+| Name         | Description                                                                                                                                                                                         | Default                  |
+|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------|
 | `CONFIG_DIR` | The location of your configuration directory for Krustlet. Should be the same as `$KRUSTLET_DATA_DIR/config` where the `KRUSTLET_DATA_DIR` setting is the same one you use for configuring Krustlet | `$HOME/.krustlet/config` |
-| `FILE_NAME` | The name of the file the bootstrap config should be saved to | `bootstrap.conf` |
+| `FILE_NAME`  | The name of the file the bootstrap config should be saved to                                                                                                                                        | `bootstrap.conf`         |
 
 #### Nitty-gritty details
 This section contains an overview of the nitty-gritty details for those who may be constructing
@@ -136,8 +136,8 @@ developer/local machine situations. During the bootstrap process, Krustlet will 
 kubeconfig with the credentials it obtains during the bootstrapping process and write it out to the
 specified location in `KUBECONFIG`. If a kubeconfig already exists there, it will be loaded and skip
 the bootstrapping process. A similar process occurs during the bootstrapping of the serving
-certificates, they will be written out to the paths specified by `--tls-cert-file` (default
-`$KRUSTLET_DATA_DIR/config/krustlet.crt`) and `--tls-private-key-file` (default
+certificates, they will be written out to the paths specified by `--cert-file` (default
+`$KRUSTLET_DATA_DIR/config/krustlet.crt`) and `--private-key-file` (default
 `$KRUSTLET_DATA_DIR/config/krustlet.key`). If they already exist, then they will be loaded and
 bootstrapping skipped.
 

@@ -1,8 +1,4 @@
-//! Clients for fetching container module images from a storage location
-//!
-//! These clients are usually used together with some module store
-//! in order to fetch module an image when the module store does not
-//! contain it
+//! Client for fetching container modules from OCI
 use async_trait::async_trait;
 use oci_distribution::client::ImageData;
 
@@ -10,7 +6,7 @@ use oci_distribution::Reference;
 
 /// An image client capable of fetching images from a storage location
 #[async_trait]
-pub trait ImageClient {
+pub trait Client {
     /// Given a certain image reference pull the image data from a storage location.
     ///
     /// The default implementation pulls the image data and digest, and returns
@@ -26,14 +22,14 @@ pub trait ImageClient {
     /// # Example
     /// ```rust
     /// use async_trait::async_trait;
-    /// use kubelet::image_client::ImageClient;
+    /// use kubelet::store::oci::Client;
     /// use oci_distribution::Reference;
     /// use oci_distribution::client::ImageData;
     ///
     /// struct InMemoryClient(std::collections::HashMap<Reference, ImageData>);
     ///
     /// #[async_trait]
-    /// impl ImageClient for InMemoryClient {
+    /// impl Client for InMemoryClient {
     ///     async fn pull_with_digest(&mut self, image_ref: &Reference) -> anyhow::Result<ImageData> {
     ///         let image_data = self
     ///             .0
@@ -59,7 +55,7 @@ pub trait ImageClient {
 }
 
 #[async_trait]
-impl ImageClient for oci_distribution::Client {
+impl Client for oci_distribution::Client {
     async fn pull_with_digest(&mut self, image: &Reference) -> anyhow::Result<ImageData> {
         self.pull_image(image).await
     }

@@ -6,14 +6,14 @@
 //! # Example
 //! ```rust,no_run
 //! use kubelet::{Kubelet, config::Config};
-//! use kubelet::module_store::FileModuleStore;
+//! use kubelet::store::oci::FileStore;
 //! use wasi_provider::WasiProvider;
 //!
 //! async {
 //!     // Get a configuration for the Kubelet
 //!     let kubelet_config = Config::default();
 //!     let client = oci_distribution::Client::default();
-//!     let store = FileModuleStore::new(client, &std::path::PathBuf::from(""));
+//!     let store = FileStore::new(client, &std::path::PathBuf::from(""));
 //!
 //!     // Load a kubernetes configuration
 //!     let kubeconfig = kube::Config::infer().await.unwrap();
@@ -39,15 +39,15 @@ use std::sync::Arc;
 
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::{api::DeleteParams, Api};
-use kubelet::module_store::ModuleStore;
+use kubelet::node::Builder;
+use kubelet::pod::{key_from_pod, pod_key, Handle, Pod};
+use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
-use kubelet::volumes::VolumeRef;
-use kubelet::{NodeBuilder, Pod, Provider};
+use kubelet::store::Store;
+use kubelet::volume::Ref;
 use log::{debug, error, info, trace};
 use tokio::sync::RwLock;
-
-use kubelet::handle::{key_from_pod, pod_key, PodHandle};
-use wasi_runtime::{HandleStopper, WasiRuntime};
+use wasi_runtime::{Runtime, WasiRuntime};
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 const LOG_DIR_NAME: &str = "wasi-logs";
@@ -57,14 +57,14 @@ const VOLUME_DIR: &str = "volumes";
 /// binaries conforming to the WASI spec
 #[derive(Clone)]
 pub struct WasiProvider<S> {
-    handles: Arc<RwLock<HashMap<String, PodHandle<HandleStopper, wasi_runtime::LogHandleFactory>>>>,
+    handles: Arc<RwLock<HashMap<String, Handle<Runtime, wasi_runtime::HandleFactory>>>>,
     store: S,
     log_path: PathBuf,
     kubeconfig: kube::Config,
     volume_path: PathBuf,
 }
 
-impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
+impl<S: Store + Send + Sync> WasiProvider<S> {
     /// Create a new wasi provider from a module store and a kubelet config
     pub async fn new(
         store: S,
@@ -86,10 +86,10 @@ impl<S: ModuleStore + Send + Sync> WasiProvider<S> {
 }
 
 #[async_trait::async_trait]
-impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
+impl<S: Store + Send + Sync> Provider for WasiProvider<S> {
     const ARCH: &'static str = TARGET_WASM32_WASI;
 
-    async fn node(&self, builder: &mut NodeBuilder) -> anyhow::Result<()> {
+    async fn node(&self, builder: &mut Builder) -> anyhow::Result<()> {
         builder.set_architecture("wasm-wasi");
         builder.add_taint("NoExecute", "krustlet/arch", Self::ARCH);
         Ok(())
@@ -106,7 +106,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
 
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
         let client = kube::Client::new(self.kubeconfig.clone());
-        let volumes = VolumeRef::volumes_from_pod(&self.volume_path, &pod, &client).await?;
+        let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
         info!("Starting containers for pod {:?}", pod_name);
         for container in pod.containers() {
             let env = Self::env_vars(&container, &pod, &client).await;
@@ -164,7 +164,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
             let mut handles = self.handles.write().await;
             handles.insert(
                 key_from_pod(&pod),
-                PodHandle::new(container_handles, pod, client, Some(volumes))?,
+                Handle::new(container_handles, pod, client, Some(volumes))?,
             );
         }
 
@@ -245,7 +245,7 @@ impl<S: ModuleStore + Send + Sync> Provider for WasiProvider<S> {
         namespace: String,
         pod_name: String,
         container_name: String,
-        sender: kubelet::LogSender,
+        sender: kubelet::log::Sender,
     ) -> anyhow::Result<()> {
         let mut handles = self.handles.write().await;
         let handle = handles

@@ -1,31 +1,17 @@
-//! Container statuses
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::{
     ContainerState, ContainerStateRunning, ContainerStateTerminated, ContainerStateWaiting,
-    ContainerStatus as KubeContainerStatus, Pod as KubePod,
+    ContainerStatus as KubeContainerStatus,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
-use kube::{api::PatchParams, Api};
 
-use std::collections::HashMap;
-
-/// Describe the status of a workload.
-#[derive(Clone, Debug, Default)]
-pub struct Status {
-    /// Allows a provider to set a custom message, otherwise, kubelet will infer
-    /// a message from the container statuses
-    pub message: Option<String>,
-    /// The statuses of containers keyed off their names
-    pub container_statuses: HashMap<String, ContainerStatus>,
-}
-
-/// ContainerStatus is a simplified version of the Kubernetes container status
+/// Status is a simplified version of the Kubernetes container status
 /// for use in providers. It allows for simple creation of the current status of
 /// a "container" (a running wasm process) without worrying about a bunch of
-/// Options. Use the [ContainerStatus::to_kubernetes] method for converting it
+/// Options. Use the [Status::to_kubernetes] method for converting it
 /// to a Kubernetes API container status
 #[derive(Clone, Debug)]
-pub enum ContainerStatus {
+pub enum Status {
     /// The container is in a waiting state
     Waiting {
         /// The timestamp of when this status was reported
@@ -49,7 +35,7 @@ pub enum ContainerStatus {
     },
 }
 
-impl ContainerStatus {
+impl Status {
     /// Convert the container status to a Kubernetes API compatible type
     pub fn to_kubernetes(&self, container_name: String) -> KubeContainerStatus {
         let mut state = ContainerState::default();
@@ -95,44 +81,4 @@ impl ContainerStatus {
             ..Default::default()
         }
     }
-}
-
-/// Describe the lifecycle phase of a workload.
-///
-/// This is specified by Kubernetes itself.
-#[derive(Clone, Debug, serde::Serialize)]
-pub enum Phase {
-    /// The workload is currently executing.
-    Running,
-    /// The workload has exited with an error.
-    Failed,
-    /// The workload has exited without error.
-    Succeeded,
-    /// The lifecycle phase of the workload cannot be determined.
-    Unknown,
-}
-
-impl Default for Phase {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
-
-/// A helper for updating pod status. The given data should be a pod status object and be
-/// serializable by serde
-pub async fn update_pod_status<T: serde::Serialize>(
-    client: kube::Client,
-    ns: &str,
-    pod_name: &str,
-    data: &T,
-) -> anyhow::Result<()> {
-    let data = serde_json::to_vec(data)?;
-    let pod_client: Api<KubePod> = Api::namespaced(client, ns);
-    if let Err(e) = pod_client
-        .patch_status(pod_name, &PatchParams::default(), data)
-        .await
-    {
-        return Err(e.into());
-    }
-    Ok(())
 }

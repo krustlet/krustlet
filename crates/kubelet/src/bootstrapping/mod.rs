@@ -1,13 +1,5 @@
-#![allow(missing_docs)]
+use std::{convert::TryFrom, env, path::Path, str};
 
-use std::{
-    convert::TryFrom,
-    env,
-    path::{Path, PathBuf},
-    str,
-};
-
-use dirs::home_dir;
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::certificates::v1beta1::CertificateSigningRequest;
 use kube::api::{Api, ListParams, PostParams, WatchEvent};
@@ -22,10 +14,12 @@ use rcgen::{
 use tokio::fs::{read, write};
 
 use crate::config::Config as KubeletConfig;
+use crate::kubeconfig::exists as kubeconfig_exists;
+use crate::kubeconfig::KUBECONFIG;
 
-const KUBECONFIG: &str = "KUBECONFIG";
 const APPROVED_TYPE: &str = "Approved";
 
+/// bootstrap the cluster with TLS certificates
 pub async fn bootstrap<K: AsRef<Path>>(
     config: &KubeletConfig,
     bootstrap_file: K,
@@ -304,24 +298,6 @@ fn gen_kubeconfig(
 
     serde_json::to_vec(&json)
         .map_err(|e| anyhow::anyhow!("Unable to serialize generated kubeconfig: {}", e))
-}
-
-/// Search the kubeconfig file
-fn kubeconfig_exists() -> bool {
-    kubeconfig_path()
-        .or_else(default_kube_path)
-        .unwrap_or_default()
-        .exists()
-}
-
-/// Returns kubeconfig path from specified environment variable.
-fn kubeconfig_path() -> Option<PathBuf> {
-    env::var_os(KUBECONFIG).map(PathBuf::from)
-}
-
-/// Returns kubeconfig path from `$HOME/.kube/config`.
-fn default_kube_path() -> Option<PathBuf> {
-    home_dir().map(|h| h.join(".kube").join("config"))
 }
 
 async fn read_from<P: AsRef<Path>>(path: P) -> anyhow::Result<Kubeconfig> {

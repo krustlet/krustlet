@@ -1,100 +1,22 @@
 # Running Krustlet on Azure Kubernetes Service (AKS)
 
-These are steps for running a krustlet node in an AKS cluster. Ideally, we will want to simplify
+These are steps for running a Krustlet node in an AKS cluster. Ideally, we will want to simplify
 this process in the future so you do not have to do a bunch of configuration to connect a node to
 the cluster.
 
 ## Prerequisites
 
 You will require a running AKS cluster for this guide. The steps below assume a non-custom vnet,
-though they are easily adaptable to custom vnets. `kubectl` is also required.
+though they are easily adaptable to custom vnets. `kubectl` is also required, preferrably with "root
+access" to the cluster
 
 See the [how-to guide for running Kubernetes on AKS](kubernetes-on-aks.md) for more information.
 
-This specific tutorial will be running krustlet on another Azure Virtual Machine; however, you can
+This specific tutorial will be running Krustlet on another Azure Virtual Machine; however, you can
 follow these steps from any device that can start a web server on an IP accessible from the
 Kubernetes control plane.
 
-## Step 1: Create a service account user for the node
-
-We will need to create a Kubernetes configuration file (known as the kubeconfig) and service account
-for krustlet to use to register nodes and access specific secrets.
-
-This can be done by using the Kubernetes manifest in the [assets](./assets) directory:
-
-```shell
-$ kubectl apply -n kube-system -f ./docs/howto/assets/krustlet-service-account.yaml
-```
-
-You can also do this by using the manifest straight from GitHub:
-
-```shell
-$ kubectl apply -n kube-system -f https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/krustlet-service-account.yaml
-```
-
-Now that things are all set up, we need to generate the kubeconfig. You can do this by running
-(assuming you are in the root of the krustlet repo):
-
-```shell
-$ ./docs/howto/assets/generate-kubeconfig.sh
-```
-
-Or if you are feeling a bit more trusting, you can run it straight from the repo:
-
-```shell
-bash <(curl https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/generate-kubeconfig.sh)
-```
-
-Either way, it will output a file called `kubeconfig-sa` in your current directory. Save this for
-later.
-
-## Step 2: Create Certificate
-
-Krustlet requires a certificate for securing communication with the Kubernetes API. Because
-Kubernetes has its own certificates, we'll need to get a signed certificate from the Kubernetes API
-that we can use. First things first, let's create a certificate signing request (CSR):
-
-```shell
-$ openssl req -new -sha256 -newkey rsa:2048 -keyout krustlet.key -out krustlet.csr -nodes -subj "/C=US/ST=./L=./O=./OU=./CN=krustlet"
-```
-
-This will create a CSR and a new key for the certificate, using `krustlet` as the hostname of the
-server.
-
-Now that it is created, we'll need to send the request to Kubernetes:
-
-```shell
-$ cat <<EOF | kubectl apply -f -
-apiVersion: certificates.k8s.io/v1beta1
-kind: CertificateSigningRequest
-metadata:
-  name: krustlet
-spec:
-  request: $(cat krustlet.csr | base64 | tr -d '\n')
-  usages:
-  - digital signature
-  - key encipherment
-  - server auth
-EOF
-certificatesigningrequest.certificates.k8s.io/krustlet created
-```
-
-Once that runs, an admin (that is probably you! at least it should be if you are trying to add a
-node to the cluster) needs to approve the request:
-
-```shell
-$ kubectl certificate approve krustlet
-certificatesigningrequest.certificates.k8s.io/krustlet approved
-```
-
-After approval, you can download the cert like so:
-
-```shell
-$ kubectl get csr krustlet -o jsonpath='{.status.certificate}' \
-    | base64 --decode > krustlet.crt
-```
-
-## Step 3: Creating and accessing a new VM
+## Step 1: Creating and accessing a new VM
 
 Now we need to create a VM in the same resource group as the AKS cluster. In order for the
 Kubernetes master to be able to access the node, we'll need to do some additional legwork. The node
@@ -155,58 +77,111 @@ Once you have the SSH key in the pod, you should be able to access the node by r
 $ ssh -i id_rsa krustlet@<private IP from above>
 ```
 
-However, before doing so, go to the next step.
+## Step 2: Configure AKS for bootstrapping
 
-## Step 4: Copy assets to VM
-
-The first thing we'll need to do is copy up the assets we generated in steps 1 and 2. This is a two
-step process because we need to copy them to the pod and then copy them to the server. So first open
-another terminal in the same directory and then copy them to the pod:
+By default, AKS doesn't have automatic bootstrapping enabled. To do so, you'll need to create the
+following role bindings from a terminal on your machine:
 
 ```shell
-$ kubectl cp krustlet.crt $(kubectl get pod -l run=aks-ssh -o jsonpath='{.items[0].metadata.name}'):/
-$ kubectl cp krustlet.key $(kubectl get pod -l run=aks-ssh -o jsonpath='{.items[0].metadata.name}'):/
-$ kubectl cp kubeconfig-sa $(kubectl get pod -l run=aks-ssh -o jsonpath='{.items[0].metadata.name}'):/
+$ cat <<EOF | kubectl apply --filename=-
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubelet-bootstrap
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:node-bootstrapper
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:bootstrappers
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: node-autoapprove-bootstrap
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:certificates.k8s.io:certificatesigningrequests:nodeclient
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:bootstrappers
+EOF
 ```
 
-Now return to your terminal in the pod and copy them to the new VM:
+This will create the right bindings to preexisting groups so certs get approved properly
+
+## Step 3: Install and configure Krustlet
+
+First we'll create the config directory for Krustlet:
 
 ```shell
-$ scp -i id_rsa {krustlet.*,kubeconfig-sa} krustlet@<private IP from above>:~/
-```
-
-Then go ahead and SSH to the VM:
-
-```shell
-$ ssh -i id_rsa krustlet@<private IP from above>
-```
-
-## Step 5: Install and configure Krustlet
-
-Whew, ok...that was a lot. Now let's actually configure stuff. First we'll create the config
-directory for Krustlet and place all of our assets there:
-
-```shell
-$ sudo mkdir -p /etc/krustlet && sudo chown krustlet:krustlet /etc/krustlet
-$ mv {krustlet.*,kubeconfig-sa} /etc/krustlet && chmod 600 /etc/krustlet/*
+$ sudo mkdir -p /etc/krustlet/config && sudo chown -R krustlet:krustlet /etc/krustlet
 ```
 
 Once that is in place, we'll install the latest release of Krustlet following [the install
 guide](../intro/install.md).
 
-Next we'll enable Krustlet as a systemd service. There is an example
-[`krustlet.service`](./assets/krustlet.service) that you can either copy to the box, but it is
-probably easier just to copy and paste it to `/etc/systemd/system/krustlet.service` on the VM. Make
-sure to change the value of `PFX_PASSWORD` to the password you set for your certificate.
+Once Krustlet is installed, we need to create a systemd unit file that we'll enable in a later step.
+There is an example [`krustlet.service`](./assets/krustlet.service) that you can either copy to the
+box, but it is probably easier just to copy and paste it to `/etc/systemd/system/krustlet.service`
+on the VM, changing any environment variables to your own configuration if desired
 
-Once you have done that, run the following commands to make sure the unit is configured to start on
+## Step 4: Get a bootstrap config for your Krustlet node
+
+Krustlet requires a bootstrap token and config the first time it runs. In another terminal on your
+machine, follow the guide [here](bootstrapping.md), setting the `CONFIG_DIR` variable to `./`, to
+generate a bootstrap config and then return to this document. If you already have a kubeconfig
+available that you generated through another process, you can proceed to the next step. However, the
+credentials Krustlet uses must be part of the `system:nodes` group in order for things to function
+properly.
+
+NOTE: You may be wondering why you can't run this on the VM you just provisioned. We need access to
+the Kubernetes API in order to create the bootstrap token, so the script used to generate the
+bootstrap config needs to be run on a machine with the proper Kubernetes credentials
+
+Once you have generated the boostrap config, copy it up to the ssh container like so:
+
+```shell
+$ kubectl cp bootstrap.conf $(kubectl get pod -l run=aks-ssh -o jsonpath='{.items[0].metadata.name}'):/
+```
+
+Now return to your terminal in the pod and log out from the node. Then, copy the bootstrap conf to the new VM and ssh to the VM again:
+
+```shell
+$ scp -i id_rsa bootstrap.conf krustlet@<private IP from above>:/etc/krustlet/config/
+$ ssh -i id_rsa krustlet@<private IP from above>
+```
+
+## Step 5: Start the Krustlet service
+
+Once you have your bootstrap config in place, run the following commands to make sure the unit is configured to start on
 boot:
 
 ```shell
 $ sudo systemctl enable krustlet && sudo systemctl start krustlet
 ```
 
-In another terminal, run `kubectl get nodes -o wide` and you should see output that looks similar to
+### Step 5a: Approving the serving CSR
+
+Once you have started Krustlet, there is one more manual step (though this could be automated
+depending on your setup) to perform. The client certs Krustlet needs are generally approved
+automatically by the API. However, the serving certs require manual approval. To do this, you'll
+need the hostname you specified for the `--hostname` flag or the output of `hostname` if you didn't
+specify anything. From the terminal on your machine, run:
+
+```bash
+$ kubectl certificate approve <hostname>-tls
+```
+
+NOTE: You will only need to do this approval step the first time Krustlet starts. It will generate
+and save all of the needed credentials to your machine
+
+Once you do this, Krustlet will automatically grab the new certs and start running. To confirm this,
+in another terminal, run `kubectl get nodes -o wide` and you should see output that looks similar to
 below:
 
 ```

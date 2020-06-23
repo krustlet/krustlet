@@ -52,56 +52,13 @@ $ export mainIP=$(ifconfig eth0 | grep "inet " | awk '{ print $2 }')
 The hostname being "applied" from Windows, the default hostname will not resolve to this address,
 therefore you need to pass the `--node-ip` and `--node-name` flag to Krustlet.
 
-## Step 2: Create Certificate
+## Step 2: Get a bootstrap config
 
-Krustlet requires a certificate for securing communication with the Kubernetes API. Because
-Kubernetes has its own certificates, we'll need to get a signed certificate from the Kubernetes API
-that we can use. First things first, let's create a certificate signing request (CSR):
-
-```shell
-$ mkdir -p ~/.krustlet/config
-$ cd $_
-$ openssl req -new -sha256 -newkey rsa:2048 -keyout krustlet.key -out krustlet.csr -nodes -subj "/C=US/ST=./L=./O=./OU=./CN=krustlet"
-Generating a RSA private key
-.................+++++
-....................................................+++++
-writing new private key to 'krustlet.key'
-```
-
-This will create a CSR and a new key for the certificate, using `krustlet` as the hostname of the
-server.
-
-Now that it is created, we'll need to send the request to Kubernetes:
-
-```shell
-$ cat <<EOF | kubectl apply -f -
-apiVersion: certificates.k8s.io/v1beta1
-kind: CertificateSigningRequest
-metadata:
-  name: krustlet
-spec:
-  request: $(cat krustlet.csr | base64 | tr -d '\n')
-  usages:
-  - digital signature
-  - key encipherment
-  - server auth
-EOF
-certificatesigningrequest.certificates.k8s.io/krustlet created
-```
-
-Once that runs, an admin (that is probably you! at least it should be if you are trying to add a
-node to the cluster) needs to approve the request:
-
-```shell
-$ kubectl certificate approve krustlet
-certificatesigningrequest.certificates.k8s.io/krustlet approved
-```
-
-After approval, you can download the cert like so:
-
-```shell
-$ kubectl get csr krustlet -o jsonpath='{.status.certificate}' | base64 --decode > krustlet.crt
-```
+Krustlet requires a bootstrap token and config the first time it runs. Follow the guide
+[here](bootstrapping.md) to generate a bootstrap config and then return to this document. This will
+If you already have a kubeconfig available that you generated through another process, you can
+proceed to the next step. However, the credentials Krustlet uses must be part of the `system:nodes`
+group in order for things to function properly.
 
 ## Step 3: Install and run Krustlet
 
@@ -122,8 +79,26 @@ Context "docker-desktop" modified.
 Once you have done that, run the following commands to run Krustlet's WASI provider:
 
 ```shell
-$ krustlet-wasi --node-ip $mainIP --node-name krustlet --tls-cert-file=./krustlet.crt --tls-private-key-file=./krustlet.key
+# Since you are running locally, this step is important. Otherwise krustlet will pick up on your
+# local config and not be able to update the node status properly
+$ export KUBECONFIG=~/.krustlet/config/kubeconfig
+$ krustlet-wasi --node-ip $mainIP --node-name krustlet --cert-file=~/.krustlet/config/krustlet.crt --private-key-file=~/.krustlet/config/krustlet.key --bootstrap-file=~/.krustlet/config/bootstrap.conf
 ```
+
+### Step 3a: Approving the serving CSR
+
+Once you have started Krustlet, there is one more manual step (though this could be automated
+depending on your setup) to perform. The client certs Krustlet needs are generally approved
+automatically by the API. However, the serving certs require manual approval. To do this, you'll
+need the hostname you specified for the `--hostname` flag or the output of `hostname` if you didn't
+specify anything. From another terminal that's configured to access the cluster, run:
+
+```bash
+$ kubectl certificate approve <hostname>-tls
+```
+
+NOTE: You will only need to do this approval step the first time Krustlet starts. It will generate
+and save all of the needed credentials to your machine
 
 In another terminal, run `kubectl get nodes -o wide` and you should see output that looks similar to
 below:

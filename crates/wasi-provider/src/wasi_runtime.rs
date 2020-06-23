@@ -15,16 +15,17 @@ use wasmtime::InterruptHandle;
 use wasmtime_wasi::old::snapshot_0::Wasi as WasiUnstable;
 use wasmtime_wasi::{Wasi, WasiCtxBuilder};
 
-use kubelet::handle::{RuntimeHandle, Stop};
-use kubelet::status::ContainerStatus;
+use kubelet::container::Handle as ContainerHandle;
+use kubelet::container::Status;
+use kubelet::handle::StopHandler;
 
-pub struct HandleStopper {
+pub struct Runtime {
     handle: JoinHandle<anyhow::Result<()>>,
     interrupt_handle: InterruptHandle,
 }
 
 #[async_trait::async_trait]
-impl Stop for HandleStopper {
+impl StopHandler for Runtime {
     async fn stop(&mut self) -> anyhow::Result<()> {
         self.interrupt_handle.interrupt();
         Ok(())
@@ -59,11 +60,11 @@ struct Data {
 }
 
 /// Holds our tempfile handle.
-pub struct LogHandleFactory {
+pub struct HandleFactory {
     temp: Arc<NamedTempFile>,
 }
 
-impl kubelet::handle::LogHandleFactory<tokio::fs::File> for LogHandleFactory {
+impl kubelet::log::HandleFactory<tokio::fs::File> for HandleFactory {
     /// Creates `tokio::fs::File` on demand for log reading.
     fn new_handle(&self) -> tokio::fs::File {
         tokio::fs::File::from_std(self.temp.reopen().unwrap())
@@ -111,7 +112,7 @@ impl WasiRuntime {
         })
     }
 
-    pub async fn start(&self) -> anyhow::Result<RuntimeHandle<HandleStopper, LogHandleFactory>> {
+    pub async fn start(&self) -> anyhow::Result<ContainerHandle<Runtime, HandleFactory>> {
         let temp = self.output.clone();
         // Because a reopen is blocking, run in a blocking task to get new
         // handles to the tempfile
@@ -120,18 +121,18 @@ impl WasiRuntime {
         })
         .await??;
 
-        let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
+        let (status_sender, status_recv) = watch::channel(Status::Waiting {
             timestamp: chrono::Utc::now(),
             message: "No status has been received from the process".into(),
         });
         let (interrupt_handle, handle) = self.spawn_wasmtime(status_sender, output_write).await?;
 
-        let log_handle_factory = LogHandleFactory {
+        let log_handle_factory = HandleFactory {
             temp: self.output.clone(),
         };
 
-        Ok(RuntimeHandle::new(
-            HandleStopper {
+        Ok(ContainerHandle::new(
+            Runtime {
                 handle,
                 interrupt_handle,
             },
@@ -145,7 +146,7 @@ impl WasiRuntime {
     // needs to be done within the spawned task
     async fn spawn_wasmtime(
         &self,
-        status_sender: Sender<ContainerStatus>,
+        status_sender: Sender<Status>,
         output_write: std::fs::File,
     ) -> anyhow::Result<(InterruptHandle, JoinHandle<anyhow::Result<()>>)> {
         // Clone the module data Arc so it can be moved
@@ -200,7 +201,7 @@ impl WasiRuntime {
                     let message = "unable to create module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(ContainerStatus::Terminated {
+                        .broadcast(Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
@@ -237,7 +238,7 @@ impl WasiRuntime {
                     let message = "unable to load module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(ContainerStatus::Terminated {
+                        .broadcast(Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
@@ -255,7 +256,7 @@ impl WasiRuntime {
                     let message = "unable to instantiate module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(ContainerStatus::Terminated {
+                        .broadcast(Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
@@ -270,7 +271,7 @@ impl WasiRuntime {
             // need to do a bit more to pass them in here.
             info!("starting run of module");
             status_sender
-                .broadcast(ContainerStatus::Running {
+                .broadcast(Status::Running {
                     timestamp: chrono::Utc::now(),
                 })
                 .expect("status should be able to send");
@@ -293,7 +294,7 @@ impl WasiRuntime {
                     let message = "unable to run module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(ContainerStatus::Terminated {
+                        .broadcast(Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
@@ -305,7 +306,7 @@ impl WasiRuntime {
 
             info!("module run complete");
             status_sender
-                .broadcast(ContainerStatus::Terminated {
+                .broadcast(Status::Terminated {
                     failed: false,
                     message: "Module run completed".into(),
                     timestamp: chrono::Utc::now(),

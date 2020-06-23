@@ -1,6 +1,6 @@
 [package]
 name = "wasi-provider"
-version = "0.2.1"
+version = "0.3.0"
 authors = [
     "Matt Butcher <matt.butcher@microsoft.com>",
     "Matthew Fisher <matt.fisher@microsoft.com>",
@@ -27,7 +27,7 @@ wasmtime = "0.16"
 wasmtime-wasi = "0.16"
 wasi-common = "0.16"
 tempfile = "3.1"
-kubelet = { path = "../kubelet", version = "0.2", default-features = false }
+kubelet = { path = "../kubelet", version = "0.3", default-features = false }
 wat = "1.0"
 tokio = { version = "0.2", features = ["fs", "stream", "macros", "io-util", "sync"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -35,5 +35,4 @@ futures = "0.3"
 k8s-openapi = { version = "0.8", default-features = false, features = ["v1_17"] }
 
 [dev-dependencies]
-oci-distribution = { path = "../oci-distribution", version = "0.1.0" }
-
+oci-distribution = { path = "../oci-distribution", version = "0.2" }
