@@ -35,6 +35,6 @@ You will need to log into your container registry to do this. At this time, Dock
 
 Update the `simpleserver.yaml` to point to the image that you pushed in the previous step.
 
-Use `kubetcl apply -f simpleserver.yaml`
+Use `kubectl apply -f simpleserver.yaml`
 
 From there, you can check on the pod with `kubectl logs simpleserver`. You should see log messages written to the console every five seconds or so.
