@@ -1,3 +1,5 @@
+use crate::store::Storer;
+use oci_distribution::client::ImageData;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -5,26 +7,39 @@ use async_trait::async_trait;
 use log::debug;
 use oci_distribution::Reference;
 use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 use super::client::Client;
-use crate::store::Store;
+use crate::store::CachingStore;
 
 /// A module store that keeps modules cached on the file system
 ///
-/// This type is generic over the type of Kubernetes client used
+/// This type is generic over the type of client used
 /// to fetch modules from a remote store. This client is expected
 /// to be a [`Client`]
-pub struct FileStore<C> {
-    root_dir: PathBuf,
-    client: Arc<Mutex<C>>,
-}
+pub type FileStore<C> = CachingStore<FileStorer, C>;
 
-impl<C> FileStore<C> {
+impl<C: Client + Send> FileStore<C> {
     /// Create a new `FileStore`
     pub fn new<T: AsRef<Path>>(client: C, root_dir: T) -> Self {
         Self {
-            root_dir: root_dir.as_ref().into(),
+            storer: Arc::new(RwLock::new(FileStorer {
+                root_dir: root_dir.as_ref().into(),
+            })),
             client: Arc::new(Mutex::new(client)),
+        }
+    }
+}
+
+pub struct FileStorer {
+    root_dir: PathBuf,
+}
+
+impl FileStorer {
+    /// Create a new `FileStorer`
+    pub fn new<T: AsRef<Path>>(root_dir: T) -> Self {
+        Self {
+            root_dir: root_dir.as_ref().into(),
         }
     }
 
@@ -42,29 +57,10 @@ impl<C> FileStore<C> {
     fn digest_file_path(&self, r: &Reference) -> PathBuf {
         self.pull_path(r).join("digest.txt")
     }
-
-    async fn store(
-        &self,
-        image_ref: &Reference,
-        digest: Option<String>,
-        contents: &[u8],
-    ) -> anyhow::Result<()> {
-        tokio::fs::create_dir_all(self.pull_path(image_ref)).await?;
-        let digest_path = self.digest_file_path(image_ref);
-        if digest_path.exists() {
-            tokio::fs::remove_file(&digest_path).await?;
-        }
-        let module_path = self.pull_file_path(image_ref);
-        tokio::fs::write(&module_path, contents).await?;
-        if let Some(d) = digest {
-            tokio::fs::write(&digest_path, d).await?;
-        }
-        Ok(())
-    }
 }
 
 #[async_trait]
-impl<C: Client + Send> Store for FileStore<C> {
+impl Storer for FileStorer {
     async fn get_local(&self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
         let path = self.pull_file_path(image_ref);
         if !path.exists() {
@@ -77,6 +73,19 @@ impl<C: Client + Send> Store for FileStore<C> {
         debug!("Fetching image ref '{:?}' from disk", image_ref);
         Ok(tokio::fs::read(path).await?)
     }
+    async fn store(&mut self, image_ref: &Reference, image_data: ImageData) -> anyhow::Result<()> {
+        tokio::fs::create_dir_all(self.pull_path(image_ref)).await?;
+        let digest_path = self.digest_file_path(image_ref);
+        if digest_path.exists() {
+            tokio::fs::remove_file(&digest_path).await?;
+        }
+        let module_path = self.pull_file_path(image_ref);
+        tokio::fs::write(&module_path, image_data.content).await?;
+        if let Some(d) = image_data.digest {
+            tokio::fs::write(&digest_path, d).await?;
+        }
+        Ok(())
+    }
 
     async fn is_present(&self, image_ref: &Reference) -> bool {
         let path = self.pull_file_path(image_ref);
@@ -87,24 +96,12 @@ impl<C: Client + Send> Store for FileStore<C> {
         let path = self.digest_file_path(image_ref);
         path.exists() && file_content_is(path, digest).await
     }
-
-    async fn pull(&self, image_ref: &Reference) -> anyhow::Result<()> {
-        debug!("Pulling image ref '{:?}' from registry", image_ref);
-        let image_data = self.client.lock().await.pull(image_ref).await?;
-        self.store(image_ref, image_data.digest, &image_data.content)
-            .await?;
-        Ok(())
-    }
-
-    async fn resolve_registry_digest(&self, image_ref: &Reference) -> anyhow::Result<String> {
-        self.client.lock().await.fetch_digest(image_ref).await
-    }
 }
 
-impl<C> Clone for FileStore<C> {
+impl<C: Client + Send> Clone for FileStore<C> {
     fn clone(&self) -> Self {
         Self {
-            root_dir: self.root_dir.clone(),
+            storer: self.storer.clone(),
             client: self.client.clone(),
         }
     }
@@ -124,6 +121,7 @@ async fn file_content_is(path: PathBuf, text: String) -> bool {
 mod test {
     use super::*;
     use crate::store::ModulePullPolicy;
+    use crate::store::Store;
     use oci_distribution::client::ImageData;
     use std::collections::HashMap;
     use std::convert::TryFrom;
