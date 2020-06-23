@@ -7,15 +7,6 @@ use oci_distribution::Reference;
 /// An image client capable of fetching images from a storage location
 #[async_trait]
 pub trait Client {
-    /// Given a certain image reference pull the image data from a storage location.
-    ///
-    /// The default implementation pulls the image data and digest, and returns
-    /// the data.
-    async fn pull(&mut self, image_ref: &Reference) -> anyhow::Result<Vec<u8>> {
-        let image_data = self.pull_with_digest(image_ref).await?;
-        Ok(image_data.content)
-    }
-
     /// Fetch the image data and, if available, image digest for the given image
     /// reference from a storage location.
     ///
@@ -30,7 +21,7 @@ pub trait Client {
     ///
     /// #[async_trait]
     /// impl Client for InMemoryClient {
-    ///     async fn pull_with_digest(&mut self, image_ref: &Reference) -> anyhow::Result<ImageData> {
+    ///     async fn pull(&mut self, image_ref: &Reference) -> anyhow::Result<ImageData> {
     ///         let image_data = self
     ///             .0
     ///             .get(image_ref)
@@ -39,7 +30,7 @@ pub trait Client {
     ///     }
     /// }
     /// ```
-    async fn pull_with_digest(&mut self, image_ref: &Reference) -> anyhow::Result<ImageData>;
+    async fn pull(&mut self, image_ref: &Reference) -> anyhow::Result<ImageData>;
 
     /// Fetch the digest for the given image reference from a storage location.
     ///
@@ -47,7 +38,7 @@ pub trait Client {
     /// the digest. This is inefficient for most real-world clients, and so should
     /// be overridden.
     async fn fetch_digest(&mut self, image_ref: &Reference) -> anyhow::Result<String> {
-        let image_data = self.pull_with_digest(image_ref).await?;
+        let image_data = self.pull(image_ref).await?;
         image_data
             .digest
             .ok_or_else(|| anyhow::anyhow!("image {} does not have a digest", image_ref))
@@ -56,7 +47,7 @@ pub trait Client {
 
 #[async_trait]
 impl Client for oci_distribution::Client {
-    async fn pull_with_digest(&mut self, image: &Reference) -> anyhow::Result<ImageData> {
+    async fn pull(&mut self, image: &Reference) -> anyhow::Result<ImageData> {
         self.pull_image(image).await
     }
 

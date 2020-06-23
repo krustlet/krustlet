@@ -90,7 +90,7 @@ impl<C: Client + Send> Store for FileStore<C> {
 
     async fn pull(&self, image_ref: &Reference) -> anyhow::Result<()> {
         debug!("Pulling image ref '{:?}' from registry", image_ref);
-        let image_data = self.client.lock().await.pull_with_digest(image_ref).await?;
+        let image_data = self.client.lock().await.pull(image_ref).await?;
         self.store(image_ref, image_data.digest, &image_data.content)
             .await?;
         Ok(())
@@ -198,7 +198,7 @@ mod test {
     }
     #[async_trait]
     impl Client for FakeImageClient {
-        async fn pull_with_digest(&mut self, image_ref: &Reference) -> anyhow::Result<ImageData> {
+        async fn pull(&mut self, image_ref: &Reference) -> anyhow::Result<ImageData> {
             let images = self
                 .images
                 .read()
@@ -207,10 +207,6 @@ mod test {
                 Some(v) => Ok(v.clone()),
                 None => Err(anyhow::anyhow!("error pulling module")),
             }
-        }
-
-        async fn fetch_digest(&mut self, _image_ref: &Reference) -> anyhow::Result<String> {
-            Ok("sha123:456".to_owned())
         }
     }
 
