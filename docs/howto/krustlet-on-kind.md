@@ -15,7 +15,7 @@ Kubernetes control plane, including KinD itself.
 ## Step 1: Get a bootstrap config
 
 Krustlet requires a bootstrap token and config the first time it runs. Follow the guide
-[here](bootstrapping.md) to generate a bootstrap config and then return to this document. This will
+[here](bootstrapping.md) to generate a bootstrap config and then return to this document.
 If you already have a kubeconfig available that you generated through another process, you can
 proceed to the next step. However, the credentials Krustlet uses must be part of the `system:nodes`
 group in order for things to function properly.
