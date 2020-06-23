@@ -131,7 +131,7 @@ Once you have the bootstrap config in place, you can run Krustlet:
 $ KUBECONFIG=~/.krustlet/config/kubeconfig krustlet-wasi --port 3000 --bootstrap-file /path/to/your/bootstrap.conf
 ```
 
-Krustlet will begin the bootstraping process, and then **await manual certificate approval** (described below) before launching.
+Krustlet will begin the bootstrapping process, and then **await manual certificate approval** (described below) before launching.
 
 A couple important notes here. `KUBECONFIG` should almost always be set, especially in
 developer/local machine situations. During the bootstrap process, Krustlet will generate a
