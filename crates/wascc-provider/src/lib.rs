@@ -147,7 +147,7 @@ impl WasccProvider {
     /// (including creating it if necessary)
     pub async fn new(
         store: Arc<dyn Store + Sync + Send>,
-        config: &kubelet::config::Config,
+        config: &Box<kubelet::config::Config,
         kubeconfig: kube::Config,
     ) -> anyhow::Result<Self> {
         let host = Arc::new(Mutex::new(WasccHost::new()));

@@ -5,11 +5,14 @@ use kubelet::Kubelet;
 use std::sync::Arc;
 use wascc_provider::WasccProvider;
 
-#[tokio::main]
+#[tokio::main(threaded_scheduler)]
 async fn main() -> anyhow::Result<()> {
     // The provider is responsible for all the "back end" logic. If you are creating
     // a new Kubelet, all you need to implement is a provider.
-    let config = Config::new_from_file_and_flags(env!("CARGO_PKG_VERSION"), None);
+    let config = Box::new(Config::new_from_file_and_flags(
+        env!("CARGO_PKG_VERSION"),
+        None,
+    ));
 
     // Initialize the logger
     env_logger::init();
