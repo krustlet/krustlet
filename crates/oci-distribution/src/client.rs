@@ -18,6 +18,15 @@ use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate
 
 const OCI_VERSION_KEY: &str = "Docker-Distribution-Api-Version";
 
+/// The data for an image or module.
+#[derive(Clone)]
+pub struct ImageData {
+    /// The content of the image or module.
+    pub content: Vec<u8>,
+    /// The digest of the image or module.
+    pub digest: Option<String>,
+}
+
 /// The OCI client connects to an OCI registry and fetches OCI images.
 ///
 /// An OCI registry is a container registry that adheres to the OCI Distribution
@@ -53,13 +62,13 @@ impl Client {
     ///
     /// The client will check if it's already been authenticated and if
     /// not will attempt to do.
-    pub async fn pull_image(&mut self, image: &Reference) -> anyhow::Result<Vec<u8>> {
+    pub async fn pull_image(&mut self, image: &Reference) -> anyhow::Result<ImageData> {
         debug!("Pulling image: {:?}", image);
         if self.token.is_none() {
             self.auth(image, None).await?;
         }
 
-        let manifest = self.pull_manifest(image).await?;
+        let (manifest, digest) = self.pull_manifest(image).await?;
 
         let layers = manifest.layers.into_iter().map(|layer| {
             // This avoids moving `self` which is &mut Self
@@ -81,7 +90,10 @@ impl Client {
             result = layer;
         }
 
-        Ok(result)
+        Ok(ImageData {
+            content: result,
+            digest: Some(digest),
+        })
     }
 
     /// According to the v2 specification, 200 and 401 error codes MUST return the
@@ -162,11 +174,42 @@ impl Client {
         }
     }
 
+    /// Fetch a manifest's digest from the remote OCI Distribution service.
+    ///
+    /// If the connection has already gone through authentication, this will
+    /// use the bearer token. Otherwise, this will attempt an anonymous pull.
+    pub async fn fetch_manifest_digest(&self, image: &Reference) -> anyhow::Result<String> {
+        let url = image.to_v2_manifest_url(self.config.protocol.as_str());
+        debug!("Pulling image manifest from {}", url);
+        let request = self.client.get(&url);
+
+        let res = request.headers(self.auth_headers()).send().await?;
+
+        // The OCI spec technically does not allow any codes but 200, 500, 401, and 404.
+        // Obviously, HTTP servers are going to send other codes. This tries to catch the
+        // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
+        match res.status() {
+            reqwest::StatusCode::OK => digest_header_value(&res),
+            s if s.is_client_error() => {
+                // According to the OCI spec, we should see an error in the message body.
+                let err = res.json::<OciEnvelope>().await?;
+                // FIXME: This should not have to wrap the error.
+                Err(anyhow::anyhow!("{} on {}", err.errors[0], url))
+            }
+            s if s.is_server_error() => Err(anyhow::anyhow!("Server error at {}", url)),
+            s => Err(anyhow::anyhow!(
+                "An unexpected error occured: code={}, message='{}'",
+                s,
+                res.text().await?
+            )),
+        }
+    }
+
     /// Pull a manifest from the remote OCI Distribution service.
     ///
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
-    pub async fn pull_manifest(&self, image: &Reference) -> anyhow::Result<OciManifest> {
+    pub async fn pull_manifest(&self, image: &Reference) -> anyhow::Result<(OciManifest, String)> {
         let url = image.to_v2_manifest_url(self.config.protocol.as_str());
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
@@ -178,14 +221,16 @@ impl Client {
         // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
         match res.status() {
             reqwest::StatusCode::OK => {
+                let digest = digest_header_value(&res)?;
                 let text = res.text().await?;
                 debug!("Parsing response as OciManifest: {}", text);
-                Ok(serde_json::from_str(&text).with_context(|| {
+                let manifest = serde_json::from_str(&text).with_context(|| {
                     format!(
                         "Failed to parse response from pulling manifest for '{:?}' as an OciManifest",
                         image
                     )
-                })?)
+                })?;
+                Ok((manifest, digest))
             }
             s if s.is_client_error() => {
                 // According to the OCI spec, we should see an error in the message body.
@@ -328,6 +373,18 @@ impl Challenge for BearerChallenge {
     }
 }
 
+fn digest_header_value(response: &reqwest::Response) -> anyhow::Result<String> {
+    let headers = response.headers();
+    let digest_header = headers.get("Docker-Content-Digest");
+    match digest_header {
+        None => Err(anyhow::anyhow!("resgistry did not return a digest header")),
+        Some(hv) => hv
+            .to_str()
+            .map(|s| s.to_string())
+            .map_err(anyhow::Error::new),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -372,7 +429,7 @@ mod test {
         // Currently, pull_manifest does not perform Authz, so this will fail.
         let mut c = Client::default();
         c.auth(&image, None).await.expect("authenticated");
-        let manifest = c
+        let (manifest, _) = c
             .pull_manifest(&image)
             .await
             .expect("pull manifest should not fail");
@@ -383,11 +440,36 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_fetch_digest() {
+        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
+
+        // Currently, pull_manifest does not perform Authz, so this will fail.
+        let c = Client::default();
+        c.fetch_manifest_digest(&image)
+            .await
+            .expect_err("pull manifest should fail");
+
+        // But this should pass
+        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
+        let mut c = Client::default();
+        c.auth(&image, None).await.expect("authenticated");
+        let digest = c
+            .fetch_manifest_digest(&image)
+            .await
+            .expect("pull manifest should not fail");
+
+        assert_eq!(
+            digest,
+            "sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7"
+        );
+    }
+
+    #[tokio::test]
     async fn test_pull_layer() {
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
         let mut c = Client::default();
         c.auth(&image, None).await.expect("authenticated");
-        let manifest = c
+        let (manifest, _) = c
             .pull_manifest(&image)
             .await
             .expect("failed to pull manifest");
@@ -409,8 +491,9 @@ mod test {
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
         let mut c = Client::default();
 
-        let contents = c.pull_image(&image).await.expect("failed to pull manifest");
+        let image_data = c.pull_image(&image).await.expect("failed to pull manifest");
 
-        assert!(contents.len() != 0);
+        assert!(image_data.content.len() != 0);
+        assert!(image_data.digest.is_some());
     }
 }
