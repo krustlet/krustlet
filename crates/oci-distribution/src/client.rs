@@ -13,6 +13,7 @@ use futures_util::stream::StreamExt;
 use hyperx::header::Header;
 use log::debug;
 use reqwest::header::HeaderMap;
+use std::collections::HashMap;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
 
@@ -44,7 +45,7 @@ pub struct ImageData {
 #[derive(Default)]
 pub struct Client {
     config: ClientConfig,
-    token: Option<RegistryToken>,
+    tokens: HashMap<String, RegistryToken>,
     client: reqwest::Client,
 }
 
@@ -53,7 +54,7 @@ impl Client {
     pub fn new(config: ClientConfig) -> Self {
         Self {
             config,
-            token: None,
+            tokens: HashMap::new(),
             client: reqwest::Client::new(),
         }
     }
@@ -64,7 +65,8 @@ impl Client {
     /// not will attempt to do.
     pub async fn pull_image(&mut self, image: &Reference) -> anyhow::Result<ImageData> {
         debug!("Pulling image: {:?}", image);
-        if self.token.is_none() {
+
+        if !self.tokens.contains_key(image.registry()) {
             self.auth(image, None).await?;
         }
 
@@ -159,11 +161,11 @@ impl Client {
         match auth_res.status() {
             reqwest::StatusCode::OK => {
                 let text = auth_res.text().await?;
-                debug!("Recevied response from auth request: {}", text);
-                let docker_token: RegistryToken = serde_json::from_str(&text)
+                debug!("Received response from auth request: {}", text);
+                let token: RegistryToken = serde_json::from_str(&text)
                     .context("Failed to decode registry token from auth request")?;
-                self.token = Some(docker_token);
                 debug!("Succesfully authorized for image '{:?}'", image);
+                self.tokens.insert(image.registry().to_owned(), token);
                 Ok(())
             }
             _ => {
@@ -183,7 +185,7 @@ impl Client {
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
 
-        let res = request.headers(self.auth_headers()).send().await?;
+        let res = request.headers(self.auth_headers(image)).send().await?;
 
         // The OCI spec technically does not allow any codes but 200, 500, 401, and 404.
         // Obviously, HTTP servers are going to send other codes. This tries to catch the
@@ -214,7 +216,7 @@ impl Client {
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
 
-        let res = request.headers(self.auth_headers()).send().await?;
+        let res = request.headers(self.auth_headers(image)).send().await?;
 
         // The OCI spec technically does not allow any codes but 200, 500, 401, and 404.
         // Obviously, HTTP servers are going to send other codes. This tries to catch the
@@ -264,7 +266,7 @@ impl Client {
         let mut stream = self
             .client
             .get(&url)
-            .headers(self.auth_headers())
+            .headers(self.auth_headers(image))
             .send()
             .await?
             .bytes_stream();
@@ -281,12 +283,12 @@ impl Client {
     /// If the struct has Some(bearer), this will insert the bearer token in an
     /// Authorization header. It will also set the Accept header, which must
     /// be set on all OCI Registry request.
-    fn auth_headers(&self) -> HeaderMap {
+    fn auth_headers(&self, image: &Reference) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert("Accept", "application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json".parse().unwrap());
 
-        if let Some(bearer) = self.token.as_ref() {
-            headers.insert("Authorization", bearer.bearer_token().parse().unwrap());
+        if let Some(token) = self.tokens.get(image.registry()) {
+            headers.insert("Authorization", token.bearer_token().parse().unwrap());
         }
         headers
     }
@@ -326,12 +328,13 @@ impl ClientProtocol {
 /// A token granted during the OAuth2-like workflow for OCI registries.
 #[derive(serde::Deserialize, Default)]
 struct RegistryToken {
-    access_token: String,
+    #[serde(alias = "access_token")]
+    token: String,
 }
 
 impl RegistryToken {
     fn bearer_token(&self) -> String {
-        format!("Bearer {}", self.access_token)
+        format!("Bearer {}", self.token)
     }
 }
 
@@ -410,9 +413,9 @@ mod test {
             .await
             .expect("result from auth request");
 
-        let tok = c.token.expect("token is available");
+        let tok = c.tokens.get(image.registry()).expect("token is available");
         // We test that the token is longer than a minimal hash.
-        assert!(tok.access_token.len() > 64);
+        assert!(tok.token.len() > 64);
     }
 
     #[tokio::test]
