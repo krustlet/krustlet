@@ -39,6 +39,7 @@ use std::sync::Arc;
 
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::{api::DeleteParams, Api};
+use kubelet::container::Container;
 use kubelet::node::Builder;
 use kubelet::pod::{key_from_pod, pod_key, Handle, Pod};
 use kubelet::provider::Provider;
@@ -83,6 +84,71 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
             kubeconfig,
         })
     }
+
+    fn volume_path_map(
+        container: &Container,
+        volumes: &HashMap<String, Ref>,
+    ) -> anyhow::Result<HashMap<PathBuf, Option<PathBuf>>> {
+        if let Some(volume_mounts) = container.volume_mounts().as_ref() {
+            volume_mounts
+                .iter()
+                .map(|vm| -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
+                    // Check the volume exists first
+                    let vol = volumes.get(&vm.name).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "no volume with the name of {} found for container {}",
+                            vm.name,
+                            container.name()
+                        )
+                    })?;
+                    let mut guest_path = PathBuf::from(&vm.mount_path);
+                    if let Some(sub_path) = &vm.sub_path {
+                        guest_path.push(sub_path);
+                    }
+                    // We can safely assume that this should be valid UTF-8 because it would have
+                    // been validated by the k8s API
+                    Ok((vol.deref().clone(), Some(guest_path)))
+                })
+                .collect::<anyhow::Result<HashMap<PathBuf, Option<PathBuf>>>>()
+        } else {
+            Ok(HashMap::default())
+        }
+    }
+
+    async fn run_one_container(
+        &self,
+        container: &Container,
+        pod: &Pod,
+        client: &kube::client::Client,
+        modules: &mut HashMap<String, Vec<u8>>,
+        volumes: &HashMap<String, Ref>,
+        container_handles: &mut HashMap<
+            String,
+            kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
+        >,
+    ) -> anyhow::Result<()> {
+        let env = Self::env_vars(&container, &pod, &client).await;
+        let args = container.args().clone().unwrap_or_default();
+        let module_data = modules
+            .remove(container.name())
+            .expect("FATAL ERROR: module map not properly populated");
+        let container_volumes = Self::volume_path_map(container, volumes)?;
+
+        let runtime = WasiRuntime::new(
+            module_data,
+            env,
+            args,
+            container_volumes,
+            self.log_path.clone(),
+        )
+        .await?;
+
+        debug!("Starting container {} on thread", container.name());
+        let handle = runtime.start().await?;
+        container_handles.insert(container.name().to_string(), handle);
+
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -109,49 +175,15 @@ impl<S: Store + Send + Sync> Provider for WasiProvider<S> {
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
         info!("Starting containers for pod {:?}", pod_name);
         for container in pod.containers() {
-            let env = Self::env_vars(&container, &pod, &client).await;
-            let args = container.args().clone().unwrap_or_default();
-            let module_data = modules
-                .remove(container.name())
-                .expect("FATAL ERROR: module map not properly populated");
-            let container_volumes: HashMap<PathBuf, Option<PathBuf>> =
-                if let Some(volume_mounts) = container.volume_mounts().as_ref() {
-                    volume_mounts
-                        .iter()
-                        .map(|vm| -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
-                            // Check the volume exists first
-                            let vol = volumes.get(&vm.name).ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "no volume with the name of {} found for container {}",
-                                    vm.name,
-                                    container.name()
-                                )
-                            })?;
-                            let mut guest_path = PathBuf::from(&vm.mount_path);
-                            if let Some(sub_path) = &vm.sub_path {
-                                guest_path.push(sub_path);
-                            }
-                            // We can safely assume that this should be valid UTF-8 because it would have
-                            // been validated by the k8s API
-                            Ok((vol.deref().clone(), Some(guest_path)))
-                        })
-                        .collect::<anyhow::Result<_>>()?
-                } else {
-                    HashMap::default()
-                };
-
-            let runtime = WasiRuntime::new(
-                module_data,
-                env,
-                args,
-                container_volumes,
-                self.log_path.clone(),
+            self.run_one_container(
+                &container,
+                &pod,
+                &client,
+                &mut modules,
+                &volumes,
+                &mut container_handles,
             )
-            .await?;
-
-            debug!("Starting container {} on thread", container.name());
-            let handle = runtime.start().await?;
-            container_handles.insert(container.name().to_string(), handle);
+            .await?
         }
         info!(
             "All containers started for pod {:?}. Updating status",
