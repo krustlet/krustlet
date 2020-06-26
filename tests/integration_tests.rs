@@ -182,6 +182,7 @@ async fn verify_wasi_node(node: Node) -> () {
 const SIMPLE_WASI_POD: &str = "hello-wasi";
 const VERBOSE_WASI_POD: &str = "hello-world-verbose";
 const FAILY_POD: &str = "faily-pod";
+const INITY_WASI_POD: &str = "hello-wasi-with-inits";
 
 async fn create_wasi_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
     let pod_name = SIMPLE_WASI_POD;
@@ -294,6 +295,7 @@ async fn create_fancy_schmancy_wasi_pod(
 
 async fn create_faily_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
     let pod_name = FAILY_POD;
+    let pod_name = INITY_WASI_POD;
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
         "kind": "Pod",
@@ -315,12 +317,49 @@ async fn create_faily_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resu
                     "operator": "Equal",
                     "value": "wasm32-wasi"
                 },
-            ]
+            ],
         }
     }))?;
 
-    // TODO: Create a testing module to write to the path to actually check that writing and reading
-    // from a host path volume works
+    let pod = pods.create(&PostParams::default(), &p).await?;
+
+    assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
+
+    wait_for_pod(client, pod_name).await
+}
+
+async fn create_pod_with_init_containers(
+    client: kube::Client,
+    pods: &Api<Pod>,
+) -> anyhow::Result<()> {
+    let pod_name = INITY_WASI_POD;
+    let p = serde_json::from_value(json!({
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+            "name": pod_name
+        },
+        "spec": {
+            "initContainers": [
+                // TODO: what should go here?
+            ],
+            "containers": [
+                {
+                    "name": pod_name,
+                    "image": "webassembly.azurecr.io/hello-world-wasi-rust:v0.1.0",
+                    "args": [ "arg1", "arg2" ],
+                },
+            ],
+            "tolerations": [
+                {
+                    "effect": "NoExecute",
+                    "key": "krustlet/arch",
+                    "operator": "Equal",
+                    "value": "wasm32-wasi"
+                },
+            ],
+        }
+    }))?;
 
     let pod = pods.create(&PostParams::default(), &p).await?;
 
