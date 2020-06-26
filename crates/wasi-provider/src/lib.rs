@@ -37,6 +37,7 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use futures::stream::StreamExt;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::{api::DeleteParams, Api};
 use kubelet::container::Container;
@@ -63,6 +64,11 @@ pub struct WasiProvider<S> {
     log_path: PathBuf,
     kubeconfig: kube::Config,
     volume_path: PathBuf,
+}
+
+struct ContainerTerminationResult {
+    succeeded: bool,
+    message: String,
 }
 
 impl<S: Store + Send + Sync> WasiProvider<S> {
@@ -149,6 +155,46 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
 
         Ok(())
     }
+
+    async fn run_one_container_to_completion(
+        &self,
+        container: &Container,
+        pod: &Pod,
+        client: &kube::client::Client,
+        modules: &mut HashMap<String, Vec<u8>>,
+        volumes: &HashMap<String, Ref>,
+        container_handles: &mut HashMap<
+            String,
+            kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
+        >,
+    ) -> anyhow::Result<()> {
+        self.run_one_container(container, pod, client, modules, volumes, container_handles).await?;
+        let result = self.wait_for_termination(container, container_handles).await?;
+        // TODO: should we remove the container?
+        match result.succeeded {
+            true => Ok(()),
+            _ => Err(anyhow::anyhow!("Init container {} failed with message {}", container.name(), result.message)),
+        }
+    }
+
+    async fn wait_for_termination(
+        &self,
+        container: &Container,
+        container_handles: &mut HashMap<
+            String,
+            kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
+        >,
+    ) -> anyhow::Result<ContainerTerminationResult> {
+        let handle = container_handles.get(container.name()).unwrap();
+        let mut status = handle.status();
+        loop {
+            match status.next().await {
+                Some(kubelet::container::Status::Terminated { timestamp: _, message, failed }) =>
+                    return Ok(ContainerTerminationResult{ succeeded: !failed, message }),
+                _ => (),
+            }
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -173,6 +219,10 @@ impl<S: Store + Send + Sync> Provider for WasiProvider<S> {
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
         let client = kube::Client::new(self.kubeconfig.clone());
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
+        info!("Running init containers for pod {:?}", pod_name);
+        for container in pod.init_containers() {
+            self.run_one_container_to_completion(&container, &pod, &client, &mut modules, &volumes, &mut container_handles).await?;
+        }
         info!("Starting containers for pod {:?}", pod_name);
         for container in pod.containers() {
             self.run_one_container(

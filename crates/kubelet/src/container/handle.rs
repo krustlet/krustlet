@@ -53,7 +53,7 @@ impl<H: StopHandler, F> Handle<H, F> {
 
     /// Returns a clone of the status_channel for use in reporting the status to
     /// another process
-    pub(crate) fn status(&self) -> Receiver<Status> {
+    pub fn status(&self) -> Receiver<Status> {
         self.status_channel.clone()
     }
 
