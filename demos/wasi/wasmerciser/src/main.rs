@@ -65,6 +65,7 @@ impl TestContext {
     fn process_command(&mut self, command: Command) {
         match command {
             Command::AssertExists(source) => self.assert_exists(source),
+            Command::Read(source, destination) => self.read(source, destination),
         }
     }
 
@@ -74,11 +75,16 @@ impl TestContext {
             DataSource::Env(name) => (),
         }
     }
+
+    fn read(&mut self, source: DataSource, destination: Variable) {
+        todo!("readings");
+    }
 }
 
 #[derive(Debug, PartialEq)]
 enum Command {
     AssertExists(DataSource),
+    Read(DataSource, Variable),
 }
 
 impl Command {
@@ -90,6 +96,7 @@ impl Command {
             }
             CommandToken::Plain(t) => match &t[..] {
                 "assert_exists" => Self::parse_assert_exists(&tokens),
+                "read" => Self::parse_read(&tokens),
                 _ => Err(anyhow::anyhow!("unrecognised command: {}", t)),
             },
         }
@@ -103,6 +110,19 @@ impl Command {
             _ => Err(anyhow::anyhow!("unexpected assert_exists command syntax")),
         }
     }
+
+    fn parse_read(tokens: &[CommandToken]) -> anyhow::Result<Self> {
+        match &tokens[..] {
+            // TODO: enforce that the separator is 'to'
+            [_, CommandToken::Bracketed(source), CommandToken::Plain(sep), CommandToken::Bracketed(destination)] => {
+                Ok(Self::Read(
+                    DataSource::parse(source.to_string())?,
+                    Variable::parse(destination.to_string())?,
+                ))
+            }
+            _ => Err(anyhow::anyhow!("unexpected assert_exists command syntax")),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -111,13 +131,26 @@ enum DataSource {
     Env(String),
 }
 
+#[derive(Debug, PartialEq)]
+struct Variable(String);
+
 impl DataSource {
-    fn parse(text: String) -> anyhow::Result<DataSource> {
+    fn parse(text: String) -> anyhow::Result<Self> {
         let bits: Vec<&str> = text.split(':').collect();
         match bits[..] {
             ["file", f] => Ok(DataSource::File(f.to_string())),
             ["env", e] => Ok(DataSource::Env(e.to_string())),
             _ => Err(anyhow::anyhow!("invalid data source")),
+        }
+    }
+}
+
+impl Variable {
+    fn parse(text: String) -> anyhow::Result<Self> {
+        let bits: Vec<&str> = text.split(':').collect();
+        match bits[..] {
+            ["var", v] => Ok(Variable(v.to_string())),
+            _ => Err(anyhow::anyhow!("invalid variable reference")),
         }
     }
 }
@@ -218,10 +251,23 @@ mod tests {
     fn parse_single_assert() {
         let command = parse_command("assert_exists(file:foo)").expect("Unexpected parsing error");
         match command {
-            Command::AssertExists(DataSource::File(v)) => {
-                assert_eq!(v, "foo", "Expected file 'foo' but got {}", v)
+            Command::AssertExists(DataSource::File(f)) => {
+                assert_eq!(f, "foo", "Expected file 'foo' but got {}", f)
             }
             _ => assert!(false, "Expected AssertExists but got {:?}", command),
+        }
+    }
+
+    #[test]
+    fn parse_single_read() {
+        let command =
+            parse_command("read(file:foo)to(var:ftext)").expect("Unexpected parsing error");
+        match command {
+            Command::Read(DataSource::File(f), Variable(v)) => {
+                assert_eq!(f, "foo", "Expected source file 'foo' but got {}", f);
+                assert_eq!(v, "ftext", "Expected dest var 'ftext' but got {}", v);
+            }
+            _ => assert!(false, "Expected Read but got {:?}", command),
         }
     }
 }
