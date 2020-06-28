@@ -47,6 +47,7 @@ fn main() {
 struct Environment {
     pub get_env_var: fn(name: String) -> Result<String, std::env::VarError>,
     pub file_exists: fn(path: &PathBuf) -> bool,
+    pub file_content: fn(path: &PathBuf) -> std::io::Result<String>,
 }
 
 impl Environment {
@@ -54,6 +55,7 @@ impl Environment {
         Self {
             get_env_var: |name| std::env::var(name),
             file_exists: |path| path.exists(),
+            file_content: |path| std::fs::read_to_string(path),
         }
     }
 }
@@ -67,14 +69,14 @@ impl TestContext {
     fn new(environment: Environment) -> Self {
         TestContext {
             variables: Default::default(),
-            environment: environment,
+            environment,
         }
     }
 
     fn process_command_text(&mut self, command_text: String) {
-        match Command::parse(command_text) {
+        match Command::parse(command_text.clone()) {
             Ok(command) => self.process_command(command),
-            Err(e) => panic!(e),
+            Err(e) => panic!("Error parsing command '{}': {}", command_text, e),
         }
     }
 
@@ -93,7 +95,12 @@ impl TestContext {
     }
 
     fn read(&mut self, source: DataSource, destination: Variable) {
-        todo!("readings");
+        let content = match source {
+            DataSource::File(path) => self.file_content(PathBuf::from(path)),
+            DataSource::Env(name) => self.env_var_value(name),
+        };
+        let Variable(dest_name) = destination;
+        self.variables.insert(dest_name, content);
     }
 
     fn assert_file_exists(&self, path: PathBuf) {
@@ -107,6 +114,14 @@ impl TestContext {
 
     fn assert_env_var_exists(&self, name: String) {
         (self.environment.get_env_var)(name).unwrap();
+    }
+
+    fn file_content(&self, path: PathBuf) -> String {
+        (self.environment.file_content)(&path).unwrap()
+    }
+
+    fn env_var_value(&self, name: String) -> String {
+        (self.environment.get_env_var)(name).unwrap()
     }
 }
 
@@ -149,7 +164,7 @@ impl Command {
                     Variable::parse(destination.to_string())?,
                 ))
             }
-            _ => Err(anyhow::anyhow!("unexpected assert_exists command syntax")),
+            _ => Err(anyhow::anyhow!("unexpected read command syntax")),
         }
     }
 }
@@ -238,13 +253,20 @@ mod tests {
     fn fake_env() -> Environment {
         Environment {
             get_env_var: |name| {
-                if (name == "test1") {
+                if name == "test1" {
                     Ok("one".to_owned())
                 } else {
                     Err(std::env::VarError::NotPresent)
                 }
             },
             file_exists: |path| path.to_string_lossy() == "/fizz/buzz.txt",
+            file_content: |path| {
+                if path.to_string_lossy() == "/fizz/buzz.txt" {
+                    Ok("fizzbuzz!".to_owned())
+                } else {
+                    Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+                }
+            },
         }
     }
 
@@ -337,5 +359,19 @@ mod tests {
     fn process_assert_env_var_exists_panics_when_doesnt_exist() {
         let mut context = TestContext::new(fake_env());
         context.process_command_text("assert_exists(env:nope)".to_owned());
+    }
+
+    #[test]
+    fn process_read_file_updates_when_exists() {
+        let mut context = TestContext::new(fake_env());
+        context.process_command_text("read(file:/fizz/buzz.txt)to(var:ftest)".to_owned());
+        assert_eq!(context.variables.get("ftest").unwrap(), "fizzbuzz!");
+    }
+
+    #[test]
+    fn process_read_env_var_updates_when_exists() {
+        let mut context = TestContext::new(fake_env());
+        context.process_command_text("read(env:test1)to(var:etest)".to_owned());
+        assert_eq!(context.variables.get("etest").unwrap(), "one");
     }
 }
