@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 // use std::fs::File;
 // use std::io::Read;
-// use std::path::Path;
+use std::path::PathBuf;
 
 fn main() {
     println!("Let's wasmercise!");
@@ -21,7 +21,7 @@ fn main() {
     // val := text:foo or var:foo
 
     let args: Vec<String> = env::args().collect();
-    let mut test_context = TestContext::new();
+    let mut test_context = TestContext::new(Environment::real());
 
     for arg in args {
         test_context.process_command_text(arg);
@@ -44,14 +44,30 @@ fn main() {
     println!("That's enough wasmercising for now; see you next test!");
 }
 
+struct Environment {
+    pub get_env_var: fn(name: String) -> Result<String, std::env::VarError>,
+    pub file_exists: fn(path: &PathBuf) -> bool,
+}
+
+impl Environment {
+    fn real() -> Self {
+        Self {
+            get_env_var: |name| std::env::var(name),
+            file_exists: |path| path.exists(),
+        }
+    }
+}
+
 struct TestContext {
     variables: HashMap<String, String>,
+    environment: Environment,
 }
 
 impl TestContext {
-    fn new() -> Self {
+    fn new(environment: Environment) -> Self {
         TestContext {
             variables: Default::default(),
+            environment: environment,
         }
     }
 
@@ -71,13 +87,26 @@ impl TestContext {
 
     fn assert_exists(&mut self, source: DataSource) {
         match source {
-            DataSource::File(path) => (),
-            DataSource::Env(name) => (),
+            DataSource::File(path) => self.assert_file_exists(PathBuf::from(path)),
+            DataSource::Env(name) => self.assert_env_var_exists(name),
         }
     }
 
     fn read(&mut self, source: DataSource, destination: Variable) {
         todo!("readings");
+    }
+
+    fn assert_file_exists(&self, path: PathBuf) {
+        if !(self.environment.file_exists)(&path) {
+            panic!(
+                "File {} was expected to exist but did not",
+                path.to_string_lossy()
+            );
+        }
+    }
+
+    fn assert_env_var_exists(&self, name: String) {
+        (self.environment.get_env_var)(name).unwrap();
     }
 }
 
@@ -114,7 +143,7 @@ impl Command {
     fn parse_read(tokens: &[CommandToken]) -> anyhow::Result<Self> {
         match &tokens[..] {
             // TODO: enforce that the separator is 'to'
-            [_, CommandToken::Bracketed(source), CommandToken::Plain(sep), CommandToken::Bracketed(destination)] => {
+            [_, CommandToken::Bracketed(source), CommandToken::Plain(_sep), CommandToken::Bracketed(destination)] => {
                 Ok(Self::Read(
                     DataSource::parse(source.to_string())?,
                     Variable::parse(destination.to_string())?,
@@ -206,6 +235,19 @@ mod tests {
         CommandToken::parse(text.to_owned())
     }
 
+    fn fake_env() -> Environment {
+        Environment {
+            get_env_var: |name| {
+                if (name == "test1") {
+                    Ok("one".to_owned())
+                } else {
+                    Err(std::env::VarError::NotPresent)
+                }
+            },
+            file_exists: |path| path.to_string_lossy() == "/fizz/buzz.txt",
+        }
+    }
+
     #[test]
     fn tokenise_one_plain() {
         let tokens = parse_tokens("fie").expect("Unexpected parsing error");
@@ -269,5 +311,31 @@ mod tests {
             }
             _ => assert!(false, "Expected Read but got {:?}", command),
         }
+    }
+
+    #[test]
+    fn process_assert_file_exists_ok_when_exists() {
+        let mut context = TestContext::new(fake_env());
+        context.process_command_text("assert_exists(file:/fizz/buzz.txt)".to_owned());
+    }
+
+    #[test]
+    #[should_panic]
+    fn process_assert_file_exists_panics_when_doesnt_exist() {
+        let mut context = TestContext::new(fake_env());
+        context.process_command_text("assert_exists(file:/nope/nope/nope)".to_owned());
+    }
+
+    #[test]
+    fn process_assert_env_var_exists_ok_when_exists() {
+        let mut context = TestContext::new(fake_env());
+        context.process_command_text("assert_exists(env:test1)".to_owned());
+    }
+
+    #[test]
+    #[should_panic]
+    fn process_assert_env_var_exists_panics_when_doesnt_exist() {
+        let mut context = TestContext::new(fake_env());
+        context.process_command_text("assert_exists(env:nope)".to_owned());
     }
 }
