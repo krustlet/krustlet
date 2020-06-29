@@ -18,28 +18,12 @@ fn main() {
     // source := file:foo or env:foo
     // dest := file:foo or stm:stdout or stm:stderr
     // var := var:foo
-    // val := text:foo or var:foo
+    // val := lit:foo or var:foo
 
     let args: Vec<String> = env::args().collect();
+
     let mut test_context = TestContext::new(Environment::real());
-
-    for arg in args {
-        test_context.process_command_text(arg);
-    }
-
-    // // open a path using the hostpath volume
-    // let path = Path::new("/mnt/storage/bacon_ipsum.txt");
-    // let display = path.display();
-
-    // let mut file = match File::open(&path) {
-    //     Err(why) => panic!("couldn't open {}: {}", display,
-    //                                                why),
-    //     Ok(file) => file,
-    // };
-
-    // let mut contents = String::new();
-    // file.read_to_string(&mut contents).expect(format!("could not read {}", display).as_str());
-    // println!("{}", contents);
+    test_context.process_commands(args);
 
     println!("That's enough wasmercising for now; see you next test!");
 }
@@ -73,6 +57,12 @@ impl TestContext {
         }
     }
 
+    fn process_commands(&mut self, commands: Vec<String>) {
+        for command_text in commands {
+            self.process_command_text(command_text);
+        }
+    }
+
     fn process_command_text(&mut self, command_text: String) {
         match Command::parse(command_text.clone()) {
             Ok(command) => self.process_command(command),
@@ -83,6 +73,7 @@ impl TestContext {
     fn process_command(&mut self, command: Command) {
         match command {
             Command::AssertExists(source) => self.assert_exists(source),
+            Command::AssertValue(variable, value) => self.assert_value(variable, value),
             Command::Read(source, destination) => self.read(source, destination),
         }
     }
@@ -91,6 +82,21 @@ impl TestContext {
         match source {
             DataSource::File(path) => self.assert_file_exists(PathBuf::from(path)),
             DataSource::Env(name) => self.assert_env_var_exists(name),
+        }
+    }
+
+    fn assert_value(&mut self, variable: Variable, value: Value) {
+        let Variable(testee_name) = variable;
+        let testee_value = self.variables.get(&testee_name).unwrap().to_owned();
+        let against_value = match value {
+            Value::Variable(v) => self.variables.get(&v).unwrap().to_owned(),
+            Value::Literal(t) => t,
+        };
+        if testee_value != against_value {
+            panic!(
+                "Expected {} to have value '{}' but was '{}'",
+                testee_name, testee_value, against_value
+            );
         }
     }
 
@@ -128,6 +134,7 @@ impl TestContext {
 #[derive(Debug, PartialEq)]
 enum Command {
     AssertExists(DataSource),
+    AssertValue(Variable, Value),
     Read(DataSource, Variable),
 }
 
@@ -140,6 +147,7 @@ impl Command {
             }
             CommandToken::Plain(t) => match &t[..] {
                 "assert_exists" => Self::parse_assert_exists(&tokens),
+                "assert_value" => Self::parse_assert_value(&tokens),
                 "read" => Self::parse_read(&tokens),
                 _ => Err(anyhow::anyhow!("unrecognised command: {}", t)),
             },
@@ -152,6 +160,19 @@ impl Command {
                 Ok(Self::AssertExists(DataSource::parse(source.to_string())?))
             }
             _ => Err(anyhow::anyhow!("unexpected assert_exists command syntax")),
+        }
+    }
+
+    fn parse_assert_value(tokens: &[CommandToken]) -> anyhow::Result<Self> {
+        match &tokens[..] {
+            // TODO: enforce that the separator is 'is'
+            [_, CommandToken::Bracketed(variable), CommandToken::Plain(_sep), CommandToken::Bracketed(value)] => {
+                Ok(Self::AssertValue(
+                    Variable::parse(variable.to_string())?,
+                    Value::parse(value.to_string())?,
+                ))
+            }
+            _ => Err(anyhow::anyhow!("unexpected read command syntax")),
         }
     }
 
@@ -178,6 +199,12 @@ enum DataSource {
 #[derive(Debug, PartialEq)]
 struct Variable(String);
 
+#[derive(Debug, PartialEq)]
+enum Value {
+    Variable(String),
+    Literal(String),
+}
+
 impl DataSource {
     fn parse(text: String) -> anyhow::Result<Self> {
         let bits: Vec<&str> = text.split(':').collect();
@@ -195,6 +222,17 @@ impl Variable {
         match bits[..] {
             ["var", v] => Ok(Variable(v.to_string())),
             _ => Err(anyhow::anyhow!("invalid variable reference")),
+        }
+    }
+}
+
+impl Value {
+    fn parse(text: String) -> anyhow::Result<Self> {
+        let bits: Vec<&str> = text.split(':').collect();
+        match bits[..] {
+            ["var", v] => Ok(Self::Variable(v.to_string())),
+            ["lit", t] => Ok(Self::Literal(t.to_string())),
+            _ => Err(anyhow::anyhow!("invalid value")),
         }
     }
 }
@@ -252,12 +290,11 @@ mod tests {
 
     fn fake_env() -> Environment {
         Environment {
-            get_env_var: |name| {
-                if name == "test1" {
-                    Ok("one".to_owned())
-                } else {
-                    Err(std::env::VarError::NotPresent)
-                }
+            get_env_var: |name| match &name[..] {
+                "test1" => Ok("one".to_owned()),
+                "test1a" => Ok("one".to_owned()),
+                "test2" => Ok("two".to_owned()),
+                _ => Err(std::env::VarError::NotPresent),
             },
             file_exists: |path| path.to_string_lossy() == "/fizz/buzz.txt",
             file_content: |path| {
@@ -359,6 +396,56 @@ mod tests {
     fn process_assert_env_var_exists_panics_when_doesnt_exist() {
         let mut context = TestContext::new(fake_env());
         context.process_command_text("assert_exists(env:nope)".to_owned());
+    }
+
+    #[test]
+    fn process_assert_value_passes_when_matches_variable() {
+        let mut context = TestContext::new(fake_env());
+        context.process_commands(vec![
+            "read(env:test1)to(var:e1)".to_owned(),
+            "read(env:test1a)to(var:e1a)".to_owned(),
+            "assert_value(var:e1)is(var:e1a)".to_owned(),
+        ]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn process_assert_value_panics_when_does_not_match_variable() {
+        let mut context = TestContext::new(fake_env());
+        context.process_commands(vec![
+            "read(env:test1)to(var:e1)".to_owned(),
+            "read(env:test2)to(var:e2)".to_owned(),
+            "assert_value(var:e1)is(var:e2)".to_owned(),
+        ]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn process_assert_value_panics_when_match_variable_does_not_exist() {
+        let mut context = TestContext::new(fake_env());
+        context.process_commands(vec![
+            "read(env:test1)to(var:e1)".to_owned(),
+            "assert_value(var:e1)is(var:prodnose)".to_owned(),
+        ]);
+    }
+
+    #[test]
+    fn process_assert_value_passes_when_matches_literal() {
+        let mut context = TestContext::new(fake_env());
+        context.process_commands(vec![
+            "read(env:test1)to(var:e1)".to_owned(),
+            "assert_value(var:e1)is(lit:one)".to_owned(),
+        ]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn process_assert_value_panics_when_does_not_match_literal() {
+        let mut context = TestContext::new(fake_env());
+        context.process_commands(vec![
+            "read(env:test1)to(var:e1)".to_owned(),
+            "assert_value(var:e1)is(lit:two)".to_owned(),
+        ]);
     }
 
     #[test]
