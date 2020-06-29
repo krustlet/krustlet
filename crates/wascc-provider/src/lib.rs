@@ -52,7 +52,9 @@ use wascc_host::{Actor, NativeCapability, WasccHost};
 use wascc_httpsrv::HttpServerProvider;
 use wascc_logging::{LoggingProvider, LOG_PATH_KEY};
 
-use std::collections::HashMap;
+extern crate rand;
+use rand::Rng;
+use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -128,6 +130,7 @@ pub struct WasccProvider<S> {
     log_path: PathBuf,
     kubeconfig: kube::Config,
     host: Arc<Mutex<WasccHost>>,
+    port_set: Arc<Mutex<HashSet<i32>>>,
 }
 
 impl<S: Store + Send + Sync> WasccProvider<S> {
@@ -141,6 +144,7 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
         let host = Arc::new(Mutex::new(WasccHost::new()));
         let log_path = config.data_dir.join(LOG_DIR_NAME);
         let volume_path = config.data_dir.join(VOLUME_DIR);
+        let port_set = Arc::new(Mutex::new(HashSet::<i32>::new()));
         tokio::fs::create_dir_all(&log_path).await?;
         tokio::fs::create_dir_all(&volume_path).await?;
 
@@ -188,6 +192,7 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
             log_path,
             kubeconfig,
             host,
+            port_set,
         })
     }
 }
@@ -217,6 +222,53 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
         let client = kube::Client::new(self.kubeconfig.clone());
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
         for container in pod.containers() {
+            //switch code to here, before env var gets set
+            let mut port_assigned: i32 = 0;
+            if let Some(container_vec) = container.ports.as_ref() {
+                for c_port in container_vec.iter() {
+                    let container_port = c_port.container_port;
+                    let host_port = c_port.host_port;
+                    //self.port_set.lock().unwrap().insert(30000);
+                    if c_port.host_port.is_none() {
+                        println!("host port is not specified");
+                        if container_port >= 0 && container_port <= 65536 {
+                            //find a port that's not taken and assign it
+                            port_assigned = find_available_port(&self.port_set);
+                            if port_assigned == -1 {
+                                error!("Failed to assign port {}, all ports between 30000 and 32767 are taken", &host_port.unwrap());
+                                return Err(anyhow::anyhow!(
+                                    "All ports between 30000 and 32767 are taken"
+                                ));
+                            }
+                        }
+                    } else {
+                        println!("host port is specified");
+
+                        if !self.port_set.lock().unwrap().contains(&host_port.unwrap()) {
+                            //not taken, assign that port
+                            port_assigned = host_port.unwrap();
+                            println!("host port is available, so assign it");
+                            self.port_set.lock().unwrap().insert(port_assigned);
+                        } else {
+                            //port is taken, error
+                            error!(
+                                "Failed to assign hostport {}, because it's taken",
+                                &host_port.unwrap()
+                            );
+                            return Err(anyhow::anyhow!(
+                                "Port {} is currently in use",
+                                port_assigned
+                            ));
+                        }
+                    }
+                }
+            }
+            println!(
+                "ports that are already taken: {:?}",
+                self.port_set.lock().unwrap()
+            );
+            println!("new port assigned is: {}", port_assigned);
+            //container.env
             let env = Self::env_vars(&container, &pod, &client).await;
             let volume_bindings: Vec<VolumeBinding> =
                 if let Some(volume_mounts) = container.volume_mounts().as_ref() {
@@ -255,7 +307,16 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
             });
             let host = self.host.clone();
             let http_result = tokio::task::spawn_blocking(move || {
-                wascc_run_http(host, module_data, env, volume_bindings, &lp, status_recv)
+                println!("wascc run http");
+                wascc_run_http(
+                    host,
+                    module_data,
+                    env,
+                    volume_bindings,
+                    &lp,
+                    status_recv,
+                    port_assigned,
+                )
             })
             .await?;
             match http_result {
@@ -465,19 +526,38 @@ struct VolumeBinding {
 fn wascc_run_http(
     host: Arc<Mutex<WasccHost>>,
     data: Vec<u8>,
-    env: EnvVars,
+    _env: EnvVars,
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
     status_recv: Receiver<ContainerStatus>,
+    port_assigned: i32,
 ) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
     let mut caps: Vec<Capability> = Vec::new();
 
+    let mut env_map: HashMap<String, String> = HashMap::new();
+    env_map.insert("PORT".to_string(), port_assigned.to_string());
     caps.push(Capability {
         name: HTTP_CAPABILITY,
         binding: None,
-        env,
+        env: env_map, //replaced _env
     });
     wascc_run(host, data, &mut caps, volumes, log_path, status_recv)
+}
+
+fn find_available_port(port_set: &Arc<Mutex<HashSet<i32>>>) -> i32 {
+    let mut range = rand::thread_rng();
+    let mut port: i32 = -1;
+
+    let mut empty_port: HashSet<i32> = HashSet::new();
+    while empty_port.len() < 2768 {
+        port = range.gen_range(30000, 32768);
+        empty_port.insert(port);
+        if !port_set.lock().unwrap().contains(&port) {
+            port_set.lock().unwrap().insert(port);
+            break;
+        }
+    }
+    port
 }
 
 /// Capability describes a waSCC capability.

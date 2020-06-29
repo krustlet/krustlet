@@ -10,8 +10,8 @@ spec:
       imagePullPolicy: Always
       name: uppercase
       env:
-      - name: PORT
-        value: "8080"
+        - name: PORT
+          value: "8080"
       ports:
         - containerPort: 8080
   nodeSelector:
