@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 use std::env;
-// use std::fs::File;
-// use std::io::Read;
 use std::path::PathBuf;
 
 fn main() {
@@ -16,7 +14,7 @@ fn main() {
     // source := file:foo or env:foo
     // dest := file:foo or stm:stdout or stm:stderr
     // var := var:foo
-    // val := lit:foo or var:foo
+    // val := lit:foo (literal text) or var:foo (contents of variable)
 
     let args: Vec<String> = env::args().skip(1).collect();
 
