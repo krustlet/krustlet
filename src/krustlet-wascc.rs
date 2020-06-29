@@ -9,10 +9,10 @@ async fn main() -> anyhow::Result<()> {
     // a new Kubelet, all you need to implement is a provider.
     let config = Config::new_from_file_and_flags(env!("CARGO_PKG_VERSION"), None);
 
-    let kubeconfig = kubelet::bootstrap(&config, &config.bootstrap_file).await?;
-
     // Initialize the logger
     env_logger::init();
+
+    let kubeconfig = kubelet::bootstrap(&config, &config.bootstrap_file).await?;
 
     let client = oci_distribution::Client::default();
     let mut store_path = config.data_dir.join(".oci");

@@ -98,6 +98,8 @@ async fn bootstrap_auth<K: AsRef<Path>>(
 
         let mut watcher = inf.poll().await?.boxed();
         let mut generated_kubeconfig = Vec::new();
+        let mut got_cert = false;
+        let start = std::time::Instant::now();
         while let Some(event) = watcher.try_next().await? {
             match event {
                 WatchEvent::Modified(m) | WatchEvent::Added(m) => {
@@ -112,9 +114,10 @@ async fn bootstrap_auth<K: AsRef<Path>>(
                                     cert,
                                     cert_bundle.serialize_private_key_pem(),
                                 )?;
+                                got_cert = true;
                                 break;
                             } else {
-                                info!("Got modified event, but CSR is not currently approved");
+                                info!("Got modified event, but CSR for authentication certs is not currently approved, {:?} elapsed", start.elapsed());
                             }
                         }
                     }
@@ -125,9 +128,14 @@ async fn bootstrap_auth<K: AsRef<Path>>(
                         e
                     ));
                 }
-                WatchEvent::Deleted(_) => {}
-                WatchEvent::Bookmark(_) => {}
+                WatchEvent::Deleted(_) | WatchEvent::Bookmark(_) => {}
             }
+        }
+
+        if !got_cert {
+            return Err(anyhow::anyhow!(
+                "Authentication certificates were never approved"
+            ));
         }
 
         write(&original_kubeconfig, &generated_kubeconfig).await?;
@@ -180,6 +188,8 @@ async fn bootstrap_tls(config: &KubeletConfig, kubeconfig: Config) -> anyhow::Re
 
     let mut watcher = inf.poll().await?.boxed();
     let mut certificate = String::new();
+    let mut got_cert = false;
+    let start = std::time::Instant::now();
     while let Some(event) = watcher.try_next().await? {
         match event {
             WatchEvent::Modified(m) | WatchEvent::Added(m) => {
@@ -189,9 +199,10 @@ async fn bootstrap_tls(config: &KubeletConfig, kubeconfig: Config) -> anyhow::Re
                     if let Some(v) = status.conditions {
                         if v.into_iter().any(|c| c.type_.as_str() == APPROVED_TYPE) {
                             certificate = std::str::from_utf8(&cert.0)?.to_owned();
+                            got_cert = true;
                             break;
                         } else {
-                            info!("Got modified event, but CSR is not currently approved");
+                            info!("Got modified event, but CSR for serving certs is not currently approved, {:?} remaining", start.elapsed());
                         }
                     }
                 }
@@ -202,10 +213,16 @@ async fn bootstrap_tls(config: &KubeletConfig, kubeconfig: Config) -> anyhow::Re
                     e
                 ));
             }
-            WatchEvent::Deleted(_) => {}
-            WatchEvent::Bookmark(_) => {}
+            WatchEvent::Deleted(_) | WatchEvent::Bookmark(_) => {}
         }
     }
+
+    if !got_cert {
+        return Err(anyhow::anyhow!(
+            "Authentication certificates were never approved"
+        ));
+    }
+
     let private_key = cert_bundle.serialize_private_key_pem();
     debug!(
         "Got certificate from API, writing cert to {:?} and private key to {:?}",
