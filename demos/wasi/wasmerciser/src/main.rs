@@ -5,7 +5,7 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    println!("Let's wasmercise!");
+    println!("INF: Let's wasmercise!");
 
     // Vocabulary:
     // assert_exists(source)
@@ -23,7 +23,7 @@ fn main() {
     let mut test_context = TestContext::new(Environment::real());
     test_context.process_commands(args);
 
-    println!("That's enough wasmercising for now; see you next test!");
+    println!("INF: That's enough wasmercising for now; see you next test!");
 }
 
 struct Environment {
@@ -91,10 +91,10 @@ impl TestContext {
             Value::Literal(t) => t,
         };
         if testee_value != against_value {
-            panic!(
+            fail_with(format!(
                 "Expected {} to have value '{}' but was '{}'",
                 testee_name, testee_value, against_value
-            );
+            ));
         }
     }
 
@@ -109,15 +109,21 @@ impl TestContext {
 
     fn assert_file_exists(&self, path: PathBuf) {
         if !(self.environment.file_exists)(&path) {
-            panic!(
+            fail_with(format!(
                 "File {} was expected to exist but did not",
                 path.to_string_lossy()
-            );
+            ));
         }
     }
 
     fn assert_env_var_exists(&self, name: String) {
-        (self.environment.get_env_var)(name).unwrap();
+        match (self.environment.get_env_var)(name.clone()) {
+            Ok(_) => (),
+            Err(_) => fail_with(format!(
+                "Env var {} was supposed to exist but did not",
+                name
+            )),
+        }
     }
 
     fn file_content(&self, path: PathBuf) -> String {
@@ -127,6 +133,11 @@ impl TestContext {
     fn env_var_value(&self, name: String) -> String {
         (self.environment.get_env_var)(name).unwrap()
     }
+}
+
+fn fail_with(message: String) {
+    eprintln!("ERR: {}", message);
+    panic!(message);
 }
 
 #[derive(Debug, PartialEq)]
