@@ -12,15 +12,13 @@ fn main() {
     // assert_value(var)is(val)
     // read(source)to(var)
     // write(val)to(dest)
-    // exit
-    // panic(val)
     //
     // source := file:foo or env:foo
     // dest := file:foo or stm:stdout or stm:stderr
     // var := var:foo
     // val := lit:foo or var:foo
 
-    let args: Vec<String> = env::args().collect();
+    let args: Vec<String> = env::args().skip(1).collect();
 
     let mut test_context = TestContext::new(Environment::real());
     test_context.process_commands(args);
