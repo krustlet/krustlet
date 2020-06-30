@@ -6,7 +6,7 @@ mod syntax;
 
 use crate::syntax::{Command, DataDestination, DataSource, Value, Variable};
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     println!("INF: Let's wasmercise!");
 
     // Vocabulary:
@@ -24,9 +24,16 @@ fn main() {
 
     let real_environment = RealEnvironment::new();
     let mut test_context = TestContext::new(real_environment);
-    test_context.process_commands(args);
+    let result = test_context.process_commands(args);
 
-    println!("INF: That's enough wasmercising for now; see you next test!");
+    let message = match &result {
+        Ok(()) => "INF: That's enough wasmercising for now; see you next test!".to_owned(),
+        Err(e) => format!("ERR: Failed with {}", e),
+    };
+
+    println!("{}", message);
+
+    result
 }
 
 trait Environment {
@@ -34,8 +41,8 @@ trait Environment {
     fn file_exists(&self, path: &PathBuf) -> bool;
     fn file_content(&self, path: &PathBuf) -> std::io::Result<String>;
     fn write_file(&mut self, path: &PathBuf, content: String) -> std::io::Result<()>;
-    fn write_stdout(&mut self, content: String);
-    fn write_stderr(&mut self, content: String);
+    fn write_stdout(&mut self, content: String) -> anyhow::Result<()>;
+    fn write_stderr(&mut self, content: String) -> anyhow::Result<()>;
 }
 
 struct RealEnvironment {}
@@ -59,11 +66,13 @@ impl Environment for RealEnvironment {
     fn write_file(&mut self, path: &PathBuf, content: String) -> std::io::Result<()> {
         std::fs::write(path, content)
     }
-    fn write_stdout(&mut self, content: String) {
-        println!("{}", content)
+    fn write_stdout(&mut self, content: String) -> anyhow::Result<()> {
+        println!("{}", content);
+        Ok(())
     }
-    fn write_stderr(&mut self, content: String) {
-        eprintln!("{}", content)
+    fn write_stderr(&mut self, content: String) -> anyhow::Result<()> {
+        eprintln!("{}", content);
+        Ok(())
     }
 }
 
@@ -80,20 +89,25 @@ impl<E: Environment> TestContext<E> {
         }
     }
 
-    fn process_commands(&mut self, commands: Vec<String>) {
+    fn process_commands(&mut self, commands: Vec<String>) -> anyhow::Result<()> {
         for command_text in commands {
-            self.process_command_text(command_text);
+            self.process_command_text(command_text)?
         }
+        Ok(())
     }
 
-    fn process_command_text(&mut self, command_text: String) {
+    fn process_command_text(&mut self, command_text: String) -> anyhow::Result<()> {
         match Command::parse(command_text.clone()) {
             Ok(command) => self.process_command(command),
-            Err(e) => panic!("Error parsing command '{}': {}", command_text, e),
+            Err(e) => Err(anyhow::anyhow!(
+                "Error parsing command '{}': {}",
+                command_text,
+                e
+            )),
         }
     }
 
-    fn process_command(&mut self, command: Command) {
+    fn process_command(&mut self, command: Command) -> anyhow::Result<()> {
         match command {
             Command::AssertExists(source) => self.assert_exists(source),
             Command::AssertValue(variable, value) => self.assert_value(variable, value),
@@ -102,64 +116,69 @@ impl<E: Environment> TestContext<E> {
         }
     }
 
-    fn assert_exists(&mut self, source: DataSource) {
+    fn assert_exists(&mut self, source: DataSource) -> anyhow::Result<()> {
         match source {
             DataSource::File(path) => self.assert_file_exists(PathBuf::from(path)),
             DataSource::Env(name) => self.assert_env_var_exists(name),
         }
     }
 
-    fn assert_value(&mut self, variable: Variable, value: Value) {
+    fn assert_value(&mut self, variable: Variable, value: Value) -> anyhow::Result<()> {
         let Variable::Variable(testee_name) = variable;
-        let testee_value = self.variables.get(&testee_name).unwrap().to_owned();
+        let testee_value = self.get_variable(&testee_name)?;
         let against_value = match value {
-            Value::Variable(v) => self.variables.get(&v).unwrap().to_owned(),
+            Value::Variable(v) => self.get_variable(&v)?,
             Value::Literal(t) => t,
         };
-        if testee_value != against_value {
+        if testee_value == against_value {
+            Ok(())
+        } else {
             fail_with(format!(
                 "Expected {} to have value '{}' but was '{}'",
                 testee_name, testee_value, against_value
-            ));
+            ))
         }
     }
 
-    fn read(&mut self, source: DataSource, destination: Variable) {
+    fn read(&mut self, source: DataSource, destination: Variable) -> anyhow::Result<()> {
         let content = match source {
             DataSource::File(path) => self.file_content(PathBuf::from(path)),
             DataSource::Env(name) => self.env_var_value(name),
         };
         let Variable::Variable(dest_name) = destination;
-        self.variables.insert(dest_name, content);
+        self.variables.insert(dest_name, content?);
+        Ok(())
     }
 
-    fn write(&mut self, value: Value, destination: DataDestination) {
+    fn write(&mut self, value: Value, destination: DataDestination) -> anyhow::Result<()> {
         let content = match value {
-            Value::Variable(name) => self.variables.get(&name).unwrap().to_owned(),
+            Value::Variable(name) => self.get_variable(&name)?,
             Value::Literal(text) => text,
         };
         match destination {
             DataDestination::File(path) => self
                 .environment
                 .write_file(&PathBuf::from(path), content)
-                .unwrap(),
+                .map_err(anyhow::Error::new),
             DataDestination::StdOut => self.environment.write_stdout(content),
             DataDestination::StdErr => self.environment.write_stderr(content),
-        };
-    }
-
-    fn assert_file_exists(&self, path: PathBuf) {
-        if !self.environment.file_exists(&path) {
-            fail_with(format!(
-                "File {} was expected to exist but did not",
-                path.to_string_lossy()
-            ));
         }
     }
 
-    fn assert_env_var_exists(&self, name: String) {
+    fn assert_file_exists(&self, path: PathBuf) -> anyhow::Result<()> {
+        if self.environment.file_exists(&path) {
+            Ok(())
+        } else {
+            fail_with(format!(
+                "File {} was expected to exist but did not",
+                path.to_string_lossy()
+            ))
+        }
+    }
+
+    fn assert_env_var_exists(&self, name: String) -> anyhow::Result<()> {
         match self.environment.get_env_var(name.clone()) {
-            Ok(_) => (),
+            Ok(_) => Ok(()),
             Err(_) => fail_with(format!(
                 "Env var {} was supposed to exist but did not",
                 name
@@ -167,18 +186,33 @@ impl<E: Environment> TestContext<E> {
         }
     }
 
-    fn file_content(&self, path: PathBuf) -> String {
-        self.environment.file_content(&path).unwrap()
+    fn file_content(&self, path: PathBuf) -> anyhow::Result<String> {
+        self.environment.file_content(&path).map_err(|e| {
+            anyhow::anyhow!(
+                "Error getting content of file {}: {}",
+                path.to_string_lossy(),
+                e
+            )
+        })
     }
 
-    fn env_var_value(&self, name: String) -> String {
-        self.environment.get_env_var(name).unwrap()
+    fn env_var_value(&self, name: String) -> anyhow::Result<String> {
+        self.environment
+            .get_env_var(name.clone())
+            .map_err(|e| anyhow::anyhow!("Error getting value of env var {}: {}", name, e))
+    }
+
+    fn get_variable(&self, name: &str) -> anyhow::Result<String> {
+        match self.variables.get(name) {
+            Some(s) => Ok(s.to_owned()),
+            None => Err(anyhow::anyhow!("Variable {} not set", name)),
+        }
     }
 }
 
-fn fail_with(message: String) {
+fn fail_with(message: String) -> anyhow::Result<()> {
     eprintln!("ERR: {}", message);
-    panic!(message);
+    Err(anyhow::Error::msg(message))
 }
 
 #[cfg(test)]
@@ -209,8 +243,9 @@ mod tests {
             }
         }
 
-        fn write_out(&mut self, name: String, content: String) {
+        fn write_out(&mut self, name: String, content: String) -> anyhow::Result<()> {
             self.outputs.borrow_mut().push(FakeOutput { name, content });
+            Ok(())
         }
     }
 
@@ -234,12 +269,14 @@ mod tests {
             }
         }
         fn write_file(&mut self, path: &PathBuf, content: String) -> std::io::Result<()> {
-            Ok(self.write_out(path.to_string_lossy().to_string(), content))
+            Ok(self
+                .write_out(path.to_string_lossy().to_string(), content)
+                .unwrap())
         }
-        fn write_stdout(&mut self, content: String) {
+        fn write_stdout(&mut self, content: String) -> anyhow::Result<()> {
             self.write_out("**stdout**".to_owned(), content)
         }
-        fn write_stderr(&mut self, content: String) {
+        fn write_stderr(&mut self, content: String) -> anyhow::Result<()> {
             self.write_out("**stderr**".to_owned(), content)
         }
     }
@@ -251,90 +288,98 @@ mod tests {
     #[test]
     fn process_assert_file_exists_ok_when_exists() {
         let mut context = TestContext::new(fake_env());
-        context.process_command_text("assert_exists(file:/fizz/buzz.txt)".to_owned());
+        let result = context.process_command_text("assert_exists(file:/fizz/buzz.txt)".to_owned());
+        assert!(result.is_ok());
     }
 
     #[test]
-    #[should_panic]
-    fn process_assert_file_exists_panics_when_doesnt_exist() {
+    fn process_assert_file_exists_fails_when_doesnt_exist() {
         let mut context = TestContext::new(fake_env());
-        context.process_command_text("assert_exists(file:/nope/nope/nope)".to_owned());
+        let result = context.process_command_text("assert_exists(file:/nope/nope/nope)".to_owned());
+        assert!(result.is_err());
     }
 
     #[test]
     fn process_assert_env_var_exists_ok_when_exists() {
         let mut context = TestContext::new(fake_env());
-        context.process_command_text("assert_exists(env:test1)".to_owned());
+        let result = context.process_command_text("assert_exists(env:test1)".to_owned());
+        assert!(result.is_ok());
     }
 
     #[test]
-    #[should_panic]
-    fn process_assert_env_var_exists_panics_when_doesnt_exist() {
+    fn process_assert_env_var_exists_fails_when_doesnt_exist() {
         let mut context = TestContext::new(fake_env());
-        context.process_command_text("assert_exists(env:nope)".to_owned());
+        let result = context.process_command_text("assert_exists(env:nope)".to_owned());
+        assert!(result.is_err());
     }
 
     #[test]
     fn process_assert_value_passes_when_matches_variable() {
         let mut context = TestContext::new(fake_env());
-        context.process_commands(vec![
+        let result = context.process_commands(vec![
             "read(env:test1)to(var:e1)".to_owned(),
             "read(env:test1a)to(var:e1a)".to_owned(),
             "assert_value(var:e1)is(var:e1a)".to_owned(),
         ]);
+        assert!(result.is_ok());
     }
 
     #[test]
-    #[should_panic]
-    fn process_assert_value_panics_when_does_not_match_variable() {
+    fn process_assert_value_fails_when_does_not_match_variable() {
         let mut context = TestContext::new(fake_env());
-        context.process_commands(vec![
+        let result = context.process_commands(vec![
             "read(env:test1)to(var:e1)".to_owned(),
             "read(env:test2)to(var:e2)".to_owned(),
             "assert_value(var:e1)is(var:e2)".to_owned(),
         ]);
+        assert!(result.is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn process_assert_value_panics_when_match_variable_does_not_exist() {
+    fn process_assert_value_fails_when_match_variable_does_not_exist() {
         let mut context = TestContext::new(fake_env());
-        context.process_commands(vec![
+        let result = context.process_commands(vec![
             "read(env:test1)to(var:e1)".to_owned(),
             "assert_value(var:e1)is(var:prodnose)".to_owned(),
         ]);
+        assert!(result.is_err());
     }
 
     #[test]
     fn process_assert_value_passes_when_matches_literal() {
         let mut context = TestContext::new(fake_env());
-        context.process_commands(vec![
+        let result = context.process_commands(vec![
             "read(env:test1)to(var:e1)".to_owned(),
             "assert_value(var:e1)is(lit:one)".to_owned(),
         ]);
+        assert!(result.is_ok());
     }
 
     #[test]
-    #[should_panic]
-    fn process_assert_value_panics_when_does_not_match_literal() {
+    fn process_assert_value_fails_when_does_not_match_literal() {
         let mut context = TestContext::new(fake_env());
-        context.process_commands(vec![
+        let result = context.process_commands(vec![
             "read(env:test1)to(var:e1)".to_owned(),
             "assert_value(var:e1)is(lit:two)".to_owned(),
         ]);
+        assert!(result.is_err());
     }
 
     #[test]
     fn process_read_file_updates_when_exists() {
         let mut context = TestContext::new(fake_env());
-        context.process_command_text("read(file:/fizz/buzz.txt)to(var:ftest)".to_owned());
+        context
+            .process_command_text("read(file:/fizz/buzz.txt)to(var:ftest)".to_owned())
+            .unwrap();
         assert_eq!(context.variables.get("ftest").unwrap(), "fizzbuzz!");
     }
 
     #[test]
     fn process_read_env_var_updates_when_exists() {
         let mut context = TestContext::new(fake_env());
-        context.process_command_text("read(env:test1)to(var:etest)".to_owned());
+        context
+            .process_command_text("read(env:test1)to(var:etest)".to_owned())
+            .unwrap();
         assert_eq!(context.variables.get("etest").unwrap(), "one");
     }
 
@@ -342,10 +387,12 @@ mod tests {
     fn process_write_file_writes_to_file() {
         let outputs = Rc::new(RefCell::new(Vec::<FakeOutput>::new()));
         let mut context = TestContext::new(FakeEnvironment::over(&outputs));
-        context.process_commands(vec![
-            "read(file:/fizz/buzz.txt)to(var:ftest)".to_owned(),
-            "write(var:ftest)to(file:/some/result)".to_owned(),
-        ]);
+        context
+            .process_commands(vec![
+                "read(file:/fizz/buzz.txt)to(var:ftest)".to_owned(),
+                "write(var:ftest)to(file:/some/result)".to_owned(),
+            ])
+            .unwrap();
         assert_eq!(outputs.borrow().len(), 1);
         assert_eq!(outputs.borrow()[0].name, "/some/result");
         assert_eq!(outputs.borrow()[0].content, "fizzbuzz!");
@@ -355,10 +402,12 @@ mod tests {
     fn process_write_stdout_writes_to_stdout() {
         let outputs = Rc::new(RefCell::new(Vec::<FakeOutput>::new()));
         let mut context = TestContext::new(FakeEnvironment::over(&outputs));
-        context.process_commands(vec![
-            "read(env:test1)to(var:etest)".to_owned(),
-            "write(var:etest)to(stm:stdout)".to_owned(),
-        ]);
+        context
+            .process_commands(vec![
+                "read(env:test1)to(var:etest)".to_owned(),
+                "write(var:etest)to(stm:stdout)".to_owned(),
+            ])
+            .unwrap();
         assert_eq!(outputs.borrow().len(), 1);
         assert_eq!(outputs.borrow()[0].name, "**stdout**");
         assert_eq!(outputs.borrow()[0].content, "one");
@@ -368,10 +417,12 @@ mod tests {
     fn process_write_stderr_writes_to_stderr() {
         let outputs = Rc::new(RefCell::new(Vec::<FakeOutput>::new()));
         let mut context = TestContext::new(FakeEnvironment::over(&outputs));
-        context.process_commands(vec![
-            "read(env:test1)to(var:etest)".to_owned(),
-            "write(var:etest)to(stm:stderr)".to_owned(),
-        ]);
+        context
+            .process_commands(vec![
+                "read(env:test1)to(var:etest)".to_owned(),
+                "write(var:etest)to(stm:stderr)".to_owned(),
+            ])
+            .unwrap();
         assert_eq!(outputs.borrow().len(), 1);
         assert_eq!(outputs.borrow()[0].name, "**stderr**");
         assert_eq!(outputs.borrow()[0].content, "one");
