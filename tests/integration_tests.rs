@@ -333,6 +333,7 @@ async fn create_pod_with_init_containers(
     pods: &Api<Pod>,
 ) -> anyhow::Result<()> {
     let pod_name = INITY_WASI_POD;
+    let tempdir = tempfile::tempdir()?;
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
         "kind": "Pod",
@@ -341,13 +342,29 @@ async fn create_pod_with_init_containers(
         },
         "spec": {
             "initContainers": [
-                // TODO: what should go here?
+                {
+                    "name": "init-1",
+                    "image": "webassembly.azurecr.io/wasmerciser:v0.1.0",
+                    "args": [ "write(lit:slats)to(file:/hp/floofycat.txt)" ],
+                    "volumeMounts": [
+                        {
+                            "mountPath": "/hp",
+                            "name": "hostpath-test"
+                        }
+                    ]
+                }
             ],
             "containers": [
                 {
                     "name": pod_name,
-                    "image": "webassembly.azurecr.io/hello-world-wasi-rust:v0.1.0",
-                    "args": [ "arg1", "arg2" ],
+                    "image": "webassembly.azurecr.io/wasmerciser:v0.1.0",
+                    "args": [ "assert_exists(file:/hp/floofycat.txt)", "read(file:/hp/floofycat.txt)to(var:fcat)", "assert_value(var:fcat)is(lit:slats)", "write(var:fcat)to(stm:stdout)" ],
+                    "volumeMounts": [
+                        {
+                            "mountPath": "/hp",
+                            "name": "hostpath-test"
+                        }
+                    ]
                 },
             ],
             "tolerations": [
@@ -358,6 +375,14 @@ async fn create_pod_with_init_containers(
                     "value": "wasm32-wasi"
                 },
             ],
+            "volumes": [
+                {
+                    "name": "hostpath-test",
+                    "hostPath": {
+                        "path": tempdir.path()
+                    }
+                }
+            ]
         }
     }))?;
 
@@ -467,6 +492,9 @@ async fn clean_up_wasi_test_resources() -> () {
     pods.delete(FAILY_POD, &DeleteParams::default())
         .await
         .expect("Failed to delete pod");
+    pods.delete(INITY_WASI_POD, &DeleteParams::default())
+        .await
+        .expect("Failed to delete pod");
 }
 
 struct WasiTestResourceCleaner {}
@@ -534,6 +562,10 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
         r#"ERR: Failed with File /nope.nope.nope.txt was expected to exist but did not"#,
     )
     .await?;
+    
+    create_pod_with_init_containers(client.clone(), &pods).await?;
+
+    assert_pod_log_contains(&pods, INITY_WASI_POD, r#"slats"#).await?;
 
     Ok(())
 }

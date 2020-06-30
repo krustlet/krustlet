@@ -221,7 +221,7 @@ impl Pod {
         // but we have to return an &Option to avoid a move.
         let inits = match self.0.spec.as_ref() {
             None => &None,
-            Some(spec) => &spec.init_containers
+            Some(spec) => &spec.init_containers,
         };
         inits.as_ref().unwrap_or_else(|| &EMPTY_VEC).iter().map(|c| Container::new(c)).collect()
     }

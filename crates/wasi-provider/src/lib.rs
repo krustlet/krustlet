@@ -168,12 +168,20 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
             kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
         >,
     ) -> anyhow::Result<()> {
-        self.run_one_container(container, pod, client, modules, volumes, container_handles).await?;
-        let result = self.wait_for_termination(container, container_handles).await?;
+        self.run_one_container(container, pod, client, modules, volumes, container_handles)
+            .await?;
+        let result = self
+            .wait_for_termination(container, container_handles)
+            .await?;
         // TODO: should we remove the container?
-        match result.succeeded {
-            true => Ok(()),
-            _ => Err(anyhow::anyhow!("Init container {} failed with message {}", container.name(), result.message)),
+        if result.succeeded {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "Init container {} failed with message {}",
+                container.name(),
+                result.message
+            ))
         }
     }
 
@@ -188,10 +196,17 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
         let handle = container_handles.get(container.name()).unwrap();
         let mut status = handle.status();
         loop {
-            match status.next().await {
-                Some(kubelet::container::Status::Terminated { timestamp: _, message, failed }) =>
-                    return Ok(ContainerTerminationResult{ succeeded: !failed, message }),
-                _ => (),
+            // TODO: clippy wants us to do it this way but ugh
+            if let Some(kubelet::container::Status::Terminated {
+                timestamp: _,
+                message,
+                failed,
+            }) = status.next().await
+            {
+                return Ok(ContainerTerminationResult {
+                    succeeded: !failed,
+                    message,
+                });
             }
         }
     }
