@@ -203,6 +203,7 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
                 failed,
             }) = status.next().await
             {
+                container_handles.remove(&container.name);
                 return Ok(ContainerTerminationResult {
                     succeeded: !failed,
                     message,
@@ -238,6 +239,7 @@ impl<S: Store + Send + Sync> Provider for WasiProvider<S> {
         for container in pod.init_containers() {
             self.run_one_container_to_completion(&container, &pod, &client, &mut modules, &volumes, &mut container_handles).await?;
         }
+        info!("Finished running init containers for pod {:?}", pod_name);
         info!("Starting containers for pod {:?}", pod_name);
         for container in pod.containers() {
             self.run_one_container(
