@@ -44,6 +44,8 @@ use kubelet::provider::ProviderError;
 use kubelet::store::Store;
 use kubelet::volume::Ref;
 use log::{debug, error, info, trace};
+use std::error::Error;
+use std::fmt;
 use tempfile::NamedTempFile;
 use tokio::sync::watch::{self, Receiver};
 use tokio::sync::RwLock;
@@ -222,35 +224,24 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
         let client = kube::Client::new(self.kubeconfig.clone());
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
         for container in pod.containers() {
-            //switch code to here, before env var gets set
             let mut port_assigned: i32 = 0;
+            info!(
+                "The following ports are already taken: {:?}",
+                self.port_set.lock().unwrap()
+            );
             if let Some(container_vec) = container.ports.as_ref() {
                 for c_port in container_vec.iter() {
                     let container_port = c_port.container_port;
                     let host_port = c_port.host_port;
-                    //self.port_set.lock().unwrap().insert(30000);
                     if c_port.host_port.is_none() {
-                        println!("host port is not specified");
                         if container_port >= 0 && container_port <= 65536 {
-                            //find a port that's not taken and assign it
-                            port_assigned = find_available_port(&self.port_set);
-                            if port_assigned == -1 {
-                                error!("Failed to assign port {}, all ports between 30000 and 32767 are taken", &host_port.unwrap());
-                                return Err(anyhow::anyhow!(
-                                    "All ports between 30000 and 32767 are taken"
-                                ));
-                            }
+                            port_assigned = find_available_port(&self.port_set)?;
                         }
                     } else {
-                        println!("host port is specified");
-
                         if !self.port_set.lock().unwrap().contains(&host_port.unwrap()) {
-                            //not taken, assign that port
                             port_assigned = host_port.unwrap();
-                            println!("host port is available, so assign it");
                             self.port_set.lock().unwrap().insert(port_assigned);
                         } else {
-                            //port is taken, error
                             error!(
                                 "Failed to assign hostport {}, because it's taken",
                                 &host_port.unwrap()
@@ -263,12 +254,7 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
                     }
                 }
             }
-            println!(
-                "ports that are already taken: {:?}",
-                self.port_set.lock().unwrap()
-            );
-            println!("new port assigned is: {}", port_assigned);
-            //container.env
+            debug!("New port assigned is: {}", port_assigned);
             let env = Self::env_vars(&container, &pod, &client).await;
             let volume_bindings: Vec<VolumeBinding> =
                 if let Some(volume_mounts) = container.volume_mounts().as_ref() {
@@ -307,7 +293,6 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
             });
             let host = self.host.clone();
             let http_result = tokio::task::spawn_blocking(move || {
-                println!("wascc run http");
                 wascc_run_http(
                     host,
                     module_data,
@@ -544,7 +529,26 @@ fn wascc_run_http(
     wascc_run(host, data, &mut caps, volumes, log_path, status_recv)
 }
 
-fn find_available_port(port_set: &Arc<Mutex<HashSet<i32>>>) -> i32 {
+#[derive(Debug)]
+struct PortAllocationError {}
+
+impl PortAllocationError {
+    fn new() -> PortAllocationError {
+        PortAllocationError {}
+    }
+}
+impl fmt::Display for PortAllocationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "all ports are currently in use")
+    }
+}
+impl Error for PortAllocationError {
+    fn description(&self) -> &str {
+        "all ports are currently in use"
+    }
+}
+
+fn find_available_port(port_set: &Arc<Mutex<HashSet<i32>>>) -> Result<i32, PortAllocationError> {
     let mut range = rand::thread_rng();
     let mut port: i32 = -1;
 
@@ -557,7 +561,11 @@ fn find_available_port(port_set: &Arc<Mutex<HashSet<i32>>>) -> i32 {
             break;
         }
     }
-    port
+
+    if port == -1 {
+        return Err(PortAllocationError::new());
+    }
+    Ok(port)
 }
 
 /// Capability describes a waSCC capability.
