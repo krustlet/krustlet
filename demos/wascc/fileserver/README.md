@@ -33,11 +33,11 @@ To set up your development environment, you'll need the following tools:
 Instructions for [installing
 `cargo`](https://doc.rust-lang.org/cargo/getting-started/installation.html) and
 [`wasm-to-oci`](https://github.com/engineerd/wasm-to-oci) can be found in their respective project's
-documentation. Once those are installed, `wascap` and `nk` can be installed with
+documentation. Once those are installed, [`wascap`](https://crates.io/crates/wascap) and [`nkeys`](https://crates.io/crates/nkeys) can be installed with
 
 ```
 cargo install wascap --features "cli"
-cargo install nk --features "cli"
+cargo install nkeys --features "cli"
 ```
 
 Once complete, run `make` to compile the example.
