@@ -20,7 +20,13 @@ fn main() -> anyhow::Result<()> {
     // var := var:foo
     // val := lit:foo (literal text) or var:foo (contents of variable)
 
-    let args: Vec<String> = env::args().skip(1).collect();
+    // TODO: un-hardwire the module file name
+    let original_args: Vec<String> = env::args().collect();
+    let args = if !original_args.is_empty() && original_args[0] == "wasmerciser.wasm" {
+        original_args[1..].to_vec()
+    } else {
+        original_args
+    };
 
     let real_environment = RealEnvironment::new();
     let mut test_context = TestContext::new(real_environment);
