@@ -20,17 +20,11 @@ fn main() -> anyhow::Result<()> {
     // var := var:foo
     // val := lit:foo (literal text) or var:foo (contents of variable)
 
-    // TODO: un-hardwire the module file name
-    let original_args: Vec<String> = env::args().collect();
-    let args = if !original_args.is_empty() && original_args[0] == "wasmerciser.wasm" {
-        original_args[1..].to_vec()
-    } else {
-        original_args
-    };
-
     let real_environment = RealEnvironment::new();
     let mut test_context = TestContext::new(real_environment);
-    let result = test_context.process_commands(args);
+
+    let script = get_script();
+    let result = test_context.process_commands(script);
 
     let message = match &result {
         Ok(()) => "INF: That's enough wasmercising for now; see you next test!".to_owned(),
@@ -40,6 +34,43 @@ fn main() -> anyhow::Result<()> {
     println!("{}", message);
 
     result
+}
+
+fn get_script() -> Vec<String> {
+    let command_line_script = get_script_from_command_line();
+    if command_line_script.is_empty() {
+        get_script_from_environment_variable()
+    } else {
+        command_line_script
+    }
+}
+
+fn get_script_from_command_line() -> Vec<String> {
+    // TODO: un-hardwire the module file name
+    let original_args: Vec<String> = env::args().collect();
+    if !original_args.is_empty() && original_args[0] == "wasmerciser.wasm" {
+        original_args[1..].to_vec()
+    } else {
+        original_args
+    }
+}
+
+fn get_script_from_environment_variable() -> Vec<String> {
+    parse_script_from_env_var_value(std::env::var("WASMERCISER_RUN_SCRIPT"))
+}
+
+fn parse_script_from_env_var_value(var_value: Result<String, std::env::VarError>) -> Vec<String> {
+    match var_value {
+        Ok(script_text) => words(script_text),
+        Err(_) => vec![],
+    }
+}
+
+fn words(text: String) -> Vec<String> {
+    text.split(' ')
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_owned())
+        .collect()
 }
 
 trait Environment {
@@ -289,6 +320,32 @@ mod tests {
 
     fn fake_env() -> FakeEnvironment {
         FakeEnvironment::new()
+    }
+
+    #[test]
+    fn missing_env_var_means_no_script() {
+        let no_env_var = Err(std::env::VarError::NotPresent);
+        let result = parse_script_from_env_var_value(no_env_var);
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn env_var_with_no_spaces_means_one_command() {
+        let env_var = Ok("hello".to_owned());
+        let result = parse_script_from_env_var_value(env_var);
+        assert_eq!(result.len(), 1);
+        assert_eq!("hello".to_owned(), result[0]);
+    }
+
+    #[test]
+    fn env_var_with_spaces_is_split_into_commands() {
+        let env_var = Ok("hello world    and  goodbye  ".to_owned());
+        let result = parse_script_from_env_var_value(env_var);
+        assert_eq!(result.len(), 4);
+        assert_eq!("hello".to_owned(), result[0]);
+        assert_eq!("world".to_owned(), result[1]);
+        assert_eq!("and".to_owned(), result[2]);
+        assert_eq!("goodbye".to_owned(), result[3]);
     }
 
     #[test]
