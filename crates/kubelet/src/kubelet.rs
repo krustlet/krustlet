@@ -279,9 +279,10 @@ async fn start_error_handler(
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::container::Container;
     use crate::pod::Pod;
     use k8s_openapi::api::core::v1::{
-        Container, EnvVar, EnvVarSource, ObjectFieldSelector, PodSpec, PodStatus,
+        Container as KubeContainer, EnvVar, EnvVarSource, ObjectFieldSelector, PodSpec, PodStatus,
     };
     use kube::api::ObjectMeta;
     use std::collections::BTreeMap;
@@ -319,7 +320,7 @@ mod test {
 
     #[tokio::test]
     async fn test_env_vars() {
-        let container = Container {
+        let container = Container::new(&KubeContainer {
             env: Some(vec![
                 EnvVar {
                     name: "first".into(),
@@ -394,7 +395,7 @@ mod test {
                 },
             ]),
             ..Default::default()
-        };
+        });
         let name = "my-name".to_string();
         let namespace = Some("my-namespace".to_string());
         let mut labels = BTreeMap::new();

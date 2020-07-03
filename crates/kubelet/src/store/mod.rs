@@ -23,7 +23,7 @@ use crate::store::oci::Client;
 ///  ```rust
 /// use async_trait::async_trait;
 /// use oci_distribution::Reference;
-/// use kubelet::store::PullPolicy;
+/// use kubelet::container::PullPolicy;
 /// use kubelet::store::Store;
 /// use std::collections::HashMap;
 ///
@@ -33,9 +33,9 @@ use crate::store::oci::Client;
 ///
 /// #[async_trait]
 /// impl Store for InMemoryStore {
-///     async fn get(&self, image_ref: &Reference, pull_policy: Option<PullPolicy>) -> anyhow::Result<Vec<u8>> {
+///     async fn get(&self, image_ref: &Reference, pull_policy: PullPolicy) -> anyhow::Result<Vec<u8>> {
 ///         match pull_policy {
-///             Some(PullPolicy::Never) => (),
+///             PullPolicy::Never => (),
 ///             _ => todo!("Implement support for pull policies"),
 ///         }
 ///         match self.modules.get(image_ref) {
