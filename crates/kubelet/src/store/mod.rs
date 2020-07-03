@@ -3,7 +3,6 @@ pub mod oci;
 
 use oci_distribution::client::ImageData;
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
@@ -12,42 +11,9 @@ use async_trait::async_trait;
 use log::debug;
 use oci_distribution::Reference;
 
+use crate::container::PullPolicy;
 use crate::pod::Pod;
 use crate::store::oci::Client;
-
-/// Specifies how the store should check for module updates
-#[derive(PartialEq, Debug)]
-pub enum PullPolicy {
-    /// Always return the module as it currently appears in the
-    /// upstream registry
-    Always,
-    /// Return the module as it is currently cached in the local store if
-    /// present; fetch it from the upstream registry only if it it not
-    /// present in the local store
-    IfNotPresent,
-    /// Never fetch the module from the upstream registry; if it is not
-    /// available locally then return an error
-    Never,
-}
-
-impl PullPolicy {
-    /// Parses a module pull policy from a Kubernetes ImagePullPolicy string
-    pub fn parse(name: Option<String>) -> anyhow::Result<Option<Self>> {
-        match name {
-            None => Ok(None),
-            Some(n) => Self::parse_str(&n[..]),
-        }
-    }
-
-    fn parse_str(name: &str) -> anyhow::Result<Option<Self>> {
-        match name {
-            "Always" => Ok(Some(Self::Always)),
-            "IfNotPresent" => Ok(Some(Self::IfNotPresent)),
-            "Never" => Ok(Some(Self::Never)),
-            other => Err(anyhow::anyhow!("unrecognized pull policy {}", other)),
-        }
-    }
-}
 
 /// A store of container modules.
 ///
@@ -82,11 +48,7 @@ impl PullPolicy {
 #[async_trait]
 pub trait Store {
     /// Get a module's data given its image `Reference`.
-    async fn get(
-        &self,
-        image_ref: &Reference,
-        pull_policy: Option<PullPolicy>,
-    ) -> anyhow::Result<Vec<u8>>;
+    async fn get(&self, image_ref: &Reference, pull_policy: PullPolicy) -> anyhow::Result<Vec<u8>>;
 
     /// Fetch all container modules for a given `Pod` storing the name of the
     /// container and the module's data as key/value pairs in a hashmap.
@@ -102,16 +64,18 @@ pub trait Store {
             pod.name()
         );
         // Fetch all of the container modules in parallel
-        let container_module_futures = pod.containers().iter().map(move |container| {
-            let image = container
-                .image
-                .clone()
+        let containers = pod.containers();
+        let container_module_futures = containers.iter().map(move |container| {
+            let reference = container
+                .image()
+                .expect("Could not parse image.")
                 .expect("FATAL ERROR: container must have an image");
-            let reference = Reference::try_from(image).unwrap();
-            let pull_policy = PullPolicy::parse(container.image_pull_policy.clone()).unwrap();
+            let pull_policy = container
+                .image_pull_policy()
+                .expect("Could not identify pull policy.");
             async move {
                 Ok((
-                    container.name.clone(),
+                    container.name().to_string(),
                     self.get(&reference, pull_policy).await?,
                 ))
             }
@@ -147,18 +111,8 @@ impl<S: Storer, C: Client> LocalStore<S, C> {
 
 #[async_trait]
 impl<S: Storer + Sync + Send, C: Client + Sync + Send> Store for LocalStore<S, C> {
-    async fn get(
-        &self,
-        image_ref: &Reference,
-        pull_policy: Option<PullPolicy>,
-    ) -> anyhow::Result<Vec<u8>> {
-        // Specification from https://kubernetes.io/docs/concepts/configuration/overview/#container-images):
-        let effective_pull_policy = pull_policy.unwrap_or(match image_ref.tag() {
-            Some("latest") | None => PullPolicy::Always,
-            _ => PullPolicy::IfNotPresent,
-        });
-
-        match effective_pull_policy {
+    async fn get(&self, image_ref: &Reference, pull_policy: PullPolicy) -> anyhow::Result<Vec<u8>> {
+        match pull_policy {
             PullPolicy::IfNotPresent => {
                 if !self.storer.read().await.is_present(image_ref).await {
                     self.pull(image_ref).await?

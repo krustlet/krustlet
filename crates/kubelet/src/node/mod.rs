@@ -209,7 +209,7 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
             let mut container_statuses = HashMap::new();
             for container in pod.containers() {
                 container_statuses.insert(
-                    container.name.clone(),
+                    container.name().to_string(),
                     ContainerStatus::Terminated {
                         timestamp: Utc::now(),
                         message: "Evicted on node shutdown.".to_string(),

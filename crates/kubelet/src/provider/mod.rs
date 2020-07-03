@@ -2,11 +2,12 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use k8s_openapi::api::core::v1::{ConfigMap, Container, EnvVarSource, Pod as KubePod, Secret};
+use k8s_openapi::api::core::v1::{ConfigMap, EnvVarSource, Pod as KubePod, Secret};
 use kube::api::{Api, WatchEvent};
 use log::{error, info};
 use thiserror::Error;
 
+use crate::container::Container;
 use crate::log::Sender;
 use crate::node::Builder;
 use crate::pod::Pod;
@@ -127,7 +128,7 @@ pub trait Provider {
         client: &kube::Client,
     ) -> HashMap<String, String> {
         let mut env = HashMap::new();
-        let vars = match container.env.as_ref() {
+        let vars = match container.env().as_ref() {
             Some(e) => e,
             None => return env,
         };

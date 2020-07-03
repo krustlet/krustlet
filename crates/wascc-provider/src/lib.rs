@@ -220,7 +220,7 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
         for container in pod.containers() {
             let env = Self::env_vars(&container, &pod, &client).await;
             let volume_bindings: Vec<VolumeBinding> =
-                if let Some(volume_mounts) = container.volume_mounts.as_ref() {
+                if let Some(volume_mounts) = container.volume_mounts().as_ref() {
                     volume_mounts
                         .iter()
                         .map(|vm| -> anyhow::Result<VolumeBinding> {
@@ -229,7 +229,7 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
                                 anyhow::anyhow!(
                                     "no volume with the name of {} found for container {}",
                                     vm.name,
-                                    container.name
+                                    container.name()
                                 )
                             })?;
                             // We can safely assume that this should be valid UTF-8 because it would have
@@ -244,10 +244,10 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
                     vec![]
                 };
 
-            debug!("Starting container {} on thread", container.name);
+            debug!("Starting container {} on thread", container.name());
 
             let module_data = modules
-                .remove(&container.name)
+                .remove(container.name())
                 .expect("FATAL ERROR: module map not properly populated");
             let lp = self.log_path.clone();
             let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
@@ -261,7 +261,7 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
             .await?;
             match http_result {
                 Ok(handle) => {
-                    container_handles.insert(container.name.clone(), handle);
+                    container_handles.insert(container.name().to_string(), handle);
                     status_sender
                         .broadcast(ContainerStatus::Running {
                             timestamp: chrono::Utc::now(),
@@ -273,7 +273,7 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
                     // (it was never used in creating a runtime handle)
                     let mut container_statuses = HashMap::new();
                     container_statuses.insert(
-                        container.name.clone(),
+                        container.name().to_string(),
                         ContainerStatus::Terminated {
                             timestamp: chrono::Utc::now(),
                             failed: true,

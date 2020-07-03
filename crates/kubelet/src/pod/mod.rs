@@ -9,6 +9,7 @@ pub use status::{update_status, Phase, Status};
 
 use std::collections::HashMap;
 
+use crate::container::Container;
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::{
     Container as KubeContainer, ContainerStatus as KubeContainerStatus, Pod as KubePod,
@@ -203,12 +204,15 @@ impl Pod {
     }
 
     /// Get a pod's containers
-    pub fn containers(&self) -> &Vec<KubeContainer> {
+    pub fn containers(&self) -> Vec<Container> {
         self.0
             .spec
             .as_ref()
             .map(|s| &s.containers)
             .unwrap_or_else(|| &EMPTY_VEC)
+            .iter()
+            .map(|c| Container::new(c))
+            .collect()
     }
 
     /// Turn the Pod into the Kubernetes API version of a Pod
