@@ -53,6 +53,8 @@ pub struct Config {
     pub max_pods: u16,
     /// The location of the tls bootstrapping file
     pub bootstrap_file: PathBuf,
+    /// Whether to allow modules to be loaded directly from the filesystem
+    pub allow_local_modules: bool,
 }
 /// The configuration for the Kubelet server.
 #[derive(Clone, Debug)]
@@ -106,6 +108,8 @@ struct ConfigBuilder {
     pub server_tls_cert_file: Option<PathBuf>,
     #[serde(default, rename = "tlsPrivateKeyFile")]
     pub server_tls_private_key_file: Option<PathBuf>,
+    #[serde(default, rename = "allowLocalModules")]
+    pub allow_local_modules: Option<bool>,
 }
 
 struct ConfigBuilderFallbacks {
@@ -136,6 +140,7 @@ impl Config {
             data_dir,
             max_pods: DEFAULT_MAX_PODS,
             bootstrap_file: PathBuf::from(BOOTSTRAP_FILE),
+            allow_local_modules: false,
             server_config: ServerConfig {
                 addr: match preferred_ip_family {
                     // Just unwrap these because they are programmer error if they
@@ -259,6 +264,7 @@ impl ConfigBuilder {
             hostname: opts.hostname,
             data_dir: opts.data_dir,
             max_pods: ok_result_of(opts.max_pods),
+            allow_local_modules: opts.allow_local_modules,
             server_addr: ok_result_of(opts.addr),
             server_port: ok_result_of(opts.port),
             server_tls_cert_file: opts.cert_file,
@@ -293,6 +299,7 @@ impl ConfigBuilder {
             server_port: other.server_port.or(self.server_port),
             server_tls_cert_file: other.server_tls_cert_file.or(self.server_tls_cert_file),
             bootstrap_file: other.bootstrap_file.or(self.bootstrap_file),
+            allow_local_modules: other.allow_local_modules.or(self.allow_local_modules),
             server_tls_private_key_file: other
                 .server_tls_private_key_file
                 .or(self.server_tls_private_key_file),
@@ -339,6 +346,7 @@ impl ConfigBuilder {
             data_dir,
             max_pods,
             bootstrap_file,
+            allow_local_modules: self.allow_local_modules.unwrap_or(false),
             server_config: ServerConfig {
                 cert_file: server_tls_cert_file,
                 private_key_file: server_tls_private_key_file,
@@ -466,6 +474,13 @@ pub struct Opts {
         default_value = BOOTSTRAP_FILE
     )]
     bootstrap_file: PathBuf,
+
+    #[structopt(
+        long = "allow-local-modules",
+        env = "KRUSTLET_ALLOW_LOCAL_MODULES",
+        help = "Whether to allow loading modules directly from the filesystem"
+    )]
+    allow_local_modules: Option<bool>,
 }
 
 fn default_hostname() -> anyhow::Result<String> {
@@ -590,7 +605,8 @@ mod test {
             "nodeName": "krusty-node",
             "tlsCertificateFile": "/my/secure/cert.pfx",
             "tlsPrivateKeyFile": "/the/key",
-            "bootstrapFile": "/the/bootstrap/file.txt"
+            "bootstrapFile": "/the/bootstrap/file.txt",
+            "allowLocalModules": true
         }"#,
         );
         let config = config_builder.unwrap().build(fallbacks()).unwrap();
@@ -613,6 +629,7 @@ mod test {
         assert_eq!(config.data_dir.to_string_lossy(), "/krusty/data/dir");
         assert_eq!(format!("{}", config.node_ip), "173.183.193.2");
         assert_eq!(config.max_pods, 400);
+        assert_eq!(config.allow_local_modules, true);
         assert_eq!(config.node_labels.len(), 2);
         assert_eq!(config.node_labels.get("label1"), Some(&("val1".to_owned())));
     }
@@ -669,6 +686,7 @@ mod test {
         assert_eq!(config.hostname, "fallback-hostname");
         assert_eq!(config.data_dir.to_string_lossy(), "/fallback/data/dir");
         assert_eq!(format!("{}", config.node_ip), "4.4.4.4");
+        assert_eq!(config.allow_local_modules, false);
         assert_eq!(config.node_labels.len(), 0);
     }
 
@@ -699,6 +717,7 @@ mod test {
                 "label2": "val2"
             },
             "nodeName": "krusty-node",
+            "allowLocalModules": true,
             "tlsCertificateFile": "/my/secure/cert.pfx",
             "tlsPrivateKeyFile": "/the/key"
         }"#,
@@ -716,6 +735,7 @@ mod test {
                 "label22": "val22"
             },
             "nodeName": "krusty-node-2",
+            "allowLocalModules": false,
             "tlsCertificateFile": "/my/secure/cert-2.pfx",
             "tlsPrivateKeyFile": "/the/2nd/key"
         }"#,
@@ -737,6 +757,7 @@ mod test {
         assert_eq!(config.max_pods, 30);
         assert_eq!(config.data_dir.to_string_lossy(), "/krusty/data/dir/2");
         assert_eq!(format!("{}", config.node_ip), "173.183.193.22");
+        assert_eq!(config.allow_local_modules, false);
         assert_eq!(config.node_labels.len(), 2);
         assert_eq!(
             config.node_labels.get("label21"),
@@ -758,6 +779,7 @@ mod test {
                 "label2": "val2"
             },
             "nodeName": "krusty-node",
+            "allowLocalModules": true,
             "tlsCertificateFile": "/my/secure/cert.pfx",
             "tlsPrivateKeyFile": "/the/key"
         }"#,
@@ -785,6 +807,7 @@ mod test {
         assert_eq!(config.hostname, "krusty-host");
         assert_eq!(config.data_dir.to_string_lossy(), "/krusty/data/dir");
         assert_eq!(format!("{}", config.node_ip), "173.183.193.2");
+        assert_eq!(config.allow_local_modules, true);
         assert_eq!(config.node_labels.len(), 2);
         assert_eq!(config.node_labels.get("label1"), Some(&("val1".to_owned())));
     }
