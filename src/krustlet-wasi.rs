@@ -1,6 +1,7 @@
 use kubelet::config::Config;
 use kubelet::store::oci::FileStore;
 use kubelet::Kubelet;
+use std::sync::Arc;
 use wasi_provider::WasiProvider;
 
 #[tokio::main]
@@ -17,7 +18,7 @@ async fn main() -> anyhow::Result<()> {
     let client = oci_distribution::Client::default();
     let mut store_path = config.data_dir.join(".oci");
     store_path.push("modules");
-    let store = FileStore::new(client, &store_path);
+    let store = Arc::new(FileStore::new(client, &store_path));
 
     let provider = WasiProvider::new(store, &config, kubeconfig.clone()).await?;
     let kubelet = Kubelet::new(provider, kubeconfig, config).await?;

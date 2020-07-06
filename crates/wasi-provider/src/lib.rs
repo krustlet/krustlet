@@ -7,13 +7,14 @@
 //! ```rust,no_run
 //! use kubelet::{Kubelet, config::Config};
 //! use kubelet::store::oci::FileStore;
+//! use std::sync::Arc;
 //! use wasi_provider::WasiProvider;
 //!
 //! async {
 //!     // Get a configuration for the Kubelet
 //!     let kubelet_config = Config::default();
 //!     let client = oci_distribution::Client::default();
-//!     let store = FileStore::new(client, &std::path::PathBuf::from(""));
+//!     let store = Arc::new(FileStore::new(client, &std::path::PathBuf::from("")));
 //!
 //!     // Load a kubernetes configuration
 //!     let kubeconfig = kube::Config::infer().await.unwrap();
@@ -59,9 +60,9 @@ const VOLUME_DIR: &str = "volumes";
 /// WasiProvider provides a Kubelet runtime implementation that executes WASM
 /// binaries conforming to the WASI spec
 #[derive(Clone)]
-pub struct WasiProvider<S> {
+pub struct WasiProvider {
     handles: Arc<RwLock<HashMap<String, Handle<Runtime, wasi_runtime::HandleFactory>>>>,
-    store: S,
+    store: Arc<dyn Store + Sync + Send>,
     log_path: PathBuf,
     kubeconfig: kube::Config,
     volume_path: PathBuf,
@@ -72,10 +73,10 @@ struct ContainerTerminationResult {
     message: String,
 }
 
-impl<S: Store + Send + Sync> WasiProvider<S> {
+impl WasiProvider {
     /// Create a new wasi provider from a module store and a kubelet config
     pub async fn new(
-        store: S,
+        store: Arc<dyn Store + Sync + Send>,
         config: &kubelet::config::Config,
         kubeconfig: kube::Config,
     ) -> anyhow::Result<Self> {
@@ -266,7 +267,7 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
 }
 
 #[async_trait::async_trait]
-impl<S: Store + Send + Sync> Provider for WasiProvider<S> {
+impl Provider for WasiProvider {
     const ARCH: &'static str = TARGET_WASM32_WASI;
 
     async fn node(&self, builder: &mut Builder) -> anyhow::Result<()> {
