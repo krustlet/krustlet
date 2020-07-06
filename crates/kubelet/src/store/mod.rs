@@ -1,4 +1,6 @@
 //! `store` contains logic around fetching and storing modules.
+pub mod composite;
+pub mod fs;
 pub mod oci;
 
 use oci_distribution::client::ImageData;
