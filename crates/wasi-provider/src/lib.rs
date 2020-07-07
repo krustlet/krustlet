@@ -121,7 +121,7 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
         }
     }
 
-    async fn run_one_container(
+    async fn start_one_container(
         &self,
         container: &Container,
         pod: &Pod,
@@ -168,12 +168,11 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
             kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
         >,
     ) -> anyhow::Result<()> {
-        self.run_one_container(container, pod, client, modules, volumes, container_handles)
+        self.start_one_container(container, pod, client, modules, volumes, container_handles)
             .await?;
         let result = self
             .wait_for_termination(container, container_handles)
             .await?;
-        // TODO: should we remove the container?
         if result.succeeded {
             Ok(())
         } else {
@@ -203,7 +202,7 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
                 failed,
             }) = status.next().await
             {
-                container_handles.remove(&container.name);
+                container_handles.remove(container.name());
                 return Ok(ContainerTerminationResult {
                     succeeded: !failed,
                     message,
@@ -242,7 +241,7 @@ impl<S: Store + Send + Sync> Provider for WasiProvider<S> {
         info!("Finished running init containers for pod {:?}", pod_name);
         info!("Starting containers for pod {:?}", pod_name);
         for container in pod.containers() {
-            self.run_one_container(
+            self.start_one_container(
                 &container,
                 &pod,
                 &client,
