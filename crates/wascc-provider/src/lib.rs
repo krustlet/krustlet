@@ -31,7 +31,9 @@
 #![deny(missing_docs)]
 
 use async_trait::async_trait;
-use k8s_openapi::api::core::v1::{ContainerStatus as KubeContainerStatus, Pod as KubePod};
+use k8s_openapi::api::core::v1::{
+    Container as KubeContainer, ContainerStatus as KubeContainerStatus, Pod as KubePod,
+};
 use kube::{api::DeleteParams, Api};
 use kubelet::container::{Handle as ContainerHandle, Status as ContainerStatus};
 use kubelet::handle::StopHandler;
@@ -207,6 +209,8 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
         debug!("Pod added {:?}", pod.name());
+
+        validate_pod_runnable(&pod)?;
 
         info!("Starting containers for pod {:?}", pod.name());
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
@@ -426,6 +430,31 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
     }
 }
 
+fn validate_pod_runnable(pod: &Pod) -> anyhow::Result<()> {
+    for container in pod.containers() {
+        validate_container_runnable(container)?;
+    }
+    Ok(())
+}
+
+fn validate_container_runnable(container: &KubeContainer) -> anyhow::Result<()> {
+    if has_args(container) {
+        return Err(anyhow::anyhow!(
+            "Cannot run {}: spec specifies container args which are not supported on wasCC",
+            container.name
+        ));
+    }
+
+    Ok(())
+}
+
+fn has_args(container: &KubeContainer) -> bool {
+    match &container.args {
+        None => false,
+        Some(vec) => !vec.is_empty(),
+    }
+}
+
 struct VolumeBinding {
     name: String,
     host_path: PathBuf,
@@ -556,4 +585,96 @@ fn wascc_run(
         log_handle_factory,
         status_recv,
     ))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use serde_json::json;
+
+    fn make_pod_spec(containers: Vec<KubeContainer>) -> Pod {
+        let kube_pod: KubePod = serde_json::from_value(json!({
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "name": "test-pod-spec"
+            },
+            "spec": {
+                "containers": containers
+            }
+        }))
+        .unwrap();
+        Pod::new(kube_pod)
+    }
+
+    #[test]
+    fn can_run_pod_where_container_has_no_args() {
+        let containers: Vec<KubeContainer> = serde_json::from_value(json!([
+            {
+                "name": "greet-wascc",
+                "image": "webassembly.azurecr.io/greet-wascc:v0.4",
+            },
+        ]))
+        .unwrap();
+        let pod = make_pod_spec(containers);
+        validate_pod_runnable(&pod).unwrap();
+    }
+
+    #[test]
+    fn can_run_pod_where_container_has_empty_args() {
+        let containers: Vec<KubeContainer> = serde_json::from_value(json!([
+            {
+                "name": "greet-wascc",
+                "image": "webassembly.azurecr.io/greet-wascc:v0.4",
+                "args": [],
+            },
+        ]))
+        .unwrap();
+        let pod = make_pod_spec(containers);
+        validate_pod_runnable(&pod).unwrap();
+    }
+
+    #[test]
+    fn cannot_run_pod_where_container_has_args() {
+        let containers: Vec<KubeContainer> = serde_json::from_value(json!([
+            {
+                "name": "greet-wascc",
+                "image": "webassembly.azurecr.io/greet-wascc:v0.4",
+                "args": [
+                    "--foo",
+                    "--bar"
+                ]
+            },
+        ]))
+        .unwrap();
+        let pod = make_pod_spec(containers);
+        assert!(validate_pod_runnable(&pod).is_err());
+    }
+
+    #[test]
+    fn cannot_run_pod_where_any_container_has_args() {
+        let containers: Vec<KubeContainer> = serde_json::from_value(json!([
+            {
+                "name": "greet-1",
+                "image": "webassembly.azurecr.io/greet-wascc:v0.4"
+            },
+            {
+                "name": "greet-2",
+                "image": "webassembly.azurecr.io/greet-wascc:v0.4",
+                "args": [
+                    "--foo",
+                    "--bar"
+                ]
+            },
+        ]))
+        .unwrap();
+        let pod = make_pod_spec(containers);
+        let validation = validate_pod_runnable(&pod);
+        assert!(validation.is_err());
+        let message = format!("{}", validation.unwrap_err());
+        assert!(
+            message.contains("greet-2"),
+            "validation error did not give name of bad container"
+        );
+    }
 }
