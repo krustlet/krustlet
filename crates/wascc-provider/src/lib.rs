@@ -199,7 +199,7 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
         })
     }
 
-    async fn start_one_container(
+    async fn start_container(
         &self,
         container: &Container,
         pod: &Pod,
@@ -345,7 +345,7 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
             }
             debug!("New port assigned is: {}", port_assigned);
 
-            self.start_one_container(
+            self.start_container(
                 &container,
                 &pod,
                 &client,

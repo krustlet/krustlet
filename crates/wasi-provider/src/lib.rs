@@ -121,7 +121,7 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
         }
     }
 
-    async fn start_one_container(
+    async fn start_container(
         &self,
         container: &Container,
         pod: &Pod,
@@ -156,7 +156,7 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
         Ok(())
     }
 
-    async fn run_one_container_to_completion(
+    async fn run_container_to_completion(
         &self,
         container: &Container,
         pod: &Pod,
@@ -168,7 +168,7 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
             kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
         >,
     ) -> anyhow::Result<()> {
-        self.start_one_container(container, pod, client, modules, volumes, container_handles)
+        self.start_container(container, pod, client, modules, volumes, container_handles)
             .await?;
         let result = self
             .wait_for_termination(container, container_handles)
@@ -236,12 +236,20 @@ impl<S: Store + Send + Sync> Provider for WasiProvider<S> {
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
         info!("Running init containers for pod {:?}", pod_name);
         for container in pod.init_containers() {
-            self.run_one_container_to_completion(&container, &pod, &client, &mut modules, &volumes, &mut container_handles).await?;
+            self.run_container_to_completion(
+                &container,
+                &pod,
+                &client,
+                &mut modules,
+                &volumes,
+                &mut container_handles,
+            )
+            .await?;
         }
         info!("Finished running init containers for pod {:?}", pod_name);
         info!("Starting containers for pod {:?}", pod_name);
         for container in pod.containers() {
-            self.start_one_container(
+            self.start_container(
                 &container,
                 &pod,
                 &client,
