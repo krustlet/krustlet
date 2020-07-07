@@ -6,15 +6,20 @@ use async_trait::async_trait;
 use oci_distribution::Reference;
 use std::sync::Arc;
 
-/// TODO
+/// A `Store` that has additional logic to determine if it can satisfy
+/// a particular reference. An `InterceptingStore` can be composed with
+/// another Store to satisfy specific requests in a custom way.
 pub trait InterceptingStore: Store {
-    /// TODO
+    /// Whether this `InterceptingStore` can satisfy the given reference.
     fn intercepts(&self, image_ref: &Reference) -> bool;
 }
 
-/// TODO
+/// Provides a way to overlay an `InterceptingStore` so that the
+/// interceptor handles the references it can, and the base store
+/// handles all other references.
 pub trait ComposableStore {
-    /// TODO
+    /// Creates a `Store` identical to the implementer except that
+    /// 'get' requests are offered to the interceptor first.
     fn with_override(
         self,
         interceptor: Arc<dyn InterceptingStore + Send + Sync>,
@@ -48,8 +53,7 @@ where
     }
 }
 
-/// TODO
-pub struct CompositeStore {
+struct CompositeStore {
     base: Arc<dyn Store + Send + Sync>,
     interceptor: Arc<dyn InterceptingStore + Send + Sync>,
 }
