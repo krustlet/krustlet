@@ -41,6 +41,7 @@ use futures::stream::StreamExt;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::{api::DeleteParams, Api};
 use kubelet::container::Container;
+use kubelet::container::Status;
 use kubelet::node::Builder;
 use kubelet::pod::{key_from_pod, pod_key, Handle, Pod};
 use kubelet::provider::Provider;
@@ -128,12 +129,10 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
         client: &kube::client::Client,
         modules: &mut HashMap<String, Vec<u8>>,
         volumes: &HashMap<String, Ref>,
-        container_handles: &mut HashMap<
-            String,
-            kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
-        >,
-    ) -> anyhow::Result<()> {
-        let env = Self::env_vars(&container, &pod, &client).await;
+    ) -> anyhow::Result<
+        kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
+    > {
+        let env = Self::env_vars(&container, pod, &client).await;
         let args = container.args().clone().unwrap_or_default();
         let module_data = modules
             .remove(container.name())
@@ -151,9 +150,8 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
 
         debug!("Starting container {} on thread", container.name());
         let handle = runtime.start().await?;
-        container_handles.insert(container.name().to_string(), handle);
 
-        Ok(())
+        Ok(handle)
     }
 
     async fn run_container_to_completion(
@@ -163,16 +161,12 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
         client: &kube::client::Client,
         modules: &mut HashMap<String, Vec<u8>>,
         volumes: &HashMap<String, Ref>,
-        container_handles: &mut HashMap<
-            String,
-            kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
-        >,
     ) -> anyhow::Result<()> {
-        self.start_container(container, pod, client, modules, volumes, container_handles)
+        let handle = self
+            .start_container(container, pod, client, modules, volumes)
             .await?;
-        let result = self
-            .wait_for_termination(container, container_handles)
-            .await?;
+        let result = self.wait_for_termination(handle).await;
+        debug!("Init container {} terminated", container.name());
         if result.succeeded {
             Ok(())
         } else {
@@ -186,27 +180,25 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
 
     async fn wait_for_termination(
         &self,
-        container: &Container,
-        container_handles: &mut HashMap<
-            String,
-            kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
-        >,
-    ) -> anyhow::Result<ContainerTerminationResult> {
-        let handle = container_handles.get(container.name()).unwrap();
+        handle: kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
+    ) -> ContainerTerminationResult {
         let mut status = handle.status();
+        Self::wait_for_terminated_status(&mut status).await
+    }
+
+    async fn wait_for_terminated_status(
+        status_receiver: &mut tokio::sync::watch::Receiver<kubelet::container::Status>,
+    ) -> ContainerTerminationResult {
         loop {
-            // TODO: clippy wants us to do it this way but ugh
-            if let Some(kubelet::container::Status::Terminated {
-                timestamp: _,
-                message,
-                failed,
-            }) = status.next().await
+            let status = status_receiver.next().await;
+            if let Some(Status::Terminated {
+                message, failed, ..
+            }) = status
             {
-                container_handles.remove(container.name());
-                return Ok(ContainerTerminationResult {
+                return ContainerTerminationResult {
                     succeeded: !failed,
                     message,
-                });
+                };
             }
         }
     }
@@ -236,28 +228,16 @@ impl<S: Store + Send + Sync> Provider for WasiProvider<S> {
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
         info!("Running init containers for pod {:?}", pod_name);
         for container in pod.init_containers() {
-            self.run_container_to_completion(
-                &container,
-                &pod,
-                &client,
-                &mut modules,
-                &volumes,
-                &mut container_handles,
-            )
-            .await?;
+            self.run_container_to_completion(&container, &pod, &client, &mut modules, &volumes)
+                .await?;
         }
         info!("Finished running init containers for pod {:?}", pod_name);
         info!("Starting containers for pod {:?}", pod_name);
         for container in pod.containers() {
-            self.start_container(
-                &container,
-                &pod,
-                &client,
-                &mut modules,
-                &volumes,
-                &mut container_handles,
-            )
-            .await?
+            let handle = self
+                .start_container(&container, &pod, &client, &mut modules, &volumes)
+                .await?;
+            container_handles.insert(container.name().to_owned(), handle);
         }
         info!(
             "All containers started for pod {:?}. Updating status",
