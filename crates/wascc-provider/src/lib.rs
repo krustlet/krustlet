@@ -269,7 +269,7 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
                         timestamp: chrono::Utc::now(),
                     })
                     .expect("status should be able to send");
-                return Ok(());
+                Ok(())
             }
             Err(e) => {
                 // We can't broadcast here because the receiver has been dropped at this point
@@ -288,7 +288,7 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
                     container_statuses,
                 };
                 pod.patch_status(client.clone(), status).await;
-                return Err(anyhow::anyhow!("Failed to run pod: {}", e));
+                Err(anyhow::anyhow!("Failed to run pod: {}", e))
             }
         }
     }
