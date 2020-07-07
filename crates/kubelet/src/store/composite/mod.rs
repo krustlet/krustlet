@@ -72,3 +72,68 @@ impl Store for CompositeStore {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::convert::TryFrom;
+
+    struct FakeBase {}
+    struct FakeInterceptor {}
+
+    #[async_trait]
+    impl Store for FakeBase {
+        async fn get(
+            &self,
+            _image_ref: &Reference,
+            _pull_policy: Option<PullPolicy>,
+        ) -> anyhow::Result<Vec<u8>> {
+            Ok(vec![11, 10, 5, 14])
+        }
+    }
+
+    #[async_trait]
+    impl Store for FakeInterceptor {
+        async fn get(
+            &self,
+            _image_ref: &Reference,
+            _pull_policy: Option<PullPolicy>,
+        ) -> anyhow::Result<Vec<u8>> {
+            Ok(vec![1, 2, 3])
+        }
+    }
+
+    impl InterceptingStore for FakeInterceptor {
+        fn intercepts(&self, image_ref: &Reference) -> bool {
+            image_ref.whole().starts_with("int")
+        }
+    }
+
+    #[tokio::test]
+    async fn if_interceptor_matches_then_composite_store_returns_intercepting_value() {
+        let store = Arc::new(FakeBase {}).with_override(Arc::new(FakeInterceptor {}));
+        let result = store
+            .get(
+                &Reference::try_from("int/foo").unwrap(),
+                Some(PullPolicy::Never),
+            )
+            .await
+            .unwrap();
+        assert_eq!(3, result.len());
+        assert_eq!(1, result[0]);
+    }
+
+    #[tokio::test]
+    async fn if_interceptor_does_not_match_then_composite_store_returns_base_value() {
+        let store = Arc::new(FakeBase {}).with_override(Arc::new(FakeInterceptor {}));
+        let result = store
+            .get(
+                &Reference::try_from("mint/foo").unwrap(),
+                Some(PullPolicy::Never),
+            )
+            .await
+            .unwrap();
+        assert_eq!(4, result.len());
+        assert_eq!(11, result[0]);
+    }
+}
