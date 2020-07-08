@@ -352,13 +352,24 @@ async fn create_pod_with_init_containers(
                             "name": "hostpath-test"
                         }
                     ]
+                },
+                {
+                    "name": "init-2",
+                    "image": "webassembly.azurecr.io/wasmerciser:v0.1.0",
+                    "args": [ "write(lit:kiki)to(file:/hp/neatcat.txt)" ],
+                    "volumeMounts": [
+                        {
+                            "mountPath": "/hp",
+                            "name": "hostpath-test"
+                        }
+                    ]
                 }
             ],
             "containers": [
                 {
                     "name": pod_name,
                     "image": "webassembly.azurecr.io/wasmerciser:v0.1.0",
-                    "args": [ "assert_exists(file:/hp/floofycat.txt)", "read(file:/hp/floofycat.txt)to(var:fcat)", "assert_value(var:fcat)is(lit:slats)", "write(var:fcat)to(stm:stdout)" ],
+                    "args": [ "assert_exists(file:/hp/floofycat.txt)", "assert_exists(file:/hp/neatcat.txt)", "read(file:/hp/floofycat.txt)to(var:fcat)", "assert_value(var:fcat)is(lit:slats)", "write(var:fcat)to(stm:stdout)" ],
                     "volumeMounts": [
                         {
                             "mountPath": "/hp",
