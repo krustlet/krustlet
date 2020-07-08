@@ -2,7 +2,7 @@ export RUST_LOG := "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,ma
 export PFX_PASSWORD := "testing"
 export CONFIG_DIR := env_var_or_default('CONFIG_DIR', '$HOME/.krustlet/config')
 
-run: run-wascc
+run: build
 
 build +FLAGS='':
     cargo build {{FLAGS}}
