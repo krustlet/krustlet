@@ -1,5 +1,7 @@
 use futures::{StreamExt, TryStreamExt};
-use k8s_openapi::api::core::v1::{ConfigMap, Node, Pod, Secret, Taint};
+use k8s_openapi::api::core::v1::{
+    ConfigMap, Container, Node, Pod, Secret, Taint, Volume, VolumeMount,
+};
 use kube::{
     api::{Api, DeleteParams, ListParams, LogParams, PostParams, WatchEvent},
     runtime::Informer,
@@ -328,12 +330,77 @@ async fn create_faily_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resu
     wait_for_pod(client, pod_name).await
 }
 
-async fn create_pod_with_init_containers(
+struct WasmerciserContainerSpec {
+    name: &'static str,
+    args: &'static [&'static str],
+}
+
+struct WasmerciserVolumeSpec {
+    volume_name: &'static str,
+    mount_path: &'static str,
+}
+
+fn wasmerciser_container(
+    spec: &WasmerciserContainerSpec,
+    volumes: &Vec<WasmerciserVolumeSpec>,
+) -> anyhow::Result<Container> {
+    let volume_mounts: Vec<_> = volumes
+        .iter()
+        .map(|v| wasmerciser_volume_mount(v).unwrap())
+        .collect();
+    let container: Container = serde_json::from_value(json!({
+        "name": spec.name,
+        "image": "webassembly.azurecr.io/wasmerciser:v0.1.0",
+        "args": spec.args,
+        "volumeMounts": volume_mounts,
+    }))?;
+    Ok(container)
+}
+
+fn wasmerciser_volume_mount(spec: &WasmerciserVolumeSpec) -> anyhow::Result<VolumeMount> {
+    let mount: VolumeMount = serde_json::from_value(json!({
+        "mountPath": spec.mount_path,
+        "name": spec.volume_name
+    }))?;
+    Ok(mount)
+}
+
+fn wasmerciser_volume(spec: &WasmerciserVolumeSpec) -> anyhow::Result<(Volume, tempfile::TempDir)> {
+    let tempdir = tempfile::tempdir()?;
+
+    let volume: Volume = serde_json::from_value(json!({
+        "name": spec.volume_name,
+        "hostPath": {
+            "path": tempdir.path()
+        }
+    }))?;
+
+    Ok((volume, tempdir))
+}
+
+async fn wasmercise(
+    pod_name: &str,
     client: kube::Client,
     pods: &Api<Pod>,
+    inits: Vec<WasmerciserContainerSpec>,
+    containers: Vec<WasmerciserContainerSpec>,
+    test_volumes: Vec<WasmerciserVolumeSpec>,
 ) -> anyhow::Result<()> {
-    let pod_name = INITY_WASI_POD;
-    let tempdir = tempfile::tempdir()?;
+    let init_container_specs: Vec<_> = inits
+        .iter()
+        .map(|spec| wasmerciser_container(spec, &test_volumes).unwrap())
+        .collect();
+    let app_container_specs: Vec<_> = containers
+        .iter()
+        .map(|spec| wasmerciser_container(spec, &test_volumes).unwrap())
+        .collect();
+
+    let volume_maps: Vec<_> = test_volumes
+        .iter()
+        .map(|spec| wasmerciser_volume(spec).unwrap())
+        .collect();
+    let volumes: Vec<_> = volume_maps.iter().map(|v| &v.0).collect();
+
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
         "kind": "Pod",
@@ -341,43 +408,8 @@ async fn create_pod_with_init_containers(
             "name": pod_name
         },
         "spec": {
-            "initContainers": [
-                {
-                    "name": "init-1",
-                    "image": "webassembly.azurecr.io/wasmerciser:v0.1.0",
-                    "args": [ "write(lit:slats)to(file:/hp/floofycat.txt)" ],
-                    "volumeMounts": [
-                        {
-                            "mountPath": "/hp",
-                            "name": "hostpath-test"
-                        }
-                    ]
-                },
-                {
-                    "name": "init-2",
-                    "image": "webassembly.azurecr.io/wasmerciser:v0.1.0",
-                    "args": [ "write(lit:kiki)to(file:/hp/neatcat.txt)" ],
-                    "volumeMounts": [
-                        {
-                            "mountPath": "/hp",
-                            "name": "hostpath-test"
-                        }
-                    ]
-                }
-            ],
-            "containers": [
-                {
-                    "name": pod_name,
-                    "image": "webassembly.azurecr.io/wasmerciser:v0.1.0",
-                    "args": [ "assert_exists(file:/hp/floofycat.txt)", "assert_exists(file:/hp/neatcat.txt)", "read(file:/hp/floofycat.txt)to(var:fcat)", "assert_value(var:fcat)is(lit:slats)", "write(var:fcat)to(stm:stdout)" ],
-                    "volumeMounts": [
-                        {
-                            "mountPath": "/hp",
-                            "name": "hostpath-test"
-                        }
-                    ]
-                },
-            ],
+            "initContainers": init_container_specs,
+            "containers": app_container_specs,
             "tolerations": [
                 {
                     "effect": "NoExecute",
@@ -386,14 +418,7 @@ async fn create_pod_with_init_containers(
                     "value": "wasm32-wasi"
                 },
             ],
-            "volumes": [
-                {
-                    "name": "hostpath-test",
-                    "hostPath": {
-                        "path": tempdir.path()
-                    }
-                }
-            ]
+            "volumes": volumes,
         }
     }))?;
 
@@ -402,6 +427,42 @@ async fn create_pod_with_init_containers(
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
     wait_for_pod(client, pod_name).await
+}
+
+async fn create_pod_with_init_containers(
+    client: kube::Client,
+    pods: &Api<Pod>,
+) -> anyhow::Result<()> {
+    let pod_name = INITY_WASI_POD;
+
+    let inits = vec![
+        WasmerciserContainerSpec {
+            name: "init-1",
+            args: &["write(lit:slats)to(file:/hp/floofycat.txt)"],
+        },
+        WasmerciserContainerSpec {
+            name: "init-2",
+            args: &["write(lit:kiki)to(file:/hp/neatcat.txt)"],
+        },
+    ];
+
+    let containers = vec![WasmerciserContainerSpec {
+        name: pod_name,
+        args: &[
+            "assert_exists(file:/hp/floofycat.txt)",
+            "assert_exists(file:/hp/neatcat.txt)",
+            "read(file:/hp/floofycat.txt)to(var:fcat)",
+            "assert_value(var:fcat)is(lit:slats)",
+            "write(var:fcat)to(stm:stdout)",
+        ],
+    }];
+
+    let volumes = vec![WasmerciserVolumeSpec {
+        volume_name: "hostpath-test",
+        mount_path: "/hp",
+    }];
+
+    wasmercise(pod_name, client, pods, inits, containers, volumes).await
 }
 
 async fn wait_for_pod(client: kube::Client, pod_name: &str) -> anyhow::Result<()> {
