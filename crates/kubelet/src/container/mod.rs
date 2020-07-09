@@ -28,7 +28,7 @@ pub enum PullPolicy {
 impl PullPolicy {
     /// Get image pull policy of container applying defaults if None from:
     /// https://kubernetes.io/docs/concepts/configuration/overview/#container-images
-    pub fn parse_with_ref(policy: Option<&str>, image: Option<Reference>) -> anyhow::Result<Self> {
+    pub fn parse_effective(policy: Option<&str>, image: Option<Reference>) -> anyhow::Result<Self> {
         match PullPolicy::parse(policy)? {
             Some(policy) => Ok(policy),
             None => match image {
@@ -100,9 +100,9 @@ impl Container {
         }
     }
 
-    /// Get image pull policy of container.
-    pub fn image_pull_policy(&self) -> anyhow::Result<PullPolicy> {
-        PullPolicy::parse_with_ref(self.0.image_pull_policy.as_deref(), self.image()?)
+    /// Get effective pull policy of container.
+    pub fn effective_pull_policy(&self) -> anyhow::Result<PullPolicy> {
+        PullPolicy::parse_effective(self.0.image_pull_policy.as_deref(), self.image()?)
     }
 
     /// Get lifecycle of container.

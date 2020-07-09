@@ -330,7 +330,7 @@ mod test {
         let fake_ref = Reference::try_from("foo/bar:2.0")?;
         let scratch_dir = create_temp_dir();
         let store = FileStore::new(fake_client.clone(), &scratch_dir.path);
-        let policy = PullPolicy::parse_with_ref(None, Some(fake_ref.clone()))?;
+        let policy = PullPolicy::parse_effective(None, Some(fake_ref.clone()))?;
         let module_bytes_orig = store.get(&fake_ref, policy).await?;
         assert_eq!(3, module_bytes_orig.len());
         assert_eq!(7, module_bytes_orig[1]);
@@ -350,7 +350,7 @@ mod test {
         let fake_ref = Reference::try_from("foo/bar:latest")?;
         let scratch_dir = create_temp_dir();
         let store = FileStore::new(fake_client.clone(), &scratch_dir.path);
-        let policy = PullPolicy::parse_with_ref(None, Some(fake_ref.clone()))?;
+        let policy = PullPolicy::parse_effective(None, Some(fake_ref.clone()))?;
         let module_bytes_orig = store.get(&fake_ref, policy).await?;
         assert_eq!(2, module_bytes_orig.len());
         assert_eq!(4, module_bytes_orig[1]);
@@ -367,7 +367,7 @@ mod test {
         let fake_ref = Reference::try_from("foo/bar")?;
         let scratch_dir = create_temp_dir();
         let store = FileStore::new(fake_client.clone(), &scratch_dir.path);
-        let policy = PullPolicy::parse_with_ref(None, Some(fake_ref.clone()))?;
+        let policy = PullPolicy::parse_effective(None, Some(fake_ref.clone()))?;
         let module_bytes_orig = store.get(&fake_ref, policy).await?;
         assert_eq!(2, module_bytes_orig.len());
         assert_eq!(4, module_bytes_orig[1]);

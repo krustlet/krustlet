@@ -71,7 +71,7 @@ pub trait Store {
                 .expect("Could not parse image.")
                 .expect("FATAL ERROR: container must have an image");
             let pull_policy = container
-                .image_pull_policy()
+                .effective_pull_policy()
                 .expect("Could not identify pull policy.");
             async move {
                 Ok((
