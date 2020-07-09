@@ -1,12 +1,13 @@
 use futures::{StreamExt, TryStreamExt};
-use k8s_openapi::api::core::v1::{
-    ConfigMap, Container, Node, Pod, Secret, Taint, Volume, VolumeMount,
-};
+use k8s_openapi::api::core::v1::{ConfigMap, Node, Pod, Secret, Taint};
 use kube::{
     api::{Api, DeleteParams, ListParams, LogParams, PostParams, WatchEvent},
     runtime::Informer,
 };
 use serde_json::json;
+
+mod pod_builder;
+use pod_builder::{wasmerciser_pod, WasmerciserContainerSpec, WasmerciserVolumeSpec};
 
 #[tokio::test]
 async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
@@ -330,54 +331,6 @@ async fn create_faily_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resu
     wait_for_pod(client, pod_name).await
 }
 
-struct WasmerciserContainerSpec {
-    name: &'static str,
-    args: &'static [&'static str],
-}
-
-struct WasmerciserVolumeSpec {
-    volume_name: &'static str,
-    mount_path: &'static str,
-}
-
-fn wasmerciser_container(
-    spec: &WasmerciserContainerSpec,
-    volumes: &Vec<WasmerciserVolumeSpec>,
-) -> anyhow::Result<Container> {
-    let volume_mounts: Vec<_> = volumes
-        .iter()
-        .map(|v| wasmerciser_volume_mount(v).unwrap())
-        .collect();
-    let container: Container = serde_json::from_value(json!({
-        "name": spec.name,
-        "image": "webassembly.azurecr.io/wasmerciser:v0.1.0",
-        "args": spec.args,
-        "volumeMounts": volume_mounts,
-    }))?;
-    Ok(container)
-}
-
-fn wasmerciser_volume_mount(spec: &WasmerciserVolumeSpec) -> anyhow::Result<VolumeMount> {
-    let mount: VolumeMount = serde_json::from_value(json!({
-        "mountPath": spec.mount_path,
-        "name": spec.volume_name
-    }))?;
-    Ok(mount)
-}
-
-fn wasmerciser_volume(spec: &WasmerciserVolumeSpec) -> anyhow::Result<(Volume, tempfile::TempDir)> {
-    let tempdir = tempfile::tempdir()?;
-
-    let volume: Volume = serde_json::from_value(json!({
-        "name": spec.volume_name,
-        "hostPath": {
-            "path": tempdir.path()
-        }
-    }))?;
-
-    Ok((volume, tempdir))
-}
-
 async fn wasmercise(
     pod_name: &str,
     client: kube::Client,
@@ -386,43 +339,9 @@ async fn wasmercise(
     containers: Vec<WasmerciserContainerSpec>,
     test_volumes: Vec<WasmerciserVolumeSpec>,
 ) -> anyhow::Result<()> {
-    let init_container_specs: Vec<_> = inits
-        .iter()
-        .map(|spec| wasmerciser_container(spec, &test_volumes).unwrap())
-        .collect();
-    let app_container_specs: Vec<_> = containers
-        .iter()
-        .map(|spec| wasmerciser_container(spec, &test_volumes).unwrap())
-        .collect();
+    let p = wasmerciser_pod(pod_name, inits, containers, test_volumes)?;
 
-    let volume_maps: Vec<_> = test_volumes
-        .iter()
-        .map(|spec| wasmerciser_volume(spec).unwrap())
-        .collect();
-    let volumes: Vec<_> = volume_maps.iter().map(|v| &v.0).collect();
-
-    let p = serde_json::from_value(json!({
-        "apiVersion": "v1",
-        "kind": "Pod",
-        "metadata": {
-            "name": pod_name
-        },
-        "spec": {
-            "initContainers": init_container_specs,
-            "containers": app_container_specs,
-            "tolerations": [
-                {
-                    "effect": "NoExecute",
-                    "key": "krustlet/arch",
-                    "operator": "Equal",
-                    "value": "wasm32-wasi"
-                },
-            ],
-            "volumes": volumes,
-        }
-    }))?;
-
-    let pod = pods.create(&PostParams::default(), &p).await?;
+    let pod = pods.create(&PostParams::default(), &p.pod).await?;
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
