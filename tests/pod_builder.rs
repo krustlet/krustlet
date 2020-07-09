@@ -1,10 +1,10 @@
-use std::sync::Arc;
 use k8s_openapi::api::core::v1::{Container, Pod, Volume, VolumeMount};
 use serde_json::json;
+use std::sync::Arc;
 
 pub struct PodLifetimeOwner {
     pub pod: Pod,
-    _tempdirs: Vec<Arc<tempfile::TempDir>>,  // only to keep the directories alive
+    _tempdirs: Vec<Arc<tempfile::TempDir>>, // only to keep the directories alive
 }
 
 pub struct WasmerciserContainerSpec {
@@ -42,7 +42,9 @@ fn wasmerciser_volume_mount(spec: &WasmerciserVolumeSpec) -> anyhow::Result<Volu
     Ok(mount)
 }
 
-fn wasmerciser_volume(spec: &WasmerciserVolumeSpec) -> anyhow::Result<(Volume, Arc<tempfile::TempDir>)> {
+fn wasmerciser_volume(
+    spec: &WasmerciserVolumeSpec,
+) -> anyhow::Result<(Volume, Arc<tempfile::TempDir>)> {
     let tempdir = Arc::new(tempfile::tempdir()?);
 
     let volume: Volume = serde_json::from_value(json!({
@@ -60,6 +62,7 @@ pub fn wasmerciser_pod(
     inits: Vec<WasmerciserContainerSpec>,
     containers: Vec<WasmerciserContainerSpec>,
     test_volumes: Vec<WasmerciserVolumeSpec>,
+    architecture: &str,
 ) -> anyhow::Result<PodLifetimeOwner> {
     let init_container_specs: Vec<_> = inits
         .iter()
@@ -90,14 +93,17 @@ pub fn wasmerciser_pod(
                     "effect": "NoExecute",
                     "key": "krustlet/arch",
                     "operator": "Equal",
-                    "value": "wasm32-wasi"
+                    "value": architecture,
                 },
             ],
             "volumes": volumes,
         }
     }))?;
 
-    Ok(PodLifetimeOwner{ pod, _tempdirs: tempdirs })
+    Ok(PodLifetimeOwner {
+        pod,
+        _tempdirs: tempdirs,
+    })
 }
 
 fn unzip<T, U: Clone>(source: &Vec<(T, U)>) -> (Vec<&T>, Vec<U>) {

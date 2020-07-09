@@ -16,6 +16,35 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     let nodes: Api<Node> = Api::all(client);
 
     let node = nodes.get("krustlet-wascc").await?;
+
+    verify_wascc_node(node).await;
+
+    let client: kube::Client = nodes.into();
+
+    let _cleaner = WasccTestResourceCleaner {};
+
+    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
+
+    create_wascc_pod(client.clone(), &pods).await?;
+
+    // Send a request to the pod to trigger some logging
+    reqwest::get("http://127.0.0.1:30000")
+        .await
+        .expect("unable to perform request to test pod");
+
+    let logs = pods
+        .logs("greet-wascc", &LogParams::default())
+        .await
+        .expect("unable to get logs");
+    assert!(logs.contains("warn something"));
+    assert!(logs.contains("info something"));
+    assert!(logs.contains("raw msg I'm a Body!"));
+    assert!(logs.contains("error body"));
+
+    Ok(())
+}
+
+async fn verify_wascc_node(node: Node) -> () {
     let node_status = node.status.expect("node reported no status");
     assert_eq!(
         node_status
@@ -56,9 +85,40 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         }
     );
+}
 
-    let client: kube::Client = nodes.into();
-    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
+async fn wait_for_pod_ready(client: kube::Client, pod_name: &str) -> anyhow::Result<()> {
+    let api = Api::namespaced(client, "default");
+    let inf: Informer<Pod> = Informer::new(api).params(
+        ListParams::default()
+            .fields(&format!("metadata.name={}", pod_name))
+            .timeout(30),
+    );
+
+    let mut watcher = inf.poll().await?.boxed();
+    let mut went_ready = false;
+    while let Some(event) = watcher.try_next().await? {
+        match event {
+            WatchEvent::Modified(o) => {
+                let phase = o.status.unwrap().phase.unwrap();
+                if phase == "Running" {
+                    went_ready = true;
+                    break;
+                }
+            }
+            WatchEvent::Error(e) => {
+                panic!("WatchEvent error: {:?}", e);
+            }
+            _ => {}
+        }
+    }
+
+    assert!(went_ready, "pod never went ready");
+
+    Ok(())
+}
+
+async fn create_wascc_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
         "kind": "Pod",
@@ -92,51 +152,35 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     let pod = pods.create(&PostParams::default(), &p).await?;
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
-    let api = Api::namespaced(client, "default");
-    let inf: Informer<Pod> = Informer::new(api).params(
-        ListParams::default()
-            .fields("metadata.name=greet-wascc")
-            .timeout(30),
-    );
 
-    let mut watcher = inf.poll().await?.boxed();
-    let mut went_ready = false;
-    while let Some(event) = watcher.try_next().await? {
-        match event {
-            WatchEvent::Modified(o) => {
-                let phase = o.status.unwrap().phase.unwrap();
-                if phase == "Running" {
-                    went_ready = true;
-                    break;
-                }
-            }
-            WatchEvent::Error(e) => {
-                panic!("WatchEvent error: {:?}", e);
-            }
-            _ => {}
-        }
-    }
-
-    assert!(went_ready, "pod never went ready");
-
-    // Send a request to the pod to trigger some logging
-    reqwest::get("http://127.0.0.1:30000")
-        .await
-        .expect("unable to perform request to test pod");
-
-    let logs = pods
-        .logs("greet-wascc", &LogParams::default())
-        .await
-        .expect("unable to get logs");
-    assert!(logs.contains("warn something"));
-    assert!(logs.contains("info something"));
-    assert!(logs.contains("raw msg I'm a Body!"));
-    assert!(logs.contains("error body"));
-
-    // cleanup
-    pods.delete("greet-wascc", &DeleteParams::default()).await?;
+    wait_for_pod_ready(client, "greet-wascc").await?;
 
     Ok(())
+}
+
+struct WasccTestResourceCleaner {}
+
+impl Drop for WasccTestResourceCleaner {
+    fn drop(&mut self) {
+        let t = std::thread::spawn(move || {
+            let mut rt =
+                tokio::runtime::Runtime::new().expect("Failed to reate Tokio runtime for cleanup");
+            rt.block_on(clean_up_wascc_test_resources());
+        });
+
+        t.join().expect("Failed to clean up wasCC test resources");
+    }
+}
+
+async fn clean_up_wascc_test_resources() -> () {
+    let client = kube::Client::try_default()
+        .await
+        .expect("Failed to create client");
+
+    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
+    pods.delete("greet-wascc", &DeleteParams::default())
+        .await
+        .expect("Failed to delete pod");
 }
 
 async fn verify_wasi_node(node: Node) -> () {
@@ -256,7 +300,7 @@ async fn create_wasi_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resul
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    wait_for_pod(client, pod_name).await
+    wait_for_pod_complete(client, pod_name).await
 }
 
 async fn create_fancy_schmancy_wasi_pod(
@@ -293,7 +337,7 @@ async fn create_fancy_schmancy_wasi_pod(
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    wait_for_pod(client, pod_name).await
+    wait_for_pod_complete(client, pod_name).await
 }
 
 async fn create_faily_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
@@ -328,10 +372,10 @@ async fn create_faily_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resu
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    wait_for_pod(client, pod_name).await
+    wait_for_pod_complete(client, pod_name).await
 }
 
-async fn wasmercise(
+async fn wasmercise_wasi(
     pod_name: &str,
     client: kube::Client,
     pods: &Api<Pod>,
@@ -339,13 +383,13 @@ async fn wasmercise(
     containers: Vec<WasmerciserContainerSpec>,
     test_volumes: Vec<WasmerciserVolumeSpec>,
 ) -> anyhow::Result<()> {
-    let p = wasmerciser_pod(pod_name, inits, containers, test_volumes)?;
+    let p = wasmerciser_pod(pod_name, inits, containers, test_volumes, "wasm32-wasi")?;
 
     let pod = pods.create(&PostParams::default(), &p.pod).await?;
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    wait_for_pod(client, pod_name).await
+    wait_for_pod_complete(client, pod_name).await
 }
 
 async fn create_pod_with_init_containers(
@@ -381,10 +425,10 @@ async fn create_pod_with_init_containers(
         mount_path: "/hp",
     }];
 
-    wasmercise(pod_name, client, pods, inits, containers, volumes).await
+    wasmercise_wasi(pod_name, client, pods, inits, containers, volumes).await
 }
 
-async fn wait_for_pod(client: kube::Client, pod_name: &str) -> anyhow::Result<()> {
+async fn wait_for_pod_complete(client: kube::Client, pod_name: &str) -> anyhow::Result<()> {
     let api = Api::namespaced(client.clone(), "default");
     let inf: Informer<Pod> = Informer::new(api).params(
         ListParams::default()
