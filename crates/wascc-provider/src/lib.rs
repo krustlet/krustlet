@@ -31,10 +31,9 @@
 #![deny(missing_docs)]
 
 use async_trait::async_trait;
-use k8s_openapi::api::core::v1::{
-    Container as KubeContainer, ContainerStatus as KubeContainerStatus, Pod as KubePod,
-};
+use k8s_openapi::api::core::v1::{ContainerStatus as KubeContainerStatus, Pod as KubePod};
 use kube::{api::DeleteParams, Api};
+use kubelet::container::Container;
 use kubelet::container::{Handle as ContainerHandle, Status as ContainerStatus};
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
@@ -432,24 +431,24 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
 
 fn validate_pod_runnable(pod: &Pod) -> anyhow::Result<()> {
     for container in pod.containers() {
-        validate_container_runnable(container)?;
+        validate_container_runnable(&container)?;
     }
     Ok(())
 }
 
-fn validate_container_runnable(container: &KubeContainer) -> anyhow::Result<()> {
+fn validate_container_runnable(container: &Container) -> anyhow::Result<()> {
     if has_args(container) {
         return Err(anyhow::anyhow!(
             "Cannot run {}: spec specifies container args which are not supported on wasCC",
-            container.name
+            container.name()
         ));
     }
 
     Ok(())
 }
 
-fn has_args(container: &KubeContainer) -> bool {
-    match &container.args {
+fn has_args(container: &Container) -> bool {
+    match &container.args() {
         None => false,
         Some(vec) => !vec.is_empty(),
     }
@@ -590,6 +589,7 @@ fn wascc_run(
 #[cfg(test)]
 mod test {
     use super::*;
+    use k8s_openapi::api::core::v1::Container as KubeContainer;
     use serde_json::json;
 
     fn make_pod_spec(containers: Vec<KubeContainer>) -> Pod {
