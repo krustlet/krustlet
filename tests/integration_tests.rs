@@ -67,6 +67,12 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     "name": "greet-wascc",
                     "image": "webassembly.azurecr.io/greet-wascc:v0.4",
+                    "ports": [
+                        {
+                            "containerPort": 8080,
+                            "hostPort": 30000
+                        }
+                    ],
                 },
             ],
             "tolerations": [
@@ -83,7 +89,6 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     let pod = pods.create(&PostParams::default(), &p).await?;
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
-
     let api = Api::namespaced(client, "default");
     let inf: Informer<Pod> = Informer::new(api).params(
         ListParams::default()
@@ -112,7 +117,7 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     assert!(went_ready, "pod never went ready");
 
     // Send a request to the pod to trigger some logging
-    reqwest::get("http://127.0.0.1:8080")
+    reqwest::get("http://127.0.0.1:30000")
         .await
         .expect("unable to perform request to test pod");
 

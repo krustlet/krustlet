@@ -132,7 +132,7 @@ pub struct WasccProvider<S> {
     log_path: PathBuf,
     kubeconfig: kube::Config,
     host: Arc<Mutex<WasccHost>>,
-    port_set: Arc<Mutex<HashSet<i32>>>,
+    port_set: Arc<Mutex<HashMap<i32, String>>>,
 }
 
 impl<S: Store + Send + Sync> WasccProvider<S> {
@@ -146,7 +146,7 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
         let host = Arc::new(Mutex::new(WasccHost::new()));
         let log_path = config.data_dir.join(LOG_DIR_NAME);
         let volume_path = config.data_dir.join(VOLUME_DIR);
-        let port_set = Arc::new(Mutex::new(HashSet::<i32>::new()));
+        let port_set = Arc::new(Mutex::new(HashMap::<i32, String>::new()));
         tokio::fs::create_dir_all(&log_path).await?;
         tokio::fs::create_dir_all(&volume_path).await?;
 
@@ -227,29 +227,30 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
             let mut port_assigned: i32 = 0;
             info!(
                 "The following ports are already taken: {:?}",
-                self.port_set.lock().unwrap()
+                self.port_set.lock().unwrap().keys()
             );
+
             if let Some(container_vec) = container.ports.as_ref() {
                 for c_port in container_vec.iter() {
                     let container_port = c_port.container_port;
-                    let host_port = c_port.host_port;
-                    if c_port.host_port.is_none() {
-                        if container_port >= 0 && container_port <= 65536 {
-                            port_assigned = find_available_port(&self.port_set)?;
-                        }
-                    } else {
-                        if !self.port_set.lock().unwrap().contains(&host_port.unwrap()) {
-                            port_assigned = host_port.unwrap();
-                            self.port_set.lock().unwrap().insert(port_assigned);
+                    if let Some(host_port) = c_port.host_port {
+                        if !self.port_set.lock().unwrap().contains_key(&host_port) {
+                            port_assigned = host_port;
+                            self.port_set
+                                .lock()
+                                .unwrap()
+                                .insert(port_assigned, pod.name().to_string());
                         } else {
                             error!(
                                 "Failed to assign hostport {}, because it's taken",
-                                &host_port.unwrap()
+                                &host_port
                             );
-                            return Err(anyhow::anyhow!(
-                                "Port {} is currently in use",
-                                port_assigned
-                            ));
+                            return Err(anyhow::anyhow!("Port {} is currently in use", &host_port));
+                        }
+                    } else {
+                        if container_port >= 0 && container_port <= 65536 {
+                            port_assigned =
+                                find_available_port(&self.port_set, pod.name().to_string())?;
                         }
                     }
                 }
@@ -442,6 +443,13 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
     }
 
     async fn delete(&self, pod: Pod) -> anyhow::Result<()> {
+        let mut delete_key: i32 = 0;
+        for (key, val) in self.port_set.lock().unwrap().iter() {
+            if val == pod.name() {
+                delete_key = *key
+            }
+        }
+        self.port_set.lock().unwrap().remove(&delete_key);
         let mut handles = self.handles.write().await;
         match handles.remove(&key_from_pod(&pod)) {
             Some(_) => debug!(
@@ -548,7 +556,10 @@ impl Error for PortAllocationError {
     }
 }
 
-fn find_available_port(port_set: &Arc<Mutex<HashSet<i32>>>) -> Result<i32, PortAllocationError> {
+fn find_available_port(
+    port_set: &Arc<Mutex<HashMap<i32, String>>>,
+    pod_name: String,
+) -> Result<i32, PortAllocationError> {
     let mut range = rand::thread_rng();
     let mut port: i32 = -1;
 
@@ -556,8 +567,8 @@ fn find_available_port(port_set: &Arc<Mutex<HashSet<i32>>>) -> Result<i32, PortA
     while empty_port.len() < 2768 {
         port = range.gen_range(30000, 32768);
         empty_port.insert(port);
-        if !port_set.lock().unwrap().contains(&port) {
-            port_set.lock().unwrap().insert(port);
+        if !port_set.lock().unwrap().contains_key(&port) {
+            port_set.lock().unwrap().insert(port, pod_name);
             break;
         }
     }
