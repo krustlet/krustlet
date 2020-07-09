@@ -217,13 +217,14 @@ impl Pod {
 
     /// Get a pod's init containers
     pub fn init_containers(&self) -> Vec<Container> {
-        // We can't use and_then because that requires the lambda to return an Option,
-        // but we have to return an &Option to avoid a move.
-        let inits = match self.0.spec.as_ref() {
-            None => &None,
-            Some(spec) => &spec.init_containers,
-        };
-        inits.as_ref().unwrap_or_else(|| &EMPTY_VEC).iter().map(|c| Container::new(c)).collect()
+        self.0
+            .spec
+            .as_ref()
+            .and_then(|s| s.init_containers.as_ref())
+            .unwrap_or(&EMPTY_VEC)
+            .iter()
+            .map(|c| Container::new(c))
+            .collect()
     }
 
     /// Turn the Pod into the Kubernetes API version of a Pod
