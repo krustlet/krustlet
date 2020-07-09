@@ -1,6 +1,7 @@
 use anyhow::bail;
 use log::{debug, error, info};
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -160,8 +161,8 @@ impl WasiRuntime {
             let mut ctx_builder_snapshot = ctx_builder_snapshot
                 .args(&data.args)
                 .envs(&data.env)
-                .stdout(output_write.try_clone()?)
-                .stderr(output_write.try_clone()?);
+                .stdout(wasi_common::OsFile::try_from(output_write.try_clone()?)?)
+                .stderr(wasi_common::OsFile::try_from(output_write.try_clone()?)?);
             let mut ctx_builder_unstable = wasi_common::old::snapshot_0::WasiCtxBuilder::new();
             let mut ctx_builder_unstable = ctx_builder_unstable
                 .args(&data.args)
@@ -193,7 +194,7 @@ impl WasiRuntime {
 
             let wasi_snapshot = Wasi::new(&store, wasi_ctx_snapshot);
             let wasi_unstable = WasiUnstable::new(&store, wasi_ctx_unstable);
-            let module = match wasmtime::Module::new(&store, &data.module_data) {
+            let module = match wasmtime::Module::new(&engine, &data.module_data) {
                 // We can't map errors here or it moves the send channel, so we
                 // do it in a match
                 Ok(m) => m,
@@ -248,7 +249,7 @@ impl WasiRuntime {
                 }
             };
 
-            let instance = match wasmtime::Instance::new(&module, &imports) {
+            let instance = match wasmtime::Instance::new(&store, &module, &imports) {
                 // We can't map errors here or it moves the send channel, so we
                 // do it in a match
                 Ok(m) => m,
