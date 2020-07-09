@@ -21,7 +21,7 @@ const APPROVED_TYPE: &str = "Approved";
 
 /// bootstrap the cluster with TLS certificates
 pub async fn bootstrap<K: AsRef<Path>>(
-    config: &Box<KubeletConfig>,
+    config: &KubeletConfig,
     bootstrap_file: K,
 ) -> anyhow::Result<Config> {
     debug!("Starting bootstrap for {}", config.node_name);

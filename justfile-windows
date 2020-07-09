@@ -27,7 +27,7 @@ run-wascc +FLAGS='--no-default-features --features rustls-tls': bootstrap
     $env:KUBECONFIG = "$(Invoke-Expression "echo $env:CONFIG_DIR")\kubeconfig-wascc"; cargo run --release --bin krustlet-wascc {{FLAGS}} -- --node-name krustlet-wascc --port 3000 --bootstrap-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\bootstrap.conf" --cert-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wascc.crt" --private-key-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wascc.key"
 
 run-wasi +FLAGS='--no-default-features --features rustls-tls': bootstrap
-    $env:KUBECONFIG = "$(Invoke-Expression "echo $env:CONFIG_DIR")\kubeconfig-wasi"; cargo run --bin krustlet-wasi {{FLAGS}} -- --node-name krustlet-wasi --port 3000 --bootstrap-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\bootstrap.conf" --cert-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wasi.crt" --private-key-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wasi.key"
+    $env:KUBECONFIG = "$(Invoke-Expression "echo $env:CONFIG_DIR")\kubeconfig-wasi"; cargo run --bin krustlet-wasi {{FLAGS}} -- --node-name krustlet-wasi --port 3001 --bootstrap-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\bootstrap.conf" --cert-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wasi.crt" --private-key-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wasi.key"
 
 bootstrap:
     @# This is to get around an issue with the default function returning a string that gets escaped

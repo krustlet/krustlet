@@ -120,11 +120,11 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
             tokio::select! {
                 res = signal_handler => res.map_err(|e| {
                     error!("Signal handler task joined with error {:?}", &e);
-                    e.into()
+                    e
                 }),
                 res = pod_informer => res.map_err(|e| {
                     error!("Pod informer task joined with error {:?}", &e);
-                    e.into()
+                    e
                 })
             }
         });

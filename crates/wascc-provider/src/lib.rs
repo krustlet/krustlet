@@ -11,8 +11,8 @@
 //! use wascc_provider::WasccProvider;
 //!
 //! async fn start() {
-//!     // Get a configuration for the Kubelet
-//!     let kubelet_config = Config::default();
+//!     // Get a configuration for the Kubelet, Boxing it to avoid putting it on the stack
+//!     let kubelet_config = Box::new(Config::default());
 //!     let client = oci_distribution::Client::default();
 //!     let store = Arc::new(FileStore::new(client, &std::path::PathBuf::from("")));
 //!
@@ -147,7 +147,7 @@ impl WasccProvider {
     /// (including creating it if necessary)
     pub async fn new(
         store: Arc<dyn Store + Sync + Send>,
-        config: &Box<kubelet::config::Config,
+        config: &Box<kubelet::config::Config>,
         kubeconfig: kube::Config,
     ) -> anyhow::Result<Self> {
         let host = Arc::new(Mutex::new(WasccHost::new()));

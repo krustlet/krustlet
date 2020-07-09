@@ -11,8 +11,8 @@
 //! use wasi_provider::WasiProvider;
 //!
 //! async {
-//!     // Get a configuration for the Kubelet
-//!     let kubelet_config = Config::default();
+//!     // Get a configuration for the Kubelet, Boxing it to avoid putting it on the stack
+//!     let kubelet_config = Box::new(Config::default());
 //!     let client = oci_distribution::Client::default();
 //!     let store = Arc::new(FileStore::new(client, &std::path::PathBuf::from("")));
 //!
