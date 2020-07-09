@@ -176,6 +176,7 @@ async fn verify_wasi_node(node: Node) -> () {
 
 const SIMPLE_WASI_POD: &str = "hello-wasi";
 const VERBOSE_WASI_POD: &str = "hello-world-verbose";
+const FAILY_POD: &str = "faily-pod";
 
 async fn create_wasi_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
     let pod_name = SIMPLE_WASI_POD;
@@ -286,6 +287,43 @@ async fn create_fancy_schmancy_wasi_pod(
     wait_for_pod(client, pod_name).await
 }
 
+async fn create_faily_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
+    let pod_name = FAILY_POD;
+    let p = serde_json::from_value(json!({
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+            "name": pod_name
+        },
+        "spec": {
+            "containers": [
+                {
+                    "name": pod_name,
+                    "image": "webassembly.azurecr.io/wasmerciser:v0.1.0",
+                    "args": [ "assert_exists(file:/nope.nope.nope.txt)" ]
+                },
+            ],
+            "tolerations": [
+                {
+                    "effect": "NoExecute",
+                    "key": "krustlet/arch",
+                    "operator": "Equal",
+                    "value": "wasm32-wasi"
+                },
+            ]
+        }
+    }))?;
+
+    // TODO: Create a testing module to write to the path to actually check that writing and reading
+    // from a host path volume works
+
+    let pod = pods.create(&PostParams::default(), &p).await?;
+
+    assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
+
+    wait_for_pod(client, pod_name).await
+}
+
 async fn wait_for_pod(client: kube::Client, pod_name: &str) -> anyhow::Result<()> {
     let api = Api::namespaced(client.clone(), "default");
     let inf: Informer<Pod> = Informer::new(api).params(
@@ -382,6 +420,9 @@ async fn clean_up_wasi_test_resources() -> () {
     pods.delete(VERBOSE_WASI_POD, &DeleteParams::default())
         .await
         .expect("Failed to delete pod");
+    pods.delete(FAILY_POD, &DeleteParams::default())
+        .await
+        .expect("Failed to delete pod");
 }
 
 struct WasiTestResourceCleaner {}
@@ -440,6 +481,16 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
 
     assert_pod_log_contains(&pods, VERBOSE_WASI_POD, r#"Args are: ["arg1", "arg2"]"#).await?;
 
+    create_faily_pod(client.clone(), &pods).await?;
+
+    assert_pod_exited_with_failure(&pods, FAILY_POD).await?;
+    assert_pod_log_contains(
+        &pods,
+        FAILY_POD,
+        r#"ERR: Failed with File /nope.nope.nope.txt was expected to exist but did not"#,
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -497,6 +548,22 @@ async fn assert_pod_exited_successfully(pods: &Api<Pod>, pod_name: &str) -> anyh
     })()
     .expect("Could not fetch terminated states");
     assert_eq!(state.exit_code, 0);
+
+    Ok(())
+}
+
+async fn assert_pod_exited_with_failure(pods: &Api<Pod>, pod_name: &str) -> anyhow::Result<()> {
+    let pod = pods.get(pod_name).await?;
+
+    let state = (|| {
+        pod.status?.container_statuses?[0]
+            .state
+            .as_ref()?
+            .terminated
+            .clone()
+    })()
+    .expect("Could not fetch terminated states");
+    assert_eq!(state.exit_code, 1);
 
     Ok(())
 }
