@@ -20,7 +20,7 @@ crate-type = ["cdylib", "rlib"]
 static_plugin = [] # Enable to statically compile this into a host
 
 [dependencies]
-wascc-codec = "0.6"
+wascc-codec = "0.7"
 log = "0.4"
 simplelog = "0.7"
 tempfile = "3.1"
