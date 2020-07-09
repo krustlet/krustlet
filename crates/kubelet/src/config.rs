@@ -53,7 +53,8 @@ pub struct Config {
     pub max_pods: u16,
     /// The location of the tls bootstrapping file
     pub bootstrap_file: PathBuf,
-    /// Whether to allow modules to be loaded directly from the filesystem
+    /// Whether to allow modules to be loaded directly from local
+    /// filesystem paths, as well as from registries
     pub allow_local_modules: bool,
 }
 /// The configuration for the Kubelet server.
