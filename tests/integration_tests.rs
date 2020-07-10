@@ -229,7 +229,9 @@ async fn verify_wasi_node(node: Node) -> () {
 const SIMPLE_WASI_POD: &str = "hello-wasi";
 const VERBOSE_WASI_POD: &str = "hello-world-verbose";
 const FAILY_POD: &str = "faily-pod";
+const LOGGY_POD: &str = "loggy-pod";
 const INITY_WASI_POD: &str = "hello-wasi-with-inits";
+const FAILY_INITS_POD: &str = "faily-inits-pod";
 
 async fn create_wasi_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
     let pod_name = SIMPLE_WASI_POD;
@@ -300,7 +302,7 @@ async fn create_wasi_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resul
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    wait_for_pod_complete(client, pod_name).await
+    wait_for_pod_complete(client, pod_name, OnFailure::Panic).await
 }
 
 async fn create_fancy_schmancy_wasi_pod(
@@ -337,7 +339,30 @@ async fn create_fancy_schmancy_wasi_pod(
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    wait_for_pod_complete(client, pod_name).await
+    wait_for_pod_complete(client, pod_name, OnFailure::Panic).await
+}
+
+async fn create_loggy_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
+    let pod_name = LOGGY_POD;
+
+    let containers = vec![WasmerciserContainerSpec {
+        name: "floofycat",
+        args: &["write(lit:slats)to(stm:stdout)"],
+    }, WasmerciserContainerSpec {
+        name: "neatcat",
+        args: &["write(lit:kiki)to(stm:stdout)"],
+    }];
+
+    wasmercise_wasi(
+        pod_name,
+        client,
+        pods,
+        vec![],
+        containers,
+        vec![],
+        OnFailure::Panic,
+    )
+    .await
 }
 
 async fn create_faily_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
@@ -348,7 +373,16 @@ async fn create_faily_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resu
         args: &["assert_exists(file:/nope.nope.nope.txt)"],
     }];
 
-    wasmercise_wasi(pod_name, client, pods, vec![], containers, vec![]).await
+    wasmercise_wasi(
+        pod_name,
+        client,
+        pods,
+        vec![],
+        containers,
+        vec![],
+        OnFailure::Accept,
+    )
+    .await
 }
 
 async fn wasmercise_wasi(
@@ -358,6 +392,7 @@ async fn wasmercise_wasi(
     inits: Vec<WasmerciserContainerSpec>,
     containers: Vec<WasmerciserContainerSpec>,
     test_volumes: Vec<WasmerciserVolumeSpec>,
+    on_failure: OnFailure,
 ) -> anyhow::Result<()> {
     let p = wasmerciser_pod(pod_name, inits, containers, test_volumes, "wasm32-wasi")?;
 
@@ -365,7 +400,7 @@ async fn wasmercise_wasi(
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    wait_for_pod_complete(client, pod_name).await
+    wait_for_pod_complete(client, pod_name, on_failure).await
 }
 
 async fn create_pod_with_init_containers(
@@ -401,10 +436,63 @@ async fn create_pod_with_init_containers(
         mount_path: "/hp",
     }];
 
-    wasmercise_wasi(pod_name, client, pods, inits, containers, volumes).await
+    wasmercise_wasi(
+        pod_name,
+        client,
+        pods,
+        inits,
+        containers,
+        volumes,
+        OnFailure::Panic,
+    )
+    .await
 }
 
-async fn wait_for_pod_complete(client: kube::Client, pod_name: &str) -> anyhow::Result<()> {
+async fn create_pod_with_failing_init_container(
+    client: kube::Client,
+    pods: &Api<Pod>,
+) -> anyhow::Result<()> {
+    let pod_name = FAILY_INITS_POD;
+
+    let inits = vec![
+        WasmerciserContainerSpec {
+            name: "init-that-fails",
+            args: &["assert_exists(file:/nope.nope.nope.txt)"],
+        },
+        WasmerciserContainerSpec {
+            name: "init-that-would-succeed-if-it-ran",
+            args: &["write(lit:slats)to(stm:stdout)"],
+        },
+    ];
+
+    let containers = vec![WasmerciserContainerSpec {
+        name: pod_name,
+        args: &["assert_exists(file:/also.nope.txt)"],
+    }];
+
+    wasmercise_wasi(
+        pod_name,
+        client,
+        pods,
+        inits,
+        containers,
+        vec![],
+        OnFailure::Accept,
+    )
+    .await
+}
+
+#[derive(PartialEq)]
+enum OnFailure {
+    Accept,
+    Panic,
+}
+
+async fn wait_for_pod_complete(
+    client: kube::Client,
+    pod_name: &str,
+    on_failure: OnFailure,
+) -> anyhow::Result<()> {
     let api = Api::namespaced(client.clone(), "default");
     let inf: Informer<Pod> = Informer::new(api).params(
         ListParams::default()
@@ -418,6 +506,9 @@ async fn wait_for_pod_complete(client: kube::Client, pod_name: &str) -> anyhow::
         match event {
             WatchEvent::Modified(o) => {
                 let phase = o.status.unwrap().phase.unwrap();
+                if phase == "Failed" && on_failure == OnFailure::Accept {
+                    return Ok(());
+                }
                 if phase == "Running" {
                     went_ready = true;
                 }
@@ -477,7 +568,7 @@ async fn set_up_wasi_test_environment(client: kube::Client) -> anyhow::Result<()
     Ok(())
 }
 
-async fn clean_up_wasi_test_resources() -> () {
+async fn clean_up_wasi_test_resources() -> anyhow::Result<()> {
     let client = kube::Client::try_default()
         .await
         .expect("Failed to create client");
@@ -509,22 +600,33 @@ async fn clean_up_wasi_test_resources() -> () {
             .await
             .err()
             .map(|e| format!("pod {} ({})", FAILY_POD, e)),
+        pods.delete(LOGGY_POD, &DeleteParams::default())
+            .await
+            .err()
+            .map(|e| format!("pod {} ({})", LOGGY_POD, e)),
         pods.delete(INITY_WASI_POD, &DeleteParams::default())
             .await
             .err()
             .map(|e| format!("pod {} ({})", INITY_WASI_POD, e)),
+        pods.delete(FAILY_INITS_POD, &DeleteParams::default())
+            .await
+            .err()
+            .map(|e| format!("pod {} ({})", FAILY_INITS_POD, e)),
     ]
     .iter()
     .filter(|e| e.is_some())
     .map(|e| e.as_ref().unwrap().to_string())
+    .filter(|s| !s.contains(r#"reason: "NotFound""#))
     .collect();
 
-    if !cleanup_errors.is_empty() {
+    if cleanup_errors.is_empty() {
+        Ok(())
+    } else {
         let cleanup_failure_text = format!(
             "Error(s) cleaning up resources: {}",
             cleanup_errors.join(", ")
         );
-        assert!(false, cleanup_failure_text);
+        Err(anyhow::anyhow!(cleanup_failure_text))
     }
 }
 
@@ -535,10 +637,12 @@ impl Drop for WasiTestResourceCleaner {
         let t = std::thread::spawn(move || {
             let mut rt =
                 tokio::runtime::Runtime::new().expect("Failed to reate Tokio runtime for cleanup");
-            rt.block_on(clean_up_wasi_test_resources());
+            rt.block_on(clean_up_wasi_test_resources())
         });
 
-        t.join().expect("Failed to clean up WASI test resources");
+        let thread_result = t.join();
+        let cleanup_result = thread_result.expect("Failed to clean up WASI test resources");
+        cleanup_result.unwrap()
     }
 }
 
@@ -585,8 +689,7 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
     assert_pod_log_contains(&pods, VERBOSE_WASI_POD, r#"Args are: ["arg1", "arg2"]"#).await?;
 
     create_faily_pod(client.clone(), &pods).await?;
-
-    assert_pod_exited_with_failure(&pods, FAILY_POD).await?;
+    assert_main_container_exited_with_failure(&pods, FAILY_POD).await?;
     assert_pod_log_contains(
         &pods,
         FAILY_POD,
@@ -594,9 +697,30 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
     )
     .await?;
 
-    create_pod_with_init_containers(client.clone(), &pods).await?;
+    create_loggy_pod(client.clone(), &pods).await?;
+    assert_pod_container_log_contains(&pods, LOGGY_POD, "floofycat", r#"slats"#).await?;
+    assert_pod_container_log_contains(&pods, LOGGY_POD, "neatcat", r#"kiki"#).await?;
 
+    create_pod_with_init_containers(client.clone(), &pods).await?;
     assert_pod_log_contains(&pods, INITY_WASI_POD, r#"slats"#).await?;
+
+    create_pod_with_failing_init_container(client.clone(), &pods).await?;
+    assert_pod_exited_with_failure(&pods, FAILY_INITS_POD).await?;
+    assert_pod_message_contains(
+        &pods,
+        FAILY_INITS_POD,
+        "Init container init-that-fails failed",
+    )
+    .await?;
+    // assert_pod_container_log_contains(
+    //     &pods,
+    //     FAILY_INITS_POD,
+    //     "init-that-fails",
+    //     r#"ERR: Failed with File /nope.nope.nope.txt was expected to exist but did not"#,
+    // )
+    // .await?;
+    // assert_pod_log_does_not_contain(&pods, FAILY_INITS_POD, "slats").await?;
+    // assert_pod_log_does_not_contain(&pods, FAILY_INITS_POD, "also.nope.txt").await?;
 
     Ok(())
 }
@@ -620,24 +744,47 @@ async fn assert_pod_log_contains(
     pod_name: &str,
     expected_log: &str,
 ) -> anyhow::Result<()> {
-    let mut logs = pods.log_stream(pod_name, &LogParams::default()).await?;
-    let mut log_chunks: Vec<String> = Vec::default();
-
-    while let Some(chunk) = logs.try_next().await? {
-        let chunk_text = String::from_utf8_lossy(&chunk);
-        if chunk_text.contains(expected_log) {
-            return Ok(()); // can early exit if the expected value is entirely within a chunk
-        } else {
-            log_chunks.push(chunk_text.to_string());
-        }
-    }
-
-    let actual_log_text = log_chunks.join("");
+    let logs = pods.logs(pod_name, &LogParams::default()).await?;
     assert!(
-        actual_log_text.contains(expected_log),
+        logs.contains(expected_log),
         format!(
             "Expected log containing {} but got {}",
-            expected_log, actual_log_text
+            expected_log, logs
+        )
+    );
+    Ok(())
+}
+
+async fn assert_pod_container_log_contains(
+    pods: &Api<Pod>,
+    pod_name: &str,
+    container_name: &str,
+    expected_log: &str,
+) -> anyhow::Result<()> {
+    let mut log_params = LogParams::default();
+    log_params.container = Some(container_name.to_owned());
+    let logs = pods.logs(pod_name, &log_params).await?;
+    assert!(
+        logs.contains(expected_log),
+        format!(
+            "Expected log containing {} but got {}",
+            expected_log, logs
+        )
+    );
+    Ok(())
+}
+
+async fn assert_pod_log_does_not_contain(
+    pods: &Api<Pod>,
+    pod_name: &str,
+    unexpected_log: &str,
+) -> anyhow::Result<()> {
+    let logs = pods.logs(pod_name, &LogParams::default()).await?;
+    assert!(
+        !logs.contains(unexpected_log),
+        format!(
+            "Expected log NOT containing {} but got {}",
+            unexpected_log, logs
         )
     );
     Ok(())
@@ -660,6 +807,37 @@ async fn assert_pod_exited_successfully(pods: &Api<Pod>, pod_name: &str) -> anyh
 }
 
 async fn assert_pod_exited_with_failure(pods: &Api<Pod>, pod_name: &str) -> anyhow::Result<()> {
+    let pod = pods.get(pod_name).await?;
+
+    let phase = (|| pod.status?.phase)().expect("Could not get pod phase");
+    assert_eq!(phase, "Failed");
+
+    Ok(())
+}
+
+async fn assert_pod_message_contains(
+    pods: &Api<Pod>,
+    pod_name: &str,
+    expected_message: &str,
+) -> anyhow::Result<()> {
+    let pod = pods.get(pod_name).await?;
+
+    let message = (|| pod.status?.message)().expect("Could not get pod message");
+    assert!(
+        message.contains(expected_message),
+        format!(
+            "Expected pod message containing {} but got {}",
+            expected_message, message
+        )
+    );
+
+    Ok(())
+}
+
+async fn assert_main_container_exited_with_failure(
+    pods: &Api<Pod>,
+    pod_name: &str,
+) -> anyhow::Result<()> {
     let pod = pods.get(pod_name).await?;
 
     let state = (|| {
