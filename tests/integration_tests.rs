@@ -506,29 +506,49 @@ async fn clean_up_wasi_test_resources() -> () {
         .expect("Failed to create client");
 
     let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
-    secrets
-        .delete("hello-wasi-secret", &DeleteParams::default())
-        .await
-        .expect("Failed to delete secret");
     let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), "default");
-    config_maps
-        .delete("hello-wasi-configmap", &DeleteParams::default())
-        .await
-        .expect("Failed to delete configmap");
-
     let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
-    pods.delete(SIMPLE_WASI_POD, &DeleteParams::default())
-        .await
-        .expect("Failed to delete pod");
-    pods.delete(VERBOSE_WASI_POD, &DeleteParams::default())
-        .await
-        .expect("Failed to delete pod");
-    pods.delete(FAILY_POD, &DeleteParams::default())
-        .await
-        .expect("Failed to delete pod");
-    pods.delete(INITY_WASI_POD, &DeleteParams::default())
-        .await
-        .expect("Failed to delete pod");
+
+    let cleanup_errors: Vec<_> = vec![
+        secrets
+            .delete("hello-wasi-secret", &DeleteParams::default())
+            .await
+            .err()
+            .map(|e| format!("secret hello-wasi-secret ({})", e)),
+        config_maps
+            .delete("hello-wasi-configmap", &DeleteParams::default())
+            .await
+            .err()
+            .map(|e| format!("configmap hello-wasi-configmap ({})", e)),
+        pods.delete(SIMPLE_WASI_POD, &DeleteParams::default())
+            .await
+            .err()
+            .map(|e| format!("pod {} ({})", SIMPLE_WASI_POD, e)),
+        pods.delete(VERBOSE_WASI_POD, &DeleteParams::default())
+            .await
+            .err()
+            .map(|e| format!("pod {} ({})", VERBOSE_WASI_POD, e)),
+        pods.delete(FAILY_POD, &DeleteParams::default())
+            .await
+            .err()
+            .map(|e| format!("pod {} ({})", FAILY_POD, e)),
+        pods.delete(INITY_WASI_POD, &DeleteParams::default())
+            .await
+            .err()
+            .map(|e| format!("pod {} ({})", INITY_WASI_POD, e)),
+    ]
+    .iter()
+    .filter(|e| e.is_some())
+    .map(|e| e.as_ref().unwrap().to_string())
+    .collect();
+
+    if !cleanup_errors.is_empty() {
+        let cleanup_failure_text = format!(
+            "Error(s) cleaning up resources: {}",
+            cleanup_errors.join(", ")
+        );
+        assert!(false, cleanup_failure_text);
+    }
 }
 
 struct WasiTestResourceCleaner {}
@@ -596,7 +616,7 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
         r#"ERR: Failed with File /nope.nope.nope.txt was expected to exist but did not"#,
     )
     .await?;
-    
+
     create_pod_with_init_containers(client.clone(), &pods).await?;
 
     assert_pod_log_contains(&pods, INITY_WASI_POD, r#"slats"#).await?;
