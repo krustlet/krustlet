@@ -342,36 +342,13 @@ async fn create_fancy_schmancy_wasi_pod(
 
 async fn create_faily_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
     let pod_name = FAILY_POD;
-    let p = serde_json::from_value(json!({
-        "apiVersion": "v1",
-        "kind": "Pod",
-        "metadata": {
-            "name": pod_name
-        },
-        "spec": {
-            "containers": [
-                {
-                    "name": pod_name,
-                    "image": "webassembly.azurecr.io/wasmerciser:v0.1.0",
-                    "args": [ "assert_exists(file:/nope.nope.nope.txt)" ]
-                },
-            ],
-            "tolerations": [
-                {
-                    "effect": "NoExecute",
-                    "key": "krustlet/arch",
-                    "operator": "Equal",
-                    "value": "wasm32-wasi"
-                },
-            ],
-        }
-    }))?;
 
-    let pod = pods.create(&PostParams::default(), &p).await?;
+    let containers = vec![WasmerciserContainerSpec {
+        name: pod_name,
+        args: &["assert_exists(file:/nope.nope.nope.txt)"],
+    }];
 
-    assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
-
-    wait_for_pod_complete(client, pod_name).await
+    wasmercise_wasi(pod_name, client, pods, vec![], containers, vec![]).await
 }
 
 async fn wasmercise_wasi(
