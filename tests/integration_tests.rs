@@ -342,7 +342,6 @@ async fn create_fancy_schmancy_wasi_pod(
 
 async fn create_faily_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
     let pod_name = FAILY_POD;
-    let pod_name = INITY_WASI_POD;
     let p = serde_json::from_value(json!({
         "apiVersion": "v1",
         "kind": "Pod",
