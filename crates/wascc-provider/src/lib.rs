@@ -506,6 +506,12 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
 }
 
 fn validate_pod_runnable(pod: &Pod) -> anyhow::Result<()> {
+    if !pod.init_containers().is_empty() {
+        return Err(anyhow::anyhow!(
+            "Cannot run {}: spec specifies init containers which are not supported on wasCC",
+            pod.name()
+        ));
+    }
     for container in pod.containers() {
         validate_container_runnable(&container)?;
     }
