@@ -110,12 +110,12 @@ impl<S: Store + Send + Sync> Provider for WasiProvider<S> {
         info!("Starting containers for pod {:?}", pod_name);
         for container in pod.containers() {
             let env = Self::env_vars(&container, &pod, &client).await;
-            let args = container.args.clone().unwrap_or_default();
+            let args = container.args().clone().unwrap_or_default();
             let module_data = modules
-                .remove(&container.name)
+                .remove(container.name())
                 .expect("FATAL ERROR: module map not properly populated");
             let container_volumes: HashMap<PathBuf, Option<PathBuf>> =
-                if let Some(volume_mounts) = container.volume_mounts.as_ref() {
+                if let Some(volume_mounts) = container.volume_mounts().as_ref() {
                     volume_mounts
                         .iter()
                         .map(|vm| -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
@@ -124,7 +124,7 @@ impl<S: Store + Send + Sync> Provider for WasiProvider<S> {
                                 anyhow::anyhow!(
                                     "no volume with the name of {} found for container {}",
                                     vm.name,
-                                    container.name
+                                    container.name()
                                 )
                             })?;
                             let mut guest_path = PathBuf::from(&vm.mount_path);
@@ -149,9 +149,9 @@ impl<S: Store + Send + Sync> Provider for WasiProvider<S> {
             )
             .await?;
 
-            debug!("Starting container {} on thread", container.name);
+            debug!("Starting container {} on thread", container.name());
             let handle = runtime.start().await?;
-            container_handles.insert(container.name.clone(), handle);
+            container_handles.insert(container.name().to_string(), handle);
         }
         info!(
             "All containers started for pod {:?}. Updating status",

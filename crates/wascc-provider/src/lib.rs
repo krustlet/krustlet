@@ -31,10 +31,9 @@
 #![deny(missing_docs)]
 
 use async_trait::async_trait;
-use k8s_openapi::api::core::v1::{
-    Container as KubeContainer, ContainerStatus as KubeContainerStatus, Pod as KubePod,
-};
+use k8s_openapi::api::core::v1::{ContainerStatus as KubeContainerStatus, Pod as KubePod};
 use kube::{api::DeleteParams, Api};
+use kubelet::container::Container;
 use kubelet::container::{Handle as ContainerHandle, Status as ContainerStatus};
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
@@ -220,7 +219,7 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
         for container in pod.containers() {
             let env = Self::env_vars(&container, &pod, &client).await;
             let volume_bindings: Vec<VolumeBinding> =
-                if let Some(volume_mounts) = container.volume_mounts.as_ref() {
+                if let Some(volume_mounts) = container.volume_mounts().as_ref() {
                     volume_mounts
                         .iter()
                         .map(|vm| -> anyhow::Result<VolumeBinding> {
@@ -229,7 +228,7 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
                                 anyhow::anyhow!(
                                     "no volume with the name of {} found for container {}",
                                     vm.name,
-                                    container.name
+                                    container.name()
                                 )
                             })?;
                             // We can safely assume that this should be valid UTF-8 because it would have
@@ -244,10 +243,10 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
                     vec![]
                 };
 
-            debug!("Starting container {} on thread", container.name);
+            debug!("Starting container {} on thread", container.name());
 
             let module_data = modules
-                .remove(&container.name)
+                .remove(container.name())
                 .expect("FATAL ERROR: module map not properly populated");
             let lp = self.log_path.clone();
             let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
@@ -261,7 +260,7 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
             .await?;
             match http_result {
                 Ok(handle) => {
-                    container_handles.insert(container.name.clone(), handle);
+                    container_handles.insert(container.name().to_string(), handle);
                     status_sender
                         .broadcast(ContainerStatus::Running {
                             timestamp: chrono::Utc::now(),
@@ -273,7 +272,7 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
                     // (it was never used in creating a runtime handle)
                     let mut container_statuses = HashMap::new();
                     container_statuses.insert(
-                        container.name.clone(),
+                        container.name().to_string(),
                         ContainerStatus::Terminated {
                             timestamp: chrono::Utc::now(),
                             failed: true,
@@ -432,24 +431,24 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
 
 fn validate_pod_runnable(pod: &Pod) -> anyhow::Result<()> {
     for container in pod.containers() {
-        validate_container_runnable(container)?;
+        validate_container_runnable(&container)?;
     }
     Ok(())
 }
 
-fn validate_container_runnable(container: &KubeContainer) -> anyhow::Result<()> {
+fn validate_container_runnable(container: &Container) -> anyhow::Result<()> {
     if has_args(container) {
         return Err(anyhow::anyhow!(
             "Cannot run {}: spec specifies container args which are not supported on wasCC",
-            container.name
+            container.name()
         ));
     }
 
     Ok(())
 }
 
-fn has_args(container: &KubeContainer) -> bool {
-    match &container.args {
+fn has_args(container: &Container) -> bool {
+    match &container.args() {
         None => false,
         Some(vec) => !vec.is_empty(),
     }
@@ -590,6 +589,7 @@ fn wascc_run(
 #[cfg(test)]
 mod test {
     use super::*;
+    use k8s_openapi::api::core::v1::Container as KubeContainer;
     use serde_json::json;
 
     fn make_pod_spec(containers: Vec<KubeContainer>) -> Pod {
