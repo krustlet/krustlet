@@ -40,7 +40,8 @@ impl<H: StopHandler, F> Handle<H, F> {
         initial_message: Option<String>,
     ) -> anyhow::Result<Self> {
         let container_names = container_handles.keys().collect();
-        pod.initialise_status(&client, &container_names, initial_message).await;
+        pod.initialise_status(&client, &container_names, initial_message)
+            .await;
 
         let mut channel_map = StreamMap::with_capacity(container_handles.len());
         for (name, handle) in container_handles.iter() {
