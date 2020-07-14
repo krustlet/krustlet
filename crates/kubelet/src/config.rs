@@ -477,9 +477,9 @@ pub struct Opts {
     bootstrap_file: PathBuf,
 
     #[structopt(
-        long = "allow-local-modules",
+        long = "x-allow-local-modules",
         env = "KRUSTLET_ALLOW_LOCAL_MODULES",
-        help = "Whether to allow loading modules directly from the filesystem"
+        help = "(Experimental) Whether to allow loading modules directly from the filesystem"
     )]
     allow_local_modules: Option<bool>,
 }
