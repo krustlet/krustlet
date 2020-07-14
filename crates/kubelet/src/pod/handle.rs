@@ -39,23 +39,8 @@ impl<H: StopHandler, F> Handle<H, F> {
         volumes: Option<HashMap<String, Ref>>,
         initial_message: Option<String>,
     ) -> anyhow::Result<Self> {
-        let mut all_waiting_map = HashMap::new();
-        for name in container_handles.keys() {
-            let waiting = crate::container::Status::Waiting {
-                timestamp: chrono::Utc::now(),
-                message: "PodInitializing".to_owned(),
-            };
-            all_waiting_map.insert(name.clone(), waiting);
-        }
-        let initial_status_message = match initial_message {
-            Some(m) => StatusMessage::Message(m),
-            None => StatusMessage::Clear,
-        };
-        let all_waiting = Status {
-            message: initial_status_message,
-            container_statuses: all_waiting_map,
-        };
-        pod.clone().patch_status(client.clone(), all_waiting).await;
+        let container_names = container_handles.keys().collect();
+        pod.initialise_status(&client, &container_names, initial_message).await;
 
         let mut channel_map = StreamMap::with_capacity(container_handles.len());
         for (name, handle) in container_handles.iter() {

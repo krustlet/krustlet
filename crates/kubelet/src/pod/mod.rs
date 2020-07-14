@@ -223,6 +223,33 @@ impl Pod {
         }
     }
 
+    /// Sets the status of all specified containers to Waiting, and optionally
+    /// sets the pod status message.
+    pub async fn initialise_status(
+        &self,
+        client: &kube::Client,
+        container_names: &Vec<&String>,
+        initial_message: Option<String>,
+    ) {
+        let mut all_waiting_map = HashMap::new();
+        for name in container_names {
+            let waiting = crate::container::Status::Waiting {
+                timestamp: chrono::Utc::now(),
+                message: "PodInitializing".to_owned(),
+            };
+            all_waiting_map.insert(name.to_string(), waiting);
+        }
+        let initial_status_message = match initial_message {
+            Some(m) => StatusMessage::Message(m),
+            None => StatusMessage::Clear,
+        };
+        let all_waiting = Status {
+            message: initial_status_message,
+            container_statuses: all_waiting_map,
+        };
+        self.patch_status(client.clone(), all_waiting).await;
+    }
+
     /// Get a pod's containers
     pub fn containers(&self) -> Vec<Container> {
         self.0
