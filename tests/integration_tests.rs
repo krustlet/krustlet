@@ -164,7 +164,7 @@ impl Drop for WasccTestResourceCleaner {
     fn drop(&mut self) {
         let t = std::thread::spawn(move || {
             let mut rt =
-                tokio::runtime::Runtime::new().expect("Failed to reate Tokio runtime for cleanup");
+                tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime for cleanup");
             rt.block_on(clean_up_wascc_test_resources());
         });
 
@@ -642,7 +642,7 @@ impl Drop for WasiTestResourceCleaner {
     fn drop(&mut self) {
         let t = std::thread::spawn(move || {
             let mut rt =
-                tokio::runtime::Runtime::new().expect("Failed to reate Tokio runtime for cleanup");
+                tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime for cleanup");
             rt.block_on(clean_up_wasi_test_resources())
         });
 
