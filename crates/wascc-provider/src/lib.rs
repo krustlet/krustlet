@@ -226,7 +226,7 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
         for container in pod.containers() {
             let mut port_assigned: i32 = 0;
-            if let Some(container_vec) = container.ports.as_ref() {
+            if let Some(container_vec) = container.ports().as_ref() {
                 for c_port in container_vec.iter() {
                     let container_port = c_port.container_port;
                     if let Some(host_port) = c_port.host_port {
