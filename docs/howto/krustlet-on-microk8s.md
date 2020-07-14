@@ -10,17 +10,24 @@ as `microk8s.kubectl`. The following instructions use `microk8s.kubectl` for sim
 You may use a standlone `kubectl` if you prefer.
 
 In order for the bootstrap authentication token to work, your kube-apiserver needs to have
-the `--enable-bootstrap-token-auth`
-(see [bootstrap-tokens](https://kubernetes.io/docs/reference/access-authn-authz/bootstrap-tokens/)).
-To verify you have it enabled, check the process args:
-```bash
+the `--enable-bootstrap-token-auth` feature flag enabled.
+See [bootstrap-tokens](https://kubernetes.io/docs/reference/access-authn-authz/bootstrap-tokens/)
+for more information.
+
+To verify you have the bootstrap authentication feature enabled, check the process args:
+
+```console
 $ ps -ef | grep kube-apiserver | grep "enable-bootstrap-token-auth"
 ```
-If it doesn't show up and you installed using `snap` you can find the startup args in
-`/var/snap/microk8s/current/args/kube-apiserver` and add the flag. Now you need to
+
+If it doesn't show up and you installed using `snap`, you can find the startup args in
+`/var/snap/microk8s/current/args/kube-apiserver` and add the flag.
+
+Now you need to
 [restart](https://microk8s.io/docs/configuring-services) the kube-apiserver with the command:
-```bash
-systemctl restart snap.microk8s.daemon-apiserver
+
+```console
+$ systemctl restart snap.microk8s.daemon-apiserver
 ```
 
 ## Step 1: Get a bootstrap config
