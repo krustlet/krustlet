@@ -22,7 +22,7 @@ impl Store for FileSystemStore {
     async fn get(
         &self,
         image_ref: &Reference,
-        _pull_policy: Option<PullPolicy>,
+        _pull_policy: PullPolicy,
     ) -> anyhow::Result<Vec<u8>> {
         let path = PathBuf::from(image_ref.repository());
         Ok(tokio::fs::read(&path).await?)

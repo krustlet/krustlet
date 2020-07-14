@@ -63,7 +63,7 @@ impl Store for CompositeStore {
     async fn get(
         &self,
         image_ref: &Reference,
-        pull_policy: Option<PullPolicy>,
+        pull_policy: PullPolicy,
     ) -> anyhow::Result<Vec<u8>> {
         if self.interceptor.intercepts(image_ref) {
             self.interceptor.get(image_ref, pull_policy).await
@@ -86,7 +86,7 @@ mod test {
         async fn get(
             &self,
             _image_ref: &Reference,
-            _pull_policy: Option<PullPolicy>,
+            _pull_policy: PullPolicy,
         ) -> anyhow::Result<Vec<u8>> {
             Ok(vec![11, 10, 5, 14])
         }
@@ -97,7 +97,7 @@ mod test {
         async fn get(
             &self,
             _image_ref: &Reference,
-            _pull_policy: Option<PullPolicy>,
+            _pull_policy: PullPolicy,
         ) -> anyhow::Result<Vec<u8>> {
             Ok(vec![1, 2, 3])
         }
@@ -115,7 +115,7 @@ mod test {
         let result = store
             .get(
                 &Reference::try_from("int/foo").unwrap(),
-                Some(PullPolicy::Never),
+                PullPolicy::Never,
             )
             .await
             .unwrap();
@@ -129,7 +129,7 @@ mod test {
         let result = store
             .get(
                 &Reference::try_from("mint/foo").unwrap(),
-                Some(PullPolicy::Never),
+                PullPolicy::Never,
             )
             .await
             .unwrap();
