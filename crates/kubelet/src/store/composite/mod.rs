@@ -60,11 +60,7 @@ struct CompositeStore {
 
 #[async_trait]
 impl Store for CompositeStore {
-    async fn get(
-        &self,
-        image_ref: &Reference,
-        pull_policy: PullPolicy,
-    ) -> anyhow::Result<Vec<u8>> {
+    async fn get(&self, image_ref: &Reference, pull_policy: PullPolicy) -> anyhow::Result<Vec<u8>> {
         if self.interceptor.intercepts(image_ref) {
             self.interceptor.get(image_ref, pull_policy).await
         } else {
@@ -113,10 +109,7 @@ mod test {
     async fn if_interceptor_matches_then_composite_store_returns_intercepting_value() {
         let store = Arc::new(FakeBase {}).with_override(Arc::new(FakeInterceptor {}));
         let result = store
-            .get(
-                &Reference::try_from("int/foo").unwrap(),
-                PullPolicy::Never,
-            )
+            .get(&Reference::try_from("int/foo").unwrap(), PullPolicy::Never)
             .await
             .unwrap();
         assert_eq!(3, result.len());
@@ -127,10 +120,7 @@ mod test {
     async fn if_interceptor_does_not_match_then_composite_store_returns_base_value() {
         let store = Arc::new(FakeBase {}).with_override(Arc::new(FakeInterceptor {}));
         let result = store
-            .get(
-                &Reference::try_from("mint/foo").unwrap(),
-                PullPolicy::Never,
-            )
+            .get(&Reference::try_from("mint/foo").unwrap(), PullPolicy::Never)
             .await
             .unwrap();
         assert_eq!(4, result.len());
