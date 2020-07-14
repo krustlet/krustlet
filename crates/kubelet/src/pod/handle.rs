@@ -10,7 +10,7 @@ use crate::container::Handle as ContainerHandle;
 use crate::handle::StopHandler;
 use crate::log::{HandleFactory, Sender};
 use crate::pod::Pod;
-use crate::pod::Status;
+use crate::pod::{Status, StatusMessage};
 use crate::provider::ProviderError;
 use crate::volume::Ref;
 
@@ -32,12 +32,31 @@ impl<H: StopHandler, F> Handle<H, F> {
     /// kubernetes object and to be able to update the status of that object. The optional volumes
     /// parameter allows a caller to pass a map of volumes to keep reference to (so that they will
     /// be dropped along with the pod)
-    pub fn new(
+    pub async fn new(
         container_handles: HashMap<String, ContainerHandle<H, F>>,
         pod: Pod,
         client: kube::Client,
         volumes: Option<HashMap<String, Ref>>,
+        initial_message: Option<String>,
     ) -> anyhow::Result<Self> {
+        let mut all_waiting_map = HashMap::new();
+        for name in container_handles.keys() {
+            let waiting = crate::container::Status::Waiting {
+                timestamp: chrono::Utc::now(),
+                message: "PodInitializing".to_owned(),
+            };
+            all_waiting_map.insert(name.clone(), waiting);
+        }
+        let initial_status_message = match initial_message {
+            Some(m) => StatusMessage::Message(m),
+            None => StatusMessage::Clear,
+        };
+        let all_waiting = Status {
+            message: initial_status_message,
+            container_statuses: all_waiting_map,
+        };
+        pod.clone().patch_status(client.clone(), all_waiting).await;
+
         let mut channel_map = StreamMap::with_capacity(container_handles.len());
         for (name, handle) in container_handles.iter() {
             channel_map.insert(name.clone(), handle.status());
@@ -52,16 +71,20 @@ impl<H: StopHandler, F> Handle<H, F> {
                 let (name, status) = match channel_map.next().await {
                     Some(s) => s,
                     // None means everything is closed, so go ahead and exit
-                    None => return,
+                    None => {
+                        return;
+                    }
                 };
-                debug!("Got status update from container {}: {:#?}", name, status);
+
                 let mut container_statuses = HashMap::new();
                 container_statuses.insert(name, status);
-                let status = Status {
-                    message: None,
+
+                let pod_status = Status {
+                    message: StatusMessage::LeaveUnchanged, // TODO: sure?
                     container_statuses,
                 };
-                cloned_pod.patch_status(client.clone(), status).await;
+
+                cloned_pod.patch_status(client.clone(), pod_status).await;
             }
         });
         Ok(Self {
@@ -113,8 +136,7 @@ impl<H: StopHandler, F> Handle<H, F> {
     /// Wait for all containers in the pod to complete
     pub async fn wait(&mut self) -> anyhow::Result<()> {
         let mut handles = self.container_handles.write().await;
-        for (name, handle) in handles.iter_mut() {
-            debug!("Waiting for container {} to terminate", name);
+        for (_, handle) in handles.iter_mut() {
             handle.wait().await?;
         }
         (&mut self.status_handle).await?;

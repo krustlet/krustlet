@@ -38,7 +38,9 @@ use kubelet::container::{Handle as ContainerHandle, Status as ContainerStatus};
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
 use kubelet::pod::{key_from_pod, pod_key, Handle};
-use kubelet::pod::{update_status, Phase, Pod, Status as PodStatus};
+use kubelet::pod::{
+    update_status, Phase, Pod, Status as PodStatus, StatusMessage as PodStatusMessage,
+};
 use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
 use kubelet::store::Store;
@@ -284,7 +286,7 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
                     },
                 );
                 let status = PodStatus {
-                    message: None,
+                    message: PodStatusMessage::LeaveUnchanged,
                     container_statuses,
                 };
                 pod.patch_status(client.clone(), status).await;
@@ -360,13 +362,14 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
             "All containers started for pod {:?}. Updating status",
             pod.name()
         );
+
+        let pod_handle_key = key_from_pod(&pod);
+        let pod_handle = Handle::new(container_handles, pod, client, None, None).await?;
+
         // Wrap this in a block so the write lock goes out of scope when we are done
         {
             let mut handles = self.handles.write().await;
-            handles.insert(
-                key_from_pod(&pod),
-                Handle::new(container_handles, pod, client, None)?,
-            );
+            handles.insert(pod_handle_key, pod_handle);
         }
 
         Ok(())

@@ -345,13 +345,16 @@ async fn create_fancy_schmancy_wasi_pod(
 async fn create_loggy_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
     let pod_name = LOGGY_POD;
 
-    let containers = vec![WasmerciserContainerSpec {
-        name: "floofycat",
-        args: &["write(lit:slats)to(stm:stdout)"],
-    }, WasmerciserContainerSpec {
-        name: "neatcat",
-        args: &["write(lit:kiki)to(stm:stdout)"],
-    }];
+    let containers = vec![
+        WasmerciserContainerSpec {
+            name: "floofycat",
+            args: &["write(lit:slats)to(stm:stdout)"],
+        },
+        WasmerciserContainerSpec {
+            name: "neatcat",
+            args: &["write(lit:kiki)to(stm:stdout)"],
+        },
+    ];
 
     wasmercise_wasi(
         pod_name,
@@ -513,7 +516,10 @@ async fn wait_for_pod_complete(
                     went_ready = true;
                 }
                 if phase == "Succeeded" && !went_ready {
-                    panic!("Reached completed phase before receiving Running phase")
+                    panic!(
+                        "Pod {} reached completed phase before receiving Running phase",
+                        pod_name
+                    );
                 } else if phase == "Succeeded" {
                     break;
                 }
@@ -712,13 +718,14 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
         "Init container init-that-fails failed",
     )
     .await?;
-    // assert_pod_container_log_contains(
-    //     &pods,
-    //     FAILY_INITS_POD,
-    //     "init-that-fails",
-    //     r#"ERR: Failed with File /nope.nope.nope.txt was expected to exist but did not"#,
-    // )
-    // .await?;
+    assert_pod_container_log_contains(
+        &pods,
+        FAILY_INITS_POD,
+        "init-that-fails",
+        r#"ERR: Failed with File /nope.nope.nope.txt was expected to exist but did not"#,
+    )
+    .await?;
+    // TODO: needs moar container?
     // assert_pod_log_does_not_contain(&pods, FAILY_INITS_POD, "slats").await?;
     // assert_pod_log_does_not_contain(&pods, FAILY_INITS_POD, "also.nope.txt").await?;
 
@@ -747,10 +754,7 @@ async fn assert_pod_log_contains(
     let logs = pods.logs(pod_name, &LogParams::default()).await?;
     assert!(
         logs.contains(expected_log),
-        format!(
-            "Expected log containing {} but got {}",
-            expected_log, logs
-        )
+        format!("Expected log containing {} but got {}", expected_log, logs)
     );
     Ok(())
 }
@@ -766,29 +770,26 @@ async fn assert_pod_container_log_contains(
     let logs = pods.logs(pod_name, &log_params).await?;
     assert!(
         logs.contains(expected_log),
-        format!(
-            "Expected log containing {} but got {}",
-            expected_log, logs
-        )
+        format!("Expected log containing {} but got {}", expected_log, logs)
     );
     Ok(())
 }
 
-async fn assert_pod_log_does_not_contain(
-    pods: &Api<Pod>,
-    pod_name: &str,
-    unexpected_log: &str,
-) -> anyhow::Result<()> {
-    let logs = pods.logs(pod_name, &LogParams::default()).await?;
-    assert!(
-        !logs.contains(unexpected_log),
-        format!(
-            "Expected log NOT containing {} but got {}",
-            unexpected_log, logs
-        )
-    );
-    Ok(())
-}
+// async fn assert_pod_log_does_not_contain(
+//     pods: &Api<Pod>,
+//     pod_name: &str,
+//     unexpected_log: &str,
+// ) -> anyhow::Result<()> {
+//     let logs = pods.logs(pod_name, &LogParams::default()).await?;
+//     assert!(
+//         !logs.contains(unexpected_log),
+//         format!(
+//             "Expected log NOT containing {} but got {}",
+//             unexpected_log, logs
+//         )
+//     );
+//     Ok(())
+// }
 
 async fn assert_pod_exited_successfully(pods: &Api<Pod>, pod_name: &str) -> anyhow::Result<()> {
     let pod = pods.get(pod_name).await?;

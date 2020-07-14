@@ -5,7 +5,7 @@ mod status;
 
 pub use handle::{key_from_pod, pod_key, Handle};
 pub(crate) use queue::Queue;
-pub use status::{update_status, Phase, Status};
+pub use status::{update_status, Phase, Status, StatusMessage};
 
 use std::collections::HashMap;
 
@@ -172,7 +172,9 @@ impl Pod {
                 }
             }
         }
+
         // is there ever a case when we get a status that we should end up in Phase unknown?
+
         let phase = if num_succeeded == container_statuses.len() {
             Phase::Succeeded
         } else if failed {
@@ -181,18 +183,36 @@ impl Pod {
             Phase::Running
         };
 
-        let json_status = serde_json::json!(
+        // TODO: init container statuses need to be reported through initContainerStatuses
+
+        let mut json_status = serde_json::json!(
             {
                 "metadata": {
                     "resourceVersion": "",
                 },
                 "status": {
                     "phase": phase,
-                    "message": status.message,
                     "containerStatuses": container_statuses
                 }
             }
         );
+
+        if let Some(map) = json_status.as_object_mut() {
+            if let Some(status_json) = map.get_mut("status") {
+                if let Some(status_map) = status_json.as_object_mut() {
+                    let message_key = "message".to_owned();
+                    match status.message {
+                        StatusMessage::LeaveUnchanged => (),
+                        StatusMessage::Clear => {
+                            status_map.insert(message_key, serde_json::Value::Null);
+                        }
+                        StatusMessage::Message(m) => {
+                            status_map.insert(message_key, serde_json::Value::String(m));
+                        }
+                    }
+                }
+            }
+        }
 
         debug!("Setting pod status for {} using {:?}", name, json_status);
 
