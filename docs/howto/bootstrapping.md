@@ -24,18 +24,30 @@ kubeconfig that has access to create `Secrets` in the `kube-system` namespace an
 
 ### Generating a token and kubeconfig
 
-We have a useful bootstrapping [bash script](./assets/bootstrap.sh) that can be used for
-generating a token and creating a bootstrap kubeconfig file. If you have cloned the repo, you can
-run:
+We have a useful bootstrapping [bash script](./assets/bootstrap.sh) or [Powershell
+script](./assets/bootstrap.sh) that can be used for generating a token and creating a bootstrap
+kubeconfig file. If you have cloned the repo, you can run:
 
 ```bash
 $ ./docs/howto/assets/bootstrap.sh
+```
+
+OR
+
+```powershell
+$ .\docs\howto\assets\bootstrap.ps1
 ```
 
 If you are the trusting sort, you can pipe it in from the internet:
 
 ```bash
 $ bash <(curl https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/bootstrap.sh)
+```
+
+OR
+
+```powershell
+$ (Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/bootstrap.ps1).Content | Invoke-Expression
 ```
 
 This will output a ready-to-use bootstrap config to `$HOME/.krustlet/config/bootstrap.conf`
