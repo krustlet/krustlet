@@ -201,6 +201,32 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
         })
     }
 
+    async fn assign_container_port(&self, pod: &Pod, container: &Container) -> anyhow::Result<i32> {
+        let mut port_assigned: i32 = 0;
+        if let Some(container_vec) = container.ports().as_ref() {
+            for c_port in container_vec.iter() {
+                let container_port = c_port.container_port;
+                if let Some(host_port) = c_port.host_port {
+                    let mut lock = self.port_map.lock().await;
+                    if !lock.contains_key(&host_port) {
+                        port_assigned = host_port;
+                        lock.insert(port_assigned, pod.name().to_string());
+                    } else {
+                        error!(
+                            "Failed to assign hostport {}, because it's taken",
+                            &host_port
+                        );
+                        return Err(anyhow::anyhow!("Port {} is currently in use", &host_port));
+                    }
+                } else if container_port >= 0 && container_port <= 65536 {
+                    port_assigned =
+                        find_available_port(&self.port_map, pod.name().to_string()).await?;
+                }
+            }
+        }
+        Ok(port_assigned)
+    }
+
     async fn start_container(
         &self,
         container: &Container,
@@ -321,31 +347,8 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
         let client = kube::Client::new(self.kubeconfig.clone());
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
         for container in pod.containers() {
-            let mut port_assigned: i32 = 0;
-            if let Some(container_vec) = container.ports().as_ref() {
-                for c_port in container_vec.iter() {
-                    let container_port = c_port.container_port;
-                    if let Some(host_port) = c_port.host_port {
-                        let mut lock = self.port_map.lock().await;
-                        if !lock.contains_key(&host_port) {
-                            port_assigned = host_port;
-                            lock.insert(port_assigned, pod.name().to_string());
-                        } else {
-                            error!(
-                                "Failed to assign hostport {}, because it's taken",
-                                &host_port
-                            );
-                            return Err(anyhow::anyhow!("Port {} is currently in use", &host_port));
-                        }
-                    } else {
-                        if container_port >= 0 && container_port <= 65536 {
-                            port_assigned =
-                                find_available_port(&self.port_map, pod.name().to_string()).await?;
-                        }
-                    }
-                }
-            }
-            debug!("New port assigned is: {}", port_assigned);
+            let port_assigned = self.assign_container_port(&pod, &container).await?;
+            debug!("New port assigned to {} is: {}", container.name(), port_assigned);
 
             self.start_container(
                 &container,
@@ -602,7 +605,7 @@ async fn find_available_port(
             break;
         }
     }
-    port.ok_or(PortAllocationError::new())
+    port.ok_or_else(PortAllocationError::new)
 }
 
 /// Capability describes a waSCC capability.
