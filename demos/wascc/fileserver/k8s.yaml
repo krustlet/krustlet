@@ -9,8 +9,6 @@ spec:
     - image: webassembly.azurecr.io/fileserver-wascc:v0.2.0
       imagePullPolicy: Always
       name: fileserver-wascc
-      env:
-        - name: PORT
       ports:
         - containerPort: 8080
       volumeMounts:

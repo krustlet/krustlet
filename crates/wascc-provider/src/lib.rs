@@ -562,7 +562,6 @@ async fn find_available_port(
         let generated_port: i32 = rand::thread_rng().gen_range(30000, 32768);
         port.replace(generated_port);
         empty_port.insert(port.unwrap());
-
         if !lock.contains_key(&port.unwrap()) {
             lock.insert(port.unwrap(), pod_name);
             break;
