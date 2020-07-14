@@ -11,7 +11,6 @@ spec:
       name: greet
       env:
         - name: PORT
-          value: "8080"
       ports:
         - containerPort: 8080
   nodeSelector:

@@ -60,6 +60,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use tokio::sync::Mutex as TokioMutex;
 
 /// The architecture that the pod targets.
 const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
@@ -132,7 +133,7 @@ pub struct WasccProvider<S> {
     log_path: PathBuf,
     kubeconfig: kube::Config,
     host: Arc<Mutex<WasccHost>>,
-    port_set: Arc<Mutex<HashMap<i32, String>>>,
+    port_map: Arc<TokioMutex<HashMap<i32, String>>>,
 }
 
 impl<S: Store + Send + Sync> WasccProvider<S> {
@@ -146,7 +147,7 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
         let host = Arc::new(Mutex::new(WasccHost::new()));
         let log_path = config.data_dir.join(LOG_DIR_NAME);
         let volume_path = config.data_dir.join(VOLUME_DIR);
-        let port_set = Arc::new(Mutex::new(HashMap::<i32, String>::new()));
+        let port_map = Arc::new(TokioMutex::new(HashMap::<i32, String>::new()));
         tokio::fs::create_dir_all(&log_path).await?;
         tokio::fs::create_dir_all(&volume_path).await?;
 
@@ -194,7 +195,7 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
             log_path,
             kubeconfig,
             host,
-            port_set,
+            port_map,
         })
     }
 }
@@ -225,21 +226,14 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
         for container in pod.containers() {
             let mut port_assigned: i32 = 0;
-            info!(
-                "The following ports are already taken: {:?}",
-                self.port_set.lock().unwrap().keys()
-            );
-
             if let Some(container_vec) = container.ports.as_ref() {
                 for c_port in container_vec.iter() {
                     let container_port = c_port.container_port;
                     if let Some(host_port) = c_port.host_port {
-                        if !self.port_set.lock().unwrap().contains_key(&host_port) {
+                        let mut lock = self.port_map.lock().await;
+                        if !lock.contains_key(&host_port) {
                             port_assigned = host_port;
-                            self.port_set
-                                .lock()
-                                .unwrap()
-                                .insert(port_assigned, pod.name().to_string());
+                            lock.insert(port_assigned, pod.name().to_string());
                         } else {
                             error!(
                                 "Failed to assign hostport {}, because it's taken",
@@ -250,12 +244,13 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
                     } else {
                         if container_port >= 0 && container_port <= 65536 {
                             port_assigned =
-                                find_available_port(&self.port_set, pod.name().to_string())?;
+                                find_available_port(&self.port_map, pod.name().to_string()).await?;
                         }
                     }
                 }
             }
             debug!("New port assigned is: {}", port_assigned);
+
             let env = Self::env_vars(&container, &pod, &client).await;
             let volume_bindings: Vec<VolumeBinding> =
                 if let Some(volume_mounts) = container.volume_mounts().as_ref() {
@@ -444,12 +439,13 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
 
     async fn delete(&self, pod: Pod) -> anyhow::Result<()> {
         let mut delete_key: i32 = 0;
-        for (key, val) in self.port_set.lock().unwrap().iter() {
+        let mut lock = self.port_map.lock().await;
+        for (key, val) in lock.iter() {
             if val == pod.name() {
                 delete_key = *key
             }
         }
-        self.port_set.lock().unwrap().remove(&delete_key);
+        lock.remove(&delete_key);
         let mut handles = self.handles.write().await;
         match handles.remove(&key_from_pod(&pod)) {
             Some(_) => debug!(
@@ -519,7 +515,7 @@ struct VolumeBinding {
 fn wascc_run_http(
     host: Arc<Mutex<WasccHost>>,
     data: Vec<u8>,
-    _env: EnvVars,
+    mut env: EnvVars,
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
     status_recv: Receiver<ContainerStatus>,
@@ -527,12 +523,11 @@ fn wascc_run_http(
 ) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
     let mut caps: Vec<Capability> = Vec::new();
 
-    let mut env_map: HashMap<String, String> = HashMap::new();
-    env_map.insert("PORT".to_string(), port_assigned.to_string());
+    env.insert("PORT".to_string(), port_assigned.to_string());
     caps.push(Capability {
         name: HTTP_CAPABILITY,
         binding: None,
-        env: env_map, //replaced _env
+        env,
     });
     wascc_run(host, data, &mut caps, volumes, log_path, status_recv)
 }
@@ -556,27 +551,24 @@ impl Error for PortAllocationError {
     }
 }
 
-fn find_available_port(
-    port_set: &Arc<Mutex<HashMap<i32, String>>>,
+async fn find_available_port(
+    port_map: &Arc<TokioMutex<HashMap<i32, String>>>,
     pod_name: String,
 ) -> Result<i32, PortAllocationError> {
-    let mut range = rand::thread_rng();
-    let mut port: i32 = -1;
-
+    let mut port: Option<i32> = None;
     let mut empty_port: HashSet<i32> = HashSet::new();
+    let mut lock = port_map.lock().await;
     while empty_port.len() < 2768 {
-        port = range.gen_range(30000, 32768);
-        empty_port.insert(port);
-        if !port_set.lock().unwrap().contains_key(&port) {
-            port_set.lock().unwrap().insert(port, pod_name);
+        let generated_port: i32 = rand::thread_rng().gen_range(30000, 32768);
+        port.replace(generated_port);
+        empty_port.insert(port.unwrap());
+
+        if !lock.contains_key(&port.unwrap()) {
+            lock.insert(port.unwrap(), pod_name);
             break;
         }
     }
-
-    if port == -1 {
-        return Err(PortAllocationError::new());
-    }
-    Ok(port)
+    port.ok_or(PortAllocationError::new())
 }
 
 /// Capability describes a waSCC capability.
