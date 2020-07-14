@@ -3,7 +3,7 @@
 use crate::config::Config;
 use crate::container::Status as ContainerStatus;
 use crate::pod::Pod;
-use crate::pod::Status as PodStatus;
+use crate::pod::{Status as PodStatus, StatusMessage as PodStatusMessage};
 use crate::provider::Provider;
 use chrono::prelude::*;
 use futures::{StreamExt, TryStreamExt};
@@ -218,7 +218,7 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
                 );
             }
             let status = PodStatus {
-                message: Some("Evicted on node shutdown.".to_string()),
+                message: PodStatusMessage::Message("Evicted on node shutdown.".to_string()),
                 container_statuses,
             };
             pod.patch_status(client.clone(), status).await;

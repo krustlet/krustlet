@@ -12,9 +12,26 @@ use crate::container::Status as ContainerStatus;
 pub struct Status {
     /// Allows a provider to set a custom message, otherwise, kubelet will infer
     /// a message from the container statuses
-    pub message: Option<String>,
+    pub message: StatusMessage,
     /// The statuses of containers keyed off their names
     pub container_statuses: HashMap<String, ContainerStatus>,
+}
+
+#[derive(Clone, Debug)]
+/// The message to be set in a pod status update.
+pub enum StatusMessage {
+    /// Do not change the existing status message.
+    LeaveUnchanged,
+    /// Remove any existing status message.
+    Clear,
+    /// Set the status message to the given value.
+    Message(String),
+}
+
+impl Default for StatusMessage {
+    fn default() -> Self {
+        Self::LeaveUnchanged
+    }
 }
 
 /// Describe the lifecycle phase of a workload.

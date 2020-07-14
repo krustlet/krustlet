@@ -37,15 +37,18 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use futures::stream::StreamExt;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::{api::DeleteParams, Api};
+use kubelet::container::Container;
+use kubelet::container::Status;
 use kubelet::node::Builder;
 use kubelet::pod::{key_from_pod, pod_key, Handle, Pod};
 use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
 use kubelet::store::Store;
 use kubelet::volume::Ref;
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 use tokio::sync::RwLock;
 use wasi_runtime::{Runtime, WasiRuntime};
 
@@ -62,6 +65,11 @@ pub struct WasiProvider<S> {
     log_path: PathBuf,
     kubeconfig: kube::Config,
     volume_path: PathBuf,
+}
+
+struct ContainerTerminationResult {
+    succeeded: bool,
+    message: String,
 }
 
 impl<S: Store + Send + Sync> WasiProvider<S> {
@@ -83,6 +91,178 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
             kubeconfig,
         })
     }
+
+    fn volume_path_map(
+        container: &Container,
+        volumes: &HashMap<String, Ref>,
+    ) -> anyhow::Result<HashMap<PathBuf, Option<PathBuf>>> {
+        if let Some(volume_mounts) = container.volume_mounts().as_ref() {
+            volume_mounts
+                .iter()
+                .map(|vm| -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
+                    // Check the volume exists first
+                    let vol = volumes.get(&vm.name).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "no volume with the name of {} found for container {}",
+                            vm.name,
+                            container.name()
+                        )
+                    })?;
+                    let mut guest_path = PathBuf::from(&vm.mount_path);
+                    if let Some(sub_path) = &vm.sub_path {
+                        guest_path.push(sub_path);
+                    }
+                    // We can safely assume that this should be valid UTF-8 because it would have
+                    // been validated by the k8s API
+                    Ok((vol.deref().clone(), Some(guest_path)))
+                })
+                .collect::<anyhow::Result<HashMap<PathBuf, Option<PathBuf>>>>()
+        } else {
+            Ok(HashMap::default())
+        }
+    }
+
+    async fn start_container(
+        &self,
+        container: &Container,
+        pod: &Pod,
+        client: &kube::client::Client,
+        modules: &mut HashMap<String, Vec<u8>>,
+        volumes: &HashMap<String, Ref>,
+    ) -> anyhow::Result<
+        kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
+    > {
+        let env = Self::env_vars(&container, pod, &client).await;
+        let args = container.args().clone().unwrap_or_default();
+        let module_data = modules
+            .remove(container.name())
+            .expect("FATAL ERROR: module map not properly populated");
+        let container_volumes = Self::volume_path_map(container, volumes)?;
+
+        let runtime = WasiRuntime::new(
+            module_data,
+            env,
+            args,
+            container_volumes,
+            self.log_path.clone(),
+        )
+        .await?;
+
+        debug!("Starting container {} on thread", container.name());
+        let handle = runtime.start().await?;
+
+        Ok(handle)
+    }
+
+    async fn start_app_containers(
+        &self,
+        pod: &Pod,
+        client: &kube::client::Client,
+        modules: &mut HashMap<String, Vec<u8>>,
+        volumes: &HashMap<String, Ref>,
+    ) -> (
+        HashMap<
+            String,
+            kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
+        >,
+        Option<anyhow::Error>,
+    ) {
+        info!("Starting containers for pod {:?}", pod.name());
+        let mut container_handles = HashMap::new();
+        for container in pod.containers() {
+            let start_result = self
+                .start_container(&container, pod, client, modules, volumes)
+                .await;
+            match start_result {
+                Ok(handle) => {
+                    container_handles.insert(container.name().to_owned(), handle);
+                }
+                Err(e) => {
+                    return (container_handles, Some(e));
+                }
+            }
+        }
+        info!(
+            "All containers started for pod {:?}. Updating status",
+            pod.name()
+        );
+
+        (container_handles, None)
+    }
+
+    async fn run_container_to_completion(
+        &self,
+        status_receiver: &mut tokio::sync::watch::Receiver<kubelet::container::Status>,
+        container: &Container,
+    ) -> anyhow::Result<()> {
+        let result = Self::wait_for_terminated_status(status_receiver).await;
+        debug!("Init container {} terminated", container.name());
+        if result.succeeded {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "Init container {} failed with message {}",
+                container.name(),
+                result.message
+            ))
+        }
+    }
+
+    async fn run_init_containers(
+        &self,
+        pod: &Pod,
+        client: &kube::client::Client,
+        modules: &mut HashMap<String, Vec<u8>>,
+        volumes: &HashMap<String, Ref>,
+    ) -> (
+        HashMap<
+            String,
+            kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
+        >,
+        Option<anyhow::Error>,
+    ) {
+        info!("Running init containers for pod {:?}", pod.name());
+        let mut container_handles = HashMap::new();
+        for container in pod.init_containers() {
+            let start_result = self
+                .start_container(&container, pod, client, modules, volumes)
+                .await;
+            match start_result {
+                Ok(handle) => {
+                    let mut status_receiver = handle.status(); // TODO: ugh but borrow checker
+                    container_handles.insert(container.name().to_owned(), handle);
+                    let run_result = self
+                        .run_container_to_completion(&mut status_receiver, &container)
+                        .await;
+                    if let Err(run_error) = run_result {
+                        return (container_handles, Some(run_error));
+                    }
+                }
+                Err(e) => {
+                    return (container_handles, Some(e));
+                }
+            }
+        }
+        info!("Finished running init containers for pod {:?}", pod.name());
+        (container_handles, None)
+    }
+
+    async fn wait_for_terminated_status(
+        status_receiver: &mut tokio::sync::watch::Receiver<kubelet::container::Status>,
+    ) -> ContainerTerminationResult {
+        loop {
+            let status = status_receiver.next().await;
+            if let Some(Status::Terminated {
+                message, failed, ..
+            }) = status
+            {
+                return ContainerTerminationResult {
+                    succeeded: !failed,
+                    message,
+                };
+            }
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -101,74 +281,70 @@ impl<S: Store + Send + Sync> Provider for WasiProvider<S> {
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
 
-        let pod_name = pod.name();
         let mut container_handles = HashMap::new();
 
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
         let client = kube::Client::new(self.kubeconfig.clone());
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
-        info!("Starting containers for pod {:?}", pod_name);
-        for container in pod.containers() {
-            let env = Self::env_vars(&container, &pod, &client).await;
-            let args = container.args().clone().unwrap_or_default();
-            let module_data = modules
-                .remove(container.name())
-                .expect("FATAL ERROR: module map not properly populated");
-            let container_volumes: HashMap<PathBuf, Option<PathBuf>> =
-                if let Some(volume_mounts) = container.volume_mounts().as_ref() {
-                    volume_mounts
-                        .iter()
-                        .map(|vm| -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
-                            // Check the volume exists first
-                            let vol = volumes.get(&vm.name).ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "no volume with the name of {} found for container {}",
-                                    vm.name,
-                                    container.name()
-                                )
-                            })?;
-                            let mut guest_path = PathBuf::from(&vm.mount_path);
-                            if let Some(sub_path) = &vm.sub_path {
-                                guest_path.push(sub_path);
-                            }
-                            // We can safely assume that this should be valid UTF-8 because it would have
-                            // been validated by the k8s API
-                            Ok((vol.deref().clone(), Some(guest_path)))
-                        })
-                        .collect::<anyhow::Result<_>>()?
-                } else {
-                    HashMap::default()
+
+        let (init_handles, init_error) = self
+            .run_init_containers(&pod, &client, &mut modules, &volumes)
+            .await;
+        container_handles.extend(init_handles.into_iter());
+
+        let mut start_error = None;
+
+        match init_error {
+            None => {
+                let (app_handles, app_error) = self
+                    .start_app_containers(&pod, &client, &mut modules, &volumes)
+                    .await;
+                container_handles.extend(app_handles.into_iter());
+                match app_error {
+                    None => debug!("Successfully started all containers for pod {}", pod.name()),
+                    Some(e) => {
+                        warn!(
+                            "Failed to start all containers for pod {}: {}",
+                            pod.name(),
+                            e
+                        );
+                        start_error = Some(e);
+                    }
                 };
+            }
+            Some(e) => {
+                info!(
+                    "Failed running init containers for pod {}: {}",
+                    pod.name(),
+                    e
+                );
+                start_error = Some(e);
+            }
+        };
 
-            let runtime = WasiRuntime::new(
-                module_data,
-                env,
-                args,
-                container_volumes,
-                self.log_path.clone(),
-            )
-            .await?;
+        let pod_start_message = start_error.as_ref().map(|e| e.to_string());
 
-            debug!("Starting container {} on thread", container.name());
-            let handle = runtime.start().await?;
-            container_handles.insert(container.name().to_string(), handle);
-        }
-        info!(
-            "All containers started for pod {:?}. Updating status",
-            pod_name
-        );
+        let pod_handle_key = key_from_pod(&pod);
+        let pod_handle = Handle::new(
+            container_handles,
+            pod,
+            client,
+            Some(volumes),
+            pod_start_message,
+        )
+        .await?;
 
         // Wrap this in a block so the write lock goes out of scope when we are done
         {
             // Grab the entry while we are creating things
             let mut handles = self.handles.write().await;
-            handles.insert(
-                key_from_pod(&pod),
-                Handle::new(container_handles, pod, client, Some(volumes))?,
-            );
+            handles.insert(pod_handle_key, pod_handle);
         }
 
-        Ok(())
+        match start_error {
+            None => Ok(()),
+            Some(e) => Err(e),
+        }
     }
 
     async fn modify(&self, pod: Pod) -> anyhow::Result<()> {

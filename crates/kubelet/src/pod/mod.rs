@@ -5,7 +5,7 @@ mod status;
 
 pub use handle::{key_from_pod, pod_key, Handle};
 pub(crate) use queue::Queue;
-pub use status::{update_status, Phase, Status};
+pub use status::{update_status, Phase, Status, StatusMessage};
 
 use std::collections::HashMap;
 
@@ -172,7 +172,9 @@ impl Pod {
                 }
             }
         }
+
         // is there ever a case when we get a status that we should end up in Phase unknown?
+
         let phase = if num_succeeded == container_statuses.len() {
             Phase::Succeeded
         } else if failed {
@@ -181,18 +183,36 @@ impl Pod {
             Phase::Running
         };
 
-        let json_status = serde_json::json!(
+        // TODO: init container statuses need to be reported through initContainerStatuses
+
+        let mut json_status = serde_json::json!(
             {
                 "metadata": {
                     "resourceVersion": "",
                 },
                 "status": {
                     "phase": phase,
-                    "message": status.message,
                     "containerStatuses": container_statuses
                 }
             }
         );
+
+        if let Some(map) = json_status.as_object_mut() {
+            if let Some(status_json) = map.get_mut("status") {
+                if let Some(status_map) = status_json.as_object_mut() {
+                    let message_key = "message".to_owned();
+                    match status.message {
+                        StatusMessage::LeaveUnchanged => (),
+                        StatusMessage::Clear => {
+                            status_map.insert(message_key, serde_json::Value::Null);
+                        }
+                        StatusMessage::Message(m) => {
+                            status_map.insert(message_key, serde_json::Value::String(m));
+                        }
+                    }
+                }
+            }
+        }
 
         debug!("Setting pod status for {} using {:?}", name, json_status);
 
@@ -203,6 +223,33 @@ impl Pod {
         }
     }
 
+    /// Sets the status of all specified containers to Waiting, and optionally
+    /// sets the pod status message.
+    pub async fn initialise_status(
+        &self,
+        client: &kube::Client,
+        container_names: &Vec<&String>,
+        initial_message: Option<String>,
+    ) {
+        let mut all_waiting_map = HashMap::new();
+        for name in container_names {
+            let waiting = crate::container::Status::Waiting {
+                timestamp: chrono::Utc::now(),
+                message: "PodInitializing".to_owned(),
+            };
+            all_waiting_map.insert(name.to_string(), waiting);
+        }
+        let initial_status_message = match initial_message {
+            Some(m) => StatusMessage::Message(m),
+            None => StatusMessage::Clear,
+        };
+        let all_waiting = Status {
+            message: initial_status_message,
+            container_statuses: all_waiting_map,
+        };
+        self.patch_status(client.clone(), all_waiting).await;
+    }
+
     /// Get a pod's containers
     pub fn containers(&self) -> Vec<Container> {
         self.0
@@ -210,6 +257,18 @@ impl Pod {
             .as_ref()
             .map(|s| &s.containers)
             .unwrap_or_else(|| &EMPTY_VEC)
+            .iter()
+            .map(|c| Container::new(c))
+            .collect()
+    }
+
+    /// Get a pod's init containers
+    pub fn init_containers(&self) -> Vec<Container> {
+        self.0
+            .spec
+            .as_ref()
+            .and_then(|s| s.init_containers.as_ref())
+            .unwrap_or(&EMPTY_VEC)
             .iter()
             .map(|c| Container::new(c))
             .collect()

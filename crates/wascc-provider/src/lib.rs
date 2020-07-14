@@ -38,7 +38,9 @@ use kubelet::container::{Handle as ContainerHandle, Status as ContainerStatus};
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
 use kubelet::pod::{key_from_pod, pod_key, Handle};
-use kubelet::pod::{update_status, Phase, Pod, Status as PodStatus};
+use kubelet::pod::{
+    update_status, Phase, Pod, Status as PodStatus, StatusMessage as PodStatusMessage,
+};
 use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
 use kubelet::store::Store;
@@ -198,6 +200,100 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
             port_map,
         })
     }
+
+    async fn start_container(
+        &self,
+        container: &Container,
+        pod: &Pod,
+        client: &kube::client::Client,
+        modules: &mut HashMap<String, Vec<u8>>,
+        volumes: &HashMap<String, Ref>,
+        port_assigned: i32,
+        container_handles: &mut HashMap<
+            String,
+            kubelet::container::Handle<ActorHandle, LogHandleFactory>,
+        >,
+    ) -> anyhow::Result<()> {
+        let env = Self::env_vars(&container, &pod, &client).await;
+        let volume_bindings: Vec<VolumeBinding> =
+            if let Some(volume_mounts) = container.volume_mounts().as_ref() {
+                volume_mounts
+                    .iter()
+                    .map(|vm| -> anyhow::Result<VolumeBinding> {
+                        // Check the volume exists first
+                        let vol = volumes.get(&vm.name).ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "no volume with the name of {} found for container {}",
+                                vm.name,
+                                container.name()
+                            )
+                        })?;
+                        // We can safely assume that this should be valid UTF-8 because it would have
+                        // been validated by the k8s API
+                        Ok(VolumeBinding {
+                            name: vm.name.clone(),
+                            host_path: vol.deref().clone(),
+                        })
+                    })
+                    .collect::<anyhow::Result<_>>()?
+            } else {
+                vec![]
+            };
+
+        debug!("Starting container {} on thread", container.name());
+
+        let module_data = modules
+            .remove(container.name())
+            .expect("FATAL ERROR: module map not properly populated");
+        let lp = self.log_path.clone();
+        let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
+            timestamp: chrono::Utc::now(),
+            message: "No status has been received from the process".into(),
+        });
+        let host = self.host.clone();
+        let http_result = tokio::task::spawn_blocking(move || {
+            wascc_run_http(
+                host,
+                module_data,
+                env,
+                volume_bindings,
+                &lp,
+                status_recv,
+                port_assigned,
+            )
+        })
+        .await?;
+        match http_result {
+            Ok(handle) => {
+                container_handles.insert(container.name().to_string(), handle);
+                status_sender
+                    .broadcast(ContainerStatus::Running {
+                        timestamp: chrono::Utc::now(),
+                    })
+                    .expect("status should be able to send");
+                Ok(())
+            }
+            Err(e) => {
+                // We can't broadcast here because the receiver has been dropped at this point
+                // (it was never used in creating a runtime handle)
+                let mut container_statuses = HashMap::new();
+                container_statuses.insert(
+                    container.name().to_string(),
+                    ContainerStatus::Terminated {
+                        timestamp: chrono::Utc::now(),
+                        failed: true,
+                        message: format!("Error while starting container: {:?}", e),
+                    },
+                );
+                let status = PodStatus {
+                    message: PodStatusMessage::LeaveUnchanged,
+                    container_statuses,
+                };
+                pod.patch_status(client.clone(), status).await;
+                Err(anyhow::anyhow!("Failed to run pod: {}", e))
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -251,96 +347,29 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
             }
             debug!("New port assigned is: {}", port_assigned);
 
-            let env = Self::env_vars(&container, &pod, &client).await;
-            let volume_bindings: Vec<VolumeBinding> =
-                if let Some(volume_mounts) = container.volume_mounts().as_ref() {
-                    volume_mounts
-                        .iter()
-                        .map(|vm| -> anyhow::Result<VolumeBinding> {
-                            // Check the volume exists first
-                            let vol = volumes.get(&vm.name).ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "no volume with the name of {} found for container {}",
-                                    vm.name,
-                                    container.name()
-                                )
-                            })?;
-                            // We can safely assume that this should be valid UTF-8 because it would have
-                            // been validated by the k8s API
-                            Ok(VolumeBinding {
-                                name: vm.name.clone(),
-                                host_path: vol.deref().clone(),
-                            })
-                        })
-                        .collect::<anyhow::Result<_>>()?
-                } else {
-                    vec![]
-                };
-
-            debug!("Starting container {} on thread", container.name());
-
-            let module_data = modules
-                .remove(container.name())
-                .expect("FATAL ERROR: module map not properly populated");
-            let lp = self.log_path.clone();
-            let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
-                timestamp: chrono::Utc::now(),
-                message: "No status has been received from the process".into(),
-            });
-            let host = self.host.clone();
-            let http_result = tokio::task::spawn_blocking(move || {
-                wascc_run_http(
-                    host,
-                    module_data,
-                    env,
-                    volume_bindings,
-                    &lp,
-                    status_recv,
-                    port_assigned,
-                )
-            })
-            .await?;
-            match http_result {
-                Ok(handle) => {
-                    container_handles.insert(container.name().to_string(), handle);
-                    status_sender
-                        .broadcast(ContainerStatus::Running {
-                            timestamp: chrono::Utc::now(),
-                        })
-                        .expect("status should be able to send");
-                }
-                Err(e) => {
-                    // We can't broadcast here because the receiver has been dropped at this point
-                    // (it was never used in creating a runtime handle)
-                    let mut container_statuses = HashMap::new();
-                    container_statuses.insert(
-                        container.name().to_string(),
-                        ContainerStatus::Terminated {
-                            timestamp: chrono::Utc::now(),
-                            failed: true,
-                            message: format!("Error while starting container: {:?}", e),
-                        },
-                    );
-                    let status = PodStatus {
-                        message: None,
-                        container_statuses,
-                    };
-                    pod.patch_status(client.clone(), status).await;
-                    return Err(anyhow::anyhow!("Failed to run pod: {}", e));
-                }
-            }
+            self.start_container(
+                &container,
+                &pod,
+                &client,
+                &mut modules,
+                &volumes,
+                port_assigned,
+                &mut container_handles,
+            )
+            .await?
         }
         info!(
             "All containers started for pod {:?}. Updating status",
             pod.name()
         );
+
+        let pod_handle_key = key_from_pod(&pod);
+        let pod_handle = Handle::new(container_handles, pod, client, None, None).await?;
+
         // Wrap this in a block so the write lock goes out of scope when we are done
         {
             let mut handles = self.handles.write().await;
-            handles.insert(
-                key_from_pod(&pod),
-                Handle::new(container_handles, pod, client, None)?,
-            );
+            handles.insert(pod_handle_key, pod_handle);
         }
 
         Ok(())
@@ -480,6 +509,12 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
 }
 
 fn validate_pod_runnable(pod: &Pod) -> anyhow::Result<()> {
+    if !pod.init_containers().is_empty() {
+        return Err(anyhow::anyhow!(
+            "Cannot run {}: spec specifies init containers which are not supported on wasCC",
+            pod.name()
+        ));
+    }
     for container in pod.containers() {
         validate_container_runnable(&container)?;
     }
