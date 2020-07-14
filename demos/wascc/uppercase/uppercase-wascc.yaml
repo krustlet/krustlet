@@ -9,9 +9,6 @@ spec:
     - image: webassembly.azurecr.io/uppercase-wascc:v0.3
       imagePullPolicy: Always
       name: uppercase
-      env:
-      - name: PORT
-        value: "8080"
       ports:
         - containerPort: 8080
   nodeSelector:

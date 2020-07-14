@@ -44,6 +44,8 @@ use kubelet::provider::ProviderError;
 use kubelet::store::Store;
 use kubelet::volume::Ref;
 use log::{debug, error, info, trace};
+use std::error::Error;
+use std::fmt;
 use tempfile::NamedTempFile;
 use tokio::sync::watch::{self, Receiver};
 use tokio::sync::RwLock;
@@ -52,10 +54,13 @@ use wascc_host::{Actor, NativeCapability, WasccHost};
 use wascc_httpsrv::HttpServerProvider;
 use wascc_logging::{LoggingProvider, LOG_PATH_KEY};
 
-use std::collections::HashMap;
+extern crate rand;
+use rand::Rng;
+use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use tokio::sync::Mutex as TokioMutex;
 
 /// The architecture that the pod targets.
 const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
@@ -128,6 +133,7 @@ pub struct WasccProvider<S> {
     log_path: PathBuf,
     kubeconfig: kube::Config,
     host: Arc<Mutex<WasccHost>>,
+    port_map: Arc<TokioMutex<HashMap<i32, String>>>,
 }
 
 impl<S: Store + Send + Sync> WasccProvider<S> {
@@ -141,6 +147,7 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
         let host = Arc::new(Mutex::new(WasccHost::new()));
         let log_path = config.data_dir.join(LOG_DIR_NAME);
         let volume_path = config.data_dir.join(VOLUME_DIR);
+        let port_map = Arc::new(TokioMutex::new(HashMap::<i32, String>::new()));
         tokio::fs::create_dir_all(&log_path).await?;
         tokio::fs::create_dir_all(&volume_path).await?;
 
@@ -188,6 +195,7 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
             log_path,
             kubeconfig,
             host,
+            port_map,
         })
     }
 }
@@ -217,6 +225,32 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
         let client = kube::Client::new(self.kubeconfig.clone());
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
         for container in pod.containers() {
+            let mut port_assigned: i32 = 0;
+            if let Some(container_vec) = container.ports().as_ref() {
+                for c_port in container_vec.iter() {
+                    let container_port = c_port.container_port;
+                    if let Some(host_port) = c_port.host_port {
+                        let mut lock = self.port_map.lock().await;
+                        if !lock.contains_key(&host_port) {
+                            port_assigned = host_port;
+                            lock.insert(port_assigned, pod.name().to_string());
+                        } else {
+                            error!(
+                                "Failed to assign hostport {}, because it's taken",
+                                &host_port
+                            );
+                            return Err(anyhow::anyhow!("Port {} is currently in use", &host_port));
+                        }
+                    } else {
+                        if container_port >= 0 && container_port <= 65536 {
+                            port_assigned =
+                                find_available_port(&self.port_map, pod.name().to_string()).await?;
+                        }
+                    }
+                }
+            }
+            debug!("New port assigned is: {}", port_assigned);
+
             let env = Self::env_vars(&container, &pod, &client).await;
             let volume_bindings: Vec<VolumeBinding> =
                 if let Some(volume_mounts) = container.volume_mounts().as_ref() {
@@ -255,7 +289,15 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
             });
             let host = self.host.clone();
             let http_result = tokio::task::spawn_blocking(move || {
-                wascc_run_http(host, module_data, env, volume_bindings, &lp, status_recv)
+                wascc_run_http(
+                    host,
+                    module_data,
+                    env,
+                    volume_bindings,
+                    &lp,
+                    status_recv,
+                    port_assigned,
+                )
             })
             .await?;
             match http_result {
@@ -396,6 +438,14 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
     }
 
     async fn delete(&self, pod: Pod) -> anyhow::Result<()> {
+        let mut delete_key: i32 = 0;
+        let mut lock = self.port_map.lock().await;
+        for (key, val) in lock.iter() {
+            if val == pod.name() {
+                delete_key = *key
+            }
+        }
+        lock.remove(&delete_key);
         let mut handles = self.handles.write().await;
         match handles.remove(&key_from_pod(&pod)) {
             Some(_) => debug!(
@@ -465,19 +515,59 @@ struct VolumeBinding {
 fn wascc_run_http(
     host: Arc<Mutex<WasccHost>>,
     data: Vec<u8>,
-    env: EnvVars,
+    mut env: EnvVars,
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
     status_recv: Receiver<ContainerStatus>,
+    port_assigned: i32,
 ) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
     let mut caps: Vec<Capability> = Vec::new();
 
+    env.insert("PORT".to_string(), port_assigned.to_string());
     caps.push(Capability {
         name: HTTP_CAPABILITY,
         binding: None,
         env,
     });
     wascc_run(host, data, &mut caps, volumes, log_path, status_recv)
+}
+
+#[derive(Debug)]
+struct PortAllocationError {}
+
+impl PortAllocationError {
+    fn new() -> PortAllocationError {
+        PortAllocationError {}
+    }
+}
+impl fmt::Display for PortAllocationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "all ports are currently in use")
+    }
+}
+impl Error for PortAllocationError {
+    fn description(&self) -> &str {
+        "all ports are currently in use"
+    }
+}
+
+async fn find_available_port(
+    port_map: &Arc<TokioMutex<HashMap<i32, String>>>,
+    pod_name: String,
+) -> Result<i32, PortAllocationError> {
+    let mut port: Option<i32> = None;
+    let mut empty_port: HashSet<i32> = HashSet::new();
+    let mut lock = port_map.lock().await;
+    while empty_port.len() < 2768 {
+        let generated_port: i32 = rand::thread_rng().gen_range(30000, 32768);
+        port.replace(generated_port);
+        empty_port.insert(port.unwrap());
+        if !lock.contains_key(&port.unwrap()) {
+            lock.insert(port.unwrap(), pod_name);
+            break;
+        }
+    }
+    port.ok_or(PortAllocationError::new())
 }
 
 /// Capability describes a waSCC capability.

@@ -9,9 +9,6 @@ spec:
     - image: webassembly.azurecr.io/greet-wascc:v0.5
       imagePullPolicy: Always
       name: greet
-      env:
-      - name: PORT
-        value: "8080"
       ports:
         - containerPort: 8080
   nodeSelector:

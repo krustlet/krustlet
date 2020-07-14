@@ -4007,6 +4007,7 @@ dependencies = [
  "kubelet",
  "log 0.4.8",
  "oci-distribution",
+ "rand 0.7.3",
  "serde",
  "serde_derive",
  "serde_json",

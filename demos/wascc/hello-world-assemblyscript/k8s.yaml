@@ -6,9 +6,6 @@ spec:
   containers:
     - name: hello-world-wascc-assemblyscript
       image: webassembly.azurecr.io/hello-world-wascc-assemblyscript:v0.1.0
-      env:
-        - name: PORT
-          value: "8080"
       ports:
         - containerPort: 8080
   nodeSelector:
