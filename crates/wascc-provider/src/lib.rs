@@ -229,25 +229,26 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
 
     async fn start_container(
         &self,
+        run_context: &mut ModuleRunContext<'_>,
         container: &Container,
         pod: &Pod,
-        client: &kube::client::Client,
-        modules: &mut HashMap<String, Vec<u8>>,
-        volumes: &HashMap<String, Ref>,
+        // client: &kube::client::Client,
+        // modules: &mut HashMap<String, Vec<u8>>,
+        // volumes: &HashMap<String, Ref>,
         port_assigned: i32,
-        container_handles: &mut HashMap<
-            String,
-            kubelet::container::Handle<ActorHandle, LogHandleFactory>,
-        >,
+        // container_handles: &mut HashMap<
+        //     String,
+        //     kubelet::container::Handle<ActorHandle, LogHandleFactory>,
+        // >,
     ) -> anyhow::Result<()> {
-        let env = Self::env_vars(&container, &pod, &client).await;
+        let env = Self::env_vars(&container, &pod, run_context.client).await;
         let volume_bindings: Vec<VolumeBinding> =
             if let Some(volume_mounts) = container.volume_mounts().as_ref() {
                 volume_mounts
                     .iter()
                     .map(|vm| -> anyhow::Result<VolumeBinding> {
                         // Check the volume exists first
-                        let vol = volumes.get(&vm.name).ok_or_else(|| {
+                        let vol = run_context.volumes.get(&vm.name).ok_or_else(|| {
                             anyhow::anyhow!(
                                 "no volume with the name of {} found for container {}",
                                 vm.name,
@@ -268,7 +269,8 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
 
         debug!("Starting container {} on thread", container.name());
 
-        let module_data = modules
+        let module_data = run_context
+            .modules
             .remove(container.name())
             .expect("FATAL ERROR: module map not properly populated");
         let lp = self.log_path.clone();
@@ -291,7 +293,9 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
         .await?;
         match http_result {
             Ok(handle) => {
-                container_handles.insert(container.name().to_string(), handle);
+                run_context
+                    .container_handles
+                    .insert(container.name().to_string(), handle);
                 status_sender
                     .broadcast(ContainerStatus::Running {
                         timestamp: chrono::Utc::now(),
@@ -315,11 +319,19 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
                     message: PodStatusMessage::LeaveUnchanged,
                     container_statuses,
                 };
-                pod.patch_status(client.clone(), status).await;
+                pod.patch_status(run_context.client.clone(), status).await;
                 Err(anyhow::anyhow!("Failed to run pod: {}", e))
             }
         }
     }
+}
+
+struct ModuleRunContext<'a> {
+    client: &'a kube::Client,
+    modules: &'a mut HashMap<String, Vec<u8>>,
+    volumes: &'a HashMap<String, Ref>,
+    container_handles:
+        &'a mut HashMap<String, kubelet::container::Handle<ActorHandle, LogHandleFactory>>,
 }
 
 #[async_trait]
@@ -346,20 +358,24 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
         let mut container_handles = HashMap::new();
         let client = kube::Client::new(self.kubeconfig.clone());
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
+
+        let mut run_context = ModuleRunContext {
+            client: &client,
+            modules: &mut modules,
+            volumes: &volumes,
+            container_handles: &mut container_handles,
+        };
+
         for container in pod.containers() {
             let port_assigned = self.assign_container_port(&pod, &container).await?;
-            debug!("New port assigned to {} is: {}", container.name(), port_assigned);
+            debug!(
+                "New port assigned to {} is: {}",
+                container.name(),
+                port_assigned
+            );
 
-            self.start_container(
-                &container,
-                &pod,
-                &client,
-                &mut modules,
-                &volumes,
-                port_assigned,
-                &mut container_handles,
-            )
-            .await?
+            self.start_container(&mut run_context, &container, &pod, port_assigned)
+                .await?
         }
         info!(
             "All containers started for pod {:?}. Updating status",
