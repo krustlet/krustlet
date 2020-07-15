@@ -231,6 +231,23 @@ impl Pod {
         container_names: &[&String],
         initial_message: Option<String>,
     ) {
+        let all_app_containers_waiting = Self::all_waiting(container_names);
+        // let all_init_containers_waiting = Self::all_waiting(init_container_names);
+
+        let initial_status_message = match initial_message {
+            Some(m) => StatusMessage::Message(m),
+            None => StatusMessage::Clear,
+        };
+
+        let all_waiting = Status {
+            message: initial_status_message,
+            container_statuses: all_app_containers_waiting,
+            // init_container_statuses: all_init_containers_waiting,
+        };
+        self.patch_status(client.clone(), all_waiting).await;
+    }
+
+    fn all_waiting(container_names: &[&String]) -> HashMap<String, crate::container::Status> {
         let mut all_waiting_map = HashMap::new();
         for name in container_names {
             let waiting = crate::container::Status::Waiting {
@@ -239,15 +256,7 @@ impl Pod {
             };
             all_waiting_map.insert(name.to_string(), waiting);
         }
-        let initial_status_message = match initial_message {
-            Some(m) => StatusMessage::Message(m),
-            None => StatusMessage::Clear,
-        };
-        let all_waiting = Status {
-            message: initial_status_message,
-            container_statuses: all_waiting_map,
-        };
-        self.patch_status(client.clone(), all_waiting).await;
+        all_waiting_map
     }
 
     /// Get a pod's containers
