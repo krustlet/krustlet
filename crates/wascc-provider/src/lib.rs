@@ -232,14 +232,7 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
         run_context: &mut ModuleRunContext<'_>,
         container: &Container,
         pod: &Pod,
-        // client: &kube::client::Client,
-        // modules: &mut HashMap<String, Vec<u8>>,
-        // volumes: &HashMap<String, Ref>,
         port_assigned: i32,
-        // container_handles: &mut HashMap<
-        //     String,
-        //     kubelet::container::Handle<ActorHandle, LogHandleFactory>,
-        // >,
     ) -> anyhow::Result<()> {
         let env = Self::env_vars(&container, &pod, run_context.client).await;
         let volume_bindings: Vec<VolumeBinding> =
