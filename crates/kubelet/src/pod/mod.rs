@@ -228,7 +228,7 @@ impl Pod {
     pub async fn initialise_status(
         &self,
         client: &kube::Client,
-        container_names: &Vec<&String>,
+        container_names: &[&String],
         initial_message: Option<String>,
     ) {
         let mut all_waiting_map = HashMap::new();
