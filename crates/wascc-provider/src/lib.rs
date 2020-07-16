@@ -35,7 +35,10 @@ use async_trait::async_trait;
 use k8s_openapi::api::core::v1::{ContainerStatus as KubeContainerStatus, Pod as KubePod};
 use kube::{api::DeleteParams, Api};
 use kubelet::container::Container;
-use kubelet::container::{Handle as ContainerHandle, Status as ContainerStatus};
+use kubelet::container::{
+    ContainerKey, Handle as ContainerHandle, HandleMap as ContainerHandleMap,
+    Status as ContainerStatus,
+};
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
 use kubelet::pod::{key_from_pod, pod_key, Handle};
@@ -289,7 +292,7 @@ impl WasccProvider {
             Ok(handle) => {
                 run_context
                     .container_handles
-                    .insert(container.name().to_string(), handle);
+                    .insert(ContainerKey::App(container.name().to_string()), handle);
                 status_sender
                     .broadcast(ContainerStatus::Running {
                         timestamp: chrono::Utc::now(),
@@ -302,7 +305,7 @@ impl WasccProvider {
                 // (it was never used in creating a runtime handle)
                 let mut container_statuses = HashMap::new();
                 container_statuses.insert(
-                    container.name().to_string(),
+                    ContainerKey::App(container.name().to_string()),
                     ContainerStatus::Terminated {
                         timestamp: chrono::Utc::now(),
                         failed: true,
@@ -324,8 +327,7 @@ struct ModuleRunContext<'a> {
     client: &'a kube::Client,
     modules: &'a mut HashMap<String, Vec<u8>>,
     volumes: &'a HashMap<String, Ref>,
-    container_handles:
-        &'a mut HashMap<String, kubelet::container::Handle<ActorHandle, LogHandleFactory>>,
+    container_handles: &'a mut ContainerHandleMap<ActorHandle, LogHandleFactory>,
 }
 
 #[async_trait]

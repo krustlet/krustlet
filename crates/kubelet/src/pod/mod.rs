@@ -9,7 +9,7 @@ pub use status::{update_status, Phase, Status, StatusMessage};
 
 use std::collections::HashMap;
 
-use crate::container::Container;
+use crate::container::{Container, ContainerKey, ContainerMap};
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::{
     Container as KubeContainer, ContainerStatus as KubeContainerStatus, Pod as KubePod,
@@ -123,10 +123,10 @@ impl Pod {
     }
 
     /// Patch the pod status using the given status information.
-    pub async fn patch_status(&self, client: kube::Client, status: Status) {
+    pub async fn patch_status(&self, client: kube::Client, status_changes: Status) {
         let name = self.name();
         let api: Api<KubePod> = Api::namespaced(client, self.namespace());
-        let current_status = match api.get(name).await {
+        let current_k8s_status = match api.get(name).await {
             Ok(p) => match p.status {
                 Some(s) => s,
                 None => {
@@ -142,24 +142,37 @@ impl Pod {
 
         // This section figures out what the current phase of the pod should be
         // based on the container statuses
-        let current_statuses = status
+        let statuses_to_merge = status_changes
             .container_statuses
             .into_iter()
-            .map(|s| (s.0.clone(), s.1.to_kubernetes(s.0)))
-            .collect::<HashMap<String, KubeContainerStatus>>();
+            .map(|s| (s.0.clone(), s.1.to_kubernetes(s.0.name())))
+            .collect::<ContainerMap<KubeContainerStatus>>();
+        let (app_statuses_to_merge, init_statuses_to_merge): (ContainerMap<_>, ContainerMap<_>) =
+            statuses_to_merge.into_iter().partition(|(k, _)| k.is_app());
         // Filter out any ones we are updating and then combine them all together
-        let mut container_statuses = current_status
+        let mut app_container_statuses = current_k8s_status
             .container_statuses
             .unwrap_or_default()
             .into_iter()
-            .filter(|s| !current_statuses.contains_key(&s.name))
+            .filter(|s| !app_statuses_to_merge.contains_key(&ContainerKey::App(s.name.clone())))
             .collect::<Vec<KubeContainerStatus>>();
-        container_statuses.extend(current_statuses.into_iter().map(|(_, v)| v));
+        let mut init_container_statuses = current_k8s_status
+            .init_container_statuses
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|s| !init_statuses_to_merge.contains_key(&ContainerKey::Init(s.name.clone())))
+            .collect::<Vec<KubeContainerStatus>>();
+        app_container_statuses.extend(app_statuses_to_merge.into_iter().map(|(_, v)| v));
+        init_container_statuses.extend(init_statuses_to_merge.into_iter().map(|(_, v)| v));
+
         let mut num_succeeded: usize = 0;
         let mut failed = false;
         // TODO(thomastaylor312): Add inferring a message from these container
         // statuses if there is no message passed in the Status object
-        for status in container_statuses.iter() {
+        for status in app_container_statuses
+            .iter()
+            .chain(init_container_statuses.iter())
+        {
             // Basically anything is considered running phase in kubernetes
             // unless it is explicitly exited, so don't worry about considering
             // that state. We only really need to check terminated
@@ -173,9 +186,11 @@ impl Pod {
             }
         }
 
+        // TODO: should we have more general-purpose 'container phases' model
+        // so we don't need parallel app and init logic?
+        let container_count = app_container_statuses.len() + init_container_statuses.len();
         // is there ever a case when we get a status that we should end up in Phase unknown?
-
-        let phase = if num_succeeded == container_statuses.len() {
+        let phase = if num_succeeded >= container_count {
             Phase::Succeeded
         } else if failed {
             Phase::Failed
@@ -192,7 +207,8 @@ impl Pod {
                 },
                 "status": {
                     "phase": phase,
-                    "containerStatuses": container_statuses
+                    "containerStatuses": app_container_statuses,
+                    "initContainerStatuses": init_container_statuses,
                 }
             }
         );
@@ -201,7 +217,7 @@ impl Pod {
             if let Some(status_json) = map.get_mut("status") {
                 if let Some(status_map) = status_json.as_object_mut() {
                     let message_key = "message".to_owned();
-                    match status.message {
+                    match status_changes.message {
                         StatusMessage::LeaveUnchanged => (),
                         StatusMessage::Clear => {
                             status_map.insert(message_key, serde_json::Value::Null);
@@ -228,26 +244,33 @@ impl Pod {
     pub async fn initialise_status(
         &self,
         client: &kube::Client,
-        container_names: &[&String],
+        container_keys: &[ContainerKey],
         initial_message: Option<String>,
     ) {
-        let mut all_waiting_map = HashMap::new();
-        for name in container_names {
-            let waiting = crate::container::Status::Waiting {
-                timestamp: chrono::Utc::now(),
-                message: "PodInitializing".to_owned(),
-            };
-            all_waiting_map.insert(name.to_string(), waiting);
-        }
+        let all_containers_waiting = Self::all_waiting(container_keys);
+
         let initial_status_message = match initial_message {
             Some(m) => StatusMessage::Message(m),
             None => StatusMessage::Clear,
         };
+
         let all_waiting = Status {
             message: initial_status_message,
-            container_statuses: all_waiting_map,
+            container_statuses: all_containers_waiting,
         };
         self.patch_status(client.clone(), all_waiting).await;
+    }
+
+    fn all_waiting(container_keys: &[ContainerKey]) -> ContainerMap<crate::container::Status> {
+        let mut all_waiting_map = HashMap::new();
+        for key in container_keys {
+            let waiting = crate::container::Status::Waiting {
+                timestamp: chrono::Utc::now(),
+                message: "PodInitializing".to_owned(),
+            };
+            all_waiting_map.insert(key.clone(), waiting);
+        }
+        all_waiting_map
     }
 
     /// Get a pod's containers
@@ -272,6 +295,19 @@ impl Pod {
             .iter()
             .map(|c| Container::new(c))
             .collect()
+    }
+
+    /// Gets all of a pod's containers (init and application)
+    pub fn all_containers(&self) -> Vec<ContainerKey> {
+        let app_containers = self.containers();
+        let app_container_keys = app_containers
+            .iter()
+            .map(|c| ContainerKey::App(c.name().to_owned()));
+        let init_containers = self.containers();
+        let init_container_keys = init_containers
+            .iter()
+            .map(|c| ContainerKey::Init(c.name().to_owned()));
+        app_container_keys.chain(init_container_keys).collect()
     }
 
     /// Turn the Pod into the Kubernetes API version of a Pod
