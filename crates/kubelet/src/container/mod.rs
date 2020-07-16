@@ -76,6 +76,22 @@ impl ContainerKey {
             Self::Init(name) | Self::App(name) => name.to_string(),
         }
     }
+
+    /// Whether the key identifies an app container
+    pub fn is_app(&self) -> bool {
+        match self {
+            Self::App(_) => true,
+            _ => false,
+        }
+    }
+
+    /// Whether the key identifies an init container
+    pub fn is_init(&self) -> bool {
+        match self {
+            Self::Init(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl Display for ContainerKey {
@@ -103,7 +119,7 @@ impl<V> ContainerMapByName<V> for ContainerMap<V> {
         if self.contains_key(&app_key) {
             self.get_mut(&app_key)
         } else {
-            self.get_mut(&ContainerKey::Init(name.clone()))
+            self.get_mut(&ContainerKey::Init(name))
         }
     }
 

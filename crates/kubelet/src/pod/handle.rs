@@ -39,7 +39,7 @@ impl<H: StopHandler, F> Handle<H, F> {
         volumes: Option<HashMap<String, Ref>>,
         initial_message: Option<String>,
     ) -> anyhow::Result<Self> {
-        let container_keys: Vec<_> = container_handles.keys().map(|k| k.clone()).collect();
+        let container_keys: Vec<_> = container_handles.keys().cloned().collect();
         pod.initialise_status(&client, &container_keys, initial_message)
             .await;
 

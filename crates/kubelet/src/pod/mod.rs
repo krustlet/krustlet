@@ -9,7 +9,7 @@ pub use status::{update_status, Phase, Status, StatusMessage};
 
 use std::collections::HashMap;
 
-use crate::container::{Container, ContainerKey, ContainerMap, ContainerMapByName};
+use crate::container::{Container, ContainerKey, ContainerMap};
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::{
     Container as KubeContainer, ContainerStatus as KubeContainerStatus, Pod as KubePod,
@@ -123,10 +123,10 @@ impl Pod {
     }
 
     /// Patch the pod status using the given status information.
-    pub async fn patch_status(&self, client: kube::Client, status: Status) {
+    pub async fn patch_status(&self, client: kube::Client, status_changes: Status) {
         let name = self.name();
         let api: Api<KubePod> = Api::namespaced(client, self.namespace());
-        let current_status = match api.get(name).await {
+        let current_k8s_status = match api.get(name).await {
             Ok(p) => match p.status {
                 Some(s) => s,
                 None => {
@@ -142,24 +142,37 @@ impl Pod {
 
         // This section figures out what the current phase of the pod should be
         // based on the container statuses
-        let statuses_to_merge = status
+        let statuses_to_merge = status_changes
             .container_statuses
             .into_iter()
             .map(|s| (s.0.clone(), s.1.to_kubernetes(s.0.name())))
             .collect::<ContainerMap<KubeContainerStatus>>();
+        let (app_statuses_to_merge, init_statuses_to_merge): (ContainerMap<_>, ContainerMap<_>) =
+            statuses_to_merge.into_iter().partition(|(k, _)| k.is_app());
         // Filter out any ones we are updating and then combine them all together
-        let mut container_statuses = current_status
+        let mut app_container_statuses = current_k8s_status
             .container_statuses
             .unwrap_or_default()
             .into_iter()
-            .filter(|s| !statuses_to_merge.contains_key_name(&s.name))
+            .filter(|s| !app_statuses_to_merge.contains_key(&ContainerKey::App(s.name.clone())))
             .collect::<Vec<KubeContainerStatus>>();
-        container_statuses.extend(statuses_to_merge.into_iter().map(|(_, v)| v));
+        let mut init_container_statuses = current_k8s_status
+            .init_container_statuses
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|s| !init_statuses_to_merge.contains_key(&ContainerKey::Init(s.name.clone())))
+            .collect::<Vec<KubeContainerStatus>>();
+        app_container_statuses.extend(app_statuses_to_merge.into_iter().map(|(_, v)| v));
+        init_container_statuses.extend(init_statuses_to_merge.into_iter().map(|(_, v)| v));
+
         let mut num_succeeded: usize = 0;
         let mut failed = false;
         // TODO(thomastaylor312): Add inferring a message from these container
         // statuses if there is no message passed in the Status object
-        for status in container_statuses.iter() {
+        for status in app_container_statuses
+            .iter()
+            .chain(init_container_statuses.iter())
+        {
             // Basically anything is considered running phase in kubernetes
             // unless it is explicitly exited, so don't worry about considering
             // that state. We only really need to check terminated
@@ -173,9 +186,11 @@ impl Pod {
             }
         }
 
+        // TODO: should we have more general-purpose 'container phases' model
+        // so we don't need parallel app and init logic?
+        let container_count = app_container_statuses.len() + init_container_statuses.len();
         // is there ever a case when we get a status that we should end up in Phase unknown?
-
-        let phase = if num_succeeded == container_statuses.len() {
+        let phase = if num_succeeded >= container_count {
             Phase::Succeeded
         } else if failed {
             Phase::Failed
@@ -192,7 +207,8 @@ impl Pod {
                 },
                 "status": {
                     "phase": phase,
-                    "containerStatuses": container_statuses
+                    "containerStatuses": app_container_statuses,
+                    "initContainerStatuses": init_container_statuses,
                 }
             }
         );
@@ -201,7 +217,7 @@ impl Pod {
             if let Some(status_json) = map.get_mut("status") {
                 if let Some(status_map) = status_json.as_object_mut() {
                     let message_key = "message".to_owned();
-                    match status.message {
+                    match status_changes.message {
                         StatusMessage::LeaveUnchanged => (),
                         StatusMessage::Clear => {
                             status_map.insert(message_key, serde_json::Value::Null);

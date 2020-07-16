@@ -229,7 +229,7 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
     Ok(())
 }
 
-fn all_terminated_due_to_shutdown(containers: &Vec<Container>) -> ContainerMap<ContainerStatus> {
+fn all_terminated_due_to_shutdown(containers: &[Container]) -> ContainerMap<ContainerStatus> {
     let mut container_statuses = HashMap::new();
     for container in containers {
         container_statuses.insert(
