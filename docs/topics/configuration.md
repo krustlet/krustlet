@@ -8,6 +8,10 @@ these methods to support, or may choose to bypass `kubelet`'s built-in
 configuration system in favour of their own. `krustlet-wascc` and
 `krustlet-wasi` use standard configuration and support all configuration methods.
 
+**NOTE:** Certain flags must be handled at the provider or custom kubelet level. If you
+are building a custom kubelet using the `kubelet` crate, please see the "Notes to 
+kubelet implementers" section below.
+
 ## Configuration values
 
 | Command line       | Environment variable      | Configuration file | Description                                                                                                                                                                                            |
@@ -22,6 +26,7 @@ configuration system in favour of their own. `krustlet-wascc` and
 | -p, --port         | KRUSTLET_PORT             | listenerPort       | The port on which the kubelet should listen. The default is 3000                                                                                                                                       |
 | --cert-file        | KRUSTLET_CERT_FILE        | tlsCertificateFile | The path to the TLS certificate for the kubelet. The default is `(data directory)/config/krustlet.crt`                                                                                                 |
 | --private-key-file | KRUSTLET_PRIVATE_KEY_FILE | tlsPrivateKeyFile  | The path to the private key for the TLS certificate. The default is `(data directory)/config/krustlet.key`                                                                                             |
+| --x-allow-local-modules | KRUSTLET_ALLOW_LOCAL_MODULES | allowLocalModules | If true, the kubelet should recognise references prefixed with 'fs' as indicating a filesystem path rather than a registry location. This is an experimental flag for use in development scenarios where you don't want to repeatedly push your local builds to a registry; it is likely to be removed in a future version when we have a more comprehensive toolchain for local development. |
 
 ## Node labels format
 
@@ -70,3 +75,19 @@ configuration file, for example by writing `MAX_PODS=200 krustlet-wascc` or
 If you specify node labels in multiple places, the collections are _not_
 combined: the place with the highest precedence takes effect and all others
 are ignored.
+
+## Notes to kubelet implementers
+
+Some flags require you to support them in your provider or main code - they are
+not implemented automatically by the kubelet core. These flags are as follows:
+
+* `--bootstrap-file` - should be passed to `kubelet::bootstrap` if you use the
+  bootstrapping feature
+* `--data-dir` - this should be used to construct the `FileStore` if you use one
+* `--x-allow-local-modules` - if specified you should compose a `FileSystemStore`
+  onto your normal store
+
+See the `krustlet-wasi.rs` file for examples of how to honour these flags.
+
+If you can't honour a flag value in your particular scenario, then you should
+still check for it and return an error, rather than silently ignoring it.

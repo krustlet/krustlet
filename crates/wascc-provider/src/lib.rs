@@ -7,13 +7,14 @@
 //! ```rust,no_run
 //! use kubelet::{Kubelet, config::Config};
 //! use kubelet::store::oci::FileStore;
+//! use std::sync::Arc;
 //! use wascc_provider::WasccProvider;
 //!
 //! async fn start() {
 //!     // Get a configuration for the Kubelet
 //!     let kubelet_config = Config::default();
 //!     let client = oci_distribution::Client::default();
-//!     let store = FileStore::new(client, &std::path::PathBuf::from(""));
+//!     let store = Arc::new(FileStore::new(client, &std::path::PathBuf::from("")));
 //!
 //!     // Load a kubernetes configuration
 //!     let kubeconfig = kube::Config::infer().await.unwrap();
@@ -128,9 +129,9 @@ impl StopHandler for ActorHandle {
 /// TODO: In the future, we will look at loading capabilities using the "sidecar" metaphor
 /// from Kubernetes.
 #[derive(Clone)]
-pub struct WasccProvider<S> {
+pub struct WasccProvider {
     handles: Arc<RwLock<HashMap<String, Handle<ActorHandle, LogHandleFactory>>>>,
-    store: S,
+    store: Arc<dyn Store + Sync + Send>,
     volume_path: PathBuf,
     log_path: PathBuf,
     kubeconfig: kube::Config,
@@ -138,11 +139,11 @@ pub struct WasccProvider<S> {
     port_map: Arc<TokioMutex<HashMap<i32, String>>>,
 }
 
-impl<S: Store + Send + Sync> WasccProvider<S> {
+impl WasccProvider {
     /// Returns a new wasCC provider configured to use the proper data directory
     /// (including creating it if necessary)
     pub async fn new(
-        store: S,
+        store: Arc<dyn Store + Sync + Send>,
         config: &kubelet::config::Config,
         kubeconfig: kube::Config,
     ) -> anyhow::Result<Self> {
@@ -328,7 +329,7 @@ struct ModuleRunContext<'a> {
 }
 
 #[async_trait]
-impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
+impl Provider for WasccProvider {
     const ARCH: &'static str = TARGET_WASM32_WASCC;
 
     async fn node(&self, builder: &mut Builder) -> anyhow::Result<()> {

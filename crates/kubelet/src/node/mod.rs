@@ -744,6 +744,7 @@ mod test {
                 private_key_file: PathBuf::new(),
             },
             bootstrap_file: "doesnt/matter".into(),
+            allow_local_modules: false,
             data_dir: PathBuf::new(),
             node_labels,
             max_pods: 110,

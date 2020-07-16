@@ -1,4 +1,6 @@
 //! `store` contains logic around fetching and storing modules.
+pub mod composite;
+pub mod fs;
 pub mod oci;
 
 use oci_distribution::client::ImageData;
@@ -46,7 +48,7 @@ use crate::store::oci::Client;
 /// }
 /// ```
 #[async_trait]
-pub trait Store {
+pub trait Store: Sync {
     /// Get a module's data given its image `Reference`.
     async fn get(&self, image_ref: &Reference, pull_policy: PullPolicy) -> anyhow::Result<Vec<u8>>;
 
