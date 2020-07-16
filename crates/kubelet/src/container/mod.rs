@@ -79,18 +79,12 @@ impl ContainerKey {
 
     /// Whether the key identifies an app container
     pub fn is_app(&self) -> bool {
-        match self {
-            Self::App(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::App(_))
     }
 
     /// Whether the key identifies an init container
     pub fn is_init(&self) -> bool {
-        match self {
-            Self::Init(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::Init(_))
     }
 }
 
