@@ -41,7 +41,7 @@ use futures::stream::StreamExt;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::{api::DeleteParams, Api};
 use kubelet::container::Container;
-use kubelet::container::Status;
+use kubelet::container::{ContainerKey, HandleMap as ContainerHandleMap, Status};
 use kubelet::node::Builder;
 use kubelet::pod::{key_from_pod, pod_key, Handle, Pod};
 use kubelet::provider::Provider;
@@ -161,10 +161,7 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
         modules: &mut HashMap<String, Vec<u8>>,
         volumes: &HashMap<String, Ref>,
     ) -> (
-        HashMap<
-            String,
-            kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
-        >,
+        ContainerHandleMap<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
         Option<anyhow::Error>,
     ) {
         info!("Starting containers for pod {:?}", pod.name());
@@ -175,7 +172,8 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
                 .await;
             match start_result {
                 Ok(handle) => {
-                    container_handles.insert(container.name().to_owned(), handle);
+                    container_handles
+                        .insert(ContainerKey::App(container.name().to_owned()), handle);
                 }
                 Err(e) => {
                     return (container_handles, Some(e));
@@ -215,10 +213,7 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
         modules: &mut HashMap<String, Vec<u8>>,
         volumes: &HashMap<String, Ref>,
     ) -> (
-        HashMap<
-            String,
-            kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
-        >,
+        ContainerHandleMap<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
         Option<anyhow::Error>,
     ) {
         info!("Running init containers for pod {:?}", pod.name());
@@ -230,7 +225,8 @@ impl<S: Store + Send + Sync> WasiProvider<S> {
             match start_result {
                 Ok(handle) => {
                     let mut status_receiver = handle.status(); // TODO: ugh but borrow checker
-                    container_handles.insert(container.name().to_owned(), handle);
+                    container_handles
+                        .insert(ContainerKey::Init(container.name().to_owned()), handle);
                     let run_result = self
                         .run_container_to_completion(&mut status_receiver, &container)
                         .await;
@@ -281,7 +277,7 @@ impl<S: Store + Send + Sync> Provider for WasiProvider<S> {
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
 
-        let mut container_handles = HashMap::new();
+        let mut container_handles = ContainerHandleMap::new();
 
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
         let client = kube::Client::new(self.kubeconfig.clone());

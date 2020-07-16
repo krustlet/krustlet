@@ -1,7 +1,5 @@
-use k8s_openapi::api::core::v1::{Pod, PodStatus, ContainerState, ContainerStatus};
-use kube::{
-    api::{Api},
-};
+use k8s_openapi::api::core::v1::{ContainerState, ContainerStatus, Pod, PodStatus};
+use kube::api::Api;
 
 pub enum ContainerStatusExpectation<'a> {
     InitTerminated(&'a str, &'a str),
@@ -13,59 +11,89 @@ pub enum ContainerStatusExpectation<'a> {
 impl ContainerStatusExpectation<'_> {
     fn verify_against(&self, pod_status: &PodStatus) -> anyhow::Result<()> {
         let container_statuses = match self {
-            Self::InitTerminated(_, _) | Self::InitNotPresent(_) => &pod_status.init_container_statuses,
+            Self::InitTerminated(_, _) | Self::InitNotPresent(_) => {
+                &pod_status.init_container_statuses
+            }
             _ => &pod_status.container_statuses,
         };
 
         match self {
-            Self::InitTerminated(container_name, expected) | Self::AppTerminated(container_name, expected) =>
-                Self::verify_terminated(container_statuses, container_name, expected),
-            Self::InitNotPresent(container_name) | Self::AppNotPresent(container_name) =>
-                Self::verify_not_present(container_statuses, container_name),
+            Self::InitTerminated(container_name, expected)
+            | Self::AppTerminated(container_name, expected) => {
+                Self::verify_terminated(container_statuses, container_name, expected)
+            }
+            Self::InitNotPresent(container_name) | Self::AppNotPresent(container_name) => {
+                Self::verify_not_present(container_statuses, container_name)
+            }
         }
     }
 
-    fn verify_terminated(actual_statuses: &Option<Vec<ContainerStatus>>, container_name: &str, expected: &str) -> anyhow::Result<()> {
+    fn verify_terminated(
+        actual_statuses: &Option<Vec<ContainerStatus>>,
+        container_name: &str,
+        expected: &str,
+    ) -> anyhow::Result<()> {
         match actual_statuses {
             None => Err(anyhow::anyhow!("Expected statuses section not present")),
-            Some(statuses) => {
-                match statuses.iter().find(|s| s.name == container_name) {
-                    None => Err(anyhow::anyhow!("Expected {} present but it wasn't", container_name)),
-                    Some(status) => match &status.state {
-                        None => Err(anyhow::anyhow!("Expected {} to have state but it didn't", container_name)),
-                        Some(state) => Self::verify_terminated_state(&state, container_name, expected),
-                    },
-                }
+            Some(statuses) => match statuses.iter().find(|s| s.name == container_name) {
+                None => Err(anyhow::anyhow!(
+                    "Expected {} present but it wasn't",
+                    container_name
+                )),
+                Some(status) => match &status.state {
+                    None => Err(anyhow::anyhow!(
+                        "Expected {} to have state but it didn't",
+                        container_name
+                    )),
+                    Some(state) => Self::verify_terminated_state(&state, container_name, expected),
+                },
             },
         }
     }
 
-    fn verify_terminated_state(actual_state: &ContainerState, container_name: &str, expected: &str) -> anyhow::Result<()> {
+    fn verify_terminated_state(
+        actual_state: &ContainerState,
+        container_name: &str,
+        expected: &str,
+    ) -> anyhow::Result<()> {
         match &actual_state.terminated {
-            None => Err(anyhow::anyhow!("Expected {} terminated but was not", container_name)),
-            Some(term_state) => {
-                match &term_state.reason {
-                    None => Err(anyhow::anyhow!("Expected {} termination reason was not set", container_name)),
-                    Some(reason) => {
-                        if reason == expected {
-                            Ok(())
-                        } else {
-                            Err(anyhow::anyhow!("Expected {} termination reason {} but was {}", container_name, expected, reason))
-                        }
-                    },
+            None => Err(anyhow::anyhow!(
+                "Expected {} terminated but was not",
+                container_name
+            )),
+            Some(term_state) => match &term_state.reason {
+                None => Err(anyhow::anyhow!(
+                    "Expected {} termination reason was not set",
+                    container_name
+                )),
+                Some(reason) => {
+                    if reason == expected {
+                        Ok(())
+                    } else {
+                        Err(anyhow::anyhow!(
+                            "Expected {} termination reason {} but was {}",
+                            container_name,
+                            expected,
+                            reason
+                        ))
+                    }
                 }
             },
         }
     }
 
-    fn verify_not_present(actual_statuses: &Option<Vec<ContainerStatus>>, container_name: &str) -> anyhow::Result<()> {
+    fn verify_not_present(
+        actual_statuses: &Option<Vec<ContainerStatus>>,
+        container_name: &str,
+    ) -> anyhow::Result<()> {
         match actual_statuses {
             None => Ok(()),
-            Some(statuses) => {
-                match statuses.iter().find(|s| s.name == container_name) {
-                    None => Ok(()),
-                    Some(_) => Err(anyhow::anyhow!("Expected {} not present but it was", container_name)),
-                }
+            Some(statuses) => match statuses.iter().find(|s| s.name == container_name) {
+                None => Ok(()),
+                Some(_) => Err(anyhow::anyhow!(
+                    "Expected {} not present but it was",
+                    container_name
+                )),
             },
         }
     }
@@ -78,14 +106,20 @@ pub async fn assert_container_statuses(
 ) -> anyhow::Result<()> {
     let pod = pods.get(pod_name).await?;
 
-    let status = pod.status.ok_or(anyhow::anyhow!("Pod {} had no status", pod_name))?;
+    let status = pod
+        .status
+        .ok_or(anyhow::anyhow!("Pod {} had no status", pod_name))?;
 
     for expectation in expectations {
         if let Err(e) = expectation.verify_against(&status) {
-            assert!(false, "Pod {} status expectation failed: {}", pod_name, e.to_string());
+            assert!(
+                false,
+                "Pod {} status expectation failed: {}",
+                pod_name,
+                e.to_string()
+            );
         }
     }
 
     Ok(())
-
 }

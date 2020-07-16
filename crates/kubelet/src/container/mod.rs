@@ -3,11 +3,12 @@
 use k8s_openapi::api::core::v1::Container as KubeContainer;
 use oci_distribution::Reference;
 use std::convert::TryInto;
+use std::fmt::Display;
 
 mod handle;
 mod status;
 
-pub use handle::Handle;
+pub use handle::{Handle, HandleMap};
 pub use status::Status;
 
 /// Specifies how the store should check for module updates
@@ -56,6 +57,59 @@ impl PullPolicy {
             "Never" => Ok(Some(Self::Never)),
             other => Err(anyhow::anyhow!("unrecognized pull policy {}", other)),
         }
+    }
+}
+
+/// Identifies a container by name and phase.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum ContainerKey {
+    /// An init container with the given name
+    Init(String),
+    /// An application container with the given name
+    App(String),
+}
+
+impl ContainerKey {
+    /// Gets the container name
+    pub fn name(&self) -> String {
+        match self {
+            Self::Init(name) | Self::App(name) => name.to_string(),
+        }
+    }
+}
+
+impl Display for ContainerKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        self.name().fmt(formatter)
+    }
+}
+
+/// A `HashMap` where the keys are `ContainerKey`s.
+pub type ContainerMap<V> = std::collections::HashMap<ContainerKey, V>;
+
+/// Provides methods for accessing `ContainerMap` elements by name.
+pub trait ContainerMapByName<V> {
+    /// Gets a mutable reference to the value associated with the container
+    /// with the given name.
+    fn get_mut_by_name(&mut self, name: String) -> Option<&mut V>;
+    /// Whether the map contains a `ContainerKey` with the given name.
+    fn contains_key_name(&self, name: &str) -> bool;
+}
+
+impl<V> ContainerMapByName<V> for ContainerMap<V> {
+    fn get_mut_by_name(&mut self, name: String) -> Option<&mut V> {
+        // TODO: borrow checker objected to any of the more natural forms
+        let app_key = ContainerKey::App(name.clone());
+        if self.contains_key(&app_key) {
+            self.get_mut(&app_key)
+        } else {
+            self.get_mut(&ContainerKey::Init(name.clone()))
+        }
+    }
+
+    fn contains_key_name(&self, name: &str) -> bool {
+        self.contains_key(&ContainerKey::App(name.to_owned()))
+            || self.contains_key(&ContainerKey::Init(name.to_owned()))
     }
 }
 

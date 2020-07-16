@@ -6,7 +6,7 @@ use tokio::stream::{StreamExt, StreamMap};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use crate::container::Handle as ContainerHandle;
+use crate::container::{ContainerMapByName, HandleMap as ContainerHandleMap};
 use crate::handle::StopHandler;
 use crate::log::{HandleFactory, Sender};
 use crate::pod::Pod;
@@ -18,7 +18,7 @@ use crate::volume::Ref;
 /// statuses for the containers in the pod and can be used to stop the pod and
 /// access logs
 pub struct Handle<H, F> {
-    container_handles: RwLock<HashMap<String, ContainerHandle<H, F>>>,
+    container_handles: RwLock<ContainerHandleMap<H, F>>,
     status_handle: JoinHandle<()>,
     pod: Pod,
     // Storage for the volume references so they don't get dropped until the runtime handle is
@@ -33,19 +33,19 @@ impl<H: StopHandler, F> Handle<H, F> {
     /// parameter allows a caller to pass a map of volumes to keep reference to (so that they will
     /// be dropped along with the pod)
     pub async fn new(
-        container_handles: HashMap<String, ContainerHandle<H, F>>,
+        container_handles: ContainerHandleMap<H, F>,
         pod: Pod,
         client: kube::Client,
         volumes: Option<HashMap<String, Ref>>,
         initial_message: Option<String>,
     ) -> anyhow::Result<Self> {
-        let container_names: Vec<_> = container_handles.keys().collect();
-        pod.initialise_status(&client, &container_names, initial_message)
+        let container_keys: Vec<_> = container_handles.keys().map(|k| k.clone()).collect();
+        pod.initialise_status(&client, &container_keys, initial_message)
             .await;
 
         let mut channel_map = StreamMap::with_capacity(container_handles.len());
-        for (name, handle) in container_handles.iter() {
-            channel_map.insert(name.clone(), handle.status());
+        for (key, handle) in container_handles.iter() {
+            channel_map.insert(key.clone(), handle.status());
         }
         // TODO: This does not allow for restarting single containers because we
         // move the stream map and lose the ability to insert a new channel for
@@ -89,13 +89,12 @@ impl<H: StopHandler, F> Handle<H, F> {
         F: HandleFactory<R>,
     {
         let mut handles = self.container_handles.write().await;
-        let handle =
-            handles
-                .get_mut(container_name)
-                .ok_or_else(|| ProviderError::ContainerNotFound {
-                    pod_name: self.pod.name().to_owned(),
-                    container_name: container_name.to_owned(),
-                })?;
+        let handle = handles
+            .get_mut_by_name(container_name.to_owned())
+            .ok_or_else(|| ProviderError::ContainerNotFound {
+                pod_name: self.pod.name().to_owned(),
+                container_name: container_name.to_owned(),
+            })?;
         handle.output(sender).await
     }
 
@@ -105,14 +104,14 @@ impl<H: StopHandler, F> Handle<H, F> {
     pub async fn stop(&mut self) -> anyhow::Result<()> {
         {
             let mut handles = self.container_handles.write().await;
-            for (name, handle) in handles.iter_mut() {
-                info!("Stopping container: {}", name);
+            for (key, handle) in handles.iter_mut() {
+                info!("Stopping container: {}", key);
                 match handle.stop().await {
-                    Ok(_) => debug!("Successfully stopped container {}", name),
+                    Ok(_) => debug!("Successfully stopped container {}", key),
                     // NOTE: I am not sure what recovery or retry steps should be
                     // done here, but we should definitely continue and try to stop
                     // the other containers
-                    Err(e) => error!("Error while trying to stop pod {}: {:?}", name, e),
+                    Err(e) => error!("Error while trying to stop pod {}: {:?}", key, e),
                 }
             }
         }

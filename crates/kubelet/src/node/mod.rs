@@ -1,7 +1,7 @@
 //! `node` contains wrappers around the Kubernetes node API, containing ways to create and update
 //! nodes operating within the cluster.
 use crate::config::Config;
-use crate::container::{Container, Status as ContainerStatus};
+use crate::container::{Container, ContainerKey, ContainerMap, Status as ContainerStatus};
 use crate::pod::Pod;
 use crate::pod::{Status as PodStatus, StatusMessage as PodStatusMessage};
 use crate::provider::Provider;
@@ -229,11 +229,11 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
     Ok(())
 }
 
-fn all_terminated_due_to_shutdown(containers: &Vec<Container>) -> HashMap<String, ContainerStatus> {
+fn all_terminated_due_to_shutdown(containers: &Vec<Container>) -> ContainerMap<ContainerStatus> {
     let mut container_statuses = HashMap::new();
     for container in containers {
         container_statuses.insert(
-            container.name().to_string(),
+            ContainerKey::App(container.name().to_string()),
             ContainerStatus::Terminated {
                 timestamp: Utc::now(),
                 message: "Evicted on node shutdown.".to_string(),

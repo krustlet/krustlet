@@ -6,10 +6,10 @@ use kube::{
 };
 use serde_json::json;
 
-mod pod_builder;
 mod expectations;
+mod pod_builder;
+use expectations::{assert_container_statuses, ContainerStatusExpectation};
 use pod_builder::{wasmerciser_pod, WasmerciserContainerSpec, WasmerciserVolumeSpec};
-use expectations::{ContainerStatusExpectation, assert_container_statuses};
 
 #[tokio::test]
 async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
@@ -711,14 +711,19 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
 
     create_pod_with_init_containers(client.clone(), &pods).await?;
     assert_pod_log_contains(&pods, INITY_WASI_POD, r#"slats"#).await?;
-    assert_container_statuses(&pods, INITY_WASI_POD, vec![
-        ContainerStatusExpectation::InitTerminated("init-1", "succeeded yay!"),
-        ContainerStatusExpectation::InitTerminated("init-2", "succeeded yay!"),
-        ContainerStatusExpectation::InitNotPresent(INITY_WASI_POD),
-        ContainerStatusExpectation::AppNotPresent("init-1"),
-        ContainerStatusExpectation::AppNotPresent("init-2"),
-        ContainerStatusExpectation::AppTerminated(INITY_WASI_POD, "succeeded yay!"),
-    ]).await?;
+    assert_container_statuses(
+        &pods,
+        INITY_WASI_POD,
+        vec![
+            ContainerStatusExpectation::InitTerminated("init-1", "succeeded yay!"),
+            ContainerStatusExpectation::InitTerminated("init-2", "succeeded yay!"),
+            ContainerStatusExpectation::InitNotPresent(INITY_WASI_POD),
+            ContainerStatusExpectation::AppNotPresent("init-1"),
+            ContainerStatusExpectation::AppNotPresent("init-2"),
+            ContainerStatusExpectation::AppTerminated(INITY_WASI_POD, "succeeded yay!"),
+        ],
+    )
+    .await?;
 
     create_pod_with_failing_init_container(client.clone(), &pods).await?;
     assert_pod_exited_with_failure(&pods, FAILY_INITS_POD).await?;

@@ -3,7 +3,7 @@ use std::io::SeekFrom;
 use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt};
 use tokio::sync::watch::Receiver;
 
-use crate::container::Status;
+use crate::container::{ContainerMap, Status};
 use crate::handle::StopHandler;
 use crate::log::{stream, HandleFactory, Sender};
 
@@ -64,3 +64,6 @@ impl<H: StopHandler, F> Handle<H, F> {
         self.handle.wait().await
     }
 }
+
+/// A map from containers to container handles.
+pub type HandleMap<H, F> = ContainerMap<Handle<H, F>>;

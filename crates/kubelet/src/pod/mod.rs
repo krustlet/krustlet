@@ -9,7 +9,7 @@ pub use status::{update_status, Phase, Status, StatusMessage};
 
 use std::collections::HashMap;
 
-use crate::container::Container;
+use crate::container::{Container, ContainerKey, ContainerMap, ContainerMapByName};
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::{
     Container as KubeContainer, ContainerStatus as KubeContainerStatus, Pod as KubePod,
@@ -142,19 +142,19 @@ impl Pod {
 
         // This section figures out what the current phase of the pod should be
         // based on the container statuses
-        let current_statuses = status
+        let statuses_to_merge = status
             .container_statuses
             .into_iter()
-            .map(|s| (s.0.clone(), s.1.to_kubernetes(s.0)))
-            .collect::<HashMap<String, KubeContainerStatus>>();
+            .map(|s| (s.0.clone(), s.1.to_kubernetes(s.0.name())))
+            .collect::<ContainerMap<KubeContainerStatus>>();
         // Filter out any ones we are updating and then combine them all together
         let mut container_statuses = current_status
             .container_statuses
             .unwrap_or_default()
             .into_iter()
-            .filter(|s| !current_statuses.contains_key(&s.name))
+            .filter(|s| !statuses_to_merge.contains_key_name(&s.name))
             .collect::<Vec<KubeContainerStatus>>();
-        container_statuses.extend(current_statuses.into_iter().map(|(_, v)| v));
+        container_statuses.extend(statuses_to_merge.into_iter().map(|(_, v)| v));
         let mut num_succeeded: usize = 0;
         let mut failed = false;
         // TODO(thomastaylor312): Add inferring a message from these container
@@ -228,11 +228,10 @@ impl Pod {
     pub async fn initialise_status(
         &self,
         client: &kube::Client,
-        container_names: &[&String],
+        container_keys: &[ContainerKey],
         initial_message: Option<String>,
     ) {
-        let all_app_containers_waiting = Self::all_waiting(container_names);
-        // let all_init_containers_waiting = Self::all_waiting(init_container_names);
+        let all_containers_waiting = Self::all_waiting(container_keys);
 
         let initial_status_message = match initial_message {
             Some(m) => StatusMessage::Message(m),
@@ -241,20 +240,19 @@ impl Pod {
 
         let all_waiting = Status {
             message: initial_status_message,
-            container_statuses: all_app_containers_waiting,
-            // init_container_statuses: all_init_containers_waiting,
+            container_statuses: all_containers_waiting,
         };
         self.patch_status(client.clone(), all_waiting).await;
     }
 
-    fn all_waiting(container_names: &[&String]) -> HashMap<String, crate::container::Status> {
+    fn all_waiting(container_keys: &[ContainerKey]) -> ContainerMap<crate::container::Status> {
         let mut all_waiting_map = HashMap::new();
-        for name in container_names {
+        for key in container_keys {
             let waiting = crate::container::Status::Waiting {
                 timestamp: chrono::Utc::now(),
                 message: "PodInitializing".to_owned(),
             };
-            all_waiting_map.insert(name.to_string(), waiting);
+            all_waiting_map.insert(key.clone(), waiting);
         }
         all_waiting_map
     }
