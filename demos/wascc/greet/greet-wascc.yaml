@@ -11,6 +11,7 @@ spec:
       name: greet
       ports:
         - containerPort: 8080
+          hostPort: 8080
   nodeSelector:
     kubernetes.io/role: agent
     beta.kubernetes.io/os: linux

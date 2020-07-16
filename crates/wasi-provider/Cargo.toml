@@ -24,9 +24,9 @@ async-trait = "0.1"
 backtrace = "0.3.49"
 kube = { version= "0.35", default-features = false }
 log = "0.4"
-wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", rev = "5c35a9631cdffc00a32b416f9cb0b80f182b716e" }
-wasmtime-wasi = { git = "https://github.com/bytecodealliance/wasmtime", rev = "5c35a9631cdffc00a32b416f9cb0b80f182b716e" }
-wasi-common = { git = "https://github.com/bytecodealliance/wasmtime", rev = "5c35a9631cdffc00a32b416f9cb0b80f182b716e" }
+wasmtime = "0.19"
+wasmtime-wasi = "0.19"
+wasi-common = "0.19"
 tempfile = "3.1"
 kubelet = { path = "../kubelet", version = "0.3", default-features = false }
 wat = "1.0"

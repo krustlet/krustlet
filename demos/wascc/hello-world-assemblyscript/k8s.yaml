@@ -8,6 +8,7 @@ spec:
       image: webassembly.azurecr.io/hello-world-wascc-assemblyscript:v0.1.0
       ports:
         - containerPort: 8080
+          hostPort: 8080
   nodeSelector:
     beta.kubernetes.io/arch: wasm32-wascc
   tolerations:

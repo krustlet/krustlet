@@ -11,6 +11,7 @@ spec:
       name: fileserver-wascc
       ports:
         - containerPort: 8080
+          hostPort: 8080
       volumeMounts:
         - name: storage
           mountPath: /tmp # this is ignored by waSCC, but is still necessary from the k8s API
