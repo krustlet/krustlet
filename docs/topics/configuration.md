@@ -84,7 +84,7 @@ not implemented automatically by the kubelet core. These flags are as follows:
 * `--bootstrap-file` - should be passed to `kubelet::bootstrap` if you use the
   bootstrapping feature
 * `--data-dir` - this should be used to construct the `FileStore` if you use one
-* `--allow-local-modules` - if specified you should compose a `FileSystemStore`
+* `--x-allow-local-modules` - if specified you should compose a `FileSystemStore`
   onto your normal store
 
 See the `krustlet-wasi.rs` file for examples of how to honour these flags.
