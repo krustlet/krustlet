@@ -61,20 +61,20 @@ impl ContainerStatusExpectation<'_> {
                 "Expected {} terminated but was not",
                 container_name
             )),
-            Some(term_state) => match &term_state.reason {
+            Some(term_state) => match &term_state.message {
                 None => Err(anyhow::anyhow!(
-                    "Expected {} termination reason was not set",
+                    "Expected {} termination message was not set",
                     container_name
                 )),
-                Some(reason) => {
-                    if reason == expected {
+                Some(message) => {
+                    if message == expected {
                         Ok(())
                     } else {
                         Err(anyhow::anyhow!(
-                            "Expected {} termination reason {} but was {}",
+                            "Expected {} termination message '{}' but was '{}'",
                             container_name,
                             expected,
-                            reason
+                            message
                         ))
                     }
                 }

@@ -715,12 +715,12 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
         &pods,
         INITY_WASI_POD,
         vec![
-            ContainerStatusExpectation::InitTerminated("init-1", "succeeded yay!"),
-            ContainerStatusExpectation::InitTerminated("init-2", "succeeded yay!"),
+            ContainerStatusExpectation::InitTerminated("init-1", "Module run completed"),
+            ContainerStatusExpectation::InitTerminated("init-2", "Module run completed"),
             ContainerStatusExpectation::InitNotPresent(INITY_WASI_POD),
             ContainerStatusExpectation::AppNotPresent("init-1"),
             ContainerStatusExpectation::AppNotPresent("init-2"),
-            ContainerStatusExpectation::AppTerminated(INITY_WASI_POD, "succeeded yay!"),
+            ContainerStatusExpectation::AppTerminated(INITY_WASI_POD, "Module run completed"),
         ],
     )
     .await?;
