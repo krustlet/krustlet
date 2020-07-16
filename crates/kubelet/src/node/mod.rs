@@ -1,7 +1,7 @@
 //! `node` contains wrappers around the Kubernetes node API, containing ways to create and update
 //! nodes operating within the cluster.
 use crate::config::Config;
-use crate::container::{Container, ContainerKey, ContainerMap, Status as ContainerStatus};
+use crate::container::{ContainerKey, ContainerMap, Status as ContainerStatus};
 use crate::pod::Pod;
 use crate::pod::{Status as PodStatus, StatusMessage as PodStatusMessage};
 use crate::provider::Provider;
@@ -206,8 +206,7 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
             info!("Skipping eviction of DaemonSet '{}'", pod.name());
             continue;
         } else if pod.is_static() {
-            let container_statuses = all_terminated_due_to_shutdown(&pod.containers());
-            // let init_container_statuses = all_terminated_due_to_shutdown(&pod.init_containers());
+            let container_statuses = all_terminated_due_to_shutdown(&pod.all_containers());
 
             let status = PodStatus {
                 message: PodStatusMessage::Message("Evicted on node shutdown.".to_string()),
@@ -229,11 +228,13 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
     Ok(())
 }
 
-fn all_terminated_due_to_shutdown(containers: &[Container]) -> ContainerMap<ContainerStatus> {
+fn all_terminated_due_to_shutdown(
+    container_keys: &[ContainerKey],
+) -> ContainerMap<ContainerStatus> {
     let mut container_statuses = HashMap::new();
-    for container in containers {
+    for container_key in container_keys {
         container_statuses.insert(
-            ContainerKey::App(container.name().to_string()),
+            container_key.clone(),
             ContainerStatus::Terminated {
                 timestamp: Utc::now(),
                 message: "Evicted on node shutdown.".to_string(),

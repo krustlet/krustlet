@@ -297,6 +297,19 @@ impl Pod {
             .collect()
     }
 
+    /// Gets all of a pod's containers (init and application)
+    pub fn all_containers(&self) -> Vec<ContainerKey> {
+        let app_containers = self.containers();
+        let app_container_keys = app_containers
+            .iter()
+            .map(|c| ContainerKey::App(c.name().to_owned()));
+        let init_containers = self.containers();
+        let init_container_keys = init_containers
+            .iter()
+            .map(|c| ContainerKey::Init(c.name().to_owned()));
+        app_container_keys.chain(init_container_keys).collect()
+    }
+
     /// Turn the Pod into the Kubernetes API version of a Pod
     pub fn into_kube_pod(self) -> KubePod {
         self.0
