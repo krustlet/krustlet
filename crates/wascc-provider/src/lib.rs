@@ -201,27 +201,47 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
         })
     }
 
+    async fn assign_container_port(&self, pod: &Pod, container: &Container) -> anyhow::Result<i32> {
+        let mut port_assigned: i32 = 0;
+        if let Some(container_vec) = container.ports().as_ref() {
+            for c_port in container_vec.iter() {
+                let container_port = c_port.container_port;
+                if let Some(host_port) = c_port.host_port {
+                    let mut lock = self.port_map.lock().await;
+                    if !lock.contains_key(&host_port) {
+                        port_assigned = host_port;
+                        lock.insert(port_assigned, pod.name().to_string());
+                    } else {
+                        error!(
+                            "Failed to assign hostport {}, because it's taken",
+                            &host_port
+                        );
+                        return Err(anyhow::anyhow!("Port {} is currently in use", &host_port));
+                    }
+                } else if container_port >= 0 && container_port <= 65536 {
+                    port_assigned =
+                        find_available_port(&self.port_map, pod.name().to_string()).await?;
+                }
+            }
+        }
+        Ok(port_assigned)
+    }
+
     async fn start_container(
         &self,
+        run_context: &mut ModuleRunContext<'_>,
         container: &Container,
         pod: &Pod,
-        client: &kube::client::Client,
-        modules: &mut HashMap<String, Vec<u8>>,
-        volumes: &HashMap<String, Ref>,
         port_assigned: i32,
-        container_handles: &mut HashMap<
-            String,
-            kubelet::container::Handle<ActorHandle, LogHandleFactory>,
-        >,
     ) -> anyhow::Result<()> {
-        let env = Self::env_vars(&container, &pod, &client).await;
+        let env = Self::env_vars(&container, &pod, run_context.client).await;
         let volume_bindings: Vec<VolumeBinding> =
             if let Some(volume_mounts) = container.volume_mounts().as_ref() {
                 volume_mounts
                     .iter()
                     .map(|vm| -> anyhow::Result<VolumeBinding> {
                         // Check the volume exists first
-                        let vol = volumes.get(&vm.name).ok_or_else(|| {
+                        let vol = run_context.volumes.get(&vm.name).ok_or_else(|| {
                             anyhow::anyhow!(
                                 "no volume with the name of {} found for container {}",
                                 vm.name,
@@ -242,7 +262,8 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
 
         debug!("Starting container {} on thread", container.name());
 
-        let module_data = modules
+        let module_data = run_context
+            .modules
             .remove(container.name())
             .expect("FATAL ERROR: module map not properly populated");
         let lp = self.log_path.clone();
@@ -265,7 +286,9 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
         .await?;
         match http_result {
             Ok(handle) => {
-                container_handles.insert(container.name().to_string(), handle);
+                run_context
+                    .container_handles
+                    .insert(container.name().to_string(), handle);
                 status_sender
                     .broadcast(ContainerStatus::Running {
                         timestamp: chrono::Utc::now(),
@@ -289,11 +312,19 @@ impl<S: Store + Send + Sync> WasccProvider<S> {
                     message: PodStatusMessage::LeaveUnchanged,
                     container_statuses,
                 };
-                pod.patch_status(client.clone(), status).await;
+                pod.patch_status(run_context.client.clone(), status).await;
                 Err(anyhow::anyhow!("Failed to run pod: {}", e))
             }
         }
     }
+}
+
+struct ModuleRunContext<'a> {
+    client: &'a kube::Client,
+    modules: &'a mut HashMap<String, Vec<u8>>,
+    volumes: &'a HashMap<String, Ref>,
+    container_handles:
+        &'a mut HashMap<String, kubelet::container::Handle<ActorHandle, LogHandleFactory>>,
 }
 
 #[async_trait]
@@ -320,43 +351,24 @@ impl<S: Store + Send + Sync> Provider for WasccProvider<S> {
         let mut container_handles = HashMap::new();
         let client = kube::Client::new(self.kubeconfig.clone());
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
-        for container in pod.containers() {
-            let mut port_assigned: i32 = 0;
-            if let Some(container_vec) = container.ports().as_ref() {
-                for c_port in container_vec.iter() {
-                    let container_port = c_port.container_port;
-                    if let Some(host_port) = c_port.host_port {
-                        let mut lock = self.port_map.lock().await;
-                        if !lock.contains_key(&host_port) {
-                            port_assigned = host_port;
-                            lock.insert(port_assigned, pod.name().to_string());
-                        } else {
-                            error!(
-                                "Failed to assign hostport {}, because it's taken",
-                                &host_port
-                            );
-                            return Err(anyhow::anyhow!("Port {} is currently in use", &host_port));
-                        }
-                    } else {
-                        if container_port >= 0 && container_port <= 65536 {
-                            port_assigned =
-                                find_available_port(&self.port_map, pod.name().to_string()).await?;
-                        }
-                    }
-                }
-            }
-            debug!("New port assigned is: {}", port_assigned);
 
-            self.start_container(
-                &container,
-                &pod,
-                &client,
-                &mut modules,
-                &volumes,
-                port_assigned,
-                &mut container_handles,
-            )
-            .await?
+        let mut run_context = ModuleRunContext {
+            client: &client,
+            modules: &mut modules,
+            volumes: &volumes,
+            container_handles: &mut container_handles,
+        };
+
+        for container in pod.containers() {
+            let port_assigned = self.assign_container_port(&pod, &container).await?;
+            debug!(
+                "New port assigned to {} is: {}",
+                container.name(),
+                port_assigned
+            );
+
+            self.start_container(&mut run_context, &container, &pod, port_assigned)
+                .await?
         }
         info!(
             "All containers started for pod {:?}. Updating status",
@@ -602,7 +614,7 @@ async fn find_available_port(
             break;
         }
     }
-    port.ok_or(PortAllocationError::new())
+    port.ok_or_else(PortAllocationError::new)
 }
 
 /// Capability describes a waSCC capability.
