@@ -20,11 +20,15 @@
 #[macro_use]
 extern crate wascc_codec;
 
-use wascc_codec::capabilities::{CapabilityProvider, Dispatcher, NullDispatcher};
+use wascc_codec::capabilities::{
+    CapabilityDescriptor, CapabilityProvider, Dispatcher, NullDispatcher, OperationDirection,
+    OP_GET_CAPABILITY_DESCRIPTOR,
+};
 use wascc_codec::core::{CapabilityConfiguration, OP_BIND_ACTOR, OP_REMOVE_ACTOR};
 use wascc_codec::{
     deserialize,
     logging::{WriteLogRequest, OP_LOG},
+    serialize,
 };
 
 extern crate log;
@@ -47,6 +51,8 @@ pub const LOG_PATH_KEY: &str = "LOG_PATH";
 const SYSTEM_ACTOR: &str = "system";
 
 const CAPABILITY_ID: &str = "wascc:logging";
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 enum LogLevel {
     NONE = 0,
@@ -90,13 +96,23 @@ impl LoggingProvider {
         output_map.insert(config.module, logger);
         Ok(vec![])
     }
+
+    fn get_descriptor(&self) -> Result<Vec<u8>, Box<dyn Error>> {
+        Ok(serialize(
+            CapabilityDescriptor::builder()
+                .id(CAPABILITY_ID)
+                .name("krustlet Logging Provider")
+                .long_description("A waSCC logging capability provider")
+                .version(VERSION)
+                // NOTE(bacongobbler): this crate is never published, so we never need to increment the revision above 1
+                .revision(1)
+                .with_operation(OP_LOG, OperationDirection::ToProvider, "Send a log message")
+                .build(),
+        )?)
+    }
 }
 
 impl CapabilityProvider for LoggingProvider {
-    fn capability_id(&self) -> &'static str {
-        CAPABILITY_ID
-    }
-
     // Invoked by the runtime host to give this provider plugin the ability to communicate
     // with actors
     fn configure_dispatch(&self, dispatcher: Box<dyn Dispatcher>) -> Result<(), Box<dyn Error>> {
@@ -104,10 +120,6 @@ impl CapabilityProvider for LoggingProvider {
         *lock = dispatcher;
 
         Ok(())
-    }
-
-    fn name(&self) -> &'static str {
-        "krustlet Logging Provider"
     }
 
     // Invoked by host runtime to allow an actor to make use of the capability
@@ -119,6 +131,7 @@ impl CapabilityProvider for LoggingProvider {
                 self.configure(cfg_vals)
             }
             (OP_REMOVE_ACTOR, SYSTEM_ACTOR) => Ok(vec![]),
+            (OP_GET_CAPABILITY_DESCRIPTOR, SYSTEM_ACTOR) => self.get_descriptor(),
             (OP_LOG, _) => {
                 let log_msg = deserialize::<WriteLogRequest>(msg)?;
 
