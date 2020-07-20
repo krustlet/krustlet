@@ -1,8 +1,6 @@
-use futures::{TryStreamExt};
-use k8s_openapi::api::core::v1::{Pod};
-use kube::{
-    api::{Api, LogParams},
-};
+use futures::TryStreamExt;
+use k8s_openapi::api::core::v1::Pod;
+use kube::api::{Api, LogParams};
 
 pub async fn pod_log_equals(
     pods: &Api<Pod>,
@@ -133,7 +131,7 @@ pub async fn container_file_contains(
 ) -> anyhow::Result<()> {
     let file_path_base = dirs::home_dir()
         .expect("home dir does not exist")
-        .join(".krustlet/volumes/hello-wasi-default");  // TODO: volume name
+        .join(".krustlet/volumes/hello-wasi-default"); // TODO: volume name
     let container_file_bytes = tokio::fs::read(file_path_base.join(container_file_path))
         .await
         .expect(file_error);

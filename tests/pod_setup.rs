@@ -1,5 +1,5 @@
 use futures::{StreamExt, TryStreamExt};
-use k8s_openapi::api::core::v1::{Pod};
+use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{Api, ListParams, WatchEvent},
     runtime::Informer,

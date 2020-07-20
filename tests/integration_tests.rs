@@ -1,16 +1,16 @@
 use k8s_openapi::api::core::v1::{ConfigMap, Node, Pod, Secret, Taint};
-use kube::{
-    api::{Api, DeleteParams, LogParams, PostParams},
-};
+use kube::api::{Api, DeleteParams, LogParams, PostParams};
 use serde_json::json;
 
 mod assert;
 mod expectations;
 mod pod_builder;
 mod pod_setup;
+mod test_resource_manager;
 use expectations::{assert_container_statuses, ContainerStatusExpectation};
 use pod_builder::{wasmerciser_pod, WasmerciserContainerSpec, WasmerciserVolumeSpec};
-use pod_setup::{wait_for_pod_ready, wait_for_pod_complete, OnFailure};
+use pod_setup::{wait_for_pod_complete, wait_for_pod_ready, OnFailure};
+use test_resource_manager::{TestResource, TestResourceManager};
 
 #[tokio::test]
 async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
@@ -205,7 +205,11 @@ const LOGGY_POD: &str = "loggy-pod";
 const INITY_WASI_POD: &str = "hello-wasi-with-inits";
 const FAILY_INITS_POD: &str = "faily-inits-pod";
 
-async fn create_wasi_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
+async fn create_wasi_pod(
+    client: kube::Client,
+    pods: &Api<Pod>,
+    resource_manager: &mut TestResourceManager,
+) -> anyhow::Result<()> {
     let pod_name = SIMPLE_WASI_POD;
     // Create a temp directory to use for the host path
     let tempdir = tempfile::tempdir()?;
@@ -271,6 +275,7 @@ async fn create_wasi_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resul
     // from a host path volume works
 
     let pod = pods.create(&PostParams::default(), &p).await?;
+    resource_manager.push(TestResource::Pod(pod_name.to_owned()));
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
@@ -280,6 +285,7 @@ async fn create_wasi_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resul
 async fn create_fancy_schmancy_wasi_pod(
     client: kube::Client,
     pods: &Api<Pod>,
+    resource_manager: &mut TestResourceManager,
 ) -> anyhow::Result<()> {
     let pod_name = VERBOSE_WASI_POD;
     let p = serde_json::from_value(json!({
@@ -308,13 +314,18 @@ async fn create_fancy_schmancy_wasi_pod(
     }))?;
 
     let pod = pods.create(&PostParams::default(), &p).await?;
+    resource_manager.push(TestResource::Pod(pod_name.to_owned()));
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
     wait_for_pod_complete(client, pod_name, OnFailure::Panic).await
 }
 
-async fn create_loggy_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
+async fn create_loggy_pod(
+    client: kube::Client,
+    pods: &Api<Pod>,
+    resource_manager: &mut TestResourceManager,
+) -> anyhow::Result<()> {
     let pod_name = LOGGY_POD;
 
     let containers = vec![
@@ -336,11 +347,16 @@ async fn create_loggy_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resu
         containers,
         vec![],
         OnFailure::Panic,
+        resource_manager,
     )
     .await
 }
 
-async fn create_faily_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
+async fn create_faily_pod(
+    client: kube::Client,
+    pods: &Api<Pod>,
+    resource_manager: &mut TestResourceManager,
+) -> anyhow::Result<()> {
     let pod_name = FAILY_POD;
 
     let containers = vec![WasmerciserContainerSpec {
@@ -356,6 +372,7 @@ async fn create_faily_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resu
         containers,
         vec![],
         OnFailure::Accept,
+        resource_manager,
     )
     .await
 }
@@ -368,10 +385,12 @@ async fn wasmercise_wasi(
     containers: Vec<WasmerciserContainerSpec>,
     test_volumes: Vec<WasmerciserVolumeSpec>,
     on_failure: OnFailure,
+    resource_manager: &mut TestResourceManager,
 ) -> anyhow::Result<()> {
     let p = wasmerciser_pod(pod_name, inits, containers, test_volumes, "wasm32-wasi")?;
 
     let pod = pods.create(&PostParams::default(), &p.pod).await?;
+    resource_manager.push(TestResource::Pod(pod_name.to_owned()));
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
@@ -381,6 +400,7 @@ async fn wasmercise_wasi(
 async fn create_pod_with_init_containers(
     client: kube::Client,
     pods: &Api<Pod>,
+    resource_manager: &mut TestResourceManager,
 ) -> anyhow::Result<()> {
     let pod_name = INITY_WASI_POD;
 
@@ -419,6 +439,7 @@ async fn create_pod_with_init_containers(
         containers,
         volumes,
         OnFailure::Panic,
+        resource_manager,
     )
     .await
 }
@@ -426,6 +447,7 @@ async fn create_pod_with_init_containers(
 async fn create_pod_with_failing_init_container(
     client: kube::Client,
     pods: &Api<Pod>,
+    resource_manager: &mut TestResourceManager,
 ) -> anyhow::Result<()> {
     let pod_name = FAILY_INITS_POD;
 
@@ -453,12 +475,18 @@ async fn create_pod_with_failing_init_container(
         containers,
         vec![],
         OnFailure::Accept,
+        resource_manager,
     )
     .await
 }
 
-async fn set_up_wasi_test_environment(client: kube::Client) -> anyhow::Result<()> {
+async fn set_up_wasi_test_environment(
+    client: kube::Client,
+    resource_manager: &mut TestResourceManager,
+) -> anyhow::Result<()> {
     let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
+
+    let secret_name = "hello-wasi-secret".to_owned();
     secrets
         .create(
             &PostParams::default(),
@@ -466,7 +494,7 @@ async fn set_up_wasi_test_environment(client: kube::Client) -> anyhow::Result<()
                 "apiVersion": "v1",
                 "kind": "Secret",
                 "metadata": {
-                    "name": "hello-wasi-secret"
+                    "name": secret_name
                 },
                 "stringData": {
                     "myval": "a cool secret"
@@ -474,8 +502,10 @@ async fn set_up_wasi_test_environment(client: kube::Client) -> anyhow::Result<()
             }))?,
         )
         .await?;
+    resource_manager.push(TestResource::Secret(secret_name));
 
     let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), "default");
+    let config_map_name = "hello-wasi-configmap".to_owned();
     config_maps
         .create(
             &PostParams::default(),
@@ -483,7 +513,7 @@ async fn set_up_wasi_test_environment(client: kube::Client) -> anyhow::Result<()
                 "apiVersion": "v1",
                 "kind": "ConfigMap",
                 "metadata": {
-                    "name": "hello-wasi-configmap"
+                    "name": config_map_name
                 },
                 "data": {
                     "myval": "a cool configmap"
@@ -491,90 +521,77 @@ async fn set_up_wasi_test_environment(client: kube::Client) -> anyhow::Result<()
             }))?,
         )
         .await?;
+    resource_manager.push(TestResource::ConfigMap(config_map_name));
 
     Ok(())
 }
 
-async fn clean_up_wasi_test_resources() -> anyhow::Result<()> {
-    let client = kube::Client::try_default()
-        .await
-        .expect("Failed to create client");
+// async fn clean_up_wasi_test_resources() -> anyhow::Result<()> {
+//     let client = kube::Client::try_default()
+//         .await
+//         .expect("Failed to create client");
 
-    let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
-    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), "default");
-    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
+//     let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
+//     let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), "default");
+//     let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
 
-    let cleanup_errors: Vec<_> = vec![
-        secrets
-            .delete("hello-wasi-secret", &DeleteParams::default())
-            .await
-            .err()
-            .map(|e| format!("secret hello-wasi-secret ({})", e)),
-        config_maps
-            .delete("hello-wasi-configmap", &DeleteParams::default())
-            .await
-            .err()
-            .map(|e| format!("configmap hello-wasi-configmap ({})", e)),
-        pods.delete(SIMPLE_WASI_POD, &DeleteParams::default())
-            .await
-            .err()
-            .map(|e| format!("pod {} ({})", SIMPLE_WASI_POD, e)),
-        pods.delete(VERBOSE_WASI_POD, &DeleteParams::default())
-            .await
-            .err()
-            .map(|e| format!("pod {} ({})", VERBOSE_WASI_POD, e)),
-        pods.delete(FAILY_POD, &DeleteParams::default())
-            .await
-            .err()
-            .map(|e| format!("pod {} ({})", FAILY_POD, e)),
-        pods.delete(LOGGY_POD, &DeleteParams::default())
-            .await
-            .err()
-            .map(|e| format!("pod {} ({})", LOGGY_POD, e)),
-        pods.delete(INITY_WASI_POD, &DeleteParams::default())
-            .await
-            .err()
-            .map(|e| format!("pod {} ({})", INITY_WASI_POD, e)),
-        pods.delete(FAILY_INITS_POD, &DeleteParams::default())
-            .await
-            .err()
-            .map(|e| format!("pod {} ({})", FAILY_INITS_POD, e)),
-    ]
-    .iter()
-    .filter(|e| e.is_some())
-    .map(|e| e.as_ref().unwrap().to_string())
-    .filter(|s| !s.contains(r#"reason: "NotFound""#))
-    .collect();
+//     let cleanup_errors: Vec<_> = vec![
+//         secrets
+//             .delete("hello-wasi-secret", &DeleteParams::default())
+//             .await
+//             .err()
+//             .map(|e| format!("secret hello-wasi-secret ({})", e)),
+//         config_maps
+//             .delete("hello-wasi-configmap", &DeleteParams::default())
+//             .await
+//             .err()
+//             .map(|e| format!("configmap hello-wasi-configmap ({})", e)),
+//         pods.delete(SIMPLE_WASI_POD, &DeleteParams::default())
+//             .await
+//             .err()
+//             .map(|e| format!("pod {} ({})", SIMPLE_WASI_POD, e)),
+//         pods.delete(VERBOSE_WASI_POD, &DeleteParams::default())
+//             .await
+//             .err()
+//             .map(|e| format!("pod {} ({})", VERBOSE_WASI_POD, e)),
+//         pods.delete(FAILY_POD, &DeleteParams::default())
+//             .await
+//             .err()
+//             .map(|e| format!("pod {} ({})", FAILY_POD, e)),
+//         pods.delete(LOGGY_POD, &DeleteParams::default())
+//             .await
+//             .err()
+//             .map(|e| format!("pod {} ({})", LOGGY_POD, e)),
+//         pods.delete(INITY_WASI_POD, &DeleteParams::default())
+//             .await
+//             .err()
+//             .map(|e| format!("pod {} ({})", INITY_WASI_POD, e)),
+//         pods.delete(FAILY_INITS_POD, &DeleteParams::default())
+//             .await
+//             .err()
+//             .map(|e| format!("pod {} ({})", FAILY_INITS_POD, e)),
+//     ]
+//     .iter()
+//     .filter(|e| e.is_some())
+//     .map(|e| e.as_ref().unwrap().to_string())
+//     .filter(|s| !s.contains(r#"reason: "NotFound""#))
+//     .collect();
 
-    if cleanup_errors.is_empty() {
-        Ok(())
-    } else {
-        let cleanup_failure_text = format!(
-            "Error(s) cleaning up resources: {}",
-            cleanup_errors.join(", ")
-        );
-        Err(anyhow::anyhow!(cleanup_failure_text))
-    }
-}
-
-struct WasiTestResourceCleaner {}
-
-impl Drop for WasiTestResourceCleaner {
-    fn drop(&mut self) {
-        let t = std::thread::spawn(move || {
-            let mut rt =
-                tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime for cleanup");
-            rt.block_on(clean_up_wasi_test_resources())
-        });
-
-        let thread_result = t.join();
-        let cleanup_result = thread_result.expect("Failed to clean up WASI test resources");
-        cleanup_result.unwrap()
-    }
-}
+//     if cleanup_errors.is_empty() {
+//         Ok(())
+//     } else {
+//         let cleanup_failure_text = format!(
+//             "Error(s) cleaning up resources: {}",
+//             cleanup_errors.join(", ")
+//         );
+//         Err(anyhow::anyhow!(cleanup_failure_text))
+//     }
+// }
 
 #[tokio::test]
 async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
+    let mut resource_manager = TestResourceManager::new();
+
     let client = kube::Client::try_default().await?;
 
     let nodes: Api<Node> = Api::all(client);
@@ -585,13 +602,11 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
 
     let client: kube::Client = nodes.into();
 
-    set_up_wasi_test_environment(client.clone()).await?;
-
-    let _cleaner = WasiTestResourceCleaner {};
+    set_up_wasi_test_environment(client.clone(), &mut resource_manager).await?;
 
     let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
 
-    create_wasi_pod(client.clone(), &pods).await?;
+    create_wasi_pod(client.clone(), &pods, &mut resource_manager).await?;
 
     assert::pod_log_equals(&pods, SIMPLE_WASI_POD, "Hello, world!\n").await?;
 
@@ -611,11 +626,11 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
     )
     .await?;
 
-    create_fancy_schmancy_wasi_pod(client.clone(), &pods).await?;
+    create_fancy_schmancy_wasi_pod(client.clone(), &pods, &mut resource_manager).await?;
 
     assert::pod_log_contains(&pods, VERBOSE_WASI_POD, r#"Args are: ["arg1", "arg2"]"#).await?;
 
-    create_faily_pod(client.clone(), &pods).await?;
+    create_faily_pod(client.clone(), &pods, &mut resource_manager).await?;
     assert::main_container_exited_with_failure(&pods, FAILY_POD).await?;
     assert::pod_log_contains(
         &pods,
@@ -624,11 +639,11 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
     )
     .await?;
 
-    create_loggy_pod(client.clone(), &pods).await?;
+    create_loggy_pod(client.clone(), &pods, &mut resource_manager).await?;
     assert::pod_container_log_contains(&pods, LOGGY_POD, "floofycat", r#"slats"#).await?;
     assert::pod_container_log_contains(&pods, LOGGY_POD, "neatcat", r#"kiki"#).await?;
 
-    create_pod_with_init_containers(client.clone(), &pods).await?;
+    create_pod_with_init_containers(client.clone(), &pods, &mut resource_manager).await?;
     assert::pod_log_contains(&pods, INITY_WASI_POD, r#"slats"#).await?;
     assert_container_statuses(
         &pods,
@@ -644,7 +659,7 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
     )
     .await?;
 
-    create_pod_with_failing_init_container(client.clone(), &pods).await?;
+    create_pod_with_failing_init_container(client.clone(), &pods, &mut resource_manager).await?;
     assert::pod_exited_with_failure(&pods, FAILY_INITS_POD).await?;
     assert::pod_message_contains(
         &pods,
