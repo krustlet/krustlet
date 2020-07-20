@@ -1,15 +1,16 @@
-use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::{ConfigMap, Node, Pod, Secret, Taint};
 use kube::{
-    api::{Api, DeleteParams, ListParams, LogParams, PostParams, WatchEvent},
-    runtime::Informer,
+    api::{Api, DeleteParams, LogParams, PostParams},
 };
 use serde_json::json;
 
+mod assert;
 mod expectations;
 mod pod_builder;
+mod pod_setup;
 use expectations::{assert_container_statuses, ContainerStatusExpectation};
 use pod_builder::{wasmerciser_pod, WasmerciserContainerSpec, WasmerciserVolumeSpec};
+use pod_setup::{wait_for_pod_ready, wait_for_pod_complete, OnFailure};
 
 #[tokio::test]
 async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
@@ -87,37 +88,6 @@ async fn verify_wascc_node(node: Node) -> () {
             ..Default::default()
         }
     );
-}
-
-async fn wait_for_pod_ready(client: kube::Client, pod_name: &str) -> anyhow::Result<()> {
-    let api = Api::namespaced(client, "default");
-    let inf: Informer<Pod> = Informer::new(api).params(
-        ListParams::default()
-            .fields(&format!("metadata.name={}", pod_name))
-            .timeout(30),
-    );
-
-    let mut watcher = inf.poll().await?.boxed();
-    let mut went_ready = false;
-    while let Some(event) = watcher.try_next().await? {
-        match event {
-            WatchEvent::Modified(o) => {
-                let phase = o.status.unwrap().phase.unwrap();
-                if phase == "Running" {
-                    went_ready = true;
-                    break;
-                }
-            }
-            WatchEvent::Error(e) => {
-                panic!("WatchEvent error: {:?}", e);
-            }
-            _ => {}
-        }
-    }
-
-    assert!(went_ready, "pod never went ready");
-
-    Ok(())
 }
 
 async fn create_wascc_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Result<()> {
@@ -487,57 +457,6 @@ async fn create_pod_with_failing_init_container(
     .await
 }
 
-#[derive(PartialEq)]
-enum OnFailure {
-    Accept,
-    Panic,
-}
-
-async fn wait_for_pod_complete(
-    client: kube::Client,
-    pod_name: &str,
-    on_failure: OnFailure,
-) -> anyhow::Result<()> {
-    let api = Api::namespaced(client.clone(), "default");
-    let inf: Informer<Pod> = Informer::new(api).params(
-        ListParams::default()
-            .fields(&format!("metadata.name={}", pod_name))
-            .timeout(30),
-    );
-
-    let mut watcher = inf.poll().await?.boxed();
-    let mut went_ready = false;
-    while let Some(event) = watcher.try_next().await? {
-        match event {
-            WatchEvent::Modified(o) => {
-                let phase = o.status.unwrap().phase.unwrap();
-                if phase == "Failed" && on_failure == OnFailure::Accept {
-                    return Ok(());
-                }
-                if phase == "Running" {
-                    went_ready = true;
-                }
-                if phase == "Succeeded" && !went_ready {
-                    panic!(
-                        "Pod {} reached completed phase before receiving Running phase",
-                        pod_name
-                    );
-                } else if phase == "Succeeded" {
-                    break;
-                }
-            }
-            WatchEvent::Error(e) => {
-                panic!("WatchEvent error: {:?}", e);
-            }
-            _ => {}
-        }
-    }
-
-    assert!(went_ready, format!("pod {} never went ready", pod_name));
-
-    Ok(())
-}
-
 async fn set_up_wasi_test_environment(client: kube::Client) -> anyhow::Result<()> {
     let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
     secrets
@@ -655,7 +574,7 @@ impl Drop for WasiTestResourceCleaner {
 }
 
 #[tokio::test]
-async fn test_wasi_provider() -> anyhow::Result<()> {
+async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
     let client = kube::Client::try_default().await?;
 
     let nodes: Api<Node> = Api::all(client);
@@ -674,18 +593,18 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
 
     create_wasi_pod(client.clone(), &pods).await?;
 
-    assert_pod_log_equals(&pods, SIMPLE_WASI_POD, "Hello, world!\n").await?;
+    assert::pod_log_equals(&pods, SIMPLE_WASI_POD, "Hello, world!\n").await?;
 
-    assert_pod_exited_successfully(&pods, SIMPLE_WASI_POD).await?;
+    assert::pod_exited_successfully(&pods, SIMPLE_WASI_POD).await?;
 
     // TODO: Create a module that actually reads from a directory and outputs to logs
-    assert_container_file_contains(
+    assert::container_file_contains(
         "secret-test/myval",
         "a cool secret",
         "unable to open secret file",
     )
     .await?;
-    assert_container_file_contains(
+    assert::container_file_contains(
         "configmap-test/myval",
         "a cool configmap",
         "unable to open configmap file",
@@ -694,11 +613,11 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
 
     create_fancy_schmancy_wasi_pod(client.clone(), &pods).await?;
 
-    assert_pod_log_contains(&pods, VERBOSE_WASI_POD, r#"Args are: ["arg1", "arg2"]"#).await?;
+    assert::pod_log_contains(&pods, VERBOSE_WASI_POD, r#"Args are: ["arg1", "arg2"]"#).await?;
 
     create_faily_pod(client.clone(), &pods).await?;
-    assert_main_container_exited_with_failure(&pods, FAILY_POD).await?;
-    assert_pod_log_contains(
+    assert::main_container_exited_with_failure(&pods, FAILY_POD).await?;
+    assert::pod_log_contains(
         &pods,
         FAILY_POD,
         r#"ERR: Failed with File /nope.nope.nope.txt was expected to exist but did not"#,
@@ -706,11 +625,11 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
     .await?;
 
     create_loggy_pod(client.clone(), &pods).await?;
-    assert_pod_container_log_contains(&pods, LOGGY_POD, "floofycat", r#"slats"#).await?;
-    assert_pod_container_log_contains(&pods, LOGGY_POD, "neatcat", r#"kiki"#).await?;
+    assert::pod_container_log_contains(&pods, LOGGY_POD, "floofycat", r#"slats"#).await?;
+    assert::pod_container_log_contains(&pods, LOGGY_POD, "neatcat", r#"kiki"#).await?;
 
     create_pod_with_init_containers(client.clone(), &pods).await?;
-    assert_pod_log_contains(&pods, INITY_WASI_POD, r#"slats"#).await?;
+    assert::pod_log_contains(&pods, INITY_WASI_POD, r#"slats"#).await?;
     assert_container_statuses(
         &pods,
         INITY_WASI_POD,
@@ -726,14 +645,14 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
     .await?;
 
     create_pod_with_failing_init_container(client.clone(), &pods).await?;
-    assert_pod_exited_with_failure(&pods, FAILY_INITS_POD).await?;
-    assert_pod_message_contains(
+    assert::pod_exited_with_failure(&pods, FAILY_INITS_POD).await?;
+    assert::pod_message_contains(
         &pods,
         FAILY_INITS_POD,
         "Init container init-that-fails failed",
     )
     .await?;
-    assert_pod_container_log_contains(
+    assert::pod_container_log_contains(
         &pods,
         FAILY_INITS_POD,
         "init-that-fails",
@@ -744,145 +663,5 @@ async fn test_wasi_provider() -> anyhow::Result<()> {
     // assert_pod_log_does_not_contain(&pods, FAILY_INITS_POD, "slats").await?;
     // assert_pod_log_does_not_contain(&pods, FAILY_INITS_POD, "also.nope.txt").await?;
 
-    Ok(())
-}
-
-async fn assert_pod_log_equals(
-    pods: &Api<Pod>,
-    pod_name: &str,
-    expected_log: &str,
-) -> anyhow::Result<()> {
-    let mut logs = pods.log_stream(pod_name, &LogParams::default()).await?;
-
-    while let Some(chunk) = logs.try_next().await? {
-        assert_eq!(expected_log, String::from_utf8_lossy(&chunk));
-    }
-
-    Ok(())
-}
-
-async fn assert_pod_log_contains(
-    pods: &Api<Pod>,
-    pod_name: &str,
-    expected_log: &str,
-) -> anyhow::Result<()> {
-    let logs = pods.logs(pod_name, &LogParams::default()).await?;
-    assert!(
-        logs.contains(expected_log),
-        format!("Expected log containing {} but got {}", expected_log, logs)
-    );
-    Ok(())
-}
-
-async fn assert_pod_container_log_contains(
-    pods: &Api<Pod>,
-    pod_name: &str,
-    container_name: &str,
-    expected_log: &str,
-) -> anyhow::Result<()> {
-    let mut log_params = LogParams::default();
-    log_params.container = Some(container_name.to_owned());
-    let logs = pods.logs(pod_name, &log_params).await?;
-    assert!(
-        logs.contains(expected_log),
-        format!("Expected log containing {} but got {}", expected_log, logs)
-    );
-    Ok(())
-}
-
-// async fn assert_pod_log_does_not_contain(
-//     pods: &Api<Pod>,
-//     pod_name: &str,
-//     unexpected_log: &str,
-// ) -> anyhow::Result<()> {
-//     let logs = pods.logs(pod_name, &LogParams::default()).await?;
-//     assert!(
-//         !logs.contains(unexpected_log),
-//         format!(
-//             "Expected log NOT containing {} but got {}",
-//             unexpected_log, logs
-//         )
-//     );
-//     Ok(())
-// }
-
-async fn assert_pod_exited_successfully(pods: &Api<Pod>, pod_name: &str) -> anyhow::Result<()> {
-    let pod = pods.get(pod_name).await?;
-
-    let state = (|| {
-        pod.status?.container_statuses?[0]
-            .state
-            .as_ref()?
-            .terminated
-            .clone()
-    })()
-    .expect("Could not fetch terminated states");
-    assert_eq!(state.exit_code, 0);
-
-    Ok(())
-}
-
-async fn assert_pod_exited_with_failure(pods: &Api<Pod>, pod_name: &str) -> anyhow::Result<()> {
-    let pod = pods.get(pod_name).await?;
-
-    let phase = (|| pod.status?.phase)().expect("Could not get pod phase");
-    assert_eq!(phase, "Failed");
-
-    Ok(())
-}
-
-async fn assert_pod_message_contains(
-    pods: &Api<Pod>,
-    pod_name: &str,
-    expected_message: &str,
-) -> anyhow::Result<()> {
-    let pod = pods.get(pod_name).await?;
-
-    let message = (|| pod.status?.message)().expect("Could not get pod message");
-    assert!(
-        message.contains(expected_message),
-        format!(
-            "Expected pod message containing {} but got {}",
-            expected_message, message
-        )
-    );
-
-    Ok(())
-}
-
-async fn assert_main_container_exited_with_failure(
-    pods: &Api<Pod>,
-    pod_name: &str,
-) -> anyhow::Result<()> {
-    let pod = pods.get(pod_name).await?;
-
-    let state = (|| {
-        pod.status?.container_statuses?[0]
-            .state
-            .as_ref()?
-            .terminated
-            .clone()
-    })()
-    .expect("Could not fetch terminated states");
-    assert_eq!(state.exit_code, 1);
-
-    Ok(())
-}
-
-async fn assert_container_file_contains(
-    container_file_path: &str,
-    expected_content: &str,
-    file_error: &str,
-) -> anyhow::Result<()> {
-    let file_path_base = dirs::home_dir()
-        .expect("home dir does not exist")
-        .join(".krustlet/volumes/hello-wasi-default");
-    let container_file_bytes = tokio::fs::read(file_path_base.join(container_file_path))
-        .await
-        .expect(file_error);
-    assert_eq!(
-        expected_content.to_owned().into_bytes(),
-        container_file_bytes
-    );
     Ok(())
 }
