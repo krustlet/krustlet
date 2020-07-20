@@ -3,7 +3,6 @@ set shell := ["powershell.exe", "-c"]
 export RUST_LOG := "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,main=debug"
 export PFX_PASSWORD := "testing"
 export CONFIG_DIR := env_var_or_default('CONFIG_DIR', '$HOME\.krustlet\config')
-#export RUSTFLAGS := "-Zprint-type-sizes"
 
 run: run-wascc
 

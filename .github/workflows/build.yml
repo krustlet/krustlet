@@ -57,7 +57,8 @@ jobs:
         run: |
           just --justfile justfile-windows build
           just --justfile justfile-windows test
-  # TODO: Figure out how to get kind or minikube running on a windows test host
+  # TODO: Figure out how to get kind or minikube running on a windows test host and see how we can
+  # get things working with rustls
   # windows-e2e:
   #   runs-on: windows-latest
   e2e:
