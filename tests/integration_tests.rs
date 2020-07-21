@@ -271,9 +271,6 @@ async fn create_wasi_pod(
         }
     }))?;
 
-    // TODO: Create a testing module to write to the path to actually check that writing and reading
-    // from a host path volume works
-
     let pod = pods.create(&PostParams::default(), &p).await?;
     resource_manager.push(TestResource::Pod(pod_name.to_owned()));
 
@@ -525,68 +522,6 @@ async fn set_up_wasi_test_environment(
 
     Ok(())
 }
-
-// async fn clean_up_wasi_test_resources() -> anyhow::Result<()> {
-//     let client = kube::Client::try_default()
-//         .await
-//         .expect("Failed to create client");
-
-//     let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
-//     let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), "default");
-//     let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
-
-//     let cleanup_errors: Vec<_> = vec![
-//         secrets
-//             .delete("hello-wasi-secret", &DeleteParams::default())
-//             .await
-//             .err()
-//             .map(|e| format!("secret hello-wasi-secret ({})", e)),
-//         config_maps
-//             .delete("hello-wasi-configmap", &DeleteParams::default())
-//             .await
-//             .err()
-//             .map(|e| format!("configmap hello-wasi-configmap ({})", e)),
-//         pods.delete(SIMPLE_WASI_POD, &DeleteParams::default())
-//             .await
-//             .err()
-//             .map(|e| format!("pod {} ({})", SIMPLE_WASI_POD, e)),
-//         pods.delete(VERBOSE_WASI_POD, &DeleteParams::default())
-//             .await
-//             .err()
-//             .map(|e| format!("pod {} ({})", VERBOSE_WASI_POD, e)),
-//         pods.delete(FAILY_POD, &DeleteParams::default())
-//             .await
-//             .err()
-//             .map(|e| format!("pod {} ({})", FAILY_POD, e)),
-//         pods.delete(LOGGY_POD, &DeleteParams::default())
-//             .await
-//             .err()
-//             .map(|e| format!("pod {} ({})", LOGGY_POD, e)),
-//         pods.delete(INITY_WASI_POD, &DeleteParams::default())
-//             .await
-//             .err()
-//             .map(|e| format!("pod {} ({})", INITY_WASI_POD, e)),
-//         pods.delete(FAILY_INITS_POD, &DeleteParams::default())
-//             .await
-//             .err()
-//             .map(|e| format!("pod {} ({})", FAILY_INITS_POD, e)),
-//     ]
-//     .iter()
-//     .filter(|e| e.is_some())
-//     .map(|e| e.as_ref().unwrap().to_string())
-//     .filter(|s| !s.contains(r#"reason: "NotFound""#))
-//     .collect();
-
-//     if cleanup_errors.is_empty() {
-//         Ok(())
-//     } else {
-//         let cleanup_failure_text = format!(
-//             "Error(s) cleaning up resources: {}",
-//             cleanup_errors.join(", ")
-//         );
-//         Err(anyhow::anyhow!(cleanup_failure_text))
-//     }
-// }
 
 #[tokio::test]
 async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
