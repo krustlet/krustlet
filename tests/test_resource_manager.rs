@@ -10,16 +10,18 @@ pub enum TestResource {
 }
 
 pub struct TestResourceManager {
+    namespace: String,
     resources: Vec<TestResource>,
 }
 
 impl Drop for TestResourceManager {
     fn drop(&mut self) {
         let resources = self.resources.clone();
+        let namespace = self.namespace.clone();
         let t = std::thread::spawn(move || {
             let mut rt =
                 tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime for cleanup");
-            rt.block_on(clean_up_resources(resources))
+            rt.block_on(clean_up_resources(resources, namespace))
         });
 
         let thread_result = t.join();
@@ -29,8 +31,11 @@ impl Drop for TestResourceManager {
 }
 
 impl TestResourceManager {
-    pub fn new() -> Self {
-        TestResourceManager { resources: vec![] }
+    pub fn new(namespace: &str) -> Self {
+        TestResourceManager {
+            resources: vec![],
+            namespace: namespace.to_owned(),
+        }
     }
 
     pub fn push(&mut self, resource: TestResource) {
@@ -40,9 +45,9 @@ impl TestResourceManager {
 
 // This needs to be a free function to work nicely with the Drop
 // implementation
-async fn clean_up_resources(resources: Vec<TestResource>) -> anyhow::Result<()> {
+async fn clean_up_resources(resources: Vec<TestResource>, namespace: String) -> anyhow::Result<()> {
     let cleanup_error_opts: Vec<_> = futures::stream::iter(resources)
-        .then(clean_up_resource)
+        .then(|r| clean_up_resource(r, &namespace))
         .collect()
         .await;
     let cleanup_errors: Vec<_> = cleanup_error_opts
@@ -63,14 +68,14 @@ async fn clean_up_resources(resources: Vec<TestResource>) -> anyhow::Result<()> 
     }
 }
 
-async fn clean_up_resource(resource: TestResource) -> Option<String> {
+async fn clean_up_resource(resource: TestResource, namespace: &String) -> Option<String> {
     let client = kube::Client::try_default()
         .await
         .expect("Failed to create client");
 
-    let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
-    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), "default");
-    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
+    let secrets: Api<Secret> = Api::namespaced(client.clone(), namespace);
+    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), namespace);
+    let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
 
     match resource {
         TestResource::Secret(name) => secrets

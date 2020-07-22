@@ -525,7 +525,7 @@ async fn set_up_wasi_test_environment(
 
 #[tokio::test]
 async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
-    let mut resource_manager = TestResourceManager::new();
+    let mut resource_manager = TestResourceManager::new("default");
 
     let client = kube::Client::try_default().await?;
 
