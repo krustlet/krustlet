@@ -1,5 +1,5 @@
 use futures::StreamExt;
-use k8s_openapi::api::core::v1::{ConfigMap, Pod, Secret};
+use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Pod, Secret};
 use kube::api::{Api, DeleteParams};
 
 #[derive(Clone, Debug)]
@@ -38,6 +38,10 @@ impl TestResourceManager {
         }
     }
 
+    pub fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
     pub fn push(&mut self, resource: TestResource) {
         self.resources.push(resource)
     }
@@ -46,10 +50,12 @@ impl TestResourceManager {
 // This needs to be a free function to work nicely with the Drop
 // implementation
 async fn clean_up_resources(resources: Vec<TestResource>, namespace: String) -> anyhow::Result<()> {
-    let cleanup_error_opts: Vec<_> = futures::stream::iter(resources)
+    let mut cleanup_error_opts: Vec<_> = futures::stream::iter(resources)
         .then(|r| clean_up_resource(r, &namespace))
         .collect()
         .await;
+    cleanup_error_opts.push(clean_up_namespace(&namespace).await);
+
     let cleanup_errors: Vec<_> = cleanup_error_opts
         .iter()
         .filter(|e| e.is_some())
@@ -94,4 +100,18 @@ async fn clean_up_resource(resource: TestResource, namespace: &String) -> Option
             .err()
             .map(|e| format!("pod {} ({})", name, e)),
     }
+}
+
+async fn clean_up_namespace(namespace: &String) -> Option<String> {
+    let client = kube::Client::try_default()
+        .await
+        .expect("Failed to create client");
+
+    let namespaces: Api<Namespace> = Api::all(client.clone());
+
+    namespaces
+        .delete(&namespace, &DeleteParams::default())
+        .await
+        .err()
+        .map(|e| format!("namespace {} ({})", namespace, e))
 }

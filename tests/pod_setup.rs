@@ -5,8 +5,12 @@ use kube::{
     runtime::Informer,
 };
 
-pub async fn wait_for_pod_ready(client: kube::Client, pod_name: &str) -> anyhow::Result<()> {
-    let api = Api::namespaced(client, "default");
+pub async fn wait_for_pod_ready(
+    client: kube::Client,
+    pod_name: &str,
+    namespace: &str,
+) -> anyhow::Result<()> {
+    let api = Api::namespaced(client, namespace);
     let inf: Informer<Pod> = Informer::new(api).params(
         ListParams::default()
             .fields(&format!("metadata.name={}", pod_name))
@@ -45,9 +49,10 @@ pub enum OnFailure {
 pub async fn wait_for_pod_complete(
     client: kube::Client,
     pod_name: &str,
+    namespace: &str,
     on_failure: OnFailure,
 ) -> anyhow::Result<()> {
-    let api = Api::namespaced(client.clone(), "default");
+    let api = Api::namespaced(client.clone(), namespace);
     let inf: Informer<Pod> = Informer::new(api).params(
         ListParams::default()
             .fields(&format!("metadata.name={}", pod_name))

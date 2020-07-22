@@ -1,4 +1,4 @@
-use k8s_openapi::api::core::v1::{ConfigMap, Node, Pod, Secret, Taint};
+use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Node, Pod, Secret, Taint};
 use kube::api::{Api, DeleteParams, LogParams, PostParams};
 use serde_json::json;
 
@@ -125,7 +125,7 @@ async fn create_wascc_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resu
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    wait_for_pod_ready(client, "greet-wascc").await?;
+    wait_for_pod_ready(client, "greet-wascc", "default").await?;
 
     Ok(())
 }
@@ -276,7 +276,13 @@ async fn create_wasi_pod(
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    wait_for_pod_complete(client, pod_name, OnFailure::Panic).await
+    wait_for_pod_complete(
+        client,
+        pod_name,
+        resource_manager.namespace(),
+        OnFailure::Panic,
+    )
+    .await
 }
 
 async fn create_fancy_schmancy_wasi_pod(
@@ -315,7 +321,13 @@ async fn create_fancy_schmancy_wasi_pod(
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    wait_for_pod_complete(client, pod_name, OnFailure::Panic).await
+    wait_for_pod_complete(
+        client,
+        pod_name,
+        resource_manager.namespace(),
+        OnFailure::Panic,
+    )
+    .await
 }
 
 async fn create_loggy_pod(
@@ -391,7 +403,7 @@ async fn wasmercise_wasi(
 
     assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
 
-    wait_for_pod_complete(client, pod_name, on_failure).await
+    wait_for_pod_complete(client, pod_name, resource_manager.namespace(), on_failure).await
 }
 
 async fn create_pod_with_init_containers(
@@ -481,7 +493,22 @@ async fn set_up_wasi_test_environment(
     client: kube::Client,
     resource_manager: &mut TestResourceManager,
 ) -> anyhow::Result<()> {
-    let secrets: Api<Secret> = Api::namespaced(client.clone(), "default");
+    let namespaces: Api<Namespace> = Api::all(client.clone());
+    namespaces
+        .create(
+            &PostParams::default(),
+            &serde_json::from_value(json!({
+                    "apiVersion": "v1",
+                    "kind": "Namespace",
+                    "metadata": {
+                        "name": resource_manager.namespace()
+                    },
+                    "spec": {}
+            }))?,
+        )
+        .await?;
+
+    let secrets: Api<Secret> = Api::namespaced(client.clone(), resource_manager.namespace());
 
     let secret_name = "hello-wasi-secret".to_owned();
     secrets
@@ -501,7 +528,7 @@ async fn set_up_wasi_test_environment(
         .await?;
     resource_manager.push(TestResource::Secret(secret_name));
 
-    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), "default");
+    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), resource_manager.namespace());
     let config_map_name = "hello-wasi-configmap".to_owned();
     config_maps
         .create(
@@ -525,7 +552,7 @@ async fn set_up_wasi_test_environment(
 
 #[tokio::test]
 async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
-    let mut resource_manager = TestResourceManager::new("default");
+    let mut resource_manager = TestResourceManager::new("wasi-e2e");
 
     let client = kube::Client::try_default().await?;
 
@@ -539,7 +566,7 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
 
     set_up_wasi_test_environment(client.clone(), &mut resource_manager).await?;
 
-    let pods: Api<Pod> = Api::namespaced(client.clone(), "default");
+    let pods: Api<Pod> = Api::namespaced(client.clone(), resource_manager.namespace());
 
     create_wasi_pod(client.clone(), &pods, &mut resource_manager).await?;
 
@@ -549,12 +576,16 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
 
     // TODO: Create a module that actually reads from a directory and outputs to logs
     assert::container_file_contains(
+        SIMPLE_WASI_POD,
+        resource_manager.namespace(),
         "secret-test/myval",
         "a cool secret",
         "unable to open secret file",
     )
     .await?;
     assert::container_file_contains(
+        SIMPLE_WASI_POD,
+        resource_manager.namespace(),
         "configmap-test/myval",
         "a cool configmap",
         "unable to open configmap file",
