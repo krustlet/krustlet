@@ -45,22 +45,6 @@ pub async fn pod_container_log_contains(
     Ok(())
 }
 
-// pub async fn pod_log_does_not_contain(
-//     pods: &Api<Pod>,
-//     pod_name: &str,
-//     unexpected_log: &str,
-// ) -> anyhow::Result<()> {
-//     let logs = pods.logs(pod_name, &LogParams::default()).await?;
-//     assert!(
-//         !logs.contains(unexpected_log),
-//         format!(
-//             "Expected log NOT containing {} but got {}",
-//             unexpected_log, logs
-//         )
-//     );
-//     Ok(())
-// }
-
 pub async fn pod_exited_successfully(pods: &Api<Pod>, pod_name: &str) -> anyhow::Result<()> {
     let pod = pods.get(pod_name).await?;
 
