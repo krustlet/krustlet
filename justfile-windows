@@ -1,0 +1,33 @@
+set shell := ["powershell.exe", "-c"]
+
+export RUST_LOG := "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,main=debug"
+export PFX_PASSWORD := "testing"
+export CONFIG_DIR := env_var_or_default('CONFIG_DIR', '$HOME\.krustlet\config')
+
+run: run-wascc
+
+build +FLAGS='--no-default-features --features rustls-tls':
+    cargo build {{FLAGS}}
+
+test +FLAGS='--no-default-features --features rustls-tls':
+    cargo fmt --all -- --check
+    cargo clippy {{FLAGS}}
+    @# You can't pass in features with the --workspace flag, so we need to
+    @# change directory into each crate for testing. This will result in some
+    @# "not_used" errors as it isn't checking the whole workspace, but it should be
+    @# sufficient for now. We may want to consider improving things using `cfg`
+    @# directives to always pull in rustls-tls on windows machines
+    Get-ChildItem crates -Name | ForEach-Object -Process { Push-Location .\crates\$_; cargo test {{FLAGS}}; Pop-Location }
+
+test-e2e +FLAGS='--no-default-features --features rustls-tls':
+    cargo test --test integration_tests {{FLAGS}}
+
+run-wascc +FLAGS='--no-default-features --features rustls-tls': bootstrap
+    $env:KUBECONFIG = "$(Invoke-Expression "echo $env:CONFIG_DIR")\kubeconfig-wascc"; cargo run --bin krustlet-wascc {{FLAGS}} -- --node-name krustlet-wascc --port 3000 --bootstrap-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\bootstrap.conf" --cert-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wascc.crt" --private-key-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wascc.key"
+
+run-wasi +FLAGS='--no-default-features --features rustls-tls': bootstrap
+    $env:KUBECONFIG = "$(Invoke-Expression "echo $env:CONFIG_DIR")\kubeconfig-wasi"; cargo run --bin krustlet-wasi {{FLAGS}} -- --node-name krustlet-wasi --port 3001 --bootstrap-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\bootstrap.conf" --cert-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wasi.crt" --private-key-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wasi.key"
+
+bootstrap:
+    @# This is to get around an issue with the default function returning a string that gets escaped
+    @if ( -not (Test-Path -LiteralPath "$(Invoke-Expression "echo $env:CONFIG_DIR")\bootstrap.conf") ) { $env:CONFIG_DIR = Invoke-Expression "echo $env:CONFIG_DIR"; .\docs\howto\assets\bootstrap.ps1 }

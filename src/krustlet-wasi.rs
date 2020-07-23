@@ -5,7 +5,7 @@ use kubelet::Kubelet;
 use std::sync::Arc;
 use wasi_provider::WasiProvider;
 
-#[tokio::main]
+#[tokio::main(threaded_scheduler)]
 async fn main() -> anyhow::Result<()> {
     // The provider is responsible for all the "back end" logic. If you are creating
     // a new Kubelet, all you need to implement is a provider.

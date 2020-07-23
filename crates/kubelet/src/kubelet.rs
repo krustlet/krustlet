@@ -36,7 +36,7 @@ use tokio::sync::mpsc;
 pub struct Kubelet<P> {
     provider: Arc<P>,
     kube_config: kube::Config,
-    config: Config,
+    config: Box<Config>,
 }
 
 impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
@@ -50,7 +50,9 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
         Ok(Self {
             provider: Arc::new(provider),
             kube_config,
-            config,
+            // The config object can get a little bit for some reason, so put it
+            // on the heap
+            config: Box::new(config),
         })
     }
 
@@ -79,10 +81,8 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
         let node_updater = start_node_updater(client.clone(), self.config.node_name.clone()).fuse();
 
         // If any of these tasks fail, we can initiate graceful shutdown.
-        let services = async {
-            futures::pin_mut!(webserver, error_handler, node_updater, signal_task);
-
-            futures::select! {
+        let services = Box::pin(async {
+            tokio::select! {
                 res = error_handler => if let Err(e) = res {
                     error!("Error handler task completed with error: {:?}", &e);
                 },
@@ -97,7 +97,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
             // Use relaxed ordering because we just need other tasks to eventually catch the signal.
             signal.store(true, Ordering::Relaxed);
             Ok::<(), anyhow::Error>(())
-        };
+        });
 
         // Periodically checks for shutdown signal and cleans up resources gracefully if caught.
         let signal_handler = start_signal_handler(
@@ -118,25 +118,23 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
         .fuse();
 
         // These must all be running for graceful shutdown. An error here exits ungracefully.
-        let core = async {
-            futures::pin_mut!(pod_informer, signal_handler);
-
-            futures::select! {
+        let core = Box::pin(async {
+            tokio::select! {
                 res = signal_handler => res.map_err(|e| {
                     error!("Signal handler task joined with error {:?}", &e);
-                    e.into()
+                    e
                 }),
                 res = pod_informer => res.map_err(|e| {
                     error!("Pod informer task joined with error {:?}", &e);
-                    e.into()
+                    e
                 })
             }
-        };
+        });
 
         // Services will not return an error, so this will wait for both to return, or core to
         // return an error. Services will return if signal is set because pod_informer will drop
         // error_sender and error_handler will exit.
-        futures::try_join!(core, services)?;
+        tokio::try_join!(core, services)?;
         Ok(())
     }
 }

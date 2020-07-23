@@ -8,11 +8,28 @@ on:
 jobs:
   build:
     name: build release assets
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.config.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest]
-        arch: [amd64]
+        config:
+          - {
+              os: "ubuntu-latest",
+              arch: "amd64",
+              args: "--release",
+              extension: "",
+            }
+          - {
+              os: "macos-latest",
+              arch: "amd64",
+              args: "--release",
+              extension: "",
+            }
+          - {
+              os: "windows-latest",
+              arch: "msvc",
+              args: "--release --no-default-features --features rustls-tls",
+              extension: ".exe",
+            }
     steps:
       - uses: actions/checkout@v2
 
@@ -22,9 +39,11 @@ jobs:
 
       - name: set the release version (master)
         if: github.ref == 'refs/heads/master'
+        shell: bash
         run: echo ::set-env name=RELEASE_VERSION::canary
 
       - name: lowercase the runner OS name
+        shell: bash
         run: |
           OS=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
           echo ::set-env name=RUNNER_OS::$OS
@@ -33,20 +52,20 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release
+          args: ${{ matrix.config.args }}
 
       - name: package release assets
+        shell: bash
         run: |
           mkdir _dist
-          cp README.md LICENSE target/release/krustlet-wasi target/release/krustlet-wascc _dist/
+          cp README.md LICENSE target/release/krustlet-wasi${{ matrix.config.extension }} target/release/krustlet-wascc${{ matrix.config.extension }} _dist/
           cd _dist
-          tar czf krustlet-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.arch }}.tar.gz README.md LICENSE krustlet-wasi krustlet-wascc
+          tar czf krustlet-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz README.md LICENSE krustlet-wasi krustlet-wascc
 
       - uses: actions/upload-artifact@v1
         with:
           name: krustlet
-          path: _dist/krustlet-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.arch }}.tar.gz
-
+          path: _dist/krustlet-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz
   publish:
     name: publish release assets
     runs-on: ubuntu-latest
@@ -55,28 +74,23 @@ jobs:
       - name: set the release version
         if: startsWith(github.ref, 'refs/tags/v')
         run: echo ::set-env name=RELEASE_VERSION::${GITHUB_REF/refs\/tags\//}
-
       - name: set the release version
         if: github.ref == 'refs/heads/master'
         run: echo ::set-env name=RELEASE_VERSION::canary
-
       - name: download release assets
         uses: actions/download-artifact@v1
         with:
           name: krustlet
-
       - name: generate checksums
         run: |
           cd krustlet
           sha256sum * > checksums-${{ env.RELEASE_VERSION }}.txt
-
       - name: upload to azure
         uses: bacongobbler/azure-blob-storage-upload@v1.0.0
         with:
           source_dir: krustlet
           container_name: releases
           connection_string: ${{ secrets.AzureStorageConnectionString }}
-
   crates:
     name: publish to crates.io
     runs-on: ubuntu-latest
