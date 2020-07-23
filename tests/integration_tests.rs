@@ -502,13 +502,13 @@ async fn test_wasi_node_should_verify() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
-    let mut resource_manager = TestResourceManager::new("wasi-e2e-pod-logs-and-mounts");
-
+    let test_ns = "wasi-e2e-pod-logs-and-mounts";
     let client = kube::Client::try_default().await?;
-    let pods: Api<Pod> = Api::namespaced(client.clone(), resource_manager.namespace());
+    let pods: Api<Pod> = Api::namespaced(client.clone(), test_ns);
+    let mut resource_manager = TestResourceManager::initialise(test_ns, client.clone()).await?;
 
     resource_manager
-        .set_up_test_namespace(
+        .set_up_resources(
             client.clone(),
             vec![
                 TestResourceSpec::secret("hello-wasi-secret", "myval", "a cool secret"),
@@ -545,14 +545,10 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_all_the_other_wasis() -> anyhow::Result<()> {
-    let mut resource_manager = TestResourceManager::new("wasi-e2e");
-
+    let test_ns = "wasi-e2e";
     let client = kube::Client::try_default().await?;
-    let pods: Api<Pod> = Api::namespaced(client.clone(), resource_manager.namespace());
-
-    resource_manager
-        .set_up_test_namespace(client.clone(), vec![])
-        .await?;
+    let pods: Api<Pod> = Api::namespaced(client.clone(), test_ns);
+    let mut resource_manager = TestResourceManager::initialise(test_ns, client.clone()).await?;
 
     create_fancy_schmancy_wasi_pod(client.clone(), &pods, &mut resource_manager).await?;
 

@@ -56,11 +56,30 @@ impl Drop for TestResourceManager {
 }
 
 impl TestResourceManager {
-    pub fn new(namespace: &str) -> Self {
-        TestResourceManager {
+    pub async fn initialise(namespace: &str, client: kube::Client) -> anyhow::Result<Self> {
+        let namespaces: Api<Namespace> = Api::all(client.clone());
+        namespaces
+            .create(
+                &PostParams::default(),
+                &serde_json::from_value(json!({
+                        "apiVersion": "v1",
+                        "kind": "Namespace",
+                        "metadata": {
+                            "name": namespace
+                        },
+                        "spec": {}
+                }))?,
+            )
+            .await?;
+
+        // k8s seems to need a bit of time for namespace permissions to flow
+        // through the system.  TODO: make this less worse
+        tokio::time::delay_for(tokio::time::Duration::from_millis(100)).await;
+
+        Ok(TestResourceManager {
             resources: vec![],
             namespace: namespace.to_owned(),
-        }
+        })
     }
 
     pub fn namespace(&self) -> &str {
@@ -71,33 +90,14 @@ impl TestResourceManager {
         self.resources.push(resource)
     }
 
-    pub async fn set_up_test_namespace(
+    pub async fn set_up_resources(
         &mut self,
         client: kube::Client,
         resources: Vec<TestResourceSpec>,
     ) -> anyhow::Result<()> {
-        let namespaces: Api<Namespace> = Api::all(client.clone());
-        namespaces
-            .create(
-                &PostParams::default(),
-                &serde_json::from_value(json!({
-                        "apiVersion": "v1",
-                        "kind": "Namespace",
-                        "metadata": {
-                            "name": self.namespace()
-                        },
-                        "spec": {}
-                }))?,
-            )
-            .await?;
-
         for resource in resources {
             self.set_up_resource(&client, &resource).await?;
         }
-
-        // k8s seems to need a bit of time for namespace permissions to flow
-        // through the system.  TODO: make this less worse
-        tokio::time::delay_for(tokio::time::Duration::from_millis(100)).await;
 
         Ok(())
     }
