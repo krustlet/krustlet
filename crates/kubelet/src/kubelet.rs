@@ -45,12 +45,14 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
     pub async fn new(
         provider: T,
         kube_config: kube::Config,
-        config: Box<Config>,
+        config: Config,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             provider: Arc::new(provider),
             kube_config,
-            config,
+            // The config object can get a little bit for some reason, so put it
+            // on the heap
+            config: Box::new(config),
         })
     }
 

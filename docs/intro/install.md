@@ -6,7 +6,7 @@ This guide shows how to install Krustlet.
 
 Every release of Krustlet provides compiled releases for a variety of Operating Systems. These
 compiled releases can be manually downloaded and installed. Please note these instructions will work
-on Linux, MacOS, and Windows (in Powershell)
+on Linux, MacOS, and Windows (in PowerShell)
 
 1. Download your desired version from [the releases
    page](https://github.com/deislabs/krustlet/releases)
@@ -19,10 +19,12 @@ From there, you should be able to run the client in your terminal emulator. If y
 find Krustlet, check to make sure that your `$PATH` environment variable is set correctly.
 
 ### Validating
+
 If you'd like to validate the download, checksums can be downloaded from
 https://krustlet.blob.core.windows.net/releases/checksums-v0.3.0.txt
 
 ### Windows
+
 As of Krustlet 0.4, there are now Windows builds available. However, there are some caveats. The
 underlying dependencies used to support Windows do not support certs with IP SANs (subject alternate
 names). Because of this, the serving certs requested during bootstrap will not work for local

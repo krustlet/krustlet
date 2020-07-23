@@ -35,8 +35,8 @@
 //!
 //!     // Load a kubernetes configuration
 //!     let kubeconfig = kube::Config::infer().await.unwrap();
-//!     // Get a configuration for the Kubelet, Boxing it to avoid putting it on the stack
-//!     let kubelet_config = Box::new(Config::default());
+//!     // Get a configuration for the Kubelet
+//!     let kubelet_config = Config::default();
 //!
 //!     // Instantiate the Kubelet
 //!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config).await.unwrap();

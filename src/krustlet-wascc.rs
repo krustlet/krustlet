@@ -9,10 +9,7 @@ use wascc_provider::WasccProvider;
 async fn main() -> anyhow::Result<()> {
     // The provider is responsible for all the "back end" logic. If you are creating
     // a new Kubelet, all you need to implement is a provider.
-    let config = Box::new(Config::new_from_file_and_flags(
-        env!("CARGO_PKG_VERSION"),
-        None,
-    ));
+    let config = Config::new_from_file_and_flags(env!("CARGO_PKG_VERSION"), None);
 
     // Initialize the logger
     env_logger::init();

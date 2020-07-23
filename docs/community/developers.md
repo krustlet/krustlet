@@ -65,7 +65,7 @@ on WSL1 you may be better off running in a full Linux VM under Hyper-V.
 ### Building on Windows
 
 As of version 0.4, we have support for building on Windows. For convenience sake, there is a windows
-version of the justfile called `justfile-windows`. This justfile uses Powershell and has the proper
+version of the justfile called `justfile-windows`. This justfile uses PowerShell and has the proper
 flags set for Windows builds. To use it, you'll have to specify the justfile using the `--justfile`
 flag like so:
 
