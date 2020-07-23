@@ -96,6 +96,9 @@ pub fn wasmerciser_pod(
                     "value": architecture,
                 },
             ],
+            "nodeSelector": {
+                "kubernetes.io/arch": architecture
+            },
             "volumes": volumes,
         }
     }))?;

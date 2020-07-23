@@ -248,6 +248,9 @@ async fn create_wasi_pod(
                     "value": "wasm32-wasi"
                 },
             ],
+            "nodeSelector": {
+                "kubernetes.io/arch": "wasm32-wasi"
+            },
             "volumes": [
                 {
                     "name": "secret-test",
@@ -313,6 +316,9 @@ async fn create_fancy_schmancy_wasi_pod(
                     "value": "wasm32-wasi"
                 },
             ],
+            "nodeSelector": {
+                "kubernetes.io/arch": "wasm32-wasi"
+            }
         }
     }))?;
 
@@ -550,13 +556,33 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_all_the_other_wasis() -> anyhow::Result<()> {
-    let test_ns = "wasi-e2e";
+async fn test_container_args() -> anyhow::Result<()> {
+    let test_ns = "wasi-e2e-container-args";
     let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
 
     create_fancy_schmancy_wasi_pod(client.clone(), &pods, &mut resource_manager).await?;
 
     assert::pod_log_contains(&pods, VERBOSE_WASI_POD, r#"Args are: ["arg1", "arg2"]"#).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_container_logging() -> anyhow::Result<()> {
+    let test_ns = "wasi-e2e-container-logging";
+    let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
+
+    create_loggy_pod(client.clone(), &pods, &mut resource_manager).await?;
+    assert::pod_container_log_contains(&pods, LOGGY_POD, "floofycat", r#"slats"#).await?;
+    assert::pod_container_log_contains(&pods, LOGGY_POD, "neatcat", r#"kiki"#).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_module_exiting_with_error() -> anyhow::Result<()> {
+    let test_ns = "wasi-e2e-module-exit-error";
+    let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
 
     create_faily_pod(client.clone(), &pods, &mut resource_manager).await?;
     assert::main_container_exited_with_failure(&pods, FAILY_POD).await?;
@@ -567,9 +593,13 @@ async fn test_all_the_other_wasis() -> anyhow::Result<()> {
     )
     .await?;
 
-    create_loggy_pod(client.clone(), &pods, &mut resource_manager).await?;
-    assert::pod_container_log_contains(&pods, LOGGY_POD, "floofycat", r#"slats"#).await?;
-    assert::pod_container_log_contains(&pods, LOGGY_POD, "neatcat", r#"kiki"#).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_init_containers() -> anyhow::Result<()> {
+    let test_ns = "wasi-e2e-init-containers";
+    let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
 
     create_pod_with_init_containers(client.clone(), &pods, &mut resource_manager).await?;
     assert::pod_log_contains(&pods, INITY_WASI_POD, r#"slats"#).await?;
@@ -586,6 +616,14 @@ async fn test_all_the_other_wasis() -> anyhow::Result<()> {
         ],
     )
     .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_failing_init_containers() -> anyhow::Result<()> {
+    let test_ns = "wasi-e2e-failing-init-containers";
+    let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
 
     create_pod_with_failing_init_container(client.clone(), &pods, &mut resource_manager).await?;
     assert::pod_exited_with_failure(&pods, FAILY_INITS_POD).await?;
