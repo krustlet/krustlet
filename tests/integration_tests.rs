@@ -521,12 +521,10 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
     let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
 
     resource_manager
-        .set_up_resources(
-            vec![
-                TestResourceSpec::secret("hello-wasi-secret", "myval", "a cool secret"),
-                TestResourceSpec::config_map("hello-wasi-configmap", "myval", "a cool configmap"),
-            ],
-        )
+        .set_up_resources(vec![
+            TestResourceSpec::secret("hello-wasi-secret", "myval", "a cool secret"),
+            TestResourceSpec::config_map("hello-wasi-configmap", "myval", "a cool configmap"),
+        ])
         .await?;
 
     create_wasi_pod(client.clone(), &pods, &mut resource_manager).await?;

@@ -103,10 +103,7 @@ impl TestResourceManager {
         Ok(())
     }
 
-    async fn set_up_resource(
-        &mut self,
-        resource: &TestResourceSpec,
-    ) -> anyhow::Result<()> {
+    async fn set_up_resource(&mut self, resource: &TestResourceSpec) -> anyhow::Result<()> {
         let secrets: Api<Secret> = Api::namespaced(self.client.clone(), self.namespace());
         let config_maps: Api<ConfigMap> = Api::namespaced(self.client.clone(), self.namespace());
 
