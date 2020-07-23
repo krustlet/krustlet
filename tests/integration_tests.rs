@@ -489,6 +489,15 @@ async fn create_pod_with_failing_init_container(
     .await
 }
 
+async fn set_up_test(
+    test_ns: &str,
+) -> anyhow::Result<(kube::Client, Api<Pod>, TestResourceManager)> {
+    let client = kube::Client::try_default().await?;
+    let pods: Api<Pod> = Api::namespaced(client.clone(), test_ns);
+    let resource_manager = TestResourceManager::initialise(test_ns, client.clone()).await?;
+    Ok((client, pods, resource_manager))
+}
+
 #[tokio::test]
 async fn test_wasi_node_should_verify() -> anyhow::Result<()> {
     let client = kube::Client::try_default().await?;
@@ -503,9 +512,7 @@ async fn test_wasi_node_should_verify() -> anyhow::Result<()> {
 #[tokio::test]
 async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
     let test_ns = "wasi-e2e-pod-logs-and-mounts";
-    let client = kube::Client::try_default().await?;
-    let pods: Api<Pod> = Api::namespaced(client.clone(), test_ns);
-    let mut resource_manager = TestResourceManager::initialise(test_ns, client.clone()).await?;
+    let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
 
     resource_manager
         .set_up_resources(
@@ -546,9 +553,7 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
 #[tokio::test]
 async fn test_all_the_other_wasis() -> anyhow::Result<()> {
     let test_ns = "wasi-e2e";
-    let client = kube::Client::try_default().await?;
-    let pods: Api<Pod> = Api::namespaced(client.clone(), test_ns);
-    let mut resource_manager = TestResourceManager::initialise(test_ns, client.clone()).await?;
+    let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
 
     create_fancy_schmancy_wasi_pod(client.clone(), &pods, &mut resource_manager).await?;
 
