@@ -1,4 +1,4 @@
-use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Node, Pod, Secret, Taint};
+use k8s_openapi::api::core::v1::{Node, Pod, Taint};
 use kube::api::{Api, DeleteParams, LogParams, PostParams};
 use serde_json::json;
 
@@ -489,82 +489,24 @@ async fn create_pod_with_failing_init_container(
     .await
 }
 
-async fn set_up_wasi_test_environment(
-    client: kube::Client,
-    resource_manager: &mut TestResourceManager,
-) -> anyhow::Result<()> {
-    let namespaces: Api<Namespace> = Api::all(client.clone());
-    namespaces
-        .create(
-            &PostParams::default(),
-            &serde_json::from_value(json!({
-                    "apiVersion": "v1",
-                    "kind": "Namespace",
-                    "metadata": {
-                        "name": resource_manager.namespace()
-                    },
-                    "spec": {}
-            }))?,
-        )
-        .await?;
+#[tokio::test]
+async fn test_wasi_node_should_verify() -> anyhow::Result<()> {
+    let client = kube::Client::try_default().await?;
+    let nodes: Api<Node> = Api::all(client);
+    let node = nodes.get("krustlet-wasi").await?;
 
-    let secrets: Api<Secret> = Api::namespaced(client.clone(), resource_manager.namespace());
-
-    let secret_name = "hello-wasi-secret".to_owned();
-    secrets
-        .create(
-            &PostParams::default(),
-            &serde_json::from_value(json!({
-                "apiVersion": "v1",
-                "kind": "Secret",
-                "metadata": {
-                    "name": secret_name
-                },
-                "stringData": {
-                    "myval": "a cool secret"
-                }
-            }))?,
-        )
-        .await?;
-    resource_manager.push(TestResource::Secret(secret_name));
-
-    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), resource_manager.namespace());
-    let config_map_name = "hello-wasi-configmap".to_owned();
-    config_maps
-        .create(
-            &PostParams::default(),
-            &serde_json::from_value(json!({
-                "apiVersion": "v1",
-                "kind": "ConfigMap",
-                "metadata": {
-                    "name": config_map_name
-                },
-                "data": {
-                    "myval": "a cool configmap"
-                }
-            }))?,
-        )
-        .await?;
-    resource_manager.push(TestResource::ConfigMap(config_map_name));
+    verify_wasi_node(node).await;
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
-    let mut resource_manager = TestResourceManager::new("wasi-e2e");
+    let mut resource_manager = TestResourceManager::new("wasi-e2e-pod-logs-and-mounts");
 
     let client = kube::Client::try_default().await?;
 
-    let nodes: Api<Node> = Api::all(client);
-
-    let node = nodes.get("krustlet-wasi").await?;
-
-    verify_wasi_node(node).await;
-
-    let client: kube::Client = nodes.into();
-
-    set_up_wasi_test_environment(client.clone(), &mut resource_manager).await?;
+    resource_manager.set_up_test_namespace(client.clone()).await?;
 
     let pods: Api<Pod> = Api::namespaced(client.clone(), resource_manager.namespace());
 
@@ -574,7 +516,6 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
 
     assert::pod_exited_successfully(&pods, SIMPLE_WASI_POD).await?;
 
-    // TODO: Create a module that actually reads from a directory and outputs to logs
     assert::container_file_contains(
         SIMPLE_WASI_POD,
         resource_manager.namespace(),
@@ -591,6 +532,19 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
         "unable to open configmap file",
     )
     .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_all_the_other_wasis() -> anyhow::Result<()> {
+    let mut resource_manager = TestResourceManager::new("wasi-e2e");
+
+    let client = kube::Client::try_default().await?;
+
+    resource_manager.set_up_test_namespace(client.clone()).await?;
+
+    let pods: Api<Pod> = Api::namespaced(client.clone(), resource_manager.namespace());
 
     create_fancy_schmancy_wasi_pod(client.clone(), &pods, &mut resource_manager).await?;
 

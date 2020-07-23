@@ -1,6 +1,7 @@
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Pod, Secret};
-use kube::api::{Api, DeleteParams};
+use kube::api::{Api, DeleteParams, PostParams};
+use serde_json::json;
 
 #[derive(Clone, Debug)]
 pub enum TestResource {
@@ -44,6 +45,68 @@ impl TestResourceManager {
 
     pub fn push(&mut self, resource: TestResource) {
         self.resources.push(resource)
+    }
+
+    pub async fn set_up_test_namespace(&mut self, client: kube::Client) -> anyhow::Result<()> {
+        let namespaces: Api<Namespace> = Api::all(client.clone());
+        namespaces
+            .create(
+                &PostParams::default(),
+                &serde_json::from_value(json!({
+                        "apiVersion": "v1",
+                        "kind": "Namespace",
+                        "metadata": {
+                            "name": self.namespace()
+                        },
+                        "spec": {}
+                }))?,
+            )
+            .await?;
+    
+        let secrets: Api<Secret> = Api::namespaced(client.clone(), self.namespace());
+    
+        let secret_name = "hello-wasi-secret".to_owned();
+        secrets
+            .create(
+                &PostParams::default(),
+                &serde_json::from_value(json!({
+                    "apiVersion": "v1",
+                    "kind": "Secret",
+                    "metadata": {
+                        "name": secret_name
+                    },
+                    "stringData": {
+                        "myval": "a cool secret"
+                    }
+                }))?,
+            )
+            .await?;
+        self.push(TestResource::Secret(secret_name));
+    
+        let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), self.namespace());
+        let config_map_name = "hello-wasi-configmap".to_owned();
+        config_maps
+            .create(
+                &PostParams::default(),
+                &serde_json::from_value(json!({
+                    "apiVersion": "v1",
+                    "kind": "ConfigMap",
+                    "metadata": {
+                        "name": config_map_name
+                    },
+                    "data": {
+                        "myval": "a cool configmap"
+                    }
+                }))?,
+            )
+            .await?;
+        self.push(TestResource::ConfigMap(config_map_name));
+
+        // k8s seems to need a bit of time for namespace permissions to flow
+        // through the system.  TODO: make this less worse
+        tokio::time::delay_for(tokio::time::Duration::from_millis(100)).await;
+    
+        Ok(())
     }
 }
 
