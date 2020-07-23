@@ -10,6 +10,30 @@ pub enum TestResource {
     Pod(String),
 }
 
+#[derive(Clone, Debug)]
+pub enum TestResourceSpec {
+    Secret(String, String, String),    // single value per secret for now
+    ConfigMap(String, String, String), // single value per cm for now
+}
+
+impl TestResourceSpec {
+    pub fn secret(resource_name: &str, value_name: &str, value: &str) -> Self {
+        Self::Secret(
+            resource_name.to_owned(),
+            value_name.to_owned(),
+            value.to_owned(),
+        )
+    }
+
+    pub fn config_map(resource_name: &str, value_name: &str, value: &str) -> Self {
+        Self::ConfigMap(
+            resource_name.to_owned(),
+            value_name.to_owned(),
+            value.to_owned(),
+        )
+    }
+}
+
 pub struct TestResourceManager {
     namespace: String,
     resources: Vec<TestResource>,
@@ -47,7 +71,11 @@ impl TestResourceManager {
         self.resources.push(resource)
     }
 
-    pub async fn set_up_test_namespace(&mut self, client: kube::Client) -> anyhow::Result<()> {
+    pub async fn set_up_test_namespace(
+        &mut self,
+        client: kube::Client,
+        resources: Vec<TestResourceSpec>,
+    ) -> anyhow::Result<()> {
         let namespaces: Api<Namespace> = Api::all(client.clone());
         namespaces
             .create(
@@ -62,50 +90,65 @@ impl TestResourceManager {
                 }))?,
             )
             .await?;
-    
-        let secrets: Api<Secret> = Api::namespaced(client.clone(), self.namespace());
-    
-        let secret_name = "hello-wasi-secret".to_owned();
-        secrets
-            .create(
-                &PostParams::default(),
-                &serde_json::from_value(json!({
-                    "apiVersion": "v1",
-                    "kind": "Secret",
-                    "metadata": {
-                        "name": secret_name
-                    },
-                    "stringData": {
-                        "myval": "a cool secret"
-                    }
-                }))?,
-            )
-            .await?;
-        self.push(TestResource::Secret(secret_name));
-    
-        let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), self.namespace());
-        let config_map_name = "hello-wasi-configmap".to_owned();
-        config_maps
-            .create(
-                &PostParams::default(),
-                &serde_json::from_value(json!({
-                    "apiVersion": "v1",
-                    "kind": "ConfigMap",
-                    "metadata": {
-                        "name": config_map_name
-                    },
-                    "data": {
-                        "myval": "a cool configmap"
-                    }
-                }))?,
-            )
-            .await?;
-        self.push(TestResource::ConfigMap(config_map_name));
+
+        for resource in resources {
+            self.set_up_resource(&client, &resource).await?;
+        }
 
         // k8s seems to need a bit of time for namespace permissions to flow
         // through the system.  TODO: make this less worse
         tokio::time::delay_for(tokio::time::Duration::from_millis(100)).await;
-    
+
+        Ok(())
+    }
+
+    async fn set_up_resource(
+        &mut self,
+        client: &kube::Client,
+        resource: &TestResourceSpec,
+    ) -> anyhow::Result<()> {
+        let secrets: Api<Secret> = Api::namespaced(client.clone(), self.namespace());
+        let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), self.namespace());
+
+        match resource {
+            TestResourceSpec::Secret(resource_name, value_name, value) => {
+                secrets
+                    .create(
+                        &PostParams::default(),
+                        &serde_json::from_value(json!({
+                            "apiVersion": "v1",
+                            "kind": "Secret",
+                            "metadata": {
+                                "name": resource_name
+                            },
+                            "stringData": {
+                                value_name: value
+                            }
+                        }))?,
+                    )
+                    .await?;
+                self.push(TestResource::Secret(resource_name.to_owned()));
+            }
+            TestResourceSpec::ConfigMap(resource_name, value_name, value) => {
+                config_maps
+                    .create(
+                        &PostParams::default(),
+                        &serde_json::from_value(json!({
+                            "apiVersion": "v1",
+                            "kind": "ConfigMap",
+                            "metadata": {
+                                "name": resource_name
+                            },
+                            "data": {
+                                value_name: value
+                            }
+                        }))?,
+                    )
+                    .await?;
+                self.push(TestResource::ConfigMap(resource_name.to_owned()));
+            }
+        }
+
         Ok(())
     }
 }

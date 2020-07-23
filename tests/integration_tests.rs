@@ -10,7 +10,7 @@ mod test_resource_manager;
 use expectations::{assert_container_statuses, ContainerStatusExpectation};
 use pod_builder::{wasmerciser_pod, WasmerciserContainerSpec, WasmerciserVolumeSpec};
 use pod_setup::{wait_for_pod_complete, wait_for_pod_ready, OnFailure};
-use test_resource_manager::{TestResource, TestResourceManager};
+use test_resource_manager::{TestResource, TestResourceManager, TestResourceSpec};
 
 #[tokio::test]
 async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
@@ -506,7 +506,15 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
 
     let client = kube::Client::try_default().await?;
 
-    resource_manager.set_up_test_namespace(client.clone()).await?;
+    resource_manager
+        .set_up_test_namespace(
+            client.clone(),
+            vec![
+                TestResourceSpec::secret("hello-wasi-secret", "myval", "a cool secret"),
+                TestResourceSpec::config_map("hello-wasi-configmap", "myval", "a cool configmap"),
+            ],
+        )
+        .await?;
 
     let pods: Api<Pod> = Api::namespaced(client.clone(), resource_manager.namespace());
 
@@ -542,7 +550,9 @@ async fn test_all_the_other_wasis() -> anyhow::Result<()> {
 
     let client = kube::Client::try_default().await?;
 
-    resource_manager.set_up_test_namespace(client.clone()).await?;
+    resource_manager
+        .set_up_test_namespace(client.clone(), vec![])
+        .await?;
 
     let pods: Api<Pod> = Api::namespaced(client.clone(), resource_manager.namespace());
 
