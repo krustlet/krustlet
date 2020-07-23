@@ -516,7 +516,6 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
 
     resource_manager
         .set_up_resources(
-            client.clone(),
             vec![
                 TestResourceSpec::secret("hello-wasi-secret", "myval", "a cool secret"),
                 TestResourceSpec::config_map("hello-wasi-configmap", "myval", "a cool configmap"),

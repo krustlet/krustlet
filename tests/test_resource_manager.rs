@@ -36,6 +36,7 @@ impl TestResourceSpec {
 
 pub struct TestResourceManager {
     namespace: String,
+    client: kube::Client,
     resources: Vec<TestResource>,
 }
 
@@ -77,8 +78,9 @@ impl TestResourceManager {
         tokio::time::delay_for(tokio::time::Duration::from_millis(100)).await;
 
         Ok(TestResourceManager {
-            resources: vec![],
             namespace: namespace.to_owned(),
+            client: client.clone(),
+            resources: vec![],
         })
     }
 
@@ -92,11 +94,10 @@ impl TestResourceManager {
 
     pub async fn set_up_resources(
         &mut self,
-        client: kube::Client,
         resources: Vec<TestResourceSpec>,
     ) -> anyhow::Result<()> {
         for resource in resources {
-            self.set_up_resource(&client, &resource).await?;
+            self.set_up_resource(&resource).await?;
         }
 
         Ok(())
@@ -104,11 +105,10 @@ impl TestResourceManager {
 
     async fn set_up_resource(
         &mut self,
-        client: &kube::Client,
         resource: &TestResourceSpec,
     ) -> anyhow::Result<()> {
-        let secrets: Api<Secret> = Api::namespaced(client.clone(), self.namespace());
-        let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), self.namespace());
+        let secrets: Api<Secret> = Api::namespaced(self.client.clone(), self.namespace());
+        let config_maps: Api<ConfigMap> = Api::namespaced(self.client.clone(), self.namespace());
 
         match resource {
             TestResourceSpec::Secret(resource_name, value_name, value) => {
