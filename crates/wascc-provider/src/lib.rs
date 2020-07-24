@@ -636,9 +636,11 @@ struct LogHandleFactory {
     temp: NamedTempFile,
 }
 
-impl kubelet::log::HandleFactory<tokio::fs::File> for LogHandleFactory {
+impl kubelet::log::LogReaderFactory for LogHandleFactory {
+    type Reader = tokio::fs::File;
+    
     /// Creates `tokio::fs::File` on demand for log reading.
-    fn new_handle(&self) -> tokio::fs::File {
+    fn new_reader(&self) -> Self::Reader {
         tokio::fs::File::from_std(self.temp.reopen().unwrap())
     }
 }

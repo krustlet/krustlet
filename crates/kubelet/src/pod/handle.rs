@@ -8,7 +8,7 @@ use tokio::task::JoinHandle;
 
 use crate::container::{ContainerMapByName, HandleMap as ContainerHandleMap};
 use crate::handle::StopHandler;
-use crate::log::{HandleFactory, Sender};
+use crate::log::{LogReaderFactory, Sender};
 use crate::pod::Pod;
 use crate::pod::{Status, StatusMessage};
 use crate::provider::ProviderError;
@@ -83,10 +83,10 @@ impl<H: StopHandler, F> Handle<H, F> {
 
     /// Streams output from the specified container into the given sender.
     /// Optionally tails the output and/or continues to watch the file and stream changes.
-    pub async fn output<R>(&mut self, container_name: &str, sender: Sender) -> anyhow::Result<()>
+    pub async fn output(&mut self, container_name: &str, sender: Sender) -> anyhow::Result<()>
     where
-        R: AsyncRead + AsyncSeek + Unpin + Send + 'static,
-        F: HandleFactory<R>,
+        F: LogReaderFactory,
+        F::Reader: AsyncRead + AsyncSeek + Unpin + Send + 'static,
     {
         let mut handles = self.container_handles.write().await;
         let handle = handles

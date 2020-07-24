@@ -176,7 +176,11 @@ pub async fn stream<R: AsyncRead + std::marker::Unpin>(
 // it might make sense to provide that implementation here. This would add `tempfile` as a
 // dependency of `kubelet`.
 /// Trait to describe necessary behavior for creating multiple log readers.
-pub trait HandleFactory<R>: Sync + Send {
+pub trait LogReaderFactory: Sync + Send {
+
+    /// The type of log readers this factory creates.
+    type Reader;
+
     /// Create new log reader.
-    fn new_handle(&self) -> R;
+    fn new_reader(&self) -> Self::Reader;
 }

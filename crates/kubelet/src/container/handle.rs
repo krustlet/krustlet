@@ -5,7 +5,7 @@ use tokio::sync::watch::Receiver;
 
 use crate::container::{ContainerMap, Status};
 use crate::handle::StopHandler;
-use crate::log::{stream, HandleFactory, Sender};
+use crate::log::{stream, LogReaderFactory, Sender};
 
 /// Represents a handle to a running "container" (whatever that might be). This
 /// can be used on its own, however, it is generally better to use it as a part
@@ -40,14 +40,14 @@ impl<H: StopHandler, F> Handle<H, F> {
 
     /// Streams output from the running process into the given sender.
     /// Optionally tails the output and/or continues to watch the file and stream changes.
-    pub(crate) async fn output<R>(&mut self, sender: Sender) -> anyhow::Result<()>
+    pub(crate) async fn output(&mut self, sender: Sender) -> anyhow::Result<()>
     where
-        R: AsyncRead + AsyncSeek + Unpin + Send + 'static,
-        F: HandleFactory<R>,
+        F: LogReaderFactory,
+        F::Reader: AsyncRead + AsyncSeek + Unpin + Send + 'static,
     {
-        let mut handle = self.handle_factory.new_handle();
-        handle.seek(SeekFrom::Start(0)).await?;
-        tokio::spawn(stream(handle, sender));
+        let mut reader = self.handle_factory.new_reader();
+        reader.seek(SeekFrom::Start(0)).await?;
+        tokio::spawn(stream(reader, sender));
         Ok(())
     }
 
