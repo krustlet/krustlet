@@ -7,7 +7,7 @@ mod expectations;
 mod pod_builder;
 mod pod_setup;
 mod test_resource_manager;
-use expectations::{assert_container_statuses, ContainerStatusExpectation};
+use expectations::{assert_container_statuses, Expect, Id};
 use pod_builder::{wasmerciser_pod, WasmerciserContainerSpec, WasmerciserVolumeSpec};
 use pod_setup::{wait_for_pod_complete, wait_for_pod_ready, OnFailure};
 use test_resource_manager::{TestResource, TestResourceManager, TestResourceSpec};
@@ -605,12 +605,12 @@ async fn test_init_containers() -> anyhow::Result<()> {
         &pods,
         INITY_WASI_POD,
         vec![
-            ContainerStatusExpectation::InitTerminated("init-1", "Module run completed"),
-            ContainerStatusExpectation::InitTerminated("init-2", "Module run completed"),
-            ContainerStatusExpectation::InitNotPresent(INITY_WASI_POD),
-            ContainerStatusExpectation::AppNotPresent("init-1"),
-            ContainerStatusExpectation::AppNotPresent("init-2"),
-            ContainerStatusExpectation::AppTerminated(INITY_WASI_POD, "Module run completed"),
+            (Id::Init("init-1"), Expect::IsTerminatedWith("Module run completed")),
+            (Id::Init("init-2"), Expect::IsTerminatedWith("Module run completed")),
+            (Id::Init(INITY_WASI_POD), Expect::IsNotPresent),
+            (Id::App("init-1"), Expect::IsNotPresent),
+            (Id::App("init-2"), Expect::IsNotPresent),
+            (Id::App(INITY_WASI_POD), Expect::IsTerminatedWith("Module run completed")),
         ],
     )
     .await?;
