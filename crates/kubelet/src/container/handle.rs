@@ -11,23 +11,23 @@ use crate::log::{stream, LogReaderFactory, Sender};
 /// can be used on its own, however, it is generally better to use it as a part
 /// of a [`pod::Handle`], which manages a group of containers in a Kubernetes
 /// Pod
-pub struct Handle<H, F> {
-    handle: H,
-    handle_factory: F,
+pub struct Handle<S, F> {
+    stopper: S,
+    log_reader_factory: F,
     status_channel: Receiver<Status>,
 }
 
-impl<H: StopHandler, F> Handle<H, F> {
+impl<S: StopHandler, F> Handle<S, F> {
     /// Create a new runtime with the given handle for stopping the runtime,
     /// a reader for log output, and a status channel.
     ///
     /// The status channel is a [Tokio watch `Receiver`][Receiver]. The sender part
     /// of the channel should be given to the running process and the receiver half
     /// passed to this constructor to be used for reporting current status
-    pub fn new(handle: H, handle_factory: F, status_channel: Receiver<Status>) -> Self {
+    pub fn new(stopper: S, log_reader_factory: F, status_channel: Receiver<Status>) -> Self {
         Self {
-            handle,
-            handle_factory,
+            stopper,
+            log_reader_factory,
             status_channel,
         }
     }
@@ -35,7 +35,7 @@ impl<H: StopHandler, F> Handle<H, F> {
     /// Signal the running instance to stop. Use [`Handle::wait`] to wait for the process to
     /// exit. This uses the underlying [`StopHandler`] implementation passed to the constructor
     pub async fn stop(&mut self) -> anyhow::Result<()> {
-        self.handle.stop().await
+        self.stopper.stop().await
     }
 
     /// Streams output from the running process into the given sender.
@@ -45,7 +45,7 @@ impl<H: StopHandler, F> Handle<H, F> {
         F: LogReaderFactory,
         F::Reader: AsyncRead + AsyncSeek + Unpin + Send + 'static,
     {
-        let mut reader = self.handle_factory.new_reader();
+        let mut reader = self.log_reader_factory.new_reader();
         reader.seek(SeekFrom::Start(0)).await?;
         tokio::spawn(stream(reader, sender));
         Ok(())
@@ -61,7 +61,7 @@ impl<H: StopHandler, F> Handle<H, F> {
     /// [`Handle::stop`] should be called first. This uses the underlying
     /// [`StopHandler`] implementation passed to the constructor
     pub(crate) async fn wait(&mut self) -> anyhow::Result<()> {
-        self.handle.wait().await
+        self.stopper.wait().await
     }
 }
 
