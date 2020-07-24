@@ -122,3 +122,13 @@ $ kubectl get nodes -o wide
 NAME             STATUS   ROLES    AGE   VERSION   INTERNAL-IP    EXTERNAL-IP   OS-IMAGE         KERNEL-VERSION                CONTAINER-RUNTIME
 docker-desktop   Ready    master   4d    v1.15.5   192.168.65.3   <none>        Docker Desktop   4.19.104-microsoft-standard   docker://19.3.8
 ```
+
+## Troubleshooting
+
+### WASM workloads on Docker Desktop
+
+Docker Desktop's Kubernetes always provides a schedulable node called
+`docker-desktop`. This node uses Docker to run containers. If you want
+to run WASM workloads on Krustlet, you must prevent these pods from being
+scheduled to the `docker-desktop` node. You can do this using a nodeSelector
+in pod specs. See [Running WASM workloads](../howto/wasm.md) for details.
