@@ -42,9 +42,9 @@ use futures::stream::StreamExt;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::{api::DeleteParams, Api};
 use kubelet::container::Container;
-use kubelet::container::{ContainerKey, HandleMap as ContainerHandleMap, Status};
+use kubelet::container::{ContainerKey, RunningContainers, Status};
 use kubelet::node::Builder;
-use kubelet::pod::{key_from_pod, pod_key, Handle, Pod};
+use kubelet::pod::{key_from_pod, pod_key, RunningPod, Pod};
 use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
 use kubelet::store::Store;
@@ -61,7 +61,7 @@ const VOLUME_DIR: &str = "volumes";
 /// binaries conforming to the WASI spec
 #[derive(Clone)]
 pub struct WasiProvider {
-    handles: Arc<RwLock<HashMap<String, Handle<Runtime, wasi_runtime::HandleFactory>>>>,
+    running_pods: Arc<RwLock<HashMap<String, RunningPod<Runtime, wasi_runtime::HandleFactory>>>>,
     store: Arc<dyn Store + Sync + Send>,
     log_path: PathBuf,
     kubeconfig: kube::Config,
@@ -85,7 +85,7 @@ impl WasiProvider {
         tokio::fs::create_dir_all(&log_path).await?;
         tokio::fs::create_dir_all(&volume_path).await?;
         Ok(Self {
-            handles: Default::default(),
+            running_pods: Default::default(),
             store,
             log_path,
             volume_path,
@@ -131,7 +131,7 @@ impl WasiProvider {
         modules: &mut HashMap<String, Vec<u8>>,
         volumes: &HashMap<String, Ref>,
     ) -> anyhow::Result<
-        kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
+        kubelet::container::RunningContainer<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
     > {
         let env = Self::env_vars(&container, pod, &client).await;
         let args = container.args().clone().unwrap_or_default();
@@ -162,7 +162,7 @@ impl WasiProvider {
         modules: &mut HashMap<String, Vec<u8>>,
         volumes: &HashMap<String, Ref>,
     ) -> (
-        ContainerHandleMap<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
+        RunningContainers<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
         Option<anyhow::Error>,
     ) {
         info!("Starting containers for pod {:?}", pod.name());
@@ -214,7 +214,7 @@ impl WasiProvider {
         modules: &mut HashMap<String, Vec<u8>>,
         volumes: &HashMap<String, Ref>,
     ) -> (
-        ContainerHandleMap<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
+        RunningContainers<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
         Option<anyhow::Error>,
     ) {
         info!("Running init containers for pod {:?}", pod.name());
@@ -278,25 +278,25 @@ impl Provider for WasiProvider {
         // When the pod finishes, we update the status to Succeeded unless it
         // produces an error, in which case we mark it Failed.
 
-        let mut container_handles = ContainerHandleMap::new();
+        let mut containers = RunningContainers::new();
 
         let mut modules = self.store.fetch_pod_modules(&pod).await?;
         let client = kube::Client::new(self.kubeconfig.clone());
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
 
-        let (init_handles, init_error) = self
+        let (init_containers, init_error) = self
             .run_init_containers(&pod, &client, &mut modules, &volumes)
             .await;
-        container_handles.extend(init_handles.into_iter());
+        containers.extend(init_containers.into_iter());
 
         let mut start_error = None;
 
         match init_error {
             None => {
-                let (app_handles, app_error) = self
+                let (app_containers, app_error) = self
                     .start_app_containers(&pod, &client, &mut modules, &volumes)
                     .await;
-                container_handles.extend(app_handles.into_iter());
+                containers.extend(app_containers.into_iter());
                 match app_error {
                     None => debug!("Successfully started all containers for pod {}", pod.name()),
                     Some(e) => {
@@ -321,9 +321,9 @@ impl Provider for WasiProvider {
 
         let pod_start_message = start_error.as_ref().map(|e| e.to_string());
 
-        let pod_handle_key = key_from_pod(&pod);
-        let pod_handle = Handle::new(
-            container_handles,
+        let pod_key = key_from_pod(&pod);
+        let running_pod = RunningPod::new(
+            containers,
             pod,
             client,
             Some(volumes),
@@ -334,8 +334,8 @@ impl Provider for WasiProvider {
         // Wrap this in a block so the write lock goes out of scope when we are done
         {
             // Grab the entry while we are creating things
-            let mut handles = self.handles.write().await;
-            handles.insert(pod_handle_key, pod_handle);
+            let mut running_pods = self.running_pods.write().await;
+            running_pods.insert(pod_key, running_pod);
         }
 
         match start_error {
@@ -359,10 +359,10 @@ impl Provider for WasiProvider {
         );
         trace!("Modified pod spec: {:#?}", pod.as_kube_pod());
         if let Some(_timestamp) = pod.deletion_timestamp() {
-            let mut handles = self.handles.write().await;
-            match handles.get_mut(&key_from_pod(&pod)) {
-                Some(h) => {
-                    h.stop().await?;
+            let mut running_pods = self.running_pods.write().await;
+            match running_pods.get_mut(&key_from_pod(&pod)) {
+                Some(running_pod) => {
+                    running_pod.stop().await?;
                     // Follow up with a delete when everything is stopped
                     let dp = DeleteParams {
                         grace_period_seconds: Some(0),
@@ -397,8 +397,8 @@ impl Provider for WasiProvider {
     }
 
     async fn delete(&self, pod: Pod) -> anyhow::Result<()> {
-        let mut handles = self.handles.write().await;
-        match handles.remove(&key_from_pod(&pod)) {
+        let mut running_pods = self.running_pods.write().await;
+        match running_pods.remove(&key_from_pod(&pod)) {
             Some(_) => debug!(
                 "Pod {} in namespace {} removed",
                 pod.name(),
@@ -420,12 +420,12 @@ impl Provider for WasiProvider {
         container_name: String,
         sender: kubelet::log::Sender,
     ) -> anyhow::Result<()> {
-        let mut handles = self.handles.write().await;
-        let handle = handles
+        let mut pods = self.running_pods.write().await;
+        let pod = pods
             .get_mut(&pod_key(&namespace, &pod_name))
             .ok_or_else(|| ProviderError::PodNotFound {
                 pod_name: pod_name.clone(),
             })?;
-        handle.output(&container_name, sender).await
+        pod.output(&container_name, sender).await
     }
 }

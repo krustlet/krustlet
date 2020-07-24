@@ -16,8 +16,7 @@ use wasmtime::InterruptHandle;
 use wasmtime_wasi::old::snapshot_0::Wasi as WasiUnstable;
 use wasmtime_wasi::{Wasi, WasiCtxBuilder};
 
-use kubelet::container::Handle as ContainerHandle;
-use kubelet::container::Status;
+use kubelet::container::{RunningContainer, Status};
 use kubelet::handle::StopHandler;
 
 pub struct Runtime {
@@ -115,7 +114,7 @@ impl WasiRuntime {
         })
     }
 
-    pub async fn start(&self) -> anyhow::Result<ContainerHandle<Runtime, HandleFactory>> {
+    pub async fn start(&self) -> anyhow::Result<RunningContainer<Runtime, HandleFactory>> {
         let temp = self.output.clone();
         // Because a reopen is blocking, run in a blocking task to get new
         // handles to the tempfile
@@ -130,16 +129,16 @@ impl WasiRuntime {
         });
         let (interrupt_handle, handle) = self.spawn_wasmtime(status_sender, output_write).await?;
 
-        let log_handle_factory = HandleFactory {
+        let log_reader_factory = HandleFactory {
             temp: self.output.clone(),
         };
 
-        Ok(ContainerHandle::new(
+        Ok(RunningContainer::new(
             Runtime {
                 handle,
                 interrupt_handle,
             },
-            log_handle_factory,
+            log_reader_factory,
             status_recv,
         ))
     }

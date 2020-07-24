@@ -5,10 +5,10 @@ use oci_distribution::Reference;
 use std::convert::TryInto;
 use std::fmt::Display;
 
-mod handle;
+mod container;
 mod status;
 
-pub use handle::{Handle, HandleMap};
+pub use container::{RunningContainer, RunningContainers};
 pub use status::Status;
 
 /// Specifies how the store should check for module updates

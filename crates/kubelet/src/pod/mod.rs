@@ -1,9 +1,9 @@
 //! `pod` is a collection of utilities surrounding the Kubernetes pod API.
-mod handle;
+mod pod;
 mod queue;
 mod status;
 
-pub use handle::{key_from_pod, pod_key, Handle};
+pub use pod::{key_from_pod, pod_key, RunningPod};
 pub(crate) use queue::Queue;
 pub use status::{update_status, Phase, Status, StatusMessage};
 

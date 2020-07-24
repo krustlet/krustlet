@@ -6,7 +6,7 @@ use tokio::stream::{StreamExt, StreamMap};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use crate::container::{ContainerMapByName, HandleMap as ContainerHandleMap};
+use crate::container::{ContainerMapByName, RunningContainers};
 use crate::handle::StopHandler;
 use crate::log::{LogReaderFactory, Sender};
 use crate::pod::Pod;
@@ -14,11 +14,11 @@ use crate::pod::{Status, StatusMessage};
 use crate::provider::ProviderError;
 use crate::volume::Ref;
 
-/// Handle is the top level handle into managing a pod. It manages updating
+/// RunningPod is the top level handle into managing a pod. It manages updating
 /// statuses for the containers in the pod and can be used to stop the pod and
 /// access logs
-pub struct Handle<H, F> {
-    container_handles: RwLock<ContainerHandleMap<H, F>>,
+pub struct RunningPod<S, F> {
+    running_containers: RwLock<RunningContainers<S, F>>,
     status_handle: JoinHandle<()>,
     pod: Pod,
     // Storage for the volume references so they don't get dropped until the runtime handle is
@@ -26,26 +26,26 @@ pub struct Handle<H, F> {
     _volumes: HashMap<String, Ref>,
 }
 
-impl<H: StopHandler, F> Handle<H, F> {
+impl<S: StopHandler, F> RunningPod<S, F> {
     /// Creates a new pod handle that manages the given map of container names to
     /// [`ContainerHandle`]s. The given pod and client are used to maintain a reference to the
     /// kubernetes object and to be able to update the status of that object. The optional volumes
     /// parameter allows a caller to pass a map of volumes to keep reference to (so that they will
     /// be dropped along with the pod)
     pub async fn new(
-        container_handles: ContainerHandleMap<H, F>,
+        running_containers: RunningContainers<S, F>,
         pod: Pod,
         client: kube::Client,
         volumes: Option<HashMap<String, Ref>>,
         initial_message: Option<String>,
     ) -> anyhow::Result<Self> {
-        let container_keys: Vec<_> = container_handles.keys().cloned().collect();
+        let container_keys: Vec<_> = running_containers.keys().cloned().collect();
         pod.initialise_status(&client, &container_keys, initial_message)
             .await;
 
-        let mut channel_map = StreamMap::with_capacity(container_handles.len());
-        for (key, handle) in container_handles.iter() {
-            channel_map.insert(key.clone(), handle.status());
+        let mut channel_map = StreamMap::with_capacity(running_containers.len());
+        for (key, container) in running_containers.iter() {
+            channel_map.insert(key.clone(), container.status());
         }
         // TODO: This does not allow for restarting single containers because we
         // move the stream map and lose the ability to insert a new channel for
@@ -74,7 +74,7 @@ impl<H: StopHandler, F> Handle<H, F> {
             }
         });
         Ok(Self {
-            container_handles: RwLock::new(container_handles),
+            running_containers: RwLock::new(running_containers),
             status_handle,
             pod,
             _volumes: volumes.unwrap_or_default(),
@@ -88,14 +88,15 @@ impl<H: StopHandler, F> Handle<H, F> {
         F: LogReaderFactory,
         F::Reader: AsyncRead + AsyncSeek + Unpin + Send + 'static,
     {
-        let mut handles = self.container_handles.write().await;
-        let handle = handles
+        let mut running_containers = self.running_containers.write().await;
+        let running_container = running_containers
             .get_mut_by_name(container_name.to_owned())
             .ok_or_else(|| ProviderError::ContainerNotFound {
                 pod_name: self.pod.name().to_owned(),
                 container_name: container_name.to_owned(),
             })?;
-        handle.output(sender).await
+
+        running_container.output(sender).await
     }
 
     /// Signal the pod and all its running containers to stop and wait for them
@@ -103,10 +104,10 @@ impl<H: StopHandler, F> Handle<H, F> {
     /// so this does nothing
     pub async fn stop(&mut self) -> anyhow::Result<()> {
         {
-            let mut handles = self.container_handles.write().await;
-            for (key, handle) in handles.iter_mut() {
+            let mut running_containers = self.running_containers.write().await;
+            for (key, running_container) in running_containers.iter_mut() {
                 info!("Stopping container: {}", key);
-                match handle.stop().await {
+                match running_container.stop().await {
                     Ok(_) => debug!("Successfully stopped container {}", key),
                     // NOTE: I am not sure what recovery or retry steps should be
                     // done here, but we should definitely continue and try to stop
@@ -120,9 +121,9 @@ impl<H: StopHandler, F> Handle<H, F> {
 
     /// Wait for all containers in the pod to complete
     pub async fn wait(&mut self) -> anyhow::Result<()> {
-        let mut handles = self.container_handles.write().await;
-        for (_, handle) in handles.iter_mut() {
-            handle.wait().await?;
+        let mut running_containers = self.running_containers.write().await;
+        for (_, running_container) in running_containers.iter_mut() {
+            running_container.wait().await?;
         }
         (&mut self.status_handle).await?;
         Ok(())

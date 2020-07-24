@@ -7,17 +7,17 @@ use crate::container::{ContainerMap, Status};
 use crate::handle::StopHandler;
 use crate::log::{stream, LogReaderFactory, Sender};
 
-/// Represents a handle to a running "container" (whatever that might be). This
+/// Represents a running "container" (whatever that might be). This
 /// can be used on its own, however, it is generally better to use it as a part
 /// of a [`pod::Handle`], which manages a group of containers in a Kubernetes
 /// Pod
-pub struct Handle<S, F> {
+pub struct RunningContainer<S, F> {
     stopper: S,
     log_reader_factory: F,
     status_channel: Receiver<Status>,
 }
 
-impl<S: StopHandler, F> Handle<S, F> {
+impl<S: StopHandler, F> RunningContainer<S, F> {
     /// Create a new runtime with the given handle for stopping the runtime,
     /// a reader for log output, and a status channel.
     ///
@@ -65,5 +65,5 @@ impl<S: StopHandler, F> Handle<S, F> {
     }
 }
 
-/// A map from containers to container handles.
-pub type HandleMap<H, F> = ContainerMap<Handle<H, F>>;
+/// A map from containers to [`RunningContainer`]s.
+pub type RunningContainers<H, F> = ContainerMap<RunningContainer<H, F>>;
