@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tokio::sync::{
     oneshot,
-    watch::{self, Sender},
+    watch::{self, Sender, Receiver},
 };
 use tokio::task::JoinHandle;
 use wasi_common::preopen_dir;
@@ -16,7 +16,6 @@ use wasmtime::InterruptHandle;
 use wasmtime_wasi::old::snapshot_0::Wasi as WasiUnstable;
 use wasmtime_wasi::{Wasi, WasiCtxBuilder};
 
-use kubelet::container::Handle as ContainerHandle;
 use kubelet::container::Status;
 use kubelet::handle::StopHandler;
 
@@ -45,6 +44,12 @@ pub struct WasiRuntime {
     data: Arc<Data>,
     /// The tempfile that output from the wasmtime process writes to
     output: Arc<NamedTempFile>,
+}
+
+pub struct WasiModuleRuntime<H, F> {
+    pub handle: H,
+    pub handle_factory: F,
+    pub status_channel: Receiver<Status>,
 }
 
 struct Data {
@@ -113,7 +118,7 @@ impl WasiRuntime {
         })
     }
 
-    pub async fn start(&self) -> anyhow::Result<ContainerHandle<Runtime, HandleFactory>> {
+    pub async fn start(&self) -> anyhow::Result<WasiModuleRuntime<Runtime, HandleFactory>> {
         let temp = self.output.clone();
         // Because a reopen is blocking, run in a blocking task to get new
         // handles to the tempfile
@@ -132,14 +137,14 @@ impl WasiRuntime {
             temp: self.output.clone(),
         };
 
-        Ok(ContainerHandle::new(
-            Runtime {
+        Ok(WasiModuleRuntime {
+            handle: Runtime {
                 handle,
                 interrupt_handle,
             },
-            log_handle_factory,
-            status_recv,
-        ))
+            handle_factory: log_handle_factory,
+            status_channel: status_recv,
+        })
     }
 
     // Spawns a running wasmtime instance with the given context and status

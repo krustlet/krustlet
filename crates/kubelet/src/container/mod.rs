@@ -8,7 +8,7 @@ use std::fmt::Display;
 mod handle;
 mod status;
 
-pub use handle::{Handle, HandleMap};
+pub use handle::{RuntimeContainer, HandleMap};
 pub use status::Status;
 
 /// Specifies how the store should check for module updates

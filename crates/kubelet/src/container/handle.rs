@@ -3,29 +3,31 @@ use std::io::SeekFrom;
 use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt};
 use tokio::sync::watch::Receiver;
 
-use crate::container::{ContainerMap, Status};
+use crate::container::{Container, ContainerMap, Status};
 use crate::handle::StopHandler;
 use crate::log::{stream, HandleFactory, Sender};
 
-/// Represents a handle to a running "container" (whatever that might be). This
+/// Represents a "container" (whatever that might be) instance at runtime. This
 /// can be used on its own, however, it is generally better to use it as a part
 /// of a [`pod::Handle`], which manages a group of containers in a Kubernetes
 /// Pod
-pub struct Handle<H, F> {
+pub struct RuntimeContainer<H, F> {
+    spec: Container,
     handle: H,
     handle_factory: F,
     status_channel: Receiver<Status>,
 }
 
-impl<H: StopHandler, F> Handle<H, F> {
+impl<H: StopHandler, F> RuntimeContainer<H, F> {
     /// Create a new runtime with the given handle for stopping the runtime,
     /// a reader for log output, and a status channel.
     ///
     /// The status channel is a [Tokio watch `Receiver`][Receiver]. The sender part
     /// of the channel should be given to the running process and the receiver half
     /// passed to this constructor to be used for reporting current status
-    pub fn new(handle: H, handle_factory: F, status_channel: Receiver<Status>) -> Self {
+    pub fn new(spec: Container, handle: H, handle_factory: F, status_channel: Receiver<Status>) -> Self {
         Self {
+            spec,
             handle,
             handle_factory,
             status_channel,
@@ -66,4 +68,4 @@ impl<H: StopHandler, F> Handle<H, F> {
 }
 
 /// A map from containers to container handles.
-pub type HandleMap<H, F> = ContainerMap<Handle<H, F>>;
+pub type HandleMap<H, F> = ContainerMap<RuntimeContainer<H, F>>;

@@ -36,7 +36,7 @@ use k8s_openapi::api::core::v1::{ContainerStatus as KubeContainerStatus, Pod as 
 use kube::{api::DeleteParams, Api};
 use kubelet::container::Container;
 use kubelet::container::{
-    ContainerKey, Handle as ContainerHandle, HandleMap as ContainerHandleMap,
+    ContainerKey, HandleMap as ContainerHandleMap, RuntimeContainer,
     Status as ContainerStatus,
 };
 use kubelet::handle::StopHandler;
@@ -276,9 +276,11 @@ impl WasccProvider {
             message: "No status has been received from the process".into(),
         });
         let host = self.host.clone();
+        let cloned_container = container.clone();
         let http_result = tokio::task::spawn_blocking(move || {
             wascc_run_http(
                 host,
+                cloned_container,
                 module_data,
                 env,
                 volume_bindings,
@@ -564,13 +566,14 @@ struct VolumeBinding {
 /// This bootstraps an HTTP host, using the value of the env's `PORT` key to expose a port.
 fn wascc_run_http(
     host: Arc<Mutex<WasccHost>>,
+    spec: Container,
     data: Vec<u8>,
     mut env: EnvVars,
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
     status_recv: Receiver<ContainerStatus>,
     port_assigned: i32,
-) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
+) -> anyhow::Result<RuntimeContainer<ActorHandle, LogHandleFactory>> {
     let mut caps: Vec<Capability> = Vec::new();
 
     env.insert("PORT".to_string(), port_assigned.to_string());
@@ -579,7 +582,7 @@ fn wascc_run_http(
         binding: None,
         env,
     });
-    wascc_run(host, data, &mut caps, volumes, log_path, status_recv)
+    wascc_run(host, spec, data, &mut caps, volumes, log_path, status_recv)
 }
 
 #[derive(Debug)]
@@ -649,12 +652,13 @@ impl kubelet::log::HandleFactory<tokio::fs::File> for LogHandleFactory {
 /// must first be loaded into the host by some other process, such as register_native_capabilities().
 fn wascc_run(
     host: Arc<Mutex<WasccHost>>,
+    spec: Container,
     data: Vec<u8>,
     capabilities: &mut Vec<Capability>,
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
     status_recv: Receiver<ContainerStatus>,
-) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
+) -> anyhow::Result<RuntimeContainer<ActorHandle, LogHandleFactory>> {
     info!("sending actor to wascc host");
     let log_output = NamedTempFile::new_in(log_path)?;
     let mut logenv: HashMap<String, String> = HashMap::new();
@@ -715,7 +719,8 @@ fn wascc_run(
     let log_handle_factory = LogHandleFactory { temp: log_output };
 
     info!("wascc actor executing");
-    Ok(ContainerHandle::new(
+    Ok(RuntimeContainer::new(
+        spec,
         ActorHandle {
             host,
             key: pk,

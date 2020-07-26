@@ -131,7 +131,7 @@ impl WasiProvider {
         modules: &mut HashMap<String, Vec<u8>>,
         volumes: &HashMap<String, Ref>,
     ) -> anyhow::Result<
-        kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
+        kubelet::container::RuntimeContainer<wasi_runtime::Runtime, wasi_runtime::HandleFactory>,
     > {
         let env = Self::env_vars(&container, pod, &client).await;
         let args = container.args().clone().unwrap_or_default();
@@ -150,9 +150,15 @@ impl WasiProvider {
         .await?;
 
         debug!("Starting container {} on thread", container.name());
-        let handle = runtime.start().await?;
+        let wasi_module_runtime = runtime.start().await?;
 
-        Ok(handle)
+        let runtime_container = kubelet::container::RuntimeContainer::new(
+            container.clone(),
+            wasi_module_runtime.handle,
+            wasi_module_runtime.handle_factory,
+            wasi_module_runtime.status_channel,
+        );
+        Ok(runtime_container)
     }
 
     async fn start_app_containers(
