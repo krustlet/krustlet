@@ -280,18 +280,13 @@ impl WasccProvider {
             },
         });
         let host = self.host.clone();
-        let cloned_container = container.clone();
+        let module_run_data = WasccModuleRunData {
+            container_spec: container.clone(),
+            module_data,
+            volumes: volume_bindings,
+        };
         let http_result = tokio::task::spawn_blocking(move || {
-            wascc_run_http(
-                host,
-                cloned_container,
-                module_data,
-                env,
-                volume_bindings,
-                &lp,
-                status_recv,
-                port_assigned,
-            )
+            wascc_run_http(host, module_run_data, env, &lp, status_recv, port_assigned)
         })
         .await?;
         match http_result {
@@ -577,15 +572,19 @@ struct VolumeBinding {
     host_path: PathBuf,
 }
 
+struct WasccModuleRunData {
+    container_spec: Container,
+    module_data: Vec<u8>,
+    volumes: Vec<VolumeBinding>,
+}
+
 /// Run a WasCC module inside of the host, configuring it to handle HTTP requests.
 ///
 /// This bootstraps an HTTP host, using the value of the env's `PORT` key to expose a port.
 fn wascc_run_http(
     host: Arc<Mutex<WasccHost>>,
-    spec: Container,
-    data: Vec<u8>,
+    module_run_data: WasccModuleRunData,
     mut env: EnvVars,
-    volumes: Vec<VolumeBinding>,
     log_path: &Path,
     status_recv: Receiver<KubeStatusInfo>,
     port_assigned: i32,
@@ -598,7 +597,7 @@ fn wascc_run_http(
         binding: None,
         env,
     });
-    wascc_run(host, spec, data, &mut caps, volumes, log_path, status_recv)
+    wascc_run(host, module_run_data, &mut caps, log_path, status_recv)
 }
 
 #[derive(Debug)]
@@ -668,10 +667,8 @@ impl kubelet::log::HandleFactory<tokio::fs::File> for LogHandleFactory {
 /// must first be loaded into the host by some other process, such as register_native_capabilities().
 fn wascc_run(
     host: Arc<Mutex<WasccHost>>,
-    spec: Container,
-    data: Vec<u8>,
+    module_run_data: WasccModuleRunData,
     capabilities: &mut Vec<Capability>,
-    volumes: Vec<VolumeBinding>,
     log_path: &Path,
     status_recv: Receiver<KubeStatusInfo>,
 ) -> anyhow::Result<RuntimeContainer<ActorHandle, LogHandleFactory>> {
@@ -688,11 +685,12 @@ fn wascc_run(
         env: logenv,
     });
 
-    let load = Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
+    let load = Actor::from_bytes(module_run_data.module_data)
+        .map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
     let pk = load.public_key();
 
     if load.capabilities().contains(&FS_CAPABILITY.to_owned()) {
-        for vol in &volumes {
+        for vol in &module_run_data.volumes {
             info!(
                 "Loading File System capability for volume name: '{}' host_path: '{}'",
                 vol.name,
@@ -736,11 +734,11 @@ fn wascc_run(
 
     info!("wascc actor executing");
     Ok(RuntimeContainer::new(
-        spec,
+        module_run_data.container_spec,
         ActorHandle {
             host,
             key: pk,
-            volumes,
+            volumes: module_run_data.volumes,
         },
         log_handle_factory,
         status_recv,
