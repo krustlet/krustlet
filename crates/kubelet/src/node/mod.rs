@@ -1,7 +1,7 @@
 //! `node` contains wrappers around the Kubernetes node API, containing ways to create and update
 //! nodes operating within the cluster.
 use crate::config::Config;
-use crate::container::{ContainerKey, ContainerMap, Status as ContainerStatus};
+use crate::container::{ContainerKey, ContainerMap, KubeStatusInfo, Status as ContainerStatus};
 use crate::pod::Pod;
 use crate::pod::{Status as PodStatus, StatusMessage as PodStatusMessage};
 use crate::provider::Provider;
@@ -206,7 +206,8 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
             info!("Skipping eviction of DaemonSet '{}'", pod.name());
             continue;
         } else if pod.is_static() {
-            let container_statuses = all_terminated_due_to_shutdown(&pod.all_containers());
+            let container_statuses =
+                all_terminated_due_to_shutdown(&pod.all_containers_and_images());
 
             let status = PodStatus {
                 message: PodStatusMessage::Message("Evicted on node shutdown.".to_string()),
@@ -229,16 +230,20 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
 }
 
 fn all_terminated_due_to_shutdown(
-    container_keys: &[ContainerKey],
-) -> ContainerMap<ContainerStatus> {
+    container_keys: &[(ContainerKey, Option<oci_distribution::Reference>)],
+) -> ContainerMap<KubeStatusInfo> {
     let mut container_statuses = HashMap::new();
-    for container_key in container_keys {
+    for (container_key, image) in container_keys {
         container_statuses.insert(
             container_key.clone(),
-            ContainerStatus::Terminated {
-                timestamp: Utc::now(),
-                message: "Evicted on node shutdown.".to_string(),
-                failed: false,
+            KubeStatusInfo {
+                name: container_key.name(),
+                image: image.clone(),
+                status: ContainerStatus::Terminated {
+                    timestamp: Utc::now(),
+                    message: "Evicted on node shutdown.".to_string(),
+                    failed: false,
+                },
             },
         );
     }

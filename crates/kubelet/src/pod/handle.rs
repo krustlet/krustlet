@@ -39,8 +39,11 @@ impl<H: StopHandler, F> Handle<H, F> {
         volumes: Option<HashMap<String, Ref>>,
         initial_message: Option<String>,
     ) -> anyhow::Result<Self> {
-        let container_keys: Vec<_> = container_handles.keys().cloned().collect();
-        pod.initialise_status(&client, &container_keys, initial_message)
+        let container_keys_images: Vec<_> = container_handles
+            .iter()
+            .map(|(k, v)| (k.clone(), v.spec().image().unwrap_or_default()))
+            .collect();
+        pod.initialise_status(&client, &container_keys_images, initial_message)
             .await;
 
         let mut channel_map = StreamMap::with_capacity(container_handles.len());

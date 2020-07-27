@@ -36,7 +36,7 @@ use k8s_openapi::api::core::v1::{ContainerStatus as KubeContainerStatus, Pod as 
 use kube::{api::DeleteParams, Api};
 use kubelet::container::Container;
 use kubelet::container::{
-    ContainerKey, HandleMap as ContainerHandleMap, RuntimeContainer,
+    ContainerKey, HandleMap as ContainerHandleMap, KubeStatusInfo, RuntimeContainer,
     Status as ContainerStatus,
 };
 use kubelet::handle::StopHandler;
@@ -271,9 +271,13 @@ impl WasccProvider {
             .remove(container.name())
             .expect("FATAL ERROR: module map not properly populated");
         let lp = self.log_path.clone();
-        let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
-            timestamp: chrono::Utc::now(),
-            message: "No status has been received from the process".into(),
+        let (status_sender, status_recv) = watch::channel(KubeStatusInfo {
+            name: container.name().to_owned(),
+            image: container.image().unwrap_or_default(),
+            status: ContainerStatus::Waiting {
+                timestamp: chrono::Utc::now(),
+                message: "No status has been received from the process".into(),
+            },
         });
         let host = self.host.clone();
         let cloned_container = container.clone();
@@ -296,8 +300,12 @@ impl WasccProvider {
                     .container_handles
                     .insert(ContainerKey::App(container.name().to_string()), handle);
                 status_sender
-                    .broadcast(ContainerStatus::Running {
-                        timestamp: chrono::Utc::now(),
+                    .broadcast(KubeStatusInfo {
+                        name: container.name().to_owned(),
+                        image: container.image().unwrap_or_default(),
+                        status: ContainerStatus::Running {
+                            timestamp: chrono::Utc::now(),
+                        },
                     })
                     .expect("status should be able to send");
                 Ok(())
@@ -308,10 +316,14 @@ impl WasccProvider {
                 let mut container_statuses = HashMap::new();
                 container_statuses.insert(
                     ContainerKey::App(container.name().to_string()),
-                    ContainerStatus::Terminated {
-                        timestamp: chrono::Utc::now(),
-                        failed: true,
-                        message: format!("Error while starting container: {:?}", e),
+                    KubeStatusInfo {
+                        name: container.name().to_string(),
+                        image: container.image().unwrap_or_default(),
+                        status: ContainerStatus::Terminated {
+                            timestamp: chrono::Utc::now(),
+                            failed: true,
+                            message: format!("Error while starting container: {:?}", e),
+                        },
                     },
                 );
                 let status = PodStatus {
@@ -432,12 +444,16 @@ impl Provider for WasccProvider {
                     };
 
                     let container_statuses: Vec<KubeContainerStatus> = pod
-                        .into_kube_pod()
-                        .spec
-                        .unwrap_or_default()
-                        .containers
+                        .containers()
                         .into_iter()
-                        .map(|c| terminated.to_kubernetes(c.name))
+                        .map(|c| {
+                            KubeStatusInfo {
+                                name: c.name().to_owned(),
+                                image: c.image().unwrap_or_default(),
+                                status: terminated.clone(),
+                            }
+                            .to_kubernetes()
+                        })
                         .collect();
 
                     let json_status = serde_json::json!(
@@ -571,7 +587,7 @@ fn wascc_run_http(
     mut env: EnvVars,
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
-    status_recv: Receiver<ContainerStatus>,
+    status_recv: Receiver<KubeStatusInfo>,
     port_assigned: i32,
 ) -> anyhow::Result<RuntimeContainer<ActorHandle, LogHandleFactory>> {
     let mut caps: Vec<Capability> = Vec::new();
@@ -657,7 +673,7 @@ fn wascc_run(
     capabilities: &mut Vec<Capability>,
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
-    status_recv: Receiver<ContainerStatus>,
+    status_recv: Receiver<KubeStatusInfo>,
 ) -> anyhow::Result<RuntimeContainer<ActorHandle, LogHandleFactory>> {
     info!("sending actor to wascc host");
     let log_output = NamedTempFile::new_in(log_path)?;

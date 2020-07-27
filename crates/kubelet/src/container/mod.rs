@@ -8,8 +8,8 @@ use std::fmt::Display;
 mod handle;
 mod status;
 
-pub use handle::{RuntimeContainer, HandleMap};
-pub use status::Status;
+pub use handle::{HandleMap, RuntimeContainer};
+pub use status::{KubeStatusInfo, Status};
 
 /// Specifies how the store should check for module updates
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -247,5 +247,15 @@ impl Container {
     /// Get working directory of container.
     pub fn working_dir(&self) -> Option<&String> {
         self.0.working_dir.as_ref()
+    }
+
+    /// Augments a `Status` with the information required to set the Kubernetes
+    /// container status.
+    pub fn augment_status(&self, status: Status) -> KubeStatusInfo {
+        KubeStatusInfo {
+            name: self.name().to_owned(),
+            image: self.image().unwrap_or_default(),
+            status,
+        }
     }
 }

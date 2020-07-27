@@ -145,7 +145,7 @@ impl Pod {
         let statuses_to_merge = status_changes
             .container_statuses
             .into_iter()
-            .map(|s| (s.0.clone(), s.1.to_kubernetes(s.0.name())))
+            .map(|s| (s.0.clone(), s.1.to_kubernetes()))
             .collect::<ContainerMap<KubeContainerStatus>>();
         let (app_statuses_to_merge, init_statuses_to_merge): (ContainerMap<_>, ContainerMap<_>) =
             statuses_to_merge.into_iter().partition(|(k, _)| k.is_app());
@@ -244,10 +244,10 @@ impl Pod {
     pub async fn initialise_status(
         &self,
         client: &kube::Client,
-        container_keys: &[ContainerKey],
+        container_keys_images: &[(ContainerKey, Option<oci_distribution::Reference>)],
         initial_message: Option<String>,
     ) {
-        let all_containers_waiting = Self::all_waiting(container_keys);
+        let all_containers_waiting = Self::all_waiting(&container_keys_images);
 
         let initial_status_message = match initial_message {
             Some(m) => StatusMessage::Message(m),
@@ -261,14 +261,21 @@ impl Pod {
         self.patch_status(client.clone(), all_waiting).await;
     }
 
-    fn all_waiting(container_keys: &[ContainerKey]) -> ContainerMap<crate::container::Status> {
+    fn all_waiting(
+        container_keys_images: &[(ContainerKey, Option<oci_distribution::Reference>)],
+    ) -> ContainerMap<crate::container::KubeStatusInfo> {
         let mut all_waiting_map = HashMap::new();
-        for key in container_keys {
+        for (key, image) in container_keys_images {
             let waiting = crate::container::Status::Waiting {
                 timestamp: chrono::Utc::now(),
                 message: "PodInitializing".to_owned(),
             };
-            all_waiting_map.insert(key.clone(), waiting);
+            let status = crate::container::KubeStatusInfo {
+                name: key.name(),
+                image: image.clone(),
+                status: waiting,
+            };
+            all_waiting_map.insert(key.clone(), status);
         }
         all_waiting_map
     }
@@ -298,15 +305,23 @@ impl Pod {
     }
 
     /// Gets all of a pod's containers (init and application)
-    pub fn all_containers(&self) -> Vec<ContainerKey> {
+    pub fn all_containers_and_images(
+        &self,
+    ) -> Vec<(ContainerKey, Option<oci_distribution::Reference>)> {
         let app_containers = self.containers();
-        let app_container_keys = app_containers
-            .iter()
-            .map(|c| ContainerKey::App(c.name().to_owned()));
+        let app_container_keys = app_containers.iter().map(|c| {
+            (
+                ContainerKey::App(c.name().to_owned()),
+                c.image().unwrap_or(None),
+            )
+        });
         let init_containers = self.containers();
-        let init_container_keys = init_containers
-            .iter()
-            .map(|c| ContainerKey::Init(c.name().to_owned()));
+        let init_container_keys = init_containers.iter().map(|c| {
+            (
+                ContainerKey::Init(c.name().to_owned()),
+                c.image().unwrap_or(None),
+            )
+        });
         app_container_keys.chain(init_container_keys).collect()
     }
 

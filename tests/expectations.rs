@@ -11,6 +11,7 @@ pub enum Id<'a> {
 pub enum Expect<'a> {
     IsTerminatedWith(&'a str),
     IsNotPresent,
+    ImageIs(&'a str),
 }
 
 pub type ContainerStatusExpectation<'a> = (Id<'a>, Expect<'a>);
@@ -29,15 +30,20 @@ impl<'a> Verifiable for ContainerStatusExpectation<'a> {
 
         match expectation {
             Expect::IsNotPresent => verify_not_present(container_statuses, name),
-            Expect::IsTerminatedWith(expected_message) => verify_terminated(container_statuses, name, expected_message),
+            Expect::IsTerminatedWith(expected_message) => {
+                verify_terminated(container_statuses, name, expected_message)
+            }
+            Expect::ImageIs(expected_image) => {
+                verify_image_is(container_statuses, name, expected_image)
+            }
         }
     }
 }
 
-fn verify_terminated(
+fn verify_status_check<F: Fn(&ContainerStatus) -> anyhow::Result<()>>(
     actual_statuses: &Option<Vec<ContainerStatus>>,
     container_name: &str,
-    expected: &str,
+    predicate: F,
 ) -> anyhow::Result<()> {
     match actual_statuses {
         None => Err(anyhow::anyhow!("Expected statuses section not present")),
@@ -46,15 +52,45 @@ fn verify_terminated(
                 "Expected {} present but it wasn't",
                 container_name
             )),
-            Some(status) => match &status.state {
-                None => Err(anyhow::anyhow!(
-                    "Expected {} to have state but it didn't",
-                    container_name
-                )),
-                Some(state) => verify_terminated_state(&state, container_name, expected),
-            },
+            Some(status) => predicate(status),
         },
     }
+}
+
+fn verify_image_is(
+    actual_statuses: &Option<Vec<ContainerStatus>>,
+    container_name: &str,
+    expected_image: &str,
+) -> anyhow::Result<()> {
+    verify_status_check(actual_statuses, container_name, |status| {
+        let actual_image = &status.image;
+        if actual_image == expected_image {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "Expected {} to have image '{}' but it was '{}'",
+                container_name,
+                expected_image,
+                actual_image
+            ))
+        }
+    })
+}
+
+fn verify_terminated(
+    actual_statuses: &Option<Vec<ContainerStatus>>,
+    container_name: &str,
+    expected: &str,
+) -> anyhow::Result<()> {
+    verify_status_check(actual_statuses, container_name, |status| {
+        match &status.state {
+            None => Err(anyhow::anyhow!(
+                "Expected {} to have state but it didn't",
+                container_name
+            )),
+            Some(state) => verify_terminated_state(&state, container_name, expected),
+        }
+    })
 }
 
 fn verify_terminated_state(

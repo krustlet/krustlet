@@ -3,7 +3,7 @@
 use k8s_openapi::api::core::v1::Pod;
 use kube::{api::PatchParams, Api};
 
-use crate::container::{ContainerMap, Status as ContainerStatus};
+use crate::container::{ContainerMap, KubeStatusInfo};
 
 /// Describe the status of a workload.
 #[derive(Clone, Debug, Default)]
@@ -12,7 +12,7 @@ pub struct Status {
     /// a message from the container statuses
     pub message: StatusMessage,
     /// The statuses of containers keyed off their names
-    pub container_statuses: ContainerMap<ContainerStatus>,
+    pub container_statuses: ContainerMap<KubeStatusInfo>,
 }
 
 #[derive(Clone, Debug)]

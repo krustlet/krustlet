@@ -35,9 +35,20 @@ pub enum Status {
     },
 }
 
+/// TODO: DOCS
+#[derive(Clone, Debug)]
+pub struct KubeStatusInfo {
+    /// TODO: DOCS
+    pub name: String,
+    /// TODO: DOCS
+    pub image: Option<oci_distribution::Reference>,
+    /// TODO: DOCS
+    pub status: Status,
+}
+
 impl Status {
     /// Convert the container status to a Kubernetes API compatible type
-    pub fn to_kubernetes(&self, container_name: String) -> KubeContainerStatus {
+    pub fn to_kubernetes(&self) -> ContainerState {
         let mut state = ContainerState::default();
         match self {
             Self::Waiting { message, .. } => {
@@ -64,10 +75,23 @@ impl Status {
                 });
             }
         };
+        state
+    }
+}
+
+impl KubeStatusInfo {
+    /// Convert the container status to a Kubernetes API compatible type
+    pub fn to_kubernetes(&self) -> KubeContainerStatus {
+        let state = self.status.to_kubernetes();
         let ready = state.running.is_some();
         KubeContainerStatus {
             state: Some(state),
-            name: container_name,
+            name: self.name.to_owned(),
+            image: self
+                .image
+                .as_ref()
+                .map(|r| r.whole().to_owned())
+                .unwrap_or_default(),
             // Right now we don't have a way to probe, so just set to ready if
             // in a running state
             ready,

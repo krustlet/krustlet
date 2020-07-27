@@ -3,7 +3,7 @@ use std::io::SeekFrom;
 use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt};
 use tokio::sync::watch::Receiver;
 
-use crate::container::{Container, ContainerMap, Status};
+use crate::container::{Container, ContainerMap, KubeStatusInfo};
 use crate::handle::StopHandler;
 use crate::log::{stream, HandleFactory, Sender};
 
@@ -15,7 +15,7 @@ pub struct RuntimeContainer<H, F> {
     spec: Container,
     handle: H,
     handle_factory: F,
-    status_channel: Receiver<Status>,
+    status_channel: Receiver<KubeStatusInfo>,
 }
 
 impl<H: StopHandler, F> RuntimeContainer<H, F> {
@@ -25,7 +25,12 @@ impl<H: StopHandler, F> RuntimeContainer<H, F> {
     /// The status channel is a [Tokio watch `Receiver`][Receiver]. The sender part
     /// of the channel should be given to the running process and the receiver half
     /// passed to this constructor to be used for reporting current status
-    pub fn new(spec: Container, handle: H, handle_factory: F, status_channel: Receiver<Status>) -> Self {
+    pub fn new(
+        spec: Container,
+        handle: H,
+        handle_factory: F,
+        status_channel: Receiver<KubeStatusInfo>,
+    ) -> Self {
         Self {
             spec,
             handle,
@@ -55,7 +60,7 @@ impl<H: StopHandler, F> RuntimeContainer<H, F> {
 
     /// Returns a clone of the status_channel for use in reporting the status to
     /// another process
-    pub fn status(&self) -> Receiver<Status> {
+    pub fn status(&self) -> Receiver<KubeStatusInfo> {
         self.status_channel.clone()
     }
 
@@ -64,6 +69,10 @@ impl<H: StopHandler, F> RuntimeContainer<H, F> {
     /// [`StopHandler`] implementation passed to the constructor
     pub(crate) async fn wait(&mut self) -> anyhow::Result<()> {
         self.handle.wait().await
+    }
+
+    pub(crate) fn spec(&self) -> Container {
+        self.spec.clone()
     }
 }
 

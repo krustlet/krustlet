@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tokio::sync::{
     oneshot,
-    watch::{self, Sender, Receiver},
+    watch::{self, Receiver, Sender},
 };
 use tokio::task::JoinHandle;
 use wasi_common::preopen_dir;
@@ -16,7 +16,7 @@ use wasmtime::InterruptHandle;
 use wasmtime_wasi::old::snapshot_0::Wasi as WasiUnstable;
 use wasmtime_wasi::{Wasi, WasiCtxBuilder};
 
-use kubelet::container::Status;
+use kubelet::container::{Container, KubeStatusInfo, Status};
 use kubelet::handle::StopHandler;
 
 pub struct Runtime {
@@ -49,10 +49,11 @@ pub struct WasiRuntime {
 pub struct WasiModuleRuntime<H, F> {
     pub handle: H,
     pub handle_factory: F,
-    pub status_channel: Receiver<Status>,
+    pub status_channel: Receiver<KubeStatusInfo>,
 }
 
 struct Data {
+    spec: Container, // TODO: this feels like level leakage
     /// binary module data to be run as a wasm module
     module_data: Vec<u8>,
     /// key/value environment variables made available to the wasm process
@@ -90,6 +91,7 @@ impl WasiRuntime {
     ///     the same path will be allowed in the runtime
     /// * `log_dir` - location for storing logs
     pub async fn new<L: AsRef<Path> + Send + Sync + 'static>(
+        spec: Container,
         module_data: Vec<u8>,
         env: HashMap<String, String>,
         args: Vec<String>,
@@ -109,6 +111,7 @@ impl WasiRuntime {
         // is dropped
         Ok(WasiRuntime {
             data: Arc::new(Data {
+                spec,
                 module_data,
                 env,
                 args,
@@ -127,9 +130,13 @@ impl WasiRuntime {
         })
         .await??;
 
-        let (status_sender, status_recv) = watch::channel(Status::Waiting {
-            timestamp: chrono::Utc::now(),
-            message: "No status has been received from the process".into(),
+        let (status_sender, status_recv) = watch::channel(KubeStatusInfo {
+            name: self.data.spec.name().to_owned(),
+            image: self.data.spec.image().unwrap_or_default(),
+            status: Status::Waiting {
+                timestamp: chrono::Utc::now(),
+                message: "No status has been received from the process".into(),
+            },
         });
         let (interrupt_handle, handle) = self.spawn_wasmtime(status_sender, output_write).await?;
 
@@ -152,13 +159,15 @@ impl WasiRuntime {
     // needs to be done within the spawned task
     async fn spawn_wasmtime(
         &self,
-        status_sender: Sender<Status>,
+        status_sender: Sender<KubeStatusInfo>,
         output_write: std::fs::File,
     ) -> anyhow::Result<(InterruptHandle, JoinHandle<anyhow::Result<()>>)> {
         // Clone the module data Arc so it can be moved
         let data = self.data.clone();
 
         let (tx, rx) = oneshot::channel();
+
+        let spec = self.data.spec.clone();
 
         let handle = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
             // Build the WASI instance and then generate a list of WASI modules
@@ -207,11 +216,11 @@ impl WasiRuntime {
                     let message = "unable to create module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(Status::Terminated {
+                        .broadcast(spec.augment_status(Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
-                        })
+                        }))
                         .expect("status should be able to send");
                     return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
@@ -244,11 +253,11 @@ impl WasiRuntime {
                     let message = "unable to load module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(Status::Terminated {
+                        .broadcast(spec.augment_status(Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
-                        })
+                        }))
                         .expect("status should be able to send");
                     return Err(e);
                 }
@@ -262,11 +271,11 @@ impl WasiRuntime {
                     let message = "unable to instantiate module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(Status::Terminated {
+                        .broadcast(spec.augment_status(Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
-                        })
+                        }))
                         .expect("status should be able to send");
                     // Converting from anyhow
                     return Err(anyhow::anyhow!("{}: {}", message, e));
@@ -277,9 +286,9 @@ impl WasiRuntime {
             // need to do a bit more to pass them in here.
             info!("starting run of module");
             status_sender
-                .broadcast(Status::Running {
+                .broadcast(spec.augment_status(Status::Running {
                     timestamp: chrono::Utc::now(),
-                })
+                }))
                 .expect("status should be able to send");
             let export = instance
                 .get_export("_start")
@@ -300,11 +309,11 @@ impl WasiRuntime {
                     let message = "unable to run module";
                     error!("{}: {:?}", message, e);
                     status_sender
-                        .broadcast(Status::Terminated {
+                        .broadcast(spec.augment_status(Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
-                        })
+                        }))
                         .expect("status should be able to send");
                     return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
@@ -312,11 +321,11 @@ impl WasiRuntime {
 
             info!("module run complete");
             status_sender
-                .broadcast(Status::Terminated {
+                .broadcast(spec.augment_status(Status::Terminated {
                     failed: false,
                     message: "Module run completed".into(),
                     timestamp: chrono::Utc::now(),
-                })
+                }))
                 .expect("status should be able to send");
             Ok(())
         });

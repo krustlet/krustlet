@@ -141,6 +141,7 @@ impl WasiProvider {
         let container_volumes = Self::volume_path_map(container, volumes)?;
 
         let runtime = WasiRuntime::new(
+            container.clone(),
             module_data,
             env,
             args,
@@ -197,7 +198,7 @@ impl WasiProvider {
 
     async fn run_container_to_completion(
         &self,
-        status_receiver: &mut tokio::sync::watch::Receiver<kubelet::container::Status>,
+        status_receiver: &mut tokio::sync::watch::Receiver<kubelet::container::KubeStatusInfo>,
         container: &Container,
     ) -> anyhow::Result<()> {
         let result = Self::wait_for_terminated_status(status_receiver).await;
@@ -251,12 +252,16 @@ impl WasiProvider {
     }
 
     async fn wait_for_terminated_status(
-        status_receiver: &mut tokio::sync::watch::Receiver<kubelet::container::Status>,
+        status_receiver: &mut tokio::sync::watch::Receiver<kubelet::container::KubeStatusInfo>,
     ) -> ContainerTerminationResult {
         loop {
             let status = status_receiver.next().await;
-            if let Some(Status::Terminated {
-                message, failed, ..
+            if let Some(kubelet::container::KubeStatusInfo {
+                status:
+                    Status::Terminated {
+                        message, failed, ..
+                    },
+                ..
             }) = status
             {
                 return ContainerTerminationResult {

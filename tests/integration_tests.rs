@@ -605,12 +605,21 @@ async fn test_init_containers() -> anyhow::Result<()> {
         &pods,
         INITY_WASI_POD,
         vec![
-            (Id::Init("init-1"), Expect::IsTerminatedWith("Module run completed")),
-            (Id::Init("init-2"), Expect::IsTerminatedWith("Module run completed")),
+            (
+                Id::Init("init-1"),
+                Expect::IsTerminatedWith("Module run completed"),
+            ),
+            (
+                Id::Init("init-2"),
+                Expect::IsTerminatedWith("Module run completed"),
+            ),
             (Id::Init(INITY_WASI_POD), Expect::IsNotPresent),
             (Id::App("init-1"), Expect::IsNotPresent),
             (Id::App("init-2"), Expect::IsNotPresent),
-            (Id::App(INITY_WASI_POD), Expect::IsTerminatedWith("Module run completed")),
+            (
+                Id::App(INITY_WASI_POD),
+                Expect::IsTerminatedWith("Module run completed"),
+            ),
         ],
     )
     .await?;
@@ -641,6 +650,36 @@ async fn test_failing_init_containers() -> anyhow::Result<()> {
     // TODO: needs moar container?
     // assert_pod_log_does_not_contain(&pods, FAILY_INITS_POD, "slats").await?;
     // assert_pod_log_does_not_contain(&pods, FAILY_INITS_POD, "also.nope.txt").await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_container_status_details() -> anyhow::Result<()> {
+    let test_ns = "wasi-e2e-container-status";
+    let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
+
+    create_pod_with_init_containers(client.clone(), &pods, &mut resource_manager).await?;
+    assert::pod_log_contains(&pods, INITY_WASI_POD, r#"slats"#).await?;
+    assert_container_statuses(
+        &pods,
+        INITY_WASI_POD,
+        vec![
+            (
+                Id::Init("init-1"),
+                Expect::ImageIs("webassembly.azurecr.io/wasmerciser:v0.1.0"),
+            ),
+            (
+                Id::Init("init-2"),
+                Expect::ImageIs("webassembly.azurecr.io/wasmerciser:v0.1.0"),
+            ),
+            (
+                Id::App(INITY_WASI_POD),
+                Expect::ImageIs("webassembly.azurecr.io/wasmerciser:v0.1.0"),
+            ),
+        ],
+    )
+    .await?;
 
     Ok(())
 }
