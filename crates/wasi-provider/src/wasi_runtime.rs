@@ -131,14 +131,11 @@ impl WasiRuntime {
         })
         .await??;
 
-        let (status_sender, status_recv) = watch::channel(KubeStatusInfo {
-            name: self.data.spec.name().to_owned(),
-            image: self.data.spec.image().unwrap_or_default(),
-            status: Status::Waiting {
+        let (status_sender, status_recv) =
+            watch::channel(self.data.spec.augment_status(Status::Waiting {
                 timestamp: chrono::Utc::now(),
                 message: "No status has been received from the process".into(),
-            },
-        });
+            }));
         let (interrupt_handle, handle) = self.spawn_wasmtime(status_sender, output_write).await?;
 
         let log_handle_factory = HandleFactory {

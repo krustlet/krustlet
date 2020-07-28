@@ -271,14 +271,11 @@ impl WasccProvider {
             .remove(container.name())
             .expect("FATAL ERROR: module map not properly populated");
         let lp = self.log_path.clone();
-        let (status_sender, status_recv) = watch::channel(KubeStatusInfo {
-            name: container.name().to_owned(),
-            image: container.image().unwrap_or_default(),
-            status: ContainerStatus::Waiting {
+        let (status_sender, status_recv) =
+            watch::channel(container.augment_status(ContainerStatus::Waiting {
                 timestamp: chrono::Utc::now(),
                 message: "No status has been received from the process".into(),
-            },
-        });
+            }));
         let host = self.host.clone();
         let module_run_data = WasccModuleRunData {
             container_spec: container.clone(),
@@ -295,13 +292,9 @@ impl WasccProvider {
                     .container_handles
                     .insert(ContainerKey::App(container.name().to_string()), handle);
                 status_sender
-                    .broadcast(KubeStatusInfo {
-                        name: container.name().to_owned(),
-                        image: container.image().unwrap_or_default(),
-                        status: ContainerStatus::Running {
-                            timestamp: chrono::Utc::now(),
-                        },
-                    })
+                    .broadcast(container.augment_status(ContainerStatus::Running {
+                        timestamp: chrono::Utc::now(),
+                    }))
                     .expect("status should be able to send");
                 Ok(())
             }
@@ -311,15 +304,11 @@ impl WasccProvider {
                 let mut container_statuses = HashMap::new();
                 container_statuses.insert(
                     ContainerKey::App(container.name().to_string()),
-                    KubeStatusInfo {
-                        name: container.name().to_string(),
-                        image: container.image().unwrap_or_default(),
-                        status: ContainerStatus::Terminated {
-                            timestamp: chrono::Utc::now(),
-                            failed: true,
-                            message: format!("Error while starting container: {:?}", e),
-                        },
-                    },
+                    container.augment_status(ContainerStatus::Terminated {
+                        timestamp: chrono::Utc::now(),
+                        failed: true,
+                        message: format!("Error while starting container: {:?}", e),
+                    }),
                 );
                 let status = PodStatus {
                     message: PodStatusMessage::LeaveUnchanged,
@@ -441,14 +430,7 @@ impl Provider for WasccProvider {
                     let container_statuses: Vec<KubeContainerStatus> = pod
                         .containers()
                         .into_iter()
-                        .map(|c| {
-                            KubeStatusInfo {
-                                name: c.name().to_owned(),
-                                image: c.image().unwrap_or_default(),
-                                status: terminated.clone(),
-                            }
-                            .to_kubernetes()
-                        })
+                        .map(|c| c.augment_status(terminated.clone()).to_kubernetes())
                         .collect();
 
                     let json_status = serde_json::json!(
