@@ -35,14 +35,14 @@ pub enum Status {
     },
 }
 
-/// TODO: DOCS
+/// Contains the data required to update a Kubernetes container status.
 #[derive(Clone, Debug)]
 pub struct KubeStatusInfo {
-    /// TODO: DOCS
+    /// The name of the container.
     pub name: String,
-    /// TODO: DOCS
+    /// The image referenced by the container.
     pub image: Option<oci_distribution::Reference>,
-    /// TODO: DOCS
+    /// The current state of the container.
     pub status: Status,
 }
 

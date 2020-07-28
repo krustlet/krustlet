@@ -53,6 +53,7 @@ pub struct WasiModuleRuntime<H, F> {
 }
 
 struct Data {
+    /// The Kubernetes container specification; used for status updates.
     spec: Container, // TODO: this feels like level leakage
     /// binary module data to be run as a wasm module
     module_data: Vec<u8>,
