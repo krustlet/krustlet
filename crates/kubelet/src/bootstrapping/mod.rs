@@ -23,10 +23,11 @@ const APPROVED_TYPE: &str = "Approved";
 pub async fn bootstrap<K: AsRef<Path>>(
     config: &KubeletConfig,
     bootstrap_file: K,
+    notify: impl Fn(String),
 ) -> anyhow::Result<Config> {
     debug!("Starting bootstrap for {}", config.node_name);
     let kubeconfig = bootstrap_auth(config, bootstrap_file).await?;
-    bootstrap_tls(config, kubeconfig.clone()).await?;
+    bootstrap_tls(config, kubeconfig.clone(), notify).await?;
     Ok(kubeconfig)
 }
 
@@ -149,7 +150,11 @@ async fn bootstrap_auth<K: AsRef<Path>>(
     }
 }
 
-async fn bootstrap_tls(config: &KubeletConfig, kubeconfig: Config) -> anyhow::Result<()> {
+async fn bootstrap_tls(
+    config: &KubeletConfig,
+    kubeconfig: Config,
+    notify: impl Fn(String),
+) -> anyhow::Result<()> {
     debug!("Starting bootstrap of TLS serving certs");
     if config.server_config.cert_file.exists() {
         return Ok(());
@@ -181,6 +186,8 @@ async fn bootstrap_tls(config: &KubeletConfig, kubeconfig: Config) -> anyhow::Re
         serde_json::from_value(csr_json).expect("Invalid CSR JSON, this is a programming error");
 
     csrs.create(&PostParams::default(), &post_data).await?;
+
+    notify(awaiting_user_csr_approval("TLS", &csr_name));
 
     // Wait for CSR signing
     let inf: Informer<CertificateSigningRequest> = Informer::new(csrs)
@@ -231,7 +238,23 @@ async fn bootstrap_tls(config: &KubeletConfig, kubeconfig: Config) -> anyhow::Re
     write(&config.server_config.cert_file, &certificate).await?;
     write(&config.server_config.private_key_file, &private_key).await?;
 
+    notify(completed_csr_approval("TLS"));
+
     Ok(())
+}
+
+fn awaiting_user_csr_approval(cert_description: &str, csr_name: &str) -> String {
+    format!(
+        "{} certificate requires manual approval. Run kubectl certificate approve {}",
+        cert_description, csr_name
+    )
+}
+
+fn completed_csr_approval(cert_description: &str) -> String {
+    format!(
+        "received {} certificate approval: continuing",
+        cert_description
+    )
 }
 
 fn gen_auth_cert(config: &KubeletConfig) -> anyhow::Result<Certificate> {

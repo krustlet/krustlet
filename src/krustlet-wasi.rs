@@ -14,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
     // Initialize the logger
     env_logger::init();
 
-    let kubeconfig = kubelet::bootstrap(&config, &config.bootstrap_file).await?;
+    let kubeconfig = kubelet::bootstrap(&config, &config.bootstrap_file, notify_bootstrap).await?;
 
     let store = make_store(&config);
 
@@ -34,4 +34,8 @@ fn make_store(config: &Config) -> Arc<dyn kubelet::store::Store + Send + Sync> {
     } else {
         file_store
     }
+}
+
+fn notify_bootstrap(message: String) {
+    println!("BOOTSTRAP: {}", message);
 }
