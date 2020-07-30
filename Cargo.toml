@@ -70,3 +70,7 @@ path = "src/krustlet-wascc.rs"
 [[bin]]
 name = "krustlet-wasi"
 path = "src/krustlet-wasi.rs"
+
+[[bin]]
+name = "oneclick"
+path = "tests/oneclick/src/main.rs"
