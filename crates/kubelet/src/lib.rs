@@ -50,6 +50,7 @@
 
 mod bootstrapping;
 mod kubelet;
+mod state;
 
 pub(crate) mod kubeconfig;
 pub(crate) mod webserver;

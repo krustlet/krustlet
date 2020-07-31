@@ -57,21 +57,6 @@ pub trait Provider {
         Ok(())
     }
 
-    /// Given a Pod definition, execute the workload.
-    async fn add(&self, pod: Pod) -> anyhow::Result<()>;
-
-    /// Given an updated Pod definition, update the given workload.
-    ///
-    /// Pods that are sent to this function have already met certain criteria for modification.
-    /// For example, updates to the `status` of a Pod will not be sent into this function.
-    async fn modify(&self, pod: Pod) -> anyhow::Result<()>;
-
-    /// Given the definition of a deleted Pod, remove the workload from the runtime.
-    ///
-    /// This does not need to actually delete the Pod definition -- just destroy the
-    /// associated workload.
-    async fn delete(&self, pod: Pod) -> anyhow::Result<()>;
-
     /// Given a Pod, get back the logs for the associated workload.
     async fn logs(
         &self,
@@ -87,32 +72,6 @@ pub trait Provider {
     /// not available. Override this only when there is an implementation.
     async fn exec(&self, _pod: Pod, _command: String) -> anyhow::Result<Vec<String>> {
         Err(NotImplementedError.into())
-    }
-
-    /// Determine what to do when a new event comes in.
-    ///
-    /// In most cases, this should not be overridden. It is exposed for rare cases when
-    /// the underlying event handling needs to change.
-    async fn handle_event(&self, event: WatchEvent<KubePod>) -> anyhow::Result<()> {
-        match event {
-            WatchEvent::Added(pod) => {
-                let pod = pod.into();
-                self.add(pod).await
-            }
-            WatchEvent::Modified(pod) => {
-                let pod = pod.into();
-                self.modify(pod).await
-            }
-            WatchEvent::Deleted(pod) => {
-                let pod = pod.into();
-                self.delete(pod).await
-            }
-            WatchEvent::Error(e) => {
-                error!("Event error: {}", e);
-                Err(e.into())
-            }
-            WatchEvent::Bookmark(_) => Ok(()),
-        }
     }
 
     /// Resolve the environment variables for a container.

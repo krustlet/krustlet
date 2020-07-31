@@ -43,11 +43,12 @@ impl Worker {
                 // Watch errors are handled before an event ever gets here, so it should always have
                 // a pod
                 let pod = pod_from_event(&event).unwrap();
-                if let Err(e) = provider.handle_event(event).await {
-                    if let Err(e) = error_sender.send((pod, e)).await {
-                        error!("Unable to send error to status updater: {:?}", e)
-                    }
-                }
+                unimplemented!()
+                // if let Err(e) = provider.handle_event(event).await {
+                //     if let Err(e) = error_sender.send((pod, e)).await {
+                //         error!("Unable to send error to status updater: {:?}", e)
+                //     }
+                // }
             }
         });
         Worker {
