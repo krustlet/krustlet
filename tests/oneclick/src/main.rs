@@ -3,12 +3,17 @@ const EXIT_CODE_NEED_APPROVE: i32 = 1;
 const EXIT_CODE_NEED_MANUAL_CLEANUP: i32 = 2;
 
 fn main() {
+    let home_dir = dirs::home_dir().expect("Can't get home dir"); // TODO: allow override of config dir
+    let config_dir = home_dir.join(".krustlet/cnfig");
+
+    let host_name = hostname::get().expect("Can't get host name").into_string().expect("Can't get host name");
+
     let cert_paths: Vec<_> = vec! [
-        "/home/ivan/.krustlet/config/krustlet-wasi.crt",
-        "/home/ivan/.krustlet/config/krustlet-wasi.key",
-        "/home/ivan/.krustlet/config/krustlet-wascc.crt",
-        "/home/ivan/.krustlet/config/krustlet-wascc.key",
-    ].iter().map(std::path::PathBuf::from).collect();
+        "krustlet-wasi.crt",
+        "krustlet-wasi.key",
+        "krustlet-wascc.crt",
+        "krustlet-wascc.key",
+    ].iter().map(|f| config_dir.join(f)).collect();
 
     let status = all_or_none(cert_paths);
 
@@ -19,8 +24,11 @@ fn main() {
     };
 
     // We are not bootstrapped, but there may be existing CSRs around
-    let wasi_host_name = "hecate";
-    let wascc_host_name = "hecate";
+
+    // TODO: allow override of host names
+    let wasi_host_name = &host_name;
+    let wascc_host_name = &host_name;
+
     let wasi_cert_name = format!("{}-tls", wasi_host_name);
     let wascc_cert_name = format!("{}-tls", wascc_host_name);
 
