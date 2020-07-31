@@ -18,6 +18,41 @@ fn main() {
         AllOrNone::Error => std::process::exit(EXIT_CODE_NEED_MANUAL_CLEANUP),
     };
 
+    // We are not bootstrapped, but there may be existing CSRs around
+    let wasi_host_name = "hecate";
+    let wascc_host_name = "hecate";
+    let wasi_cert_name = format!("{}-tls", wasi_host_name);
+    let wascc_cert_name = format!("{}-tls", wascc_host_name);
+
+    let csr_spawn_deletes: Vec<_> = vec! [
+        "krustlet-wasi",
+        "krustlet-wascc",
+        &wasi_cert_name,
+        &wascc_cert_name,
+    ].iter().map(delete_csr).collect();
+    
+    let (csr_deletions, csr_spawn_delete_errors) = csr_spawn_deletes.partition_success();
+
+    if !csr_spawn_delete_errors.is_empty() {
+        std::process::exit(EXIT_CODE_NEED_MANUAL_CLEANUP);
+    }
+
+    let csr_deletion_results: Vec<_> = csr_deletions.into_iter().map(|c| c.wait_with_output()).collect();
+
+    let (csr_deletion_outputs, csr_run_deletion_failures) = csr_deletion_results.partition_success();
+
+    if !csr_run_deletion_failures.is_empty() {
+        std::process::exit(EXIT_CODE_NEED_MANUAL_CLEANUP);
+    }
+
+    if csr_deletion_outputs.iter().any(|o| !is_resource_gone(o)) {
+        std::process::exit(EXIT_CODE_NEED_MANUAL_CLEANUP);
+    }
+
+    // We have now deleted all the local certificate files, and all the CSRs that
+    // might get in the way of our re-bootstrapping.  Let the caller know they
+    // will need to re-approve once the new CSRs come up.
+    std::process::exit(EXIT_CODE_NEED_APPROVE);
 }
 
 enum AllOrNone {
@@ -40,4 +75,32 @@ fn all_or_none(files: Vec<std::path::PathBuf>) -> AllOrNone {
     }
 
     AllOrNone::NoneExist
+}
+
+fn delete_csr(csr_name: impl AsRef<str>) -> std::io::Result<std::process::Child> {
+    std::process::Command::new("kubectl").args(&["delete", "csr", csr_name.as_ref()]).spawn()
+}
+
+trait ResultSequence {
+    type SuccessItem;
+    type FailureItem;
+    fn partition_success(self) -> (Vec<Self::SuccessItem>, Vec<Self::FailureItem>);
+}
+
+impl<T, E: std::fmt::Debug> ResultSequence for Vec<Result<T, E>> {
+    type SuccessItem = T;
+    type FailureItem = E;
+    fn partition_success(self) -> (Vec<Self::SuccessItem>, Vec<Self::FailureItem>) {
+        let (success_results, error_results): (Vec<_>, Vec<_>) = self.into_iter().partition(|r| r.is_ok());
+        let success_values = success_results.into_iter().map(|r| r.unwrap()).collect();
+        let error_values = error_results.into_iter().map(|r| r.err().unwrap()).collect();
+        (success_values, error_values)
+    }
+}
+
+fn is_resource_gone(kubectl_output: &std::process::Output) -> bool {
+    kubectl_output.status.success() || match String::from_utf8(kubectl_output.stderr.clone()) {
+        Ok(s) => s.contains("NotFound"),
+        _ => false,
+    }
 }
