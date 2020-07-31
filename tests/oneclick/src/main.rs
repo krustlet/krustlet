@@ -86,7 +86,11 @@ fn all_or_none(files: Vec<std::path::PathBuf>) -> AllOrNone {
 }
 
 fn delete_csr(csr_name: impl AsRef<str>) -> std::io::Result<std::process::Child> {
-    std::process::Command::new("kubectl").args(&["delete", "csr", csr_name.as_ref()]).spawn()
+    std::process::Command::new("kubectl")
+        .args(&["delete", "csr", csr_name.as_ref()])
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
 }
 
 trait ResultSequence {
