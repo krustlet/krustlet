@@ -291,7 +291,7 @@ impl ConfigBuilder {
         serde_json::from_reader(reader).map_err(anyhow::Error::new)
     }
 
-    #[cfg(any(feature = "cli", feature = "docs"))]
+    #[cfg(any(feature = "cli", feature = "docs", test))]
     fn with_override(self: Self, other: Self) -> Self {
         ConfigBuilder {
             node_ip: other.node_ip.or(self.node_ip),

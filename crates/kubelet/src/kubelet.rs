@@ -240,16 +240,10 @@ mod test {
 
     #[async_trait::async_trait]
     impl Provider for MockProvider {
+        type InitialState = crate::state::Stub;
         const ARCH: &'static str = "mock";
-        async fn add(&self, _pod: Pod) -> anyhow::Result<()> {
-            Ok(())
-        }
-        async fn modify(&self, _pod: Pod) -> anyhow::Result<()> {
-            Ok(())
-        }
-        async fn delete(&self, _pod: Pod) -> anyhow::Result<()> {
-            Ok(())
-        }
+        async fn modify(&self, _pod: Pod) {}
+        async fn delete(&self, _pod: Pod) {}
         async fn logs(
             &self,
             _namespace: String,

@@ -31,41 +31,13 @@ use crate::state::State;
 /// use async_trait::async_trait;
 /// use kubelet::pod::Pod;
 /// use kubelet::provider::Provider;
-///
-/// use kubelet::state::{State, Transition};
-/// use std::sync::Arc;
+/// use kubelet::state::Stub;
 ///
 /// struct MyProvider;
 ///
-///
-/// // Implement a state machine of Pod states
-/// #[derive(Default)]
-/// struct Completed;
-/// #[async_trait::async_trait]
-/// impl <P: 'static + Sync + Send> State<P> for Completed {
-///     type Success  = Completed;
-///     type Error = Completed;
-///
-///     async fn next(
-///         self,
-///         provider: Arc<P>,
-///         pod: &Pod,
-///     ) -> anyhow::Result<Transition<Self::Success, Self::Error>> {
-///         Ok(Transition::Complete(Ok(())))
-///     }
-///     
-///     async fn json_status(
-///         &self,
-///         provider: Arc<P>,
-///         pod: &Pod,
-///     ) -> anyhow::Result<serde_json::Value> {
-///         Ok(serde_json::json!(null))
-///     }
-/// }
-///
 /// #[async_trait]
 /// impl Provider for MyProvider {
-///     type InitialState = Completed;
+///     type InitialState = Stub;
 ///     const ARCH: &'static str = "my-arch";
 ///
 ///     async fn modify(&self, pod: Pod) {

@@ -63,3 +63,29 @@ pub async fn run_to_completion<Provider: Send + Sync + 'static>(
         Transition::Complete(result) => result,
     }
 }
+
+#[derive(Default)]
+/// Stub state machine for testing.
+pub struct Stub;
+
+#[async_trait::async_trait]
+impl<P: 'static + Sync + Send> State<P> for Stub {
+    type Success = Stub;
+    type Error = Stub;
+
+    async fn next(
+        self,
+        _provider: Arc<P>,
+        _pod: &Pod,
+    ) -> anyhow::Result<Transition<Self::Success, Self::Error>> {
+        Ok(Transition::Complete(Ok(())))
+    }
+
+    async fn json_status(
+        &self,
+        _provider: Arc<P>,
+        _pod: &Pod,
+    ) -> anyhow::Result<serde_json::Value> {
+        Ok(serde_json::json!(null))
+    }
+}
