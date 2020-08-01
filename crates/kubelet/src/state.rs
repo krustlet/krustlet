@@ -1,3 +1,5 @@
+//! Used to define a state machine of Pod states.
+
 use crate::pod::Pod;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Api, PatchParams};
@@ -52,9 +54,7 @@ pub async fn run_to_completion<Provider: Send + Sync + 'static>(
         .await?;
 
     // Execute state.
-    let transition = {
-        state.next(Arc::clone(&provider), &pod).await?
-    };
+    let transition = { state.next(Arc::clone(&provider), &pod).await? };
 
     // Handle transition
     match transition {

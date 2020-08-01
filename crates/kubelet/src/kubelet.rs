@@ -9,11 +9,7 @@ use crate::webserver::start as start_webserver;
 use futures::future::FutureExt;
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::Pod as KubePod;
-use kube::{
-    api::{ListParams},
-    runtime::Informer,
-    Api,
-};
+use kube::{api::ListParams, runtime::Informer, Api};
 use log::{debug, error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

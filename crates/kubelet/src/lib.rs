@@ -10,23 +10,50 @@
 //! use kubelet::config::Config;
 //! use kubelet::pod::Pod;
 //! use kubelet::provider::Provider;
+//! use kubelet::state::{State, Transition};
+//! use std::sync::Arc;
 //!
 //! // Create some type that will act as your provider
 //! struct MyProvider;
 //!
+//! // Implement a state machine of Pod states
+//! #[derive(Default)]
+//! struct Completed;
+//! #[async_trait::async_trait]
+//! impl <P: 'static + Sync + Send> State<P> for Completed {
+//!     type Success  = Completed;
+//!     type Error = Completed;
+//!
+//!     async fn next(
+//!         self,
+//!         provider: Arc<P>,
+//!         pod: &Pod,
+//!     ) -> anyhow::Result<Transition<Self::Success, Self::Error>> {
+//!         Ok(Transition::Complete(Ok(())))
+//!     }
+//!     
+//!     async fn json_status(
+//!         &self,
+//!         provider: Arc<P>,
+//!         pod: &Pod,
+//!     ) -> anyhow::Result<serde_json::Value> {
+//!         Ok(serde_json::json!(null))
+//!     }
+//! }
+//!
 //! // Implement the `Provider` trait for that type
 //! #[async_trait::async_trait]
 //! impl Provider for MyProvider {
-//!    const ARCH: &'static str = "my-arch";
+//!     const ARCH: &'static str = "my-arch";
+//!     type InitialState = Completed;
 //!
-//!    async fn add(&self, pod: Pod) -> anyhow::Result<()> {
+//!     async fn modify(&self, pod: Pod) {
 //!        todo!("Implement Provider::add")
 //!     }
 //!
 //!     // Implement the rest of the methods
-//!     # async fn modify(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
-//!     # async fn delete(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
-//!     # async fn logs(&self, namespace: String, pod: String, container: String, sender: kubelet::log::Sender) -> anyhow::Result<()> { todo!() }
+//!     async fn delete(&self, pod: Pod) { todo!() }
+//!     async fn logs(&self, namespace: String, pod: String, container: String, sender: kubelet::log::Sender) -> anyhow::Result<()> { todo!() }
 //! }
 //!
 //! async {
@@ -50,7 +77,7 @@
 
 mod bootstrapping;
 mod kubelet;
-mod state;
+pub mod state;
 
 pub(crate) mod kubeconfig;
 pub(crate) mod webserver;

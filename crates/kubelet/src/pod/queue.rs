@@ -5,7 +5,7 @@ use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Meta, WatchEvent};
 use kube::Client as KubeClient;
 use log::{debug, error};
-use tokio::sync::{watch};
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::pod::{pod_key, Pod};
@@ -22,7 +22,7 @@ use crate::state::run_to_completion;
 pub(crate) struct Queue<P> {
     provider: Arc<P>,
     handlers: HashMap<String, Worker>,
-    client: KubeClient
+    client: KubeClient,
 }
 
 struct Worker {
@@ -31,11 +31,7 @@ struct Worker {
 }
 
 impl Worker {
-    fn create<P>(
-        initial_event: WatchEvent<KubePod>,
-        provider: Arc<P>,
-        client: KubeClient
-    ) -> Self
+    fn create<P>(initial_event: WatchEvent<KubePod>, provider: Arc<P>, client: KubeClient) -> Self
     where
         P: 'static + Provider + Sync + Send,
     {
@@ -52,15 +48,15 @@ impl Worker {
                             let state: P::InitialState = Default::default();
                             run_to_completion(client, state, provider, Pod::new(pod)).await
                         });
-                    },
+                    }
                     WatchEvent::Modified(pod) => {
                         provider.modify(Pod::new(pod)).await;
-                    },
+                    }
                     WatchEvent::Deleted(pod) => {
                         provider.delete(Pod::new(pod)).await;
                     }
                     WatchEvent::Bookmark(_) => (),
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 }
             }
         });
@@ -76,7 +72,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
         Queue {
             provider,
             handlers: HashMap::new(),
-            client
+            client,
         }
     }
 
@@ -99,7 +95,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                             Worker::create(
                                 event.clone(),
                                 self.provider.clone(),
-                                self.client.clone()
+                                self.client.clone(),
                             ),
                         );
                         self.handlers.get(&key).unwrap()
