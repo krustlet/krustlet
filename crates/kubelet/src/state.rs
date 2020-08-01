@@ -1,4 +1,9 @@
 //! Used to define a state machine of Pod states.
+use log::info;
+
+pub mod default;
+#[macro_use]
+pub mod macros;
 
 use crate::pod::Pod;
 use k8s_openapi::api::core::v1::Pod as KubePod;
@@ -6,6 +11,7 @@ use kube::api::{Api, PatchParams};
 use std::sync::Arc;
 
 /// Represents result of state execution and which state to transition to next.
+#[derive(Debug)]
 pub enum Transition<S, E> {
     /// Advance to next node.
     Advance(S),
@@ -17,7 +23,7 @@ pub enum Transition<S, E> {
 
 #[async_trait::async_trait]
 /// A trait representing a node in the state graph.
-pub trait State<Provider>: Sync + Send + 'static {
+pub trait State<Provider>: Sync + Send + 'static + std::fmt::Debug {
     /// The next state on success.
     type Success: State<Provider>;
     /// The next state on error.
@@ -46,6 +52,8 @@ pub async fn run_to_completion<Provider: Send + Sync + 'static>(
     provider: Arc<Provider>,
     pod: Pod,
 ) -> anyhow::Result<()> {
+    info!("Pod {} entering state {:?}", pod.name(), state);
+
     // When handling a new state, we update the Pod state with Kubernetes.
     let api: Api<KubePod> = Api::namespaced(client.clone(), pod.namespace());
     let patch = state.json_status(Arc::clone(&provider), &pod).await?;
@@ -56,6 +64,12 @@ pub async fn run_to_completion<Provider: Send + Sync + 'static>(
     // Execute state.
     let transition = { state.next(Arc::clone(&provider), &pod).await? };
 
+    info!(
+        "Pod {} state execution result: {:?}",
+        pod.name(),
+        transition
+    );
+
     // Handle transition
     match transition {
         Transition::Advance(s) => run_to_completion(client, s, provider, pod).await,
@@ -64,7 +78,7 @@ pub async fn run_to_completion<Provider: Send + Sync + 'static>(
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 /// Stub state machine for testing.
 pub struct Stub;
 
