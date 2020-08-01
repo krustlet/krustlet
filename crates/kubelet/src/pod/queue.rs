@@ -3,12 +3,14 @@ use std::sync::Arc;
 
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Meta, WatchEvent};
+use kube::Client as KubeClient;
 use log::{debug, error};
-use tokio::sync::{mpsc::Sender, watch};
+use tokio::sync::{watch};
 use tokio::task::JoinHandle;
 
-use crate::pod::pod_key;
+use crate::pod::{pod_key, Pod};
 use crate::provider::Provider;
+use crate::state::run_to_completion;
 
 /// A per-pod queue that takes incoming Kubernetes events and broadcasts them to the correct queue
 /// for that pod.
@@ -20,7 +22,7 @@ use crate::provider::Provider;
 pub(crate) struct Queue<P> {
     provider: Arc<P>,
     handlers: HashMap<String, Worker>,
-    error_sender: Sender<(KubePod, anyhow::Error)>,
+    client: KubeClient
 }
 
 struct Worker {
@@ -32,7 +34,7 @@ impl Worker {
     fn create<P>(
         initial_event: WatchEvent<KubePod>,
         provider: Arc<P>,
-        mut error_sender: Sender<(KubePod, anyhow::Error)>,
+        client: KubeClient
     ) -> Self
     where
         P: 'static + Provider + Sync + Send,
@@ -42,13 +44,24 @@ impl Worker {
             while let Some(event) = receiver.recv().await {
                 // Watch errors are handled before an event ever gets here, so it should always have
                 // a pod
-                let pod = pod_from_event(&event).unwrap();
-                unimplemented!()
-                // if let Err(e) = provider.handle_event(event).await {
-                //     if let Err(e) = error_sender.send((pod, e)).await {
-                //         error!("Unable to send error to status updater: {:?}", e)
-                //     }
-                // }
+                match event {
+                    WatchEvent::Added(pod) => {
+                        let client = client.clone();
+                        let provider = Arc::clone(&provider);
+                        tokio::spawn(async move {
+                            let state: P::InitialState = Default::default();
+                            run_to_completion(client, state, provider, Pod::new(pod)).await
+                        });
+                    },
+                    WatchEvent::Modified(pod) => {
+                        provider.modify(Pod::new(pod)).await;
+                    },
+                    WatchEvent::Deleted(pod) => {
+                        provider.delete(Pod::new(pod)).await;
+                    }
+                    WatchEvent::Bookmark(_) => (),
+                    _ => unreachable!()
+                }
             }
         });
         Worker {
@@ -59,11 +72,11 @@ impl Worker {
 }
 
 impl<P: 'static + Provider + Sync + Send> Queue<P> {
-    pub fn new(provider: Arc<P>, error_sender: Sender<(KubePod, anyhow::Error)>) -> Self {
+    pub fn new(provider: Arc<P>, client: KubeClient) -> Self {
         Queue {
             provider,
             handlers: HashMap::new(),
-            error_sender,
+            client
         }
     }
 
@@ -86,7 +99,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                             Worker::create(
                                 event.clone(),
                                 self.provider.clone(),
-                                self.error_sender.clone(),
+                                self.client.clone()
                             ),
                         );
                         self.handlers.get(&key).unwrap()
@@ -106,15 +119,5 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
             }
             WatchEvent::Error(e) => Err(e.clone().into()),
         }
-    }
-}
-
-fn pod_from_event(event: &WatchEvent<KubePod>) -> Option<KubePod> {
-    match event {
-        WatchEvent::Added(pod)
-        | WatchEvent::Bookmark(pod)
-        | WatchEvent::Deleted(pod)
-        | WatchEvent::Modified(pod) => Some(pod.clone()),
-        WatchEvent::Error(_) => None,
     }
 }

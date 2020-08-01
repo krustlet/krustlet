@@ -11,10 +11,12 @@
 //!   or in environment variables, but falling back to the specified configuration file
 //!   (requires you to turn on the "cli" feature)
 
-use std::iter::FromIterator;
 use std::net::IpAddr;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
+
+#[cfg(any(feature = "cli", feature = "docs"))]
+use std::iter::FromIterator;
 
 #[cfg(feature = "cli")]
 use structopt::StructOpt;
@@ -239,6 +241,7 @@ impl Default for Config {
     }
 }
 
+#[cfg(any(feature = "cli", feature = "docs"))]
 fn ok_result_of<T>(value: Option<T>) -> Option<anyhow::Result<T>> {
     value.map(Ok)
 }
@@ -288,6 +291,7 @@ impl ConfigBuilder {
         serde_json::from_reader(reader).map_err(anyhow::Error::new)
     }
 
+    #[cfg(any(feature = "cli", feature = "docs"))]
     fn with_override(self: Self, other: Self) -> Self {
         ConfigBuilder {
             node_ip: other.node_ip.or(self.node_ip),
@@ -540,6 +544,7 @@ fn default_cert_path(data_dir: &PathBuf) -> PathBuf {
     data_dir.join("config/krustlet.crt")
 }
 
+#[cfg(any(feature = "cli", feature = "docs"))]
 fn default_config_file_path() -> PathBuf {
     dirs::home_dir()
         .unwrap()
@@ -553,6 +558,7 @@ fn is_same_ip_family(first: &IpAddr, second: &IpAddr) -> bool {
     }
 }
 
+#[cfg(any(feature = "cli", feature = "docs"))]
 fn split_one_label(in_string: &str) -> Option<(String, String)> {
     let mut splitter = in_string.splitn(2, '=');
 

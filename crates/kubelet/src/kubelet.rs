@@ -3,7 +3,6 @@
 use crate::config::Config;
 use crate::node;
 use crate::pod::Queue;
-use crate::pod::{update_status, Phase};
 use crate::provider::Provider;
 use crate::webserver::start as start_webserver;
 
@@ -11,7 +10,7 @@ use futures::future::FutureExt;
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::{
-    api::{ListParams, Meta},
+    api::{ListParams},
     runtime::Informer,
     Api,
 };
@@ -19,7 +18,6 @@ use log::{debug, error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::signal::ctrl_c;
-use tokio::sync::mpsc;
 
 /// A Kubelet server backed by a given `Provider`.
 ///
@@ -73,19 +71,12 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
         // Start the webserver
         let webserver = start_webserver(self.provider.clone(), &self.config.server_config).fuse();
 
-        let (error_sender, error_receiver) =
-            mpsc::channel::<(KubePod, anyhow::Error)>(self.config.max_pods as usize);
-        let error_handler = start_error_handler(error_receiver, client.clone()).fuse();
-
         // Start updating the node lease and status periodically
         let node_updater = start_node_updater(client.clone(), self.config.node_name.clone()).fuse();
 
         // If any of these tasks fail, we can initiate graceful shutdown.
         let services = Box::pin(async {
             tokio::select! {
-                res = error_handler => if let Err(e) = res {
-                    error!("Error handler task completed with error: {:?}", &e);
-                },
                 res = signal_task => if let Err(e) = res {
                     error!("Signal task completed with error {:?}", &e);
                 },
@@ -108,7 +99,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
         .fuse();
 
         // Create a queue that locks on events per pod
-        let queue = Queue::new(self.provider.clone(), error_sender);
+        let queue = Queue::new(self.provider.clone(), client.clone());
         let pod_informer = start_pod_informer::<T>(
             client.clone(),
             self.config.node_name.clone(),
@@ -230,48 +221,6 @@ async fn start_signal_handler(
         }
         tokio::time::delay_for(duration).await;
     }
-}
-
-/// Consumes error channel and notifies API server of pod failures.
-async fn start_error_handler(
-    mut rx: mpsc::Receiver<(KubePod, anyhow::Error)>,
-    client: kube::Client,
-) -> anyhow::Result<()> {
-    while let Some((pod, err)) = rx.recv().await {
-        let json_status = serde_json::json!(
-            {
-                "metadata": {
-                    "resourceVersion": "",
-                },
-                "status": {
-                    "phase": Phase::Failed,
-                    "message": format!("{}", err),
-                }
-            }
-        );
-
-        debug!(
-            "Setting pod status for {} using {:?}",
-            pod.name(),
-            json_status
-        );
-        let pod_name = pod.name();
-        match update_status(
-            client.clone(),
-            &pod.namespace().unwrap_or_default(),
-            &pod_name,
-            &json_status,
-        )
-        .await
-        {
-            Ok(_) => (),
-            Err(e) => error!(
-                "Unable to patch status during pod failure for {}: {}",
-                pod_name, e
-            ),
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
