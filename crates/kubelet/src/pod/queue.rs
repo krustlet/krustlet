@@ -4,7 +4,7 @@ use std::sync::Arc;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Meta, WatchEvent};
 use kube::Client as KubeClient;
-use log::{debug, error};
+use log::{debug, error, info};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
@@ -46,7 +46,12 @@ impl Worker {
                         let provider = Arc::clone(&provider);
                         tokio::spawn(async move {
                             let state: P::InitialState = Default::default();
-                            run_to_completion(client, state, provider, Pod::new(pod)).await
+                            let pod = Pod::new(pod);
+                            let name = pod.name().to_string();
+                            match run_to_completion(client, state, provider, pod).await {
+                                Ok(()) => info!("Pod {} state machine exited without error", name),
+                                Err(e) => error!("Pod {} state machine exited with error: {:?}", name, e)
+                            }
                         });
                     }
                     WatchEvent::Modified(pod) => {

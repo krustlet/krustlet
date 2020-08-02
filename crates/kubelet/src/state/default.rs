@@ -1,6 +1,7 @@
 //! Default implementation for state machine graph.
 
 use crate::pod::Pod;
+use crate::pod::Phase;
 use crate::state;
 use crate::state::State;
 use crate::state::Transition;
@@ -44,7 +45,6 @@ pub trait DefaultStateProvider: 'static + Sync + Send {
 
     /// Running state.
     async fn running(&self, _pod: &Pod) -> anyhow::Result<()> {
-        tokio::time::delay_for(std::time::Duration::from_secs(30)).await;
         Ok(())
     }
 
@@ -54,6 +54,13 @@ pub trait DefaultStateProvider: 'static + Sync + Send {
         Ok(())
     }
 }
+
+//
+// * Would be nice to support passing types to the next state (error messages, etc.).
+// * We probably need to explore a more concise way for describing status patches.
+// * Can we offer a macro that doesnt require a trait?
+// * How can we expose a nice way for updating container statuses?
+//
 
 state!(
     /// The Kubelet is aware of the Pod.
@@ -75,7 +82,21 @@ state!(
             }
         }
     },
-    { Ok(serde_json::json!(null)) }
+    { 
+        Ok(serde_json::json!(
+            {
+                "metadata": {
+                    "resourceVersion": "",
+                },
+                "status": {
+                    "phase": Phase::Pending,
+                    "reason": "Registered",
+                    "containerStatuses": Vec::<()>::new(),
+                    "initContainerStatuses": Vec::<()>::new(),
+                }
+            }
+        )) 
+    }
 );
 
 state!(
@@ -98,7 +119,21 @@ state!(
             }
         }
     },
-    { Ok(serde_json::json!(null)) }
+    {
+        Ok(serde_json::json!(
+            {
+                "metadata": {
+                    "resourceVersion": "",
+                },
+                "status": {
+                    "phase": Phase::Pending,
+                    "reason": "ImagePull",
+                    "containerStatuses": Vec::<()>::new(),
+                    "initContainerStatuses": Vec::<()>::new(),
+                }
+            }
+        )) 
+    }
 );
 
 state!(
@@ -121,7 +156,21 @@ state!(
             }
         }
     },
-    { Ok(serde_json::json!(null)) }
+    {
+        Ok(serde_json::json!(
+            {
+                "metadata": {
+                    "resourceVersion": "",
+                },
+                "status": {
+                    "phase": Phase::Pending,
+                    "reason": "ImagePullBackoff",
+                    "containerStatuses": Vec::<()>::new(),
+                    "initContainerStatuses": Vec::<()>::new(),
+                }
+            }
+        )) 
+    }
 );
 
 state!(
@@ -144,7 +193,21 @@ state!(
             }
         }
     },
-    { Ok(serde_json::json!(null)) }
+    {
+        Ok(serde_json::json!(
+            {
+                "metadata": {
+                    "resourceVersion": "",
+                },
+                "status": {
+                    "phase": Phase::Pending,
+                    "reason": "VolumeMount",
+                    "containerStatuses": Vec::<()>::new(),
+                    "initContainerStatuses": Vec::<()>::new(),
+                }
+            }
+        )) 
+    }
 );
 
 state!(
@@ -167,7 +230,21 @@ state!(
             }
         }
     },
-    { Ok(serde_json::json!(null)) }
+    {
+        Ok(serde_json::json!(
+            {
+                "metadata": {
+                    "resourceVersion": "",
+                },
+                "status": {
+                    "phase": Phase::Pending,
+                    "reason": "VolumeMountBackoff",
+                    "containerStatuses": Vec::<()>::new(),
+                    "initContainerStatuses": Vec::<()>::new(),
+                }
+            }
+        )) 
+    }
 );
 
 state!(
@@ -190,7 +267,21 @@ state!(
             }
         }
     },
-    { Ok(serde_json::json!(null)) }
+    {
+        Ok(serde_json::json!(
+            {
+                "metadata": {
+                    "resourceVersion": "",
+                },
+                "status": {
+                    "phase": Phase::Pending,
+                    "reason": "Starting",
+                    "containerStatuses": Vec::<()>::new(),
+                    "initContainerStatuses": Vec::<()>::new(),
+                }
+            }
+        )) 
+    }
 );
 
 state!(
@@ -213,7 +304,21 @@ state!(
             }
         }
     },
-    { Ok(serde_json::json!(null)) }
+    {
+        Ok(serde_json::json!(
+            {
+                "metadata": {
+                    "resourceVersion": "",
+                },
+                "status": {
+                    "phase": Phase::Running,
+                    "reason": "Running",
+                    "containerStatuses": Vec::<()>::new(),
+                    "initContainerStatuses": Vec::<()>::new(),
+                }
+            }
+        )) 
+    }
 );
 
 state!(
@@ -236,7 +341,21 @@ state!(
             }
         }
     },
-    { Ok(serde_json::json!(null)) }
+    {
+        Ok(serde_json::json!(
+            {
+                "metadata": {
+                    "resourceVersion": "",
+                },
+                "status": {
+                    "phase": Phase::Failed,
+                    "reason": "Error",
+                    "containerStatuses": Vec::<()>::new(),
+                    "initContainerStatuses": Vec::<()>::new(),
+                }
+            }
+        )) 
+    }
 );
 
 state!(
@@ -246,7 +365,21 @@ state!(
     Terminated,
     Terminated,
     { Ok(Transition::Complete(Ok(()))) },
-    { Ok(serde_json::json!(null)) }
+    {
+        Ok(serde_json::json!(
+            {
+                "metadata": {
+                    "resourceVersion": "",
+                },
+                "status": {
+                    "phase": Phase::Failed,
+                    "reason": "Failed",
+                    "containerStatuses": Vec::<()>::new(),
+                    "initContainerStatuses": Vec::<()>::new(),
+                }
+            }
+        )) 
+    }
 );
 
 state!(
@@ -256,5 +389,19 @@ state!(
     Finished,
     Finished,
     { Ok(Transition::Complete(Ok(()))) },
-    { Ok(serde_json::json!(null)) }
+    {
+        Ok(serde_json::json!(
+            {
+                "metadata": {
+                    "resourceVersion": "",
+                },
+                "status": {
+                    "phase": Phase::Succeeded,
+                    "reason": "Failed",
+                    "containerStatuses": Vec::<()>::new(),
+                    "initContainerStatuses": Vec::<()>::new(),
+                }
+            }
+        )) 
+    }
 );

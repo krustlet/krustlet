@@ -1652,7 +1652,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "wascc-provider",
- "wasi-provider",
 ]
 
 [[package]]
@@ -3904,28 +3903,6 @@ dependencies = [
  "winapi 0.3.9",
  "winx",
  "yanix",
-]
-
-[[package]]
-name = "wasi-provider"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "backtrace",
- "chrono",
- "futures",
- "k8s-openapi",
- "kube",
- "kubelet",
- "log 0.4.11",
- "oci-distribution",
- "tempfile",
- "tokio",
- "wasi-common",
- "wasmtime",
- "wasmtime-wasi",
- "wat",
 ]
 
 [[package]]

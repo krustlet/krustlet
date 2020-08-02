@@ -212,7 +212,7 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
                 message: PodStatusMessage::Message("Evicted on node shutdown.".to_string()),
                 container_statuses,
             };
-            pod.patch_status(client.clone(), status).await;
+            // pod.patch_status(client.clone(), status).await;
             info!("Marked static pod as terminated.");
             continue;
         } else {

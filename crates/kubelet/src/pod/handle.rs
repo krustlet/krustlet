@@ -40,8 +40,8 @@ impl<H: StopHandler, F> Handle<H, F> {
         initial_message: Option<String>,
     ) -> anyhow::Result<Self> {
         let container_keys: Vec<_> = container_handles.keys().cloned().collect();
-        pod.initialise_status(&client, &container_keys, initial_message)
-            .await;
+        // pod.initialise_status(&client, &container_keys, initial_message)
+        //     .await;
 
         let mut channel_map = StreamMap::with_capacity(container_handles.len());
         for (key, handle) in container_handles.iter() {
@@ -70,7 +70,7 @@ impl<H: StopHandler, F> Handle<H, F> {
                     container_statuses,
                 };
 
-                cloned_pod.patch_status(client.clone(), pod_status).await;
+                // cloned_pod.patch_status(client.clone(), pod_status).await;
             }
         });
         Ok(Self {

@@ -57,10 +57,12 @@ pub async fn run_to_completion<Provider: Send + Sync + 'static>(
     // When handling a new state, we update the Pod state with Kubernetes.
     let api: Api<KubePod> = Api::namespaced(client.clone(), pod.namespace());
     let patch = state.json_status(Arc::clone(&provider), &pod).await?;
+    info!("Pod {} status patch: {:?}", pod.name(), &patch);
     let data = serde_json::to_vec(&patch)?;
     api.patch_status(&pod.name(), &PatchParams::default(), data)
         .await?;
 
+    info!("Pod {} executing state handler {:?}", pod.name(), state);
     // Execute state.
     let transition = { state.next(Arc::clone(&provider), &pod).await? };
 

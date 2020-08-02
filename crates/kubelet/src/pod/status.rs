@@ -37,6 +37,8 @@ impl Default for StatusMessage {
 /// This is specified by Kubernetes itself.
 #[derive(Clone, Debug, serde::Serialize)]
 pub enum Phase {
+    /// The pod is being created.
+    Pending,
     /// The workload is currently executing.
     Running,
     /// The workload has exited with an error.
