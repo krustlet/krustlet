@@ -51,7 +51,7 @@ fn main() {
 
 fn config_dir() -> std::path::PathBuf {
     let home_dir = dirs::home_dir().expect("Can't get home dir"); // TODO: allow override of config dir
-    home_dir.join(".krustlet/cnfig")
+    home_dir.join(".krustlet/config")
 }
 
 fn prepare_for_bootstrap() -> BootstrapReadiness {
