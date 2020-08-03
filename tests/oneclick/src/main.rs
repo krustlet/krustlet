@@ -1,8 +1,26 @@
+enum BootstrapReadiness {
+    AlreadyBootstrapped,
+    NeedBootstrapAndApprove,
+    NeedManualCleanup,
+}
+
 const EXIT_CODE_BOOTSTRAPPED: i32 = 0;
 const EXIT_CODE_NEED_APPROVE: i32 = 1;
 const EXIT_CODE_NEED_MANUAL_CLEANUP: i32 = 2;
 
 fn main() {
+    let readiness = prepare_for_bootstrap();
+
+    let exit_code = match readiness {
+        BootstrapReadiness::AlreadyBootstrapped => EXIT_CODE_BOOTSTRAPPED,
+        BootstrapReadiness::NeedBootstrapAndApprove => EXIT_CODE_NEED_APPROVE,
+        BootstrapReadiness::NeedManualCleanup => EXIT_CODE_NEED_MANUAL_CLEANUP,
+    };
+
+    std::process::exit(exit_code);
+}
+
+fn prepare_for_bootstrap() -> BootstrapReadiness {
     let home_dir = dirs::home_dir().expect("Can't get home dir"); // TODO: allow override of config dir
     let config_dir = home_dir.join(".krustlet/cnfig");
 
@@ -24,9 +42,9 @@ fn main() {
     let status = all_or_none(cert_paths);
 
     match status {
-        AllOrNone::AllExist => std::process::exit(EXIT_CODE_BOOTSTRAPPED),
+        AllOrNone::AllExist => { return BootstrapReadiness::AlreadyBootstrapped; },
         AllOrNone::NoneExist => (),
-        AllOrNone::Error => std::process::exit(EXIT_CODE_NEED_MANUAL_CLEANUP),
+        AllOrNone::Error => { return BootstrapReadiness::NeedManualCleanup; },
     };
 
     // We are not bootstrapped, but there may be existing CSRs around
@@ -51,7 +69,7 @@ fn main() {
     let (csr_deletions, csr_spawn_delete_errors) = csr_spawn_deletes.partition_success();
 
     if !csr_spawn_delete_errors.is_empty() {
-        std::process::exit(EXIT_CODE_NEED_MANUAL_CLEANUP);
+        return BootstrapReadiness::NeedManualCleanup;
     }
 
     let csr_deletion_results: Vec<_> = csr_deletions
@@ -63,17 +81,17 @@ fn main() {
         csr_deletion_results.partition_success();
 
     if !csr_run_deletion_failures.is_empty() {
-        std::process::exit(EXIT_CODE_NEED_MANUAL_CLEANUP);
+        return BootstrapReadiness::NeedManualCleanup;
     }
 
     if csr_deletion_outputs.iter().any(|o| !is_resource_gone(o)) {
-        std::process::exit(EXIT_CODE_NEED_MANUAL_CLEANUP);
+        return BootstrapReadiness::NeedManualCleanup;
     }
 
     // We have now deleted all the local certificate files, and all the CSRs that
     // might get in the way of our re-bootstrapping.  Let the caller know they
     // will need to re-approve once the new CSRs come up.
-    std::process::exit(EXIT_CODE_NEED_APPROVE);
+    return BootstrapReadiness::NeedBootstrapAndApprove;
 }
 
 enum AllOrNone {
