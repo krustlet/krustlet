@@ -49,10 +49,12 @@ fn main() {
     std::process::exit(exit_code);
 }
 
-fn prepare_for_bootstrap() -> BootstrapReadiness {
+fn config_dir() -> std::path::PathBuf {
     let home_dir = dirs::home_dir().expect("Can't get home dir"); // TODO: allow override of config dir
-    let config_dir = home_dir.join(".krustlet/cnfig");
+    home_dir.join(".krustlet/cnfig")
+}
 
+fn prepare_for_bootstrap() -> BootstrapReadiness {
     let host_name = hostname::get()
         .expect("Can't get host name")
         .into_string()
@@ -65,7 +67,7 @@ fn prepare_for_bootstrap() -> BootstrapReadiness {
         "krustlet-wascc.key",
     ]
     .iter()
-    .map(|f| config_dir.join(f))
+    .map(|f| config_dir().join(f))
     .collect();
 
     let status = all_or_none(cert_paths);
@@ -198,6 +200,7 @@ fn run_bootstrap() -> anyhow::Result<()> {
     let bootstrap_script = format!("{}/docs/howto/assets/bootstrap.{}", repo_root, ext);
     let bootstrap_output = std::process::Command::new(shell)
         .arg(bootstrap_script)
+        .env("CONFIG_DIR", config_dir())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .output()?;
