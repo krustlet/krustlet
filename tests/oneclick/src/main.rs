@@ -11,6 +11,11 @@ const EXIT_CODE_NEED_MANUAL_CLEANUP: i32 = 2;
 fn main() {
     let readiness = prepare_for_bootstrap();
 
+    if matches!(readiness, BootstrapReadiness::NeedManualCleanup) {
+        eprintln!("Bootstrap directory and CSRs need manual clean up");
+        std::process::exit(EXIT_CODE_NEED_MANUAL_CLEANUP);
+    }
+
     let exit_code = match readiness {
         BootstrapReadiness::AlreadyBootstrapped => EXIT_CODE_BOOTSTRAPPED,
         BootstrapReadiness::NeedBootstrapAndApprove => EXIT_CODE_NEED_APPROVE,
@@ -42,9 +47,13 @@ fn prepare_for_bootstrap() -> BootstrapReadiness {
     let status = all_or_none(cert_paths);
 
     match status {
-        AllOrNone::AllExist => { return BootstrapReadiness::AlreadyBootstrapped; },
+        AllOrNone::AllExist => {
+            return BootstrapReadiness::AlreadyBootstrapped;
+        }
         AllOrNone::NoneExist => (),
-        AllOrNone::Error => { return BootstrapReadiness::NeedManualCleanup; },
+        AllOrNone::Error => {
+            return BootstrapReadiness::NeedManualCleanup;
+        }
     };
 
     // We are not bootstrapped, but there may be existing CSRs around
@@ -152,3 +161,46 @@ fn is_resource_gone(kubectl_output: &std::process::Output) -> bool {
             _ => false,
         }
 }
+
+fn run_bootstrap() -> anyhow::Result<()> {
+    let (shell, ext) = match std::env::consts::OS {
+        "windows" => ("powershell.exe", "ps1"),
+        "linux" | "macos" => ("bash", "sh"),
+        os => Err(anyhow::anyhow!("Unsupported OS {}", os))?,
+    };
+
+    let repo_root = std::env!("CARGO_MANIFEST_DIR");
+
+    let bootstrap_script = format!("{}/docs/howto/assets/bootstrap.{}", repo_root, ext);
+    let bootstrap_output = std::process::Command::new(shell)
+        .arg(bootstrap_script)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()?;
+
+    match bootstrap_output.status.code() {
+        Some(0) => Ok(()),
+        Some(e) => Err(anyhow::anyhow!(
+            "Bootstrap error {}: {}",
+            e,
+            String::from_utf8_lossy(&bootstrap_output.stderr)
+        )),
+        None => Err(anyhow::anyhow!(
+            "Bootstrap error (no exit code): {}",
+            String::from_utf8_lossy(&bootstrap_output.stderr)
+        )),
+    }
+}
+
+// fn launch_kubelet(name: &str) -> Something {
+//     // run the kubelet as a background process using the
+//     // same cmd line as in the justfile
+//     //
+//     // if approval is needed:
+//     //   wait for the magic line
+//     //   execute the kubectl certificate approve thingy
+//     //   verify that we get the 'continuing' notification
+//     //   delete the CSRs so that the next process can reuse the host name
+//     //
+//     // TODO: if we are NOT approving, how do we know the process is ready?
+// }
