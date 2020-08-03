@@ -9,11 +9,35 @@ const EXIT_CODE_NEED_APPROVE: i32 = 1;
 const EXIT_CODE_NEED_MANUAL_CLEANUP: i32 = 2;
 
 fn main() {
+    println!("Preparing for bootstrap...");
+
     let readiness = prepare_for_bootstrap();
 
-    if matches!(readiness, BootstrapReadiness::NeedManualCleanup) {
-        eprintln!("Bootstrap directory and CSRs need manual clean up");
-        std::process::exit(EXIT_CODE_NEED_MANUAL_CLEANUP);
+    match readiness {
+        BootstrapReadiness::AlreadyBootstrapped => {
+            println!("Already bootstrapped");
+        }
+        BootstrapReadiness::NeedBootstrapAndApprove => {
+            println!("Bootstrap required");
+        }
+        BootstrapReadiness::NeedManualCleanup => {
+            eprintln!("Bootstrap directory and CSRs need manual clean up");
+            std::process::exit(EXIT_CODE_NEED_MANUAL_CLEANUP);
+        }
+    }
+
+    if matches!(readiness, BootstrapReadiness::NeedBootstrapAndApprove) {
+        println!("Running bootstrap script...");
+        let bootstrap_result = run_bootstrap();
+        match bootstrap_result {
+            Ok(()) => {
+                println!("Bootstrap script succeeded");
+            }
+            Err(e) => {
+                eprintln!("Running bootstrap script failed: {}", e);
+                std::process::exit(EXIT_CODE_NEED_MANUAL_CLEANUP);
+            }
+        }
     }
 
     let exit_code = match readiness {
