@@ -6,14 +6,20 @@ fn main() {
     let home_dir = dirs::home_dir().expect("Can't get home dir"); // TODO: allow override of config dir
     let config_dir = home_dir.join(".krustlet/cnfig");
 
-    let host_name = hostname::get().expect("Can't get host name").into_string().expect("Can't get host name");
+    let host_name = hostname::get()
+        .expect("Can't get host name")
+        .into_string()
+        .expect("Can't get host name");
 
-    let cert_paths: Vec<_> = vec! [
+    let cert_paths: Vec<_> = vec![
         "krustlet-wasi.crt",
         "krustlet-wasi.key",
         "krustlet-wascc.crt",
         "krustlet-wascc.key",
-    ].iter().map(|f| config_dir.join(f)).collect();
+    ]
+    .iter()
+    .map(|f| config_dir.join(f))
+    .collect();
 
     let status = all_or_none(cert_paths);
 
@@ -32,22 +38,29 @@ fn main() {
     let wasi_cert_name = format!("{}-tls", wasi_host_name);
     let wascc_cert_name = format!("{}-tls", wascc_host_name);
 
-    let csr_spawn_deletes: Vec<_> = vec! [
+    let csr_spawn_deletes: Vec<_> = vec![
         "krustlet-wasi",
         "krustlet-wascc",
         &wasi_cert_name,
         &wascc_cert_name,
-    ].iter().map(delete_csr).collect();
-    
+    ]
+    .iter()
+    .map(delete_csr)
+    .collect();
+
     let (csr_deletions, csr_spawn_delete_errors) = csr_spawn_deletes.partition_success();
 
     if !csr_spawn_delete_errors.is_empty() {
         std::process::exit(EXIT_CODE_NEED_MANUAL_CLEANUP);
     }
 
-    let csr_deletion_results: Vec<_> = csr_deletions.into_iter().map(|c| c.wait_with_output()).collect();
+    let csr_deletion_results: Vec<_> = csr_deletions
+        .into_iter()
+        .map(|c| c.wait_with_output())
+        .collect();
 
-    let (csr_deletion_outputs, csr_run_deletion_failures) = csr_deletion_results.partition_success();
+    let (csr_deletion_outputs, csr_run_deletion_failures) =
+        csr_deletion_results.partition_success();
 
     if !csr_run_deletion_failures.is_empty() {
         std::process::exit(EXIT_CODE_NEED_MANUAL_CLEANUP);
@@ -103,16 +116,21 @@ impl<T, E: std::fmt::Debug> ResultSequence for Vec<Result<T, E>> {
     type SuccessItem = T;
     type FailureItem = E;
     fn partition_success(self) -> (Vec<Self::SuccessItem>, Vec<Self::FailureItem>) {
-        let (success_results, error_results): (Vec<_>, Vec<_>) = self.into_iter().partition(|r| r.is_ok());
+        let (success_results, error_results): (Vec<_>, Vec<_>) =
+            self.into_iter().partition(|r| r.is_ok());
         let success_values = success_results.into_iter().map(|r| r.unwrap()).collect();
-        let error_values = error_results.into_iter().map(|r| r.err().unwrap()).collect();
+        let error_values = error_results
+            .into_iter()
+            .map(|r| r.err().unwrap())
+            .collect();
         (success_values, error_values)
     }
 }
 
 fn is_resource_gone(kubectl_output: &std::process::Output) -> bool {
-    kubectl_output.status.success() || match String::from_utf8(kubectl_output.stderr.clone()) {
-        Ok(s) => s.contains("NotFound"),
-        _ => false,
-    }
+    kubectl_output.status.success()
+        || match String::from_utf8(kubectl_output.stderr.clone()) {
+            Ok(s) => s.contains("NotFound"),
+            _ => false,
+        }
 }
