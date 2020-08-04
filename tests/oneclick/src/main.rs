@@ -1,3 +1,5 @@
+use std::io::BufRead;
+
 enum BootstrapReadiness {
     AlreadyBootstrapped,
     NeedBootstrapAndApprove,
@@ -9,6 +11,9 @@ const EXIT_CODE_NEED_APPROVE: i32 = 1;
 const EXIT_CODE_NEED_MANUAL_CLEANUP: i32 = 2;
 
 fn main() {
+    // TODO: ensure everything is built.  Invoking 'cargo run' doesn't
+    // work.
+
     println!("Preparing for bootstrap...");
 
     let readiness = prepare_for_bootstrap();
@@ -40,13 +45,28 @@ fn main() {
         }
     }
 
-    let exit_code = match readiness {
-        BootstrapReadiness::AlreadyBootstrapped => EXIT_CODE_BOOTSTRAPPED,
-        BootstrapReadiness::NeedBootstrapAndApprove => EXIT_CODE_NEED_APPROVE,
-        BootstrapReadiness::NeedManualCleanup => EXIT_CODE_NEED_MANUAL_CLEANUP,
-    };
+    let wasi_process = launch_kubelet("krustlet-wasi", "wasi", 3001, matches!(readiness, BootstrapReadiness::NeedBootstrapAndApprove));
+    // NOTE: this needs to be Dropped - we cannot do a std::process::exit from
+    // now on unless we create a scope.
 
-    std::process::exit(exit_code);
+    match wasi_process {
+        Err(e) => eprintln!("Error running WASI process: {}", e),
+        Ok(_) => println!("Running WASI process"),
+    }
+
+    println!("Simulating wait");
+
+    std::thread::sleep(std::time::Duration::from_secs(5));
+
+    println!("Done wait - process should self-terminate");
+
+    // let exit_code = match readiness {
+    //     BootstrapReadiness::AlreadyBootstrapped => EXIT_CODE_BOOTSTRAPPED,
+    //     BootstrapReadiness::NeedBootstrapAndApprove => EXIT_CODE_NEED_APPROVE,
+    //     BootstrapReadiness::NeedManualCleanup => EXIT_CODE_NEED_MANUAL_CLEANUP,
+    // };
+
+    // std::process::exit(exit_code);
 }
 
 fn config_dir() -> std::path::PathBuf {
@@ -219,15 +239,68 @@ fn run_bootstrap() -> anyhow::Result<()> {
     }
 }
 
-// fn launch_kubelet(name: &str) -> Something {
-//     // run the kubelet as a background process using the
-//     // same cmd line as in the justfile
-//     //
-//     // if approval is needed:
-//     //   wait for the magic line
-//     //   execute the kubectl certificate approve thingy
-//     //   verify that we get the 'continuing' notification
-//     //   delete the CSRs so that the next process can reuse the host name
-//     //
-//     // TODO: if we are NOT approving, how do we know the process is ready?
-// }
+fn launch_kubelet(name: &str, kubeconfig_suffix: &str, kubelet_port: i32, need_csr: bool) -> anyhow::Result<ChildProcessTerminator> {
+    // run the kubelet as a background process using the
+    // same cmd line as in the justfile:
+    // KUBECONFIG=$(eval echo $CONFIG_DIR)/kubeconfig-wasi cargo run --bin krustlet-wasi {{FLAGS}} -- --node-name krustlet-wasi --port 3001 --bootstrap-file $(eval echo $CONFIG_DIR)/bootstrap.conf --cert-file $(eval echo $CONFIG_DIR)/krustlet-wasi.crt --private-key-file $(eval echo $CONFIG_DIR)/krustlet-wasi.key
+    // TODO: all this to_str().unwrap().to_owned() is farcical - what is the right way to do this?
+    let config_dir = config_dir();
+    let bootstrap_conf = config_dir.join("bootstrap.conf").to_str().unwrap().to_owned();
+    let cert = config_dir.join(format!("{}.crt", name)).to_str().unwrap().to_owned();
+    let private_key = config_dir.join(format!("{}.key", name)).to_str().unwrap().to_owned();
+    let kubeconfig = config_dir.join(format!("kubeconfig-{}", kubeconfig_suffix)).to_str().unwrap().to_owned();
+    let port_arg = format!("{}", kubelet_port);
+
+    let repo_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let bin_path = repo_root.join("target/debug").join(name);
+
+    let mut launch_kubelet_process = std::process::Command::new(bin_path)
+        .args(&["--node-name", name, "--port", &port_arg, "--bootstrap-file", &bootstrap_conf, "--cert-file", &cert, "--private-key-file", &private_key])
+        .env("KUBECONFIG", kubeconfig)
+        .env("RUSTLOG", "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,main=debug")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+
+    println!("Kubelet process {} launched", name);
+
+    if need_csr {
+        println!("Waiting for kubelet {} to generate CSR", name);
+        let stdout = launch_kubelet_process.stdout.as_mut().unwrap();
+        wait_for_bootstrap_signal(stdout);
+        println!("Kubelet {} generated CSR; approving", name);
+        // approve cert
+        // wait for approval pickup signal
+        // delete CSR
+    }
+
+    let terminator = ChildProcessTerminator { child: launch_kubelet_process };
+    Ok(terminator)
+}
+
+fn wait_for_bootstrap_signal(stdout: impl std::io::Read) -> () {
+    let reader = std::io::BufReader::new(stdout);
+    for (_, line) in reader.lines().enumerate() {
+        match line {
+            Ok(line_text) => println!("LINE: {}", line_text),
+            Err(e) => eprintln!("LINE ERR: {}", e),
+            // LOOK FOR THE MAGIC STRINGS
+        }
+    }
+    println!("NO MORE LINES WAAH");
+}
+
+struct ChildProcessTerminator {
+    child: std::process::Child,
+}
+
+impl Drop for ChildProcessTerminator {
+    fn drop(&mut self) {
+        match self.child.kill().and_then(|_| self.child.wait()) {
+            Ok(_) => (),
+            Err(e) => {
+                eprintln!("Failed to terminate spawned kubelet process: {}", e);
+            }
+        }
+    }
+}
