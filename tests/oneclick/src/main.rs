@@ -45,20 +45,9 @@ fn main() {
         }
     }
 
-    let wasi_process = launch_kubelet("krustlet-wasi", "wasi", 3001, matches!(readiness, BootstrapReadiness::NeedBootstrapAndApprove));
-    // NOTE: this needs to be Dropped - we cannot do a std::process::exit from
-    // now on unless we create a scope.
+    run_tests(readiness);
 
-    match wasi_process {
-        Err(e) => eprintln!("Error running WASI process: {}", e),
-        Ok(_) => println!("Running WASI process"),
-    }
-
-    println!("Simulating wait");
-
-    std::thread::sleep(std::time::Duration::from_secs(5));
-
-    println!("Done wait - process should self-terminate");
+    println!("All complete");
 
     // let exit_code = match readiness {
     //     BootstrapReadiness::AlreadyBootstrapped => EXIT_CODE_BOOTSTRAPPED,
@@ -303,4 +292,48 @@ impl Drop for ChildProcessTerminator {
             }
         }
     }
+}
+
+fn run_tests(readiness: BootstrapReadiness) {
+    let wasi_process = launch_kubelet("krustlet-wasi", "wasi", 3001, matches!(readiness, BootstrapReadiness::NeedBootstrapAndApprove));
+    let wascc_process = launch_kubelet("krustlet-wascc", "wascc", 3000, matches!(readiness, BootstrapReadiness::NeedBootstrapAndApprove));
+
+    for process in &[&wasi_process, &wascc_process] {
+        match process {
+            Err(e) => {
+                eprintln!("Error running kubelet process: {}", e);
+                return;
+            },
+            Ok(_) => println!("Running kubelet process"),
+        }
+    }
+
+    match run_test_suite() {
+        Err(e) => eprintln!("Error running test suite: {}", e),
+        Ok(_) => (),
+    }
+}
+
+fn run_test_suite() -> anyhow::Result<()> {
+    println!("Launching integration tests");
+    // This doesn't seem to work because the cargo process exits
+    // and we lose track of the integration_tests process
+    let test_process = std::process::Command::new("cargo")
+        .args(&["test", "--test", "integration_tests"])
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()?;
+    println!("Integration tests running");
+    // TODO: consider streaming progress
+    let test_process_result = test_process.wait_with_output()?;
+    if test_process_result.status.success() {
+        println!("Integration tests PASSED");
+    } else {
+        eprintln!("Integration tests FAILED");
+        let stdout = String::from_utf8(test_process_result.stdout)?;
+        eprintln!("{}", stdout);
+        let stderr = String::from_utf8(test_process_result.stderr)?;
+        eprintln!("{}", stderr);
+    }
+    Ok(())
 }
