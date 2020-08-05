@@ -1,6 +1,6 @@
 [package]
 name = "wascc-provider"
-version = "0.3.0"
+version = "0.4.0"
 authors = [
     "Matt Butcher <matt.butcher@microsoft.com>",
     "Matthew Fisher <matt.fisher@microsoft.com>",
@@ -27,7 +27,7 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 kube = { version= "0.35", default-features = false }
-kubelet = { path = "../kubelet", version = "0.3", default-features = false }
+kubelet = { path = "../kubelet", version = "0.4", default-features = false }
 tokio = { version = "0.2", features = ["fs", "macros"] }
 chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3.1"
@@ -39,4 +39,4 @@ k8s-openapi = { version = "0.8", default-features = false, features = ["v1_17"] 
 rand = "0.7.3"
 
 [dev-dependencies]
-oci-distribution = { path = "../oci-distribution", version = "0.2" }
+oci-distribution = { path = "../oci-distribution", version = "0.3" }
