@@ -104,7 +104,7 @@ impl Client {
     /// For this implementation, it will return v2 or an error result. If the error is a
     /// `reqwest` error, the request itself failed. All other error messages mean that
     /// v2 is not supported.
-    pub async fn version(&self, host: &str) -> anyhow::Result<String> {
+    async fn version(&self, host: &str) -> anyhow::Result<String> {
         let url = format!("{}://{}/v2/", self.config.protocol.as_str(), host);
         let res = self.client.get(&url).send().await?;
         let dist_hdr = res.headers().get(OCI_VERSION_KEY);
@@ -119,7 +119,7 @@ impl Client {
     ///
     /// This performs authorization and then stores the token internally to be used
     /// on other requests.
-    pub async fn auth(&mut self, image: &Reference, _secret: Option<&str>) -> anyhow::Result<()> {
+    async fn auth(&mut self, image: &Reference, _secret: Option<&str>) -> anyhow::Result<()> {
         debug!("Authorzing for image: {:?}", image);
         // The version request will tell us where to go.
         let url = format!(
@@ -180,7 +180,11 @@ impl Client {
     ///
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
-    pub async fn fetch_manifest_digest(&self, image: &Reference) -> anyhow::Result<String> {
+    pub async fn fetch_manifest_digest(&mut self, image: &Reference) -> anyhow::Result<String> {
+        if !self.tokens.contains_key(image.registry()) {
+            self.auth(image, None).await?;
+        }
+
         let url = image.to_v2_manifest_url(self.config.protocol.as_str());
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
@@ -211,7 +215,7 @@ impl Client {
     ///
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
-    pub async fn pull_manifest(&self, image: &Reference) -> anyhow::Result<(OciManifest, String)> {
+    async fn pull_manifest(&self, image: &Reference) -> anyhow::Result<(OciManifest, String)> {
         let url = image.to_v2_manifest_url(self.config.protocol.as_str());
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
@@ -256,7 +260,7 @@ impl Client {
     /// repository and the registry, but it is not used to verify that
     /// the digest is a layer inside of the image. (The manifest is
     /// used for that.)
-    pub async fn pull_layer<T: AsyncWrite + Unpin>(
+    async fn pull_layer<T: AsyncWrite + Unpin>(
         &self,
         image: &Reference,
         digest: &str,
@@ -446,13 +450,12 @@ mod test {
     async fn test_fetch_digest() {
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
 
-        // Currently, pull_manifest does not perform Authz, so this will fail.
-        let c = Client::default();
+        let mut c = Client::default();
         c.fetch_manifest_digest(&image)
             .await
-            .expect_err("pull manifest should fail");
+            .expect("pull manifest should not fail");
 
-        // But this should pass
+        // This should pass
         let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
         let mut c = Client::default();
         c.auth(&image, None).await.expect("authenticated");
