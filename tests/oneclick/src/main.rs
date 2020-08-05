@@ -279,27 +279,67 @@ fn launch_kubelet(name: &str, kubeconfig_suffix: &str, kubelet_port: i32, need_c
     if need_csr {
         println!("Waiting for kubelet {} to generate CSR", name);
         let stdout = launch_kubelet_process.stdout.as_mut().unwrap();
-        wait_for_bootstrap_signal(stdout);
-        println!("Kubelet {} generated CSR; approving", name);
-        // approve cert
-        // wait for approval pickup signal
-        // delete CSR
+        wait_for_tls_certificate_approval(stdout)?;
+        println!("Finished bootstrapping for kubelet {}", name);
     }
 
     let terminator = ChildProcessTerminator { child: launch_kubelet_process };
     Ok(terminator)
 }
 
-fn wait_for_bootstrap_signal(stdout: impl std::io::Read) -> () {
+fn wait_for_tls_certificate_approval(stdout: impl std::io::Read) -> anyhow::Result<()> {
     let reader = std::io::BufReader::new(stdout);
     for (_, line) in reader.lines().enumerate() {
         match line {
-            Ok(line_text) => println!("LINE: {}", line_text),
-            Err(e) => eprintln!("LINE ERR: {}", e),
-            // LOOK FOR THE MAGIC STRINGS
+            Ok(line_text) => {
+                println!("Kubelet printed: {}", line_text);
+                if line_text == "BOOTSTRAP: received TLS certificate approval: continuing" {
+                    return Ok(());
+                }
+                let re = regex::Regex::new(r"^BOOTSTRAP: TLS certificate requires manual approval. Run kubectl certificate approve (\S+)$").unwrap();
+                match re.captures(&line_text) {
+                    None => (),
+                    Some(captures) => {
+                        let csr_name = &captures[1];
+                        approve_csr(csr_name)?
+                    }
+                }
+            },
+            Err(e) => eprintln!("Error reading kubelet stdout: {}", e),
         }
     }
-    println!("NO MORE LINES WAAH");
+    println!("End of kubelet output with no approval");
+    Err(anyhow::anyhow!("End of kubelet output with no approval"))
+}
+
+fn approve_csr(csr_name: &str) -> anyhow::Result<()> {
+    println!("Approving CSR {}", csr_name);
+    let approve_process = std::process::Command::new("kubectl")
+        .args(&["certificate", "approve", csr_name])
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .output()?;
+    if !approve_process.status.success() {
+        Err(anyhow::anyhow!("Error approving CSR {}: {}", csr_name, String::from_utf8(approve_process.stderr).unwrap()))
+    } else {
+        println!("Approved CSR {}", csr_name);
+        clean_up_csr(csr_name)
+    }
+}
+
+fn clean_up_csr(csr_name: &str) -> anyhow::Result<()> {
+    println!("Cleaning up approved CSR {}", csr_name);
+    let clean_up_process = std::process::Command::new("kubectl")
+        .args(&["delete", "csr", csr_name])
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .output()?;
+    if !clean_up_process.status.success() {
+        Err(anyhow::anyhow!("Error cleaning up CSR {}: {}", csr_name, String::from_utf8(clean_up_process.stderr).unwrap()))
+    } else {
+        println!("Cleaned up approved CSR {}", csr_name);
+        Ok(())
+    }
 }
 
 struct ChildProcessTerminator {

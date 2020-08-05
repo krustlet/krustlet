@@ -1635,6 +1635,7 @@ dependencies = [
  "kube",
  "kubelet",
  "oci-distribution",
+ "regex",
  "reqwest",
  "serde",
  "serde_derive",
