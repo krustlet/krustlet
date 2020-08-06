@@ -75,6 +75,10 @@ fn config_dir() -> std::path::PathBuf {
     home_dir.join(".krustlet/config")
 }
 
+fn config_file_path_str(file_name: impl AsRef<std::path::Path>) -> String {
+    config_dir().join(file_name).to_str().unwrap().to_owned()
+}
+
 fn build_workspace() -> anyhow::Result<()> {
     let build_result = std::process::Command::new("cargo")
         .args(&["build"])
@@ -263,28 +267,10 @@ fn launch_kubelet(
     // run the kubelet as a background process using the
     // same cmd line as in the justfile:
     // KUBECONFIG=$(eval echo $CONFIG_DIR)/kubeconfig-wasi cargo run --bin krustlet-wasi {{FLAGS}} -- --node-name krustlet-wasi --port 3001 --bootstrap-file $(eval echo $CONFIG_DIR)/bootstrap.conf --cert-file $(eval echo $CONFIG_DIR)/krustlet-wasi.crt --private-key-file $(eval echo $CONFIG_DIR)/krustlet-wasi.key
-    // TODO: all this to_str().unwrap().to_owned() is farcical - what is the right way to do this?
-    let config_dir = config_dir();
-    let bootstrap_conf = config_dir
-        .join("bootstrap.conf")
-        .to_str()
-        .unwrap()
-        .to_owned();
-    let cert = config_dir
-        .join(format!("{}.crt", name))
-        .to_str()
-        .unwrap()
-        .to_owned();
-    let private_key = config_dir
-        .join(format!("{}.key", name))
-        .to_str()
-        .unwrap()
-        .to_owned();
-    let kubeconfig = config_dir
-        .join(format!("kubeconfig-{}", kubeconfig_suffix))
-        .to_str()
-        .unwrap()
-        .to_owned();
+    let bootstrap_conf = config_file_path_str("bootstrap.conf");
+    let cert = config_file_path_str(format!("{}.crt", name));
+    let private_key = config_file_path_str(format!("{}.key", name));
+    let kubeconfig = config_file_path_str(format!("kubeconfig-{}", kubeconfig_suffix));
     let port_arg = format!("{}", kubelet_port);
 
     let repo_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
