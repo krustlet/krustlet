@@ -19,7 +19,7 @@ fn main() {
     match build_result {
         Ok(()) => {
             println!("Build succeeded");
-        },
+        }
         Err(e) => {
             eprintln!("{}", e);
             eprintln!("Build FAILED");
@@ -82,7 +82,10 @@ fn build_workspace() -> anyhow::Result<()> {
 
     match build_result.status.success() {
         true => Ok(()),
-        false => Err(anyhow::anyhow!("{}", String::from_utf8(build_result.stderr).unwrap())),
+        false => Err(anyhow::anyhow!(
+            "{}",
+            String::from_utf8(build_result.stderr).unwrap()
+        )),
     }
 }
 
@@ -251,25 +254,60 @@ fn run_bootstrap() -> anyhow::Result<()> {
     }
 }
 
-fn launch_kubelet(name: &str, kubeconfig_suffix: &str, kubelet_port: i32, need_csr: bool) -> anyhow::Result<ChildProcessTerminator> {
+fn launch_kubelet(
+    name: &str,
+    kubeconfig_suffix: &str,
+    kubelet_port: i32,
+    need_csr: bool,
+) -> anyhow::Result<ChildProcessTerminator> {
     // run the kubelet as a background process using the
     // same cmd line as in the justfile:
     // KUBECONFIG=$(eval echo $CONFIG_DIR)/kubeconfig-wasi cargo run --bin krustlet-wasi {{FLAGS}} -- --node-name krustlet-wasi --port 3001 --bootstrap-file $(eval echo $CONFIG_DIR)/bootstrap.conf --cert-file $(eval echo $CONFIG_DIR)/krustlet-wasi.crt --private-key-file $(eval echo $CONFIG_DIR)/krustlet-wasi.key
     // TODO: all this to_str().unwrap().to_owned() is farcical - what is the right way to do this?
     let config_dir = config_dir();
-    let bootstrap_conf = config_dir.join("bootstrap.conf").to_str().unwrap().to_owned();
-    let cert = config_dir.join(format!("{}.crt", name)).to_str().unwrap().to_owned();
-    let private_key = config_dir.join(format!("{}.key", name)).to_str().unwrap().to_owned();
-    let kubeconfig = config_dir.join(format!("kubeconfig-{}", kubeconfig_suffix)).to_str().unwrap().to_owned();
+    let bootstrap_conf = config_dir
+        .join("bootstrap.conf")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let cert = config_dir
+        .join(format!("{}.crt", name))
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let private_key = config_dir
+        .join(format!("{}.key", name))
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let kubeconfig = config_dir
+        .join(format!("kubeconfig-{}", kubeconfig_suffix))
+        .to_str()
+        .unwrap()
+        .to_owned();
     let port_arg = format!("{}", kubelet_port);
 
     let repo_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let bin_path = repo_root.join("target/debug").join(name);
 
     let mut launch_kubelet_process = std::process::Command::new(bin_path)
-        .args(&["--node-name", name, "--port", &port_arg, "--bootstrap-file", &bootstrap_conf, "--cert-file", &cert, "--private-key-file", &private_key])
+        .args(&[
+            "--node-name",
+            name,
+            "--port",
+            &port_arg,
+            "--bootstrap-file",
+            &bootstrap_conf,
+            "--cert-file",
+            &cert,
+            "--private-key-file",
+            &private_key,
+        ])
         .env("KUBECONFIG", kubeconfig)
-        .env("RUSTLOG", "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,main=debug")
+        .env(
+            "RUSTLOG",
+            "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,main=debug",
+        )
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
@@ -283,7 +321,9 @@ fn launch_kubelet(name: &str, kubeconfig_suffix: &str, kubelet_port: i32, need_c
         println!("Finished bootstrapping for kubelet {}", name);
     }
 
-    let terminator = ChildProcessTerminator { child: launch_kubelet_process };
+    let terminator = ChildProcessTerminator {
+        child: launch_kubelet_process,
+    };
     Ok(terminator)
 }
 
@@ -304,7 +344,7 @@ fn wait_for_tls_certificate_approval(stdout: impl std::io::Read) -> anyhow::Resu
                         approve_csr(csr_name)?
                     }
                 }
-            },
+            }
             Err(e) => eprintln!("Error reading kubelet stdout: {}", e),
         }
     }
@@ -320,7 +360,11 @@ fn approve_csr(csr_name: &str) -> anyhow::Result<()> {
         .stdout(std::process::Stdio::piped())
         .output()?;
     if !approve_process.status.success() {
-        Err(anyhow::anyhow!("Error approving CSR {}: {}", csr_name, String::from_utf8(approve_process.stderr).unwrap()))
+        Err(anyhow::anyhow!(
+            "Error approving CSR {}: {}",
+            csr_name,
+            String::from_utf8(approve_process.stderr).unwrap()
+        ))
     } else {
         println!("Approved CSR {}", csr_name);
         clean_up_csr(csr_name)
@@ -335,7 +379,11 @@ fn clean_up_csr(csr_name: &str) -> anyhow::Result<()> {
         .stdout(std::process::Stdio::piped())
         .output()?;
     if !clean_up_process.status.success() {
-        Err(anyhow::anyhow!("Error cleaning up CSR {}: {}", csr_name, String::from_utf8(clean_up_process.stderr).unwrap()))
+        Err(anyhow::anyhow!(
+            "Error cleaning up CSR {}: {}",
+            csr_name,
+            String::from_utf8(clean_up_process.stderr).unwrap()
+        ))
     } else {
         println!("Cleaned up approved CSR {}", csr_name);
         Ok(())
@@ -358,20 +406,30 @@ impl Drop for ChildProcessTerminator {
 }
 
 fn run_tests(readiness: BootstrapReadiness) -> anyhow::Result<()> {
-    let wasi_process = launch_kubelet("krustlet-wasi", "wasi", 3001, matches!(readiness, BootstrapReadiness::NeedBootstrapAndApprove));
-    let wascc_process = launch_kubelet("krustlet-wascc", "wascc", 3000, matches!(readiness, BootstrapReadiness::NeedBootstrapAndApprove));
+    let wasi_process = launch_kubelet(
+        "krustlet-wasi",
+        "wasi",
+        3001,
+        matches!(readiness, BootstrapReadiness::NeedBootstrapAndApprove),
+    );
+    let wascc_process = launch_kubelet(
+        "krustlet-wascc",
+        "wascc",
+        3000,
+        matches!(readiness, BootstrapReadiness::NeedBootstrapAndApprove),
+    );
 
     for process in &[&wasi_process, &wascc_process] {
         match process {
             Err(e) => {
                 eprintln!("Error running kubelet process: {}", e);
                 return Err(anyhow::anyhow!("Error running kubelet process: {}", e));
-            },
+            }
             Ok(_) => println!("Running kubelet process"),
         }
     }
 
-    run_test_suite()
+    run_test_suite() // TODO: capture pod logs
 }
 
 fn run_test_suite() -> anyhow::Result<()> {
