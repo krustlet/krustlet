@@ -308,6 +308,7 @@ fn launch_kubelet(
     }
 
     let terminator = OwnedChildProcess {
+        terminated: false,
         child: launch_kubelet_process,
     };
     Ok(terminator)
@@ -377,15 +378,30 @@ fn clean_up_csr(csr_name: &str) -> anyhow::Result<()> {
 }
 
 struct OwnedChildProcess {
+    terminated: bool,
     child: std::process::Child,
+}
+
+impl OwnedChildProcess {
+    fn terminate(&mut self) -> anyhow::Result<()> {
+        match self.child.kill().and_then(|_| self.child.wait()) {
+            Ok(_) => {
+                self.terminated = true;
+                Ok(())
+            },
+            Err(e) => {
+                Err(anyhow::anyhow!("Failed to terminate spawned kubelet process: {}", e))
+            }
+        }
+    }
 }
 
 impl Drop for OwnedChildProcess {
     fn drop(&mut self) {
-        match self.child.kill().and_then(|_| self.child.wait()) {
-            Ok(_) => (),
-            Err(e) => {
-                eprintln!("Failed to terminate spawned kubelet process: {}", e);
+        if !self.terminated {
+            match self.terminate() {
+                Ok(()) => (),
+                Err(e) => eprintln!("{}", e),
             }
         }
     }
@@ -417,24 +433,24 @@ fn run_tests(readiness: BootstrapReadiness) -> anyhow::Result<()> {
 
     let test_result = run_test_suite();
 
-    let mut wasi_process = &mut wasi_process_result.unwrap().child;
-    let mut wascc_process = &mut wascc_process_result.unwrap().child;
-
-    // TODO: ideally we shouldn't have to wait for termination before getting logs
-    // TODO: kill on drop produces error message if this succeeds
-    let terminate_result = wasi_process.kill()
-        .and_then(|_| wascc_process.kill())
-        .and_then(|_| wasi_process.wait())
-        .and_then(|_| wascc_process.wait());
+    let mut wasi_process = wasi_process_result.unwrap();
+    let mut wascc_process = wascc_process_result.unwrap();
 
     if matches!(test_result, Err(_)) {
-        if matches!(terminate_result, Ok(_)) {
-            let wasi_log_destination = std::path::PathBuf::from("./krustlet-wasi-e2e");
-            capture_kubelet_logs("krustlet-wasi", &mut wasi_process, wasi_log_destination);
-            let wascc_log_destination = std::path::PathBuf::from("./krustlet-wascc-e2e");
-            capture_kubelet_logs("krustlet-wascc", &mut wascc_process, wascc_log_destination);
-        } else {
-            eprintln!("Can't capture kubelet logs as they didn't terminate");
+        // TODO: ideally we shouldn't have to wait for termination before getting logs
+        let terminate_result = wasi_process.terminate()
+            .and_then(|_| wascc_process.terminate());
+        match terminate_result {
+            Ok(_) => {
+                let wasi_log_destination = std::path::PathBuf::from("./krustlet-wasi-e2e");
+                capture_kubelet_logs("krustlet-wasi", &mut wasi_process.child, wasi_log_destination);
+                let wascc_log_destination = std::path::PathBuf::from("./krustlet-wascc-e2e");
+                capture_kubelet_logs("krustlet-wascc", &mut wascc_process.child, wascc_log_destination);
+            },
+            Err(e) => {
+                eprintln!("{}", e);
+                eprintln!("Can't capture kubelet logs as they didn't terminate");
+            }
         }
     }
 
