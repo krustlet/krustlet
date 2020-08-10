@@ -291,7 +291,7 @@ fn launch_kubelet(
         ])
         .env("KUBECONFIG", kubeconfig)
         .env(
-            "RUSTLOG",
+            "RUST_LOG",
             "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,main=debug",
         )
         .stdout(std::process::Stdio::piped())
