@@ -512,9 +512,8 @@ fn write_kubelet_log_to_file(
     file_path: std::path::PathBuf,
 ) {
     let mut file_result = std::fs::File::create(file_path);
-    let file_result_mut = file_result.as_mut();
-    match file_result_mut {
-        Ok(file) => {
+    match file_result {
+        Ok(ref mut file) => {
             let write_result = std::io::copy(log, file);
             match write_result {
                 Ok(_) => (),
