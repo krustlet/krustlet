@@ -148,6 +148,27 @@ And in terminal 3:
 $ just test-e2e
 ```
 
+You can run the integration tests without creating additional terminals or
+manually running the kubelets by running:
+
+```
+$ just test-e2e-standalone
+```
+
+This:
+
+* Bootstraps and approves certificates if necessary
+* Runs the WASI and WASCC kubelets in the background
+* Runs the integration tests
+* Terminates the kubelets when the integration tests complete
+* Reports test failures, and saves the kubelet logs if any tests failed
+
+You **will** still need to set `KRUSTLET_NODE_IP` because the tester doesn't know what
+kind of Kubernetes cluster you're using and so doesn't know how to infer a node IP.
+
+_WARNING:_ The standalone integration tester has not been, er, tested on Windows.
+Hashtag irony.
+
 ## Creating your own Kubelets with Krustlet
 
 If you want to create your own Kubelet based on Krustlet, all you need to do is implement a
