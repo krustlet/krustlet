@@ -185,7 +185,7 @@ impl Client {
             self.auth(image, None).await?;
         }
 
-        let url = image.to_v2_manifest_url(self.config.protocol.as_str());
+        let url = self.to_v2_manifest_url(image);
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
 
@@ -216,7 +216,7 @@ impl Client {
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
     async fn pull_manifest(&self, image: &Reference) -> anyhow::Result<(OciManifest, String)> {
-        let url = image.to_v2_manifest_url(self.config.protocol.as_str());
+        let url = self.to_v2_manifest_url(image);
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
 
@@ -266,7 +266,11 @@ impl Client {
         digest: &str,
         mut out: T,
     ) -> anyhow::Result<()> {
-        let url = image.to_v2_blob_url(self.config.protocol.as_str(), digest);
+        let url = self.to_v2_blob_url(
+            image.registry(),
+            image.repository(),
+            digest,
+        );
         let mut stream = self
             .client
             .get(&url)
@@ -280,6 +284,38 @@ impl Client {
         }
 
         Ok(())
+    }
+
+    /// Convert a Reference to a v2 manifest URL.
+    fn to_v2_manifest_url(&self, reference: &Reference) -> String {
+        if let Some(digest) = reference.digest() {
+            format!(
+                "{}://{}/v2/{}/manifests/{}",
+                self.config.protocol.as_str(),
+                reference.registry(),
+                reference.repository(),
+                digest,
+            )
+        } else {
+            format!(
+                "{}://{}/v2/{}/manifests/{}",
+                self.config.protocol.as_str(),
+                reference.registry(),
+                reference.repository(),
+                reference.tag().unwrap_or("latest")
+            )
+        }
+    }
+
+    /// Convert a Reference to a v2 blob (layer) URL.
+    fn to_v2_blob_url(&self, registry: &str, repository: &str, digest: &str) -> String {
+        format!(
+            "{}://{}/v2/{}/blobs/{}",
+            self.config.protocol.as_str(),
+            registry,
+            repository,
+            digest,
+        )
     }
 
     /// Generate the headers necessary for authentication.
@@ -397,7 +433,52 @@ mod test {
     use super::*;
     use std::convert::TryFrom;
 
-    const HELLO_IMAGE: &str = "webassembly.azurecr.io/hello-wasm:v1";
+    const HELLO_IMAGE_TAGGED: &str = "webassembly.azurecr.io/hello-wasm:v1";
+    const HELLO_IMAGE_DIGESTED: &str = "webassembly.azurecr.io/hello-wasm@sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7";
+
+    #[test]
+    fn test_to_v2_blob_url() {
+        let image = Reference::try_from(HELLO_IMAGE_TAGGED).expect("failed to parse reference");
+        let blob_url = Client::default().to_v2_blob_url(image.registry(), image.repository(), "sha256:deadbeef");
+        assert_eq!("https://webassembly.azurecr.io/v2/hello-wasm/blobs/sha256:deadbeef", blob_url)
+    }
+
+    #[test]
+    fn test_to_v2_manifest() {
+        let c = Client::default();
+
+        // Tag only
+        let reference = Reference::try_from(HELLO_IMAGE_TAGGED)
+            .expect("Could not parse reference");
+        assert_eq!(
+            "https://webassembly.azurecr.io/v2/hello-wasm/manifests/v1",
+            c.to_v2_manifest_url(&reference)
+        );
+
+        // Digest only
+        let reference = Reference::try_from(HELLO_IMAGE_DIGESTED)
+            .expect("Could not parse reference");
+        assert_eq!(
+            "https://webassembly.azurecr.io/v2/hello-wasm/manifests/sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7",
+            c.to_v2_manifest_url(&reference)
+        );
+
+        // Tag and digest
+        let reference = Reference::try_from("webassembly.azurecr.io/hello:v1@sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9")
+            .expect("Could not parse reference");
+        assert_eq!(
+            "https://webassembly.azurecr.io/v2/hello/manifests/sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9",
+            c.to_v2_manifest_url(&reference)
+        );
+
+        // No tag or digest
+        let reference = Reference::try_from("webassembly.azurecr.io/hello")
+            .expect("Could not parse reference");
+        assert_eq!(
+            "https://webassembly.azurecr.io/v2/hello/manifests/latest", // TODO: confirm this is the right translation when no tag
+            c.to_v2_manifest_url(&reference)
+        );
+    }
 
     #[tokio::test]
     async fn test_version() {
@@ -411,7 +492,7 @@ mod test {
 
     #[tokio::test]
     async fn test_auth() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
+        let image = Reference::try_from(HELLO_IMAGE_TAGGED).expect("failed to parse reference");
         let mut c = Client::default();
         c.auth(&image, None)
             .await
@@ -424,7 +505,7 @@ mod test {
 
     #[tokio::test]
     async fn test_pull_manifest() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
+        let image = Reference::try_from(HELLO_IMAGE_TAGGED).expect("failed to parse reference");
         // Currently, pull_manifest does not perform Authz, so this will fail.
         let c = Client::default();
         c.pull_manifest(&image)
@@ -432,8 +513,7 @@ mod test {
             .expect_err("pull manifest should fail");
 
         // But this should pass
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-        // Currently, pull_manifest does not perform Authz, so this will fail.
+        let image = Reference::try_from(HELLO_IMAGE_TAGGED).expect("failed to parse reference");
         let mut c = Client::default();
         c.auth(&image, None).await.expect("authenticated");
         let (manifest, _) = c
@@ -444,11 +524,22 @@ mod test {
         // The test on the manifest checks all fields. This is just a brief sanity check.
         assert_eq!(manifest.schema_version, 2);
         assert!(!manifest.layers.is_empty());
+
+        // Validate pulling by digest
+        let image = Reference::try_from(HELLO_IMAGE_DIGESTED).expect("failed to parse reference");
+        let mut c = Client::default();
+        c.auth(&image, None).await.expect("authenticated");
+        let (manifest, _) = c
+            .pull_manifest(&image)
+            .await
+            .expect("pull manifest should not fail");
+        assert_eq!(manifest.config.digest, "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a");
+        assert!(!manifest.layers.is_empty());
     }
 
     #[tokio::test]
     async fn test_fetch_digest() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
+        let image = Reference::try_from(HELLO_IMAGE_TAGGED).expect("failed to parse reference");
 
         let mut c = Client::default();
         c.fetch_manifest_digest(&image)
@@ -456,7 +547,7 @@ mod test {
             .expect("pull manifest should not fail");
 
         // This should pass
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
+        let image = Reference::try_from(HELLO_IMAGE_TAGGED).expect("failed to parse reference");
         let mut c = Client::default();
         c.auth(&image, None).await.expect("authenticated");
         let digest = c
@@ -472,7 +563,7 @@ mod test {
 
     #[tokio::test]
     async fn test_pull_layer() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
+        let image = Reference::try_from(HELLO_IMAGE_TAGGED).expect("failed to parse reference");
         let mut c = Client::default();
         c.auth(&image, None).await.expect("authenticated");
         let (manifest, _) = c
@@ -494,7 +585,7 @@ mod test {
 
     #[tokio::test]
     async fn test_pull_image() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
+        let image = Reference::try_from(HELLO_IMAGE_TAGGED).expect("failed to parse reference");
         let mut c = Client::default();
 
         let image_data = c.pull_image(&image).await.expect("failed to pull manifest");

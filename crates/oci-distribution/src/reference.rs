@@ -3,13 +3,15 @@ use std::convert::{Into, TryFrom};
 /// An OCI image reference
 ///
 /// currently, the library only accepts modules tagged in the following structure:
-/// <registry>/<repository>:<tag> or <registry>/<repository>
+/// <registry>/<repository>, <registry>/<repository>:<tag>, or <registry>/<repository>@<digest>
 /// for example: webassembly.azurecr.io/hello:v1 or webassembly.azurecr.io/hello
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct Reference {
     whole: String,
-    slash: usize,
-    colon: Option<usize>,
+    repo_start: usize,
+    repo_end: usize,
+    tag_start: Option<usize>,
+    digest_start: Option<usize>,
 }
 
 impl std::fmt::Debug for Reference {
@@ -32,62 +34,65 @@ impl Reference {
 
     /// Get the registry name.
     pub fn registry(&self) -> &str {
-        &self.whole[..self.slash]
+        &self.whole[..self.repo_start]
     }
 
     /// Get the repository (a.k.a the image name) of this reference
     pub fn repository(&self) -> &str {
-        match self.colon {
-            Some(c) => &self.whole[self.slash + 1..c],
-            None => &self.whole[self.slash + 1..],
-        }
+        &self.whole[self.repo_start + 1..self.repo_end]
     }
 
     /// Get the tag for this reference.
     pub fn tag(&self) -> Option<&str> {
-        match self.colon {
-            Some(c) => Some(&self.whole[c + 1..]),
-            None => None,
+        match (self.digest_start, self.tag_start) {
+            (Some(d), Some(t)) => Some(&self.whole[t + 1..d]),
+            (None, Some(t)) => Some(&self.whole[t + 1..]),
+            _ => None,
         }
     }
 
-    /// Convert a Reference to a v2 manifest URL.
-    pub fn to_v2_manifest_url(&self, protocol: &str) -> String {
-        format!(
-            "{}://{}/v2/{}/manifests/{}",
-            protocol,
-            self.registry(),
-            self.repository(),
-            self.tag().unwrap_or("latest")
-        )
-    }
-
-    /// Convert a Reference to a v2 blob (layer) URL.
-    pub fn to_v2_blob_url(&self, protocol: &str, digest: &str) -> String {
-        format!(
-            "{}://{}/v2/{}/blobs/{}",
-            protocol,
-            self.registry(),
-            self.repository(),
-            digest
-        )
+    /// Get the digest for this reference.
+    pub fn digest(&self) -> Option<&str> {
+        match self.digest_start {
+            Some(c) => Some(&self.whole[c + 1..]),
+            None => None,
+        }
     }
 }
 
 impl TryFrom<String> for Reference {
     type Error = anyhow::Error;
     fn try_from(string: String) -> Result<Self, Self::Error> {
-        let slash = string.find('/').ok_or_else(|| {
+        let repo_start = string.find('/').ok_or_else(|| {
             anyhow::anyhow!(
                 "Failed to parse reference string '{}'. Expected at least one slash (/)",
                 string
             )
         })?;
-        let colon = string[slash + 1..].find(':');
+        let digest_start = string[repo_start + 1..].find('@').map(|i| repo_start + i + 1);
+        let mut tag_start = string[repo_start + 1..].find(':').map(|i| repo_start + i + 1);
+
+        let repo_end = match (digest_start, tag_start) {
+            (Some(d), Some(t)) => {
+                if t > d {
+                    // tag_start is after digest_start, so no tag is actually present
+                    tag_start = None;
+                    d
+                } else {
+                    t
+                }
+            },
+            (Some(d), None) => d,
+            (None, Some(t)) => t,
+            (None, None) => string.len(),
+        };
+
         Ok(Reference {
             whole: string,
-            slash,
-            colon: colon.map(|c| slash + 1 + c),
+            repo_start,
+            repo_end,
+            tag_start,
+            digest_start,
         })
     }
 }
@@ -111,6 +116,7 @@ mod tests {
 
     #[test]
     fn correctly_parses_string() {
+        // Tag only (String)
         let reference = Reference::try_from("webassembly.azurecr.io/hello:v1".to_owned())
             .expect("Could not parse reference");
 
@@ -118,6 +124,7 @@ mod tests {
         assert_eq!(reference.repository(), "hello");
         assert_eq!(reference.tag(), Some("v1"));
 
+        // Tag only (&str)
         let reference = Reference::try_from("webassembly.azurecr.io/hello:v1")
             .expect("Could not parse reference");
 
@@ -125,6 +132,25 @@ mod tests {
         assert_eq!(reference.repository(), "hello");
         assert_eq!(reference.tag(), Some("v1"));
 
+        // Digest only
+        let reference = Reference::try_from("webassembly.azurecr.io/hello@sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9")
+            .expect("Could not parse reference");
+
+        assert_eq!(reference.registry(), "webassembly.azurecr.io");
+        assert_eq!(reference.repository(), "hello");
+        assert_eq!(reference.tag(), None);
+        assert_eq!(reference.digest(), Some("sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9"));
+
+        // Tag and digest
+        let reference = Reference::try_from("webassembly.azurecr.io/hello:v1@sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9")
+        .expect("Could not parse reference");
+
+        assert_eq!(reference.registry(), "webassembly.azurecr.io");
+        assert_eq!(reference.repository(), "hello");
+        assert_eq!(reference.tag(), Some("v1"));
+        assert_eq!(reference.digest(), Some("sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9"));
+
+        // No tag or digest
         let reference =
             Reference::try_from("webassembly.azurecr.io/hello").expect("Could not parse reference");
 
@@ -132,24 +158,8 @@ mod tests {
         assert_eq!(reference.repository(), "hello");
         assert_eq!(reference.tag(), None);
 
+        // Missing slash character
         Reference::try_from("webassembly.azurecr.io:hello")
             .expect_err("No slash should produce an error");
-    }
-
-    #[test]
-    fn test_to_v2_manifest() {
-        let reference = Reference::try_from("webassembly.azurecr.io/hello:v1".to_owned())
-            .expect("Could not parse reference");
-        assert_eq!(
-            "https://webassembly.azurecr.io/v2/hello/manifests/v1",
-            reference.to_v2_manifest_url("https")
-        );
-
-        let reference = Reference::try_from("webassembly.azurecr.io/hello".to_owned())
-            .expect("Could not parse reference");
-        assert_eq!(
-            "https://webassembly.azurecr.io/v2/hello/manifests/latest", // TODO: confirm this is the right translation when no tag
-            reference.to_v2_manifest_url("https")
-        );
     }
 }
