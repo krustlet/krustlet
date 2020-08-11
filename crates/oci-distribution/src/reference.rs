@@ -1,4 +1,5 @@
 use std::convert::{Into, TryFrom};
+use std::str::FromStr;
 
 /// An OCI image reference
 ///
@@ -108,6 +109,14 @@ impl TryFrom<&str> for Reference {
     type Error = anyhow::Error;
     fn try_from(string: &str) -> Result<Self, Self::Error> {
         TryFrom::try_from(string.to_owned())
+    }
+}
+
+impl FromStr for Reference {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Reference::try_from(s)
     }
 }
 
