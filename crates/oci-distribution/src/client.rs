@@ -266,11 +266,7 @@ impl Client {
         digest: &str,
         mut out: T,
     ) -> anyhow::Result<()> {
-        let url = self.to_v2_blob_url(
-            image.registry(),
-            image.repository(),
-            digest,
-        );
+        let url = self.to_v2_blob_url(image.registry(), image.repository(), digest);
         let mut stream = self
             .client
             .get(&url)
@@ -439,8 +435,15 @@ mod test {
     #[test]
     fn test_to_v2_blob_url() {
         let image = Reference::try_from(HELLO_IMAGE_TAGGED).expect("failed to parse reference");
-        let blob_url = Client::default().to_v2_blob_url(image.registry(), image.repository(), "sha256:deadbeef");
-        assert_eq!("https://webassembly.azurecr.io/v2/hello-wasm/blobs/sha256:deadbeef", blob_url)
+        let blob_url = Client::default().to_v2_blob_url(
+            image.registry(),
+            image.repository(),
+            "sha256:deadbeef",
+        );
+        assert_eq!(
+            "https://webassembly.azurecr.io/v2/hello-wasm/blobs/sha256:deadbeef",
+            blob_url
+        )
     }
 
     #[test]
@@ -448,16 +451,15 @@ mod test {
         let c = Client::default();
 
         // Tag only
-        let reference = Reference::try_from(HELLO_IMAGE_TAGGED)
-            .expect("Could not parse reference");
+        let reference = Reference::try_from(HELLO_IMAGE_TAGGED).expect("Could not parse reference");
         assert_eq!(
             "https://webassembly.azurecr.io/v2/hello-wasm/manifests/v1",
             c.to_v2_manifest_url(&reference)
         );
 
         // Digest only
-        let reference = Reference::try_from(HELLO_IMAGE_DIGESTED)
-            .expect("Could not parse reference");
+        let reference =
+            Reference::try_from(HELLO_IMAGE_DIGESTED).expect("Could not parse reference");
         assert_eq!(
             "https://webassembly.azurecr.io/v2/hello-wasm/manifests/sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7",
             c.to_v2_manifest_url(&reference)
@@ -472,8 +474,8 @@ mod test {
         );
 
         // No tag or digest
-        let reference = Reference::try_from("webassembly.azurecr.io/hello")
-            .expect("Could not parse reference");
+        let reference =
+            Reference::try_from("webassembly.azurecr.io/hello").expect("Could not parse reference");
         assert_eq!(
             "https://webassembly.azurecr.io/v2/hello/manifests/latest", // TODO: confirm this is the right translation when no tag
             c.to_v2_manifest_url(&reference)
@@ -533,7 +535,10 @@ mod test {
             .pull_manifest(&image)
             .await
             .expect("pull manifest should not fail");
-        assert_eq!(manifest.config.digest, "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a");
+        assert_eq!(
+            manifest.config.digest,
+            "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+        );
         assert!(!manifest.layers.is_empty());
     }
 

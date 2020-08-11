@@ -69,8 +69,12 @@ impl TryFrom<String> for Reference {
                 string
             )
         })?;
-        let digest_start = string[repo_start + 1..].find('@').map(|i| repo_start + i + 1);
-        let mut tag_start = string[repo_start + 1..].find(':').map(|i| repo_start + i + 1);
+        let digest_start = string[repo_start + 1..]
+            .find('@')
+            .map(|i| repo_start + i + 1);
+        let mut tag_start = string[repo_start + 1..]
+            .find(':')
+            .map(|i| repo_start + i + 1);
 
         let repo_end = match (digest_start, tag_start) {
             (Some(d), Some(t)) => {
@@ -81,7 +85,7 @@ impl TryFrom<String> for Reference {
                 } else {
                     t
                 }
-            },
+            }
             (Some(d), None) => d,
             (None, Some(t)) => t,
             (None, None) => string.len(),
@@ -139,7 +143,10 @@ mod tests {
         assert_eq!(reference.registry(), "webassembly.azurecr.io");
         assert_eq!(reference.repository(), "hello");
         assert_eq!(reference.tag(), None);
-        assert_eq!(reference.digest(), Some("sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9"));
+        assert_eq!(
+            reference.digest(),
+            Some("sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9")
+        );
 
         // Tag and digest
         let reference = Reference::try_from("webassembly.azurecr.io/hello:v1@sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9")
@@ -148,7 +155,10 @@ mod tests {
         assert_eq!(reference.registry(), "webassembly.azurecr.io");
         assert_eq!(reference.repository(), "hello");
         assert_eq!(reference.tag(), Some("v1"));
-        assert_eq!(reference.digest(), Some("sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9"));
+        assert_eq!(
+            reference.digest(),
+            Some("sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9")
+        );
 
         // No tag or digest
         let reference =
