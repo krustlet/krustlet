@@ -16,6 +16,9 @@ test:
 test-e2e:
     cargo test --test integration_tests
 
+test-e2e-standalone:
+    cargo run --bin oneclick
+
 run-wascc +FLAGS='': bootstrap
     KUBECONFIG=$(eval echo $CONFIG_DIR)/kubeconfig-wascc cargo run --bin krustlet-wascc {{FLAGS}} -- --node-name krustlet-wascc --port 3000 --bootstrap-file $(eval echo $CONFIG_DIR)/bootstrap.conf --cert-file $(eval echo $CONFIG_DIR)/krustlet-wascc.crt --private-key-file $(eval echo $CONFIG_DIR)/krustlet-wascc.key
 

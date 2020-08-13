@@ -17,8 +17,6 @@ use std::collections::HashMap;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
 
-const OCI_VERSION_KEY: &str = "Docker-Distribution-Api-Version";
-
 /// The data for an image or module.
 #[derive(Clone)]
 pub struct ImageData {
@@ -96,23 +94,6 @@ impl Client {
             content: result,
             digest: Some(digest),
         })
-    }
-
-    /// According to the v2 specification, 200 and 401 error codes MUST return the
-    /// version. It appears that any other response code should be deemed non-v2.
-    ///
-    /// For this implementation, it will return v2 or an error result. If the error is a
-    /// `reqwest` error, the request itself failed. All other error messages mean that
-    /// v2 is not supported.
-    async fn version(&self, host: &str) -> anyhow::Result<String> {
-        let url = format!("{}://{}/v2/", self.config.protocol.as_str(), host);
-        let res = self.client.get(&url).send().await?;
-        let dist_hdr = res.headers().get(OCI_VERSION_KEY);
-        let version = dist_hdr
-            .ok_or_else(|| anyhow::anyhow!("no header v2 found"))?
-            .to_str()?
-            .to_owned();
-        Ok(version)
     }
 
     /// Perform an OAuth v2 auth request if necessary.
@@ -470,16 +451,6 @@ mod test {
                 let reference = Reference::try_from(image).expect("failed to parse reference");
                 assert_eq!(c.to_v2_manifest_url(&reference), expected_uri);
         }
-    }
-
-    #[tokio::test]
-    async fn test_version() {
-        let c = Client::default();
-        let ver = c
-            .version("webassembly.azurecr.io")
-            .await
-            .expect("result from version request");
-        assert_eq!("registry/2.0".to_owned(), ver);
     }
 
     #[tokio::test]
