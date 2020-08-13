@@ -434,7 +434,10 @@ mod test {
     const HELLO_IMAGE_DIGEST: &str = "webassembly.azurecr.io/hello-wasm@sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7";
     const HELLO_IMAGE_TAG_AND_DIGEST: &str = "webassembly.azurecr.io/hello-wasm:v1@sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7";
     const TEST_IMAGES: &'static [&str] = &[
-        HELLO_IMAGE_NO_TAG,
+        // TODO(jlegrone): this image cannot be pulled currently because no `latest`
+        //                 tag exists on the image repository. Re-enable this image
+        //                 in tests once `latest` is published.
+        // HELLO_IMAGE_NO_TAG,
         HELLO_IMAGE_TAG,
         HELLO_IMAGE_DIGEST,
         HELLO_IMAGE_TAG_AND_DIGEST,
