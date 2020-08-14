@@ -69,25 +69,28 @@ impl TryFrom<String> for Reference {
                 string
             )
         })?;
+        let first_colon = string[repo_start + 1..].find(':').map(|i| repo_start + i);
         let digest_start = string[repo_start + 1..]
             .find('@')
             .map(|i| repo_start + i + 1);
-        let mut tag_start = string[repo_start + 1..]
-            .find(':')
-            .map(|i| repo_start + i + 1);
-
+        let tag_start = match (digest_start, first_colon) {
+            // Check if a colon comes before a digest delimeter, indicating
+            // that image ref is in the form registry/repo:tag@digest
+            (Some(ds), Some(fc)) => match fc < ds {
+                true => Some(fc),
+                false => None,
+            },
+            // No digest delimeter was found but a colon is present, so ref
+            // must be in the form registry/repo:tag
+            (None, Some(fc)) => Some(fc),
+            // No tag delimeter was found
+            _ => None,
+        }
+        .map(|i| i + 1);
         let repo_end = match (digest_start, tag_start) {
-            (Some(d), Some(t)) => {
-                if t > d {
-                    // tag_start is after digest_start, so no tag is actually present
-                    tag_start = None;
-                    d
-                } else {
-                    t
-                }
-            }
-            (Some(d), None) => d,
-            (None, Some(t)) => t,
+            (Some(_), Some(ts)) => ts,
+            (None, Some(ts)) => ts,
+            (Some(ds), None) => ds,
             (None, None) => string.len(),
         };
 
