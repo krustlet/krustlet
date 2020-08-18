@@ -288,6 +288,8 @@ fn launch_kubelet(
             &cert,
             "--private-key-file",
             &private_key,
+            "--x-allow-local-modules",
+            "true",
         ])
         .env("KUBECONFIG", kubeconfig)
         .env(
