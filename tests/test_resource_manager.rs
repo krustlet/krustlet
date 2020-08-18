@@ -24,10 +24,30 @@ impl TestResourceSpec {
         )
     }
 
+    pub fn secret_multi(resource_name: &str, entries: &[(&str, &str)]) -> Self {
+        Self::Secret(
+            resource_name.to_owned(),
+            entries
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        )
+    }
+
     pub fn config_map(resource_name: &str, value_name: &str, value: &str) -> Self {
         Self::ConfigMap(
             resource_name.to_owned(),
             vec![(value_name.to_owned(), value.to_owned())],
+        )
+    }
+
+    pub fn config_map_multi(resource_name: &str, entries: &[(&str, &str)]) -> Self {
+        Self::ConfigMap(
+            resource_name.to_owned(),
+            entries
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
         )
     }
 }
@@ -217,7 +237,10 @@ fn object_of_tuples(source: &[(String, String)]) -> serde_json::Value {
     let mut map = serde_json::Map::new();
 
     for (key, value) in source {
-        map.insert(key.to_string(), serde_json::Value::String(value.to_string()));
+        map.insert(
+            key.to_string(),
+            serde_json::Value::String(value.to_string()),
+        );
     }
 
     serde_json::Value::Object(map)

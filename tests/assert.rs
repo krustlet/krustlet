@@ -56,7 +56,10 @@ pub async fn pod_exited_successfully(pods: &Api<Pod>, pod_name: &str) -> anyhow:
             .clone()
     })()
     .expect("Could not fetch terminated states");
-    assert_eq!(state.exit_code, 0);
+    if state.exit_code != 0 {
+        try_dump_pod_logs(pods, pod_name).await;
+        assert_eq!(state.exit_code, 0);
+    }
 
     Ok(())
 }
@@ -128,4 +131,19 @@ pub async fn container_file_contains(
         container_file_bytes
     );
     Ok(())
+}
+
+pub async fn try_dump_pod_logs(pods: &Api<Pod>, pod_name: &str) {
+    let logs = pods.logs(pod_name, &LogParams::default()).await;
+
+    match logs {
+        Err(e) => {
+            println!("Unable to dump logs for {}: {}", pod_name, e);
+        }
+        Ok(content) => {
+            println!("--- BEGIN LOGS for pod {}", pod_name);
+            println!("{}", content);
+            println!("--- END LOGS for pod {}", pod_name);
+        }
+    }
 }
