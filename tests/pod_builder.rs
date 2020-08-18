@@ -23,6 +23,7 @@ pub enum WasmerciserVolumeSource {
     ConfigMap(&'static str),
     ConfigMapItems(&'static str, Vec<(&'static str, &'static str)>),
     Secret(&'static str),
+    SecretItems(&'static str, Vec<(&'static str, &'static str)>),
 }
 
 fn wasmerciser_container(
@@ -35,7 +36,8 @@ fn wasmerciser_container(
         .collect();
     let container: Container = serde_json::from_value(json!({
         "name": spec.name,
-        "image": "webassembly.azurecr.io/wasmerciser:v0.1.0",
+        // "image": "webassembly.azurecr.io/wasmerciser:v0.1.0",
+        "image": "fs//home/ivan/github/krustlet/demos/wasi/wasmerciser/target/wasm32-wasi/release/wasmerciser.wasm",
         "args": spec.args,
         "volumeMounts": volume_mounts,
     }))?;
@@ -76,12 +78,33 @@ fn wasmerciser_volume(
 
             Ok((volume, None))
         }
-        WasmerciserVolumeSource::ConfigMapItems(_, _) => Err(anyhow::anyhow!("Not done yet")),
+        WasmerciserVolumeSource::ConfigMapItems(name, ref items) => {
+            let volume: Volume = serde_json::from_value(json!({
+                "name": spec.volume_name,
+                "configMap": {
+                    "name": name,
+                    "items": items.iter().map(|(key, path)| json!({"key": key, "path": path})).collect::<Vec<_>>(),
+                }
+            }))?;
+
+            Ok((volume, None))
+        }
         WasmerciserVolumeSource::Secret(name) => {
             let volume: Volume = serde_json::from_value(json!({
                 "name": spec.volume_name,
                 "secret": {
                     "secretName": name,
+                }
+            }))?;
+
+            Ok((volume, None))
+        }
+        WasmerciserVolumeSource::SecretItems(name, ref items) => {
+            let volume: Volume = serde_json::from_value(json!({
+                "name": spec.volume_name,
+                "secret": {
+                    "secretName": name,
+                    "items": items.iter().map(|(key, path)| json!({"key": key, "path": path})).collect::<Vec<_>>(),
                 }
             }))?;
 
