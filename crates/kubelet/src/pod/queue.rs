@@ -68,10 +68,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
 
     pub async fn enqueue(&mut self, event: WatchEvent<KubePod>) -> anyhow::Result<()> {
         match &event {
-            WatchEvent::Added(pod)
-            | WatchEvent::Bookmark(pod)
-            | WatchEvent::Deleted(pod)
-            | WatchEvent::Modified(pod) => {
+            WatchEvent::Added(pod) | WatchEvent::Deleted(pod) | WatchEvent::Modified(pod) => {
                 let pod_name = pod.name();
                 let pod_namespace = pod.namespace().unwrap_or_default();
                 let key = pod_key(&pod_namespace, &pod_name);
@@ -103,6 +100,8 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                 }
                 Ok(())
             }
+            // Ignore bookmarks for now
+            WatchEvent::Bookmark(_) => Ok(()),
             WatchEvent::Error(e) => Err(e.clone().into()),
         }
     }
@@ -110,10 +109,10 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
 
 fn pod_from_event(event: &WatchEvent<KubePod>) -> Option<KubePod> {
     match event {
-        WatchEvent::Added(pod)
-        | WatchEvent::Bookmark(pod)
-        | WatchEvent::Deleted(pod)
-        | WatchEvent::Modified(pod) => Some(pod.clone()),
-        WatchEvent::Error(_) => None,
+        WatchEvent::Added(pod) | WatchEvent::Deleted(pod) | WatchEvent::Modified(pod) => {
+            Some(pod.clone())
+        }
+        // Ignore bookmarks for now
+        WatchEvent::Error(_) | WatchEvent::Bookmark(_) => None,
     }
 }

@@ -138,7 +138,7 @@ pub async fn create<P: 'static + Provider + Sync + Send>(
     let node = builder.build().into_inner();
     match retry!(node_client.create(&PostParams::default(), &node).await, times: 4) {
         Ok(node) => {
-            let node_uid = node.metadata.unwrap().uid.unwrap();
+            let node_uid = node.metadata.uid.unwrap();
             if let Err(e) = create_lease(&node_uid, &config.node_name, &client).await {
                 error!("Failed to create lease: {}", e);
                 return;
@@ -162,7 +162,7 @@ pub async fn uid(client: &kube::Client, node_name: &str) -> anyhow::Result<Strin
     match retry!(node_client.get(node_name).await, times: 4, log_error: |e| error!("Failed to get node to cordon: {:?}", e))
     {
         Ok(KubeNode {
-            metadata: Some(ObjectMeta { uid: Some(uid), .. }),
+            metadata: ObjectMeta { uid: Some(uid), .. },
             ..
         }) => Ok(uid),
         Ok(_) => {
@@ -679,7 +679,7 @@ impl Builder {
         status.addresses = Some(self.addresses);
 
         let kube_node = k8s_openapi::api::core::v1::Node {
-            metadata: Some(metadata),
+            metadata,
             spec: Some(spec),
             status: Some(status),
         };

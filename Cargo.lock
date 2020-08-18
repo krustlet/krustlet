@@ -594,9 +594,9 @@ checksum = "4785bdd1c96b2a846b2bd7cc02e86b6b3dbf14e7e53446c4f54c92a361040822"
 
 [[package]]
 name = "chrono"
-version = "0.4.13"
+version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c74d84029116787153e02106bf53e66828452a4b325cc8652b788b5967c0a0b6"
+checksum = "942f72db697d8767c22d46a598e01f2d3b475501ea43d0db4f16d90259182d0b"
 dependencies = [
  "num-integer",
  "num-traits",
@@ -936,6 +936,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dirs"
+version = "3.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "142995ed02755914747cc6ca76fc7e4583cd18578746716d0508ea6ed558b9ff"
+dependencies = [
+ "dirs-sys",
+]
+
+[[package]]
 name = "dirs-sys"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -983,9 +992,9 @@ dependencies = [
 
 [[package]]
 name = "either"
-version = "1.5.3"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb1f6b1ce1c140482ea30ddd3335fc0024ac7ee112895426e0a629a6c20adfe3"
+checksum = "cd56b59865bce947ac5958779cfa508f6c3b9497cc762b7e24a12d11ccde2c4f"
 
 [[package]]
 name = "encoding_rs"
@@ -1452,17 +1461,17 @@ dependencies = [
 
 [[package]]
 name = "hyper-rustls"
-version = "0.20.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac965ea399ec3a25ac7d13b8affd4b8f39325cca00858ddf5eb29b79e6b14b08"
+checksum = "37743cc83e8ee85eacfce90f2f4102030d9ff0a95244098d781e9bee4a90abb6"
 dependencies = [
  "bytes 0.5.6",
  "futures-util",
  "hyper",
  "log 0.4.11",
- "rustls 0.17.0",
+ "rustls 0.18.1",
  "tokio",
- "tokio-rustls 0.13.1",
+ "tokio-rustls 0.14.0",
  "webpki",
 ]
 
@@ -1566,6 +1575,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ipnet"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47be2f14c678be2fdcab04ab1171db51b2762ce6f0a8ee87c8dd4a04ed216135"
+
+[[package]]
 name = "itertools"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1608,7 +1623,21 @@ dependencies = [
  "bytes 0.5.6",
  "chrono",
  "serde",
- "serde-value",
+ "serde-value 0.6.0",
+ "serde_json",
+]
+
+[[package]]
+name = "k8s-openapi"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57f95fd36c08ce592e67400a0f1a66f432196997d5a7e9a97e8743c33d8a9312"
+dependencies = [
+ "base64 0.12.3",
+ "bytes 0.5.6",
+ "chrono",
+ "serde",
+ "serde-value 0.7.0",
  "serde_json",
 ]
 
@@ -1627,12 +1656,12 @@ name = "krustlet"
 version = "0.4.0"
 dependencies = [
  "anyhow",
- "dirs",
+ "dirs 2.0.2",
  "env_logger",
  "futures",
  "hostname",
- "k8s-openapi",
- "kube",
+ "k8s-openapi 0.8.0",
+ "kube 0.35.1",
  "kubelet",
  "oci-distribution",
  "regex",
@@ -1656,12 +1685,12 @@ dependencies = [
  "base64 0.12.3",
  "bytes 0.5.6",
  "chrono",
- "dirs",
+ "dirs 2.0.2",
  "either",
  "futures",
  "futures-util",
  "http 0.2.1",
- "k8s-openapi",
+ "k8s-openapi 0.8.0",
  "log 0.4.11",
  "openssl",
  "pem",
@@ -1677,6 +1706,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "kube"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be34ed86dca3021a649b574a1628917d694bb75650a3b50c492e1786589a5ac6"
+dependencies = [
+ "Inflector",
+ "base64 0.12.3",
+ "bytes 0.5.6",
+ "chrono",
+ "dirs 3.0.1",
+ "either",
+ "futures",
+ "futures-util",
+ "http 0.2.1",
+ "k8s-openapi 0.9.0",
+ "log 0.4.11",
+ "openssl",
+ "pem",
+ "reqwest",
+ "rustls 0.18.1",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "static_assertions",
+ "thiserror",
+ "time 0.2.16",
+ "tokio",
+ "url 2.1.1",
+]
+
+[[package]]
 name = "kubelet"
 version = "0.4.0"
 dependencies = [
@@ -1684,13 +1744,13 @@ dependencies = [
  "async-trait",
  "base64 0.12.3",
  "chrono",
- "dirs",
+ "dirs 3.0.1",
  "futures",
  "hostname",
  "http 0.2.1",
  "hyper",
- "k8s-openapi",
- "kube",
+ "k8s-openapi 0.9.0",
+ "kube 0.40.0",
  "lazy_static",
  "log 0.4.11",
  "native-tls",
@@ -2104,6 +2164,15 @@ name = "ordered-float"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3741934be594d77de1c8461ebcbbe866f585ea616a9753aa78f2bdc69f0e4579"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "ordered-float"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fe9037165d7023b1228bc4ae9a2fa1a2b0095eca6c2998c624723dfd01314a5"
 dependencies = [
  "num-traits",
 ]
@@ -2581,9 +2650,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.10.6"
+version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b82c9238b305f26f53443e3a4bc8528d64b8d0bee408ec949eb7bf5635ec680"
+checksum = "12427a5577082c24419c9c417db35cfeb65962efc7675bb6b0d5f1f9d315bfe6"
 dependencies = [
  "async-compression",
  "base64 0.12.3",
@@ -2596,6 +2665,7 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "hyper-tls",
+ "ipnet",
  "js-sys",
  "lazy_static",
  "log 0.4.11",
@@ -2604,12 +2674,12 @@ dependencies = [
  "native-tls",
  "percent-encoding 2.1.0",
  "pin-project-lite",
- "rustls 0.17.0",
+ "rustls 0.18.1",
  "serde",
  "serde_json",
  "serde_urlencoded",
  "tokio",
- "tokio-rustls 0.13.1",
+ "tokio-rustls 0.14.0",
  "tokio-tls",
  "url 2.1.1",
  "wasm-bindgen",
@@ -2718,6 +2788,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0d4a31f5d68413404705d6982529b0e11a9aacd4839d1d6222ee3b8cb4015e1"
 dependencies = [
  "base64 0.11.0",
+ "log 0.4.11",
+ "ring",
+ "sct",
+ "webpki",
+]
+
+[[package]]
+name = "rustls"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d1126dcf58e93cee7d098dbda643b5f92ed724f1f6a63007c1116eed6700c81"
+dependencies = [
+ "base64 0.12.3",
  "log 0.4.11",
  "ring",
  "sct",
@@ -2841,7 +2924,17 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a65a7291a8a568adcae4c10a677ebcedbc6c9cec91c054dee2ce40b0e3290eb"
 dependencies = [
- "ordered-float",
+ "ordered-float 1.1.0",
+ "serde",
+]
+
+[[package]]
+name = "serde-value"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
+dependencies = [
+ "ordered-float 2.0.0",
  "serde",
 ]
 
@@ -3037,6 +3130,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
 name = "stdweb"
 version = "0.4.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3190,7 +3289,7 @@ version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0863a3345e70f61d613eab32ee046ccd1bcc5f9105fe402c61fcd0c13eeb8b5"
 dependencies = [
- "dirs",
+ "dirs 2.0.2",
  "winapi 0.3.9",
 ]
 
@@ -3317,9 +3416,9 @@ checksum = "53953d2d3a5ad81d9f844a32f14ebb121f50b650cd59d0ee2a07cf13c617efed"
 
 [[package]]
 name = "tokio"
-version = "0.2.21"
+version = "0.2.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d099fa27b9702bed751524694adbe393e18b36b204da91eb1cbbbbb4a5ee2d58"
+checksum = "5d34ca54d84bf2b5b4d7d31e901a8464f7b60ac145a284fba25ceb801f2ddccd"
 dependencies = [
  "bytes 0.5.6",
  "fnv",
@@ -3363,12 +3462,12 @@ dependencies = [
 
 [[package]]
 name = "tokio-rustls"
-version = "0.13.1"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15cb62a0d2770787abc96e99c1cd98fcf17f94959f3af63ca85bdfb203f051b4"
+checksum = "228139ddd4fea3fa345a29233009635235833e52807af7ea6448ead03890d6a9"
 dependencies = [
  "futures-core",
- "rustls 0.17.0",
+ "rustls 0.18.1",
  "tokio",
  "webpki",
 ]
@@ -3850,8 +3949,8 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
- "k8s-openapi",
- "kube",
+ "k8s-openapi 0.9.0",
+ "kube 0.40.0",
  "kubelet",
  "log 0.4.11",
  "oci-distribution",
@@ -3905,8 +4004,8 @@ dependencies = [
  "backtrace",
  "chrono",
  "futures",
- "k8s-openapi",
- "kube",
+ "k8s-openapi 0.9.0",
+ "kube 0.40.0",
  "kubelet",
  "log 0.4.11",
  "oci-distribution",
