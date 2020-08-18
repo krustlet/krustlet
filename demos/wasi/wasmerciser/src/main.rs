@@ -11,6 +11,7 @@ fn main() -> anyhow::Result<()> {
 
     // Vocabulary:
     // assert_exists(source)
+    // assert_not_exists(source)
     // assert_value(var)is(val)
     // read(source)to(var)
     // write(val)to(dest)
@@ -147,6 +148,7 @@ impl<E: Environment> TestContext<E> {
     fn process_command(&mut self, command: Command) -> anyhow::Result<()> {
         match command {
             Command::AssertExists(source) => self.assert_exists(source),
+            Command::AssertNotExists(source) => self.assert_not_exists(source),
             Command::AssertValue(variable, value) => self.assert_value(variable, value),
             Command::Read(source, destination) => self.read(source, destination),
             Command::Write(value, destination) => self.write(value, destination),
@@ -157,6 +159,13 @@ impl<E: Environment> TestContext<E> {
         match source {
             DataSource::File(path) => self.assert_file_exists(PathBuf::from(path)),
             DataSource::Env(name) => self.assert_env_var_exists(name),
+        }
+    }
+
+    fn assert_not_exists(&mut self, source: DataSource) -> anyhow::Result<()> {
+        match source {
+            DataSource::File(path) => self.assert_file_not_exists(PathBuf::from(path)),
+            DataSource::Env(name) => self.assert_env_var_not_exists(name),
         }
     }
 
@@ -213,6 +222,17 @@ impl<E: Environment> TestContext<E> {
         }
     }
 
+    fn assert_file_not_exists(&self, path: PathBuf) -> anyhow::Result<()> {
+        if self.environment.file_exists(&path) {
+            fail_with(format!(
+                "File {} was expected NOT to exist but it did exist",
+                path.to_string_lossy()
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
     fn assert_env_var_exists(&self, name: String) -> anyhow::Result<()> {
         match self.environment.get_env_var(name.clone()) {
             Ok(_) => Ok(()),
@@ -220,6 +240,16 @@ impl<E: Environment> TestContext<E> {
                 "Env var {} was supposed to exist but did not",
                 name
             )),
+        }
+    }
+
+    fn assert_env_var_not_exists(&self, name: String) -> anyhow::Result<()> {
+        match self.environment.get_env_var(name.clone()) {
+            Ok(_) => fail_with(format!(
+                "Env var {} was supposed to NOT exist but it did exist",
+                name
+            )),
+            Err(_) => Ok(()),
         }
     }
 

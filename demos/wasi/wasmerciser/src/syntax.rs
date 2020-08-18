@@ -1,6 +1,7 @@
 #[derive(Debug, PartialEq)]
 pub enum Command {
     AssertExists(DataSource),
+    AssertNotExists(DataSource),
     AssertValue(Variable, Value),
     Read(DataSource, Variable),
     Write(Value, DataDestination),
@@ -15,6 +16,7 @@ impl Command {
             }
             CommandToken::Plain(t) => match &t[..] {
                 "assert_exists" => Self::parse_assert_exists(&tokens),
+                "assert_not_exists" => Self::parse_assert_not_exists(&tokens),
                 "assert_value" => Self::parse_assert_value(&tokens),
                 "read" => Self::parse_read(&tokens),
                 "write" => Self::parse_write(&tokens),
@@ -29,6 +31,15 @@ impl Command {
                 Ok(Self::AssertExists(DataSource::parse(source.to_string())?))
             }
             _ => Err(anyhow::anyhow!("unexpected assert_exists command syntax")),
+        }
+    }
+
+    fn parse_assert_not_exists(tokens: &[CommandToken]) -> anyhow::Result<Self> {
+        match &tokens[..] {
+            [_, CommandToken::Bracketed(source)] => {
+                Ok(Self::AssertNotExists(DataSource::parse(source.to_string())?))
+            }
+            _ => Err(anyhow::anyhow!("unexpected assert_not_exists command syntax")),
         }
     }
 
