@@ -25,7 +25,7 @@ spec:
     - name: krustlet-tutorial
       image: mycontainerregistry007.azurecr.io/krustlet-tutorial:v1.0.0
   tolerations:
-    - key: "krustlet/arch"
+    - key: "kubernetes.io/arch"
       operator: "Equal"
       value: "wasm32-wasi"
       effect: "NoExecute"

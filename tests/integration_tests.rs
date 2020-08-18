@@ -75,15 +75,15 @@ async fn verify_wascc_node(node: Node) -> () {
         .expect("node had no taints");
     let taint = taints
         .iter()
-        .find(|t| t.key == "krustlet/arch")
-        .expect("did not find krustlet/arch taint");
+        .find(|t| t.key == "kubernetes.io/arch")
+        .expect("did not find kubernetes.io/arch taint");
     // There is no "operator" field in the type for the crate for some reason,
     // so we can't compare it here
     assert_eq!(
         taint,
         &Taint {
             effect: "NoExecute".to_owned(),
-            key: "krustlet/arch".to_owned(),
+            key: "kubernetes.io/arch".to_owned(),
             value: Some("wasm32-wascc".to_owned()),
             ..Default::default()
         }
@@ -113,7 +113,7 @@ async fn create_wascc_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resu
             "tolerations": [
                 {
                     "effect": "NoExecute",
-                    "key": "krustlet/arch",
+                    "key": "kubernetes.io/arch",
                     "operator": "Equal",
                     "value": "wasm32-wascc"
                 },
@@ -183,15 +183,15 @@ async fn verify_wasi_node(node: Node) -> () {
         .expect("node had no taints");
     let taint = taints
         .iter()
-        .find(|t| t.key == "krustlet/arch")
-        .expect("did not find krustlet/arch taint");
+        .find(|t| t.key == "kubernetes.io/arch")
+        .expect("did not find kubernetes.io/arch taint");
     // There is no "operator" field in the type for the crate for some reason,
     // so we can't compare it here
     assert_eq!(
         taint,
         &Taint {
             effect: "NoExecute".to_owned(),
-            key: "krustlet/arch".to_owned(),
+            key: "kubernetes.io/arch".to_owned(),
             value: Some("wasm32-wasi".to_owned()),
             ..Default::default()
         }
@@ -243,7 +243,7 @@ async fn create_wasi_pod(
             "tolerations": [
                 {
                     "effect": "NoExecute",
-                    "key": "krustlet/arch",
+                    "key": "kubernetes.io/arch",
                     "operator": "Equal",
                     "value": "wasm32-wasi"
                 },
@@ -311,7 +311,7 @@ async fn create_fancy_schmancy_wasi_pod(
             "tolerations": [
                 {
                     "effect": "NoExecute",
-                    "key": "krustlet/arch",
+                    "key": "kubernetes.io/arch",
                     "operator": "Equal",
                     "value": "wasm32-wasi"
                 },

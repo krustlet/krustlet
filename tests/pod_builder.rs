@@ -91,7 +91,7 @@ pub fn wasmerciser_pod(
             "tolerations": [
                 {
                     "effect": "NoExecute",
-                    "key": "krustlet/arch",
+                    "key": "kubernetes.io/arch",
                     "operator": "Equal",
                     "value": architecture,
                 },
