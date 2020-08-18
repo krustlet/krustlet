@@ -12,24 +12,42 @@ pub enum TestResource {
 
 #[derive(Clone, Debug)]
 pub enum TestResourceSpec {
-    Secret(String, String, String),    // single value per secret for now
-    ConfigMap(String, String, String), // single value per cm for now
+    Secret(String, Vec<(String, String)>),
+    ConfigMap(String, Vec<(String, String)>),
 }
 
 impl TestResourceSpec {
     pub fn secret(resource_name: &str, value_name: &str, value: &str) -> Self {
         Self::Secret(
             resource_name.to_owned(),
-            value_name.to_owned(),
-            value.to_owned(),
+            vec![(value_name.to_owned(), value.to_owned())],
+        )
+    }
+
+    pub fn secret_multi(resource_name: &str, entries: &[(&str, &str)]) -> Self {
+        Self::Secret(
+            resource_name.to_owned(),
+            entries
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
         )
     }
 
     pub fn config_map(resource_name: &str, value_name: &str, value: &str) -> Self {
         Self::ConfigMap(
             resource_name.to_owned(),
-            value_name.to_owned(),
-            value.to_owned(),
+            vec![(value_name.to_owned(), value.to_owned())],
+        )
+    }
+
+    pub fn config_map_multi(resource_name: &str, entries: &[(&str, &str)]) -> Self {
+        Self::ConfigMap(
+            resource_name.to_owned(),
+            entries
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
         )
     }
 }
@@ -108,7 +126,7 @@ impl TestResourceManager {
         let config_maps: Api<ConfigMap> = Api::namespaced(self.client.clone(), self.namespace());
 
         match resource {
-            TestResourceSpec::Secret(resource_name, value_name, value) => {
+            TestResourceSpec::Secret(resource_name, entries) => {
                 secrets
                     .create(
                         &PostParams::default(),
@@ -118,15 +136,13 @@ impl TestResourceManager {
                             "metadata": {
                                 "name": resource_name
                             },
-                            "stringData": {
-                                value_name: value
-                            }
+                            "stringData": object_of_tuples(entries)
                         }))?,
                     )
                     .await?;
                 self.push(TestResource::Secret(resource_name.to_owned()));
             }
-            TestResourceSpec::ConfigMap(resource_name, value_name, value) => {
+            TestResourceSpec::ConfigMap(resource_name, entries) => {
                 config_maps
                     .create(
                         &PostParams::default(),
@@ -136,9 +152,7 @@ impl TestResourceManager {
                             "metadata": {
                                 "name": resource_name
                             },
-                            "data": {
-                                value_name: value
-                            }
+                            "data": object_of_tuples(entries)
                         }))?,
                     )
                     .await?;
@@ -217,4 +231,17 @@ async fn clean_up_namespace(namespace: &String) -> Option<String> {
         .await
         .err()
         .map(|e| format!("namespace {} ({})", namespace, e))
+}
+
+fn object_of_tuples(source: &[(String, String)]) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+
+    for (key, value) in source {
+        map.insert(
+            key.to_string(),
+            serde_json::Value::String(value.to_string()),
+        );
+    }
+
+    serde_json::Value::Object(map)
 }
