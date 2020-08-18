@@ -8,7 +8,7 @@ mod pod_builder;
 mod pod_setup;
 mod test_resource_manager;
 use expectations::{assert_container_statuses, ContainerStatusExpectation};
-use pod_builder::{wasmerciser_pod, WasmerciserContainerSpec, WasmerciserVolumeSpec};
+use pod_builder::{wasmerciser_pod, WasmerciserContainerSpec, WasmerciserVolumeSource, WasmerciserVolumeSpec};
 use pod_setup::{wait_for_pod_complete, wait_for_pod_ready, OnFailure};
 use test_resource_manager::{TestResource, TestResourceManager, TestResourceSpec};
 
@@ -444,6 +444,7 @@ async fn create_pod_with_init_containers(
     let volumes = vec![WasmerciserVolumeSpec {
         volume_name: "hostpath-test",
         mount_path: "/hp",
+        source: WasmerciserVolumeSource::HostPath,
     }];
 
     wasmercise_wasi(

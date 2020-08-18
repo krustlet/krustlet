@@ -15,6 +15,13 @@ pub struct WasmerciserContainerSpec {
 pub struct WasmerciserVolumeSpec {
     pub volume_name: &'static str,
     pub mount_path: &'static str,
+    pub source: WasmerciserVolumeSource,
+}
+
+pub enum WasmerciserVolumeSource {
+    HostPath,
+    ConfigMap(&'static str),
+    ConfigMapItems(&'static str, Vec<(&'static str, &'static str)>),
 }
 
 fn wasmerciser_container(
@@ -45,16 +52,22 @@ fn wasmerciser_volume_mount(spec: &WasmerciserVolumeSpec) -> anyhow::Result<Volu
 fn wasmerciser_volume(
     spec: &WasmerciserVolumeSpec,
 ) -> anyhow::Result<(Volume, Arc<tempfile::TempDir>)> {
-    let tempdir = Arc::new(tempfile::tempdir()?);
+    match spec.source {
+        WasmerciserVolumeSource::HostPath => {
+            let tempdir = Arc::new(tempfile::tempdir()?);
 
-    let volume: Volume = serde_json::from_value(json!({
-        "name": spec.volume_name,
-        "hostPath": {
-            "path": tempdir.path()
-        }
-    }))?;
+            let volume: Volume = serde_json::from_value(json!({
+                "name": spec.volume_name,
+                "hostPath": {
+                    "path": tempdir.path()
+                }
+            }))?;
 
-    Ok((volume, tempdir))
+            Ok((volume, tempdir))
+        },
+        WasmerciserVolumeSource::ConfigMap(_) => Err(anyhow::anyhow!("Not done yet")),
+        WasmerciserVolumeSource::ConfigMapItems(_, _) => Err(anyhow::anyhow!("Not done yet")),
+    }
 }
 
 pub fn wasmerciser_pod(
