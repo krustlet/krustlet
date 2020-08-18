@@ -36,8 +36,7 @@ fn wasmerciser_container(
         .collect();
     let container: Container = serde_json::from_value(json!({
         "name": spec.name,
-        // "image": "webassembly.azurecr.io/wasmerciser:v0.1.0",
-        "image": "fs//home/ivan/github/krustlet/demos/wasi/wasmerciser/target/wasm32-wasi/release/wasmerciser.wasm",
+        "image": "webassembly.azurecr.io/wasmerciser:v0.2.0",
         "args": spec.args,
         "volumeMounts": volume_mounts,
     }))?;
