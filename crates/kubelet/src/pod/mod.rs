@@ -35,8 +35,8 @@ impl Pod {
     pub fn name(&self) -> &str {
         self.0
             .metadata
-            .as_ref()
-            .and_then(|m| m.name.as_deref())
+            .name
+            .as_deref()
             .expect("Pod name should always be set but was not")
     }
 
@@ -44,10 +44,7 @@ impl Pod {
     ///
     /// Returns "default" if no namespace was explictily set
     pub fn namespace(&self) -> &str {
-        let metadata = self.0.metadata.as_ref();
-        metadata
-            .and_then(|m| m.namespace.as_deref())
-            .unwrap_or("default")
+        self.0.metadata.namespace.as_deref().unwrap_or("default")
     }
 
     /// Get the pod's node_selector map
