@@ -753,6 +753,7 @@ mod test {
             },
             bootstrap_file: "doesnt/matter".into(),
             allow_local_modules: false,
+            insecure_registries: None,
             data_dir: PathBuf::new(),
             node_labels,
             max_pods: 110,

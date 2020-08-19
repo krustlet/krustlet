@@ -56,6 +56,9 @@ pub struct Config {
     /// Whether to allow modules to be loaded directly from local
     /// filesystem paths, as well as from registries
     pub allow_local_modules: bool,
+    /// Registries that should be accessed using HTTP instead of
+    /// HTTPS.
+    pub insecure_registries: Option<Vec<String>>,
 }
 /// The configuration for the Kubelet server.
 #[derive(Clone, Debug)]
@@ -142,6 +145,7 @@ impl Config {
             max_pods: DEFAULT_MAX_PODS,
             bootstrap_file: PathBuf::from(BOOTSTRAP_FILE),
             allow_local_modules: false,
+            insecure_registries: None,
             server_config: ServerConfig {
                 addr: match preferred_ip_family {
                     // Just unwrap these because they are programmer error if they
@@ -348,6 +352,7 @@ impl ConfigBuilder {
             max_pods,
             bootstrap_file,
             allow_local_modules: self.allow_local_modules.unwrap_or(false),
+            insecure_registries: None,
             server_config: ServerConfig {
                 cert_file: server_tls_cert_file,
                 private_key_file: server_tls_private_key_file,
