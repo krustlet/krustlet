@@ -157,12 +157,12 @@ async fn populate_from_secret(
     let secret = secret_client.get(name).await?;
     let data = secret.data.unwrap_or_default();
     let data = data.iter().map(|(key, ByteString(data))| async move {
-        match mount_path_for(key, items) {
-            Some(mount_path) => {
+        match mount_setting_for(key, items) {
+            ItemMount::MountAt(mount_path) => {
                 let file_path = path.join(mount_path);
                 tokio::fs::write(file_path, &data).await
             }
-            None => Ok(()),
+            ItemMount::DoNotMount => Ok(()),
         }
     });
     futures::future::join_all(data)
@@ -185,23 +185,23 @@ async fn populate_from_config_map(
     let config_map = cm_client.get(name).await?;
     let binary_data = config_map.binary_data.unwrap_or_default();
     let binary_data = binary_data.iter().map(|(key, data)| async move {
-        match mount_path_for(key, items) {
-            Some(mount_path) => {
+        match mount_setting_for(key, items) {
+            ItemMount::MountAt(mount_path) => {
                 let file_path = path.join(mount_path);
                 tokio::fs::write(file_path, &data.0).await
             }
-            None => Ok(()),
+            ItemMount::DoNotMount => Ok(()),
         }
     });
     let binary_data = futures::future::join_all(binary_data);
     let data = config_map.data.unwrap_or_default();
     let data = data.iter().map(|(key, data)| async move {
-        match mount_path_for(key, items) {
-            Some(mount_path) => {
+        match mount_setting_for(key, items) {
+            ItemMount::MountAt(mount_path) => {
                 let file_path = path.join(mount_path);
                 tokio::fs::write(file_path, data).await
             }
-            None => Ok(()),
+            ItemMount::DoNotMount => Ok(()),
         }
     });
     let data = futures::future::join_all(data);
@@ -218,12 +218,28 @@ fn pod_dir_name(pod: &Pod) -> String {
     format!("{}-{}", pod.name(), pod.namespace())
 }
 
-fn mount_path_for(key: &String, items_to_mount: &Option<Vec<KeyToPath>>) -> Option<String> {
+fn mount_setting_for(key: &String, items_to_mount: &Option<Vec<KeyToPath>>) -> ItemMount {
     match items_to_mount {
-        None => Some(key.to_string()),
-        Some(items) => items
-            .iter()
-            .find(|kp| &kp.key == key)
-            .map(|kp| kp.path.to_string()),
+        None => ItemMount::MountAt(key.to_string()),
+        Some(items) => ItemMount::from(
+            items
+                .iter()
+                .find(|kp| &kp.key == key)
+                .map(|kp| kp.path.to_string()),
+        ),
+    }
+}
+
+enum ItemMount {
+    MountAt(String),
+    DoNotMount,
+}
+
+impl From<Option<String>> for ItemMount {
+    fn from(option: Option<String>) -> Self {
+        match option {
+            None => ItemMount::DoNotMount,
+            Some(path) => ItemMount::MountAt(path),
+        }
     }
 }
