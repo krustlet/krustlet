@@ -55,6 +55,7 @@ pub(crate) mod kubeconfig;
 pub(crate) mod webserver;
 
 pub mod config;
+pub mod config_interpreter;
 pub mod container;
 pub mod handle;
 pub mod log;

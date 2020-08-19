@@ -47,6 +47,12 @@ pub struct Client {
     client: reqwest::Client,
 }
 
+/// A source that can provide a `ClientConfig`.
+pub trait ClientConfigSource {
+    /// Provides a `ClientConfig`.
+    fn client_config(&self) -> ClientConfig;
+}
+
 impl Client {
     /// Create a new client with the supplied config
     pub fn new(config: ClientConfig) -> Self {
@@ -55,6 +61,11 @@ impl Client {
             tokens: HashMap::new(),
             client: reqwest::Client::new(),
         }
+    }
+
+    /// Create a new client with the supplied config
+    pub fn from_source(config_source: &impl ClientConfigSource) -> Self {
+        Self::new(config_source.client_config())
     }
 
     /// Pull an image and return the bytes
@@ -319,7 +330,7 @@ pub struct ClientConfig {
 }
 
 /// The protocol that the client should use to connect
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ClientProtocol {
     #[allow(missing_docs)]
     Http,
