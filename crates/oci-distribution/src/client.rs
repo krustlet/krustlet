@@ -48,6 +48,8 @@ pub struct Client {
 }
 
 /// A source that can provide a `ClientConfig`.
+/// If you are using this crate in your own application, you can implement this
+/// trait on your configuration type so that it can be passed to `Client::from_source`.
 pub trait ClientConfigSource {
     /// Provides a `ClientConfig`.
     fn client_config(&self) -> ClientConfig;
