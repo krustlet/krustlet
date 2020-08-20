@@ -166,7 +166,7 @@ impl Client {
             self.auth(image, None).await?;
         }
 
-        let url = image.to_v2_manifest_url(self.config.protocol.as_str());
+        let url = self.to_v2_manifest_url(image);
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
 
@@ -197,7 +197,7 @@ impl Client {
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
     async fn pull_manifest(&self, image: &Reference) -> anyhow::Result<(OciManifest, String)> {
-        let url = image.to_v2_manifest_url(self.config.protocol.as_str());
+        let url = self.to_v2_manifest_url(image);
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
 
@@ -247,7 +247,7 @@ impl Client {
         digest: &str,
         mut out: T,
     ) -> anyhow::Result<()> {
-        let url = image.to_v2_blob_url(self.config.protocol.as_str(), digest);
+        let url = self.to_v2_blob_url(image.registry(), image.repository(), digest);
         let mut stream = self
             .client
             .get(&url)
@@ -261,6 +261,38 @@ impl Client {
         }
 
         Ok(())
+    }
+
+    /// Convert a Reference to a v2 manifest URL.
+    fn to_v2_manifest_url(&self, reference: &Reference) -> String {
+        if let Some(digest) = reference.digest() {
+            format!(
+                "{}://{}/v2/{}/manifests/{}",
+                self.config.protocol.as_str(),
+                reference.registry(),
+                reference.repository(),
+                digest,
+            )
+        } else {
+            format!(
+                "{}://{}/v2/{}/manifests/{}",
+                self.config.protocol.as_str(),
+                reference.registry(),
+                reference.repository(),
+                reference.tag().unwrap_or("latest")
+            )
+        }
+    }
+
+    /// Convert a Reference to a v2 blob (layer) URL.
+    fn to_v2_blob_url(&self, registry: &str, repository: &str, digest: &str) -> String {
+        format!(
+            "{}://{}/v2/{}/blobs/{}",
+            self.config.protocol.as_str(),
+            registry,
+            repository,
+            digest,
+        )
     }
 
     /// Generate the headers necessary for authentication.
@@ -378,99 +410,154 @@ mod test {
     use super::*;
     use std::convert::TryFrom;
 
-    const HELLO_IMAGE: &str = "webassembly.azurecr.io/hello-wasm:v1";
+    const HELLO_IMAGE_NO_TAG: &str = "webassembly.azurecr.io/hello-wasm";
+    const HELLO_IMAGE_TAG: &str = "webassembly.azurecr.io/hello-wasm:v1";
+    const HELLO_IMAGE_DIGEST: &str = "webassembly.azurecr.io/hello-wasm@sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7";
+    const HELLO_IMAGE_TAG_AND_DIGEST: &str = "webassembly.azurecr.io/hello-wasm:v1@sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7";
+    const TEST_IMAGES: &'static [&str] = &[
+        // TODO(jlegrone): this image cannot be pulled currently because no `latest`
+        //                 tag exists on the image repository. Re-enable this image
+        //                 in tests once `latest` is published.
+        // HELLO_IMAGE_NO_TAG,
+        HELLO_IMAGE_TAG,
+        HELLO_IMAGE_DIGEST,
+        HELLO_IMAGE_TAG_AND_DIGEST,
+    ];
+
+    #[test]
+    fn test_to_v2_blob_url() {
+        let image = Reference::try_from(HELLO_IMAGE_TAG).expect("failed to parse reference");
+        let blob_url = Client::default().to_v2_blob_url(
+            image.registry(),
+            image.repository(),
+            "sha256:deadbeef",
+        );
+        assert_eq!(
+            blob_url,
+            "https://webassembly.azurecr.io/v2/hello-wasm/blobs/sha256:deadbeef"
+        )
+    }
+
+    #[test]
+    fn test_to_v2_manifest() {
+        let c = Client::default();
+
+        for &(image, expected_uri) in [
+            (HELLO_IMAGE_NO_TAG, "https://webassembly.azurecr.io/v2/hello-wasm/manifests/latest"), // TODO: confirm this is the right translation when no tag
+            (HELLO_IMAGE_TAG, "https://webassembly.azurecr.io/v2/hello-wasm/manifests/v1"),
+            (HELLO_IMAGE_DIGEST, "https://webassembly.azurecr.io/v2/hello-wasm/manifests/sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7"),
+            (HELLO_IMAGE_TAG_AND_DIGEST, "https://webassembly.azurecr.io/v2/hello-wasm/manifests/sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7"),
+            ].iter() {
+                let reference = Reference::try_from(image).expect("failed to parse reference");
+                assert_eq!(c.to_v2_manifest_url(&reference), expected_uri);
+        }
+    }
 
     #[tokio::test]
     async fn test_auth() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-        let mut c = Client::default();
-        c.auth(&image, None)
-            .await
-            .expect("result from auth request");
+        for &image in TEST_IMAGES {
+            let reference = Reference::try_from(image).expect("failed to parse reference");
+            let mut c = Client::default();
+            c.auth(&reference, None)
+                .await
+                .expect("result from auth request");
 
-        let tok = c.tokens.get(image.registry()).expect("token is available");
-        // We test that the token is longer than a minimal hash.
-        assert!(tok.token.len() > 64);
+            let tok = c
+                .tokens
+                .get(reference.registry())
+                .expect("token is available");
+            // We test that the token is longer than a minimal hash.
+            assert!(tok.token.len() > 64);
+        }
     }
 
     #[tokio::test]
     async fn test_pull_manifest() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-        // Currently, pull_manifest does not perform Authz, so this will fail.
-        let c = Client::default();
-        c.pull_manifest(&image)
-            .await
-            .expect_err("pull manifest should fail");
+        for &image in TEST_IMAGES {
+            let reference = Reference::try_from(image).expect("failed to parse reference");
+            // Currently, pull_manifest does not perform Authz, so this will fail.
+            let c = Client::default();
+            c.pull_manifest(&reference)
+                .await
+                .expect_err("pull manifest should fail");
 
-        // But this should pass
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-        // Currently, pull_manifest does not perform Authz, so this will fail.
-        let mut c = Client::default();
-        c.auth(&image, None).await.expect("authenticated");
-        let (manifest, _) = c
-            .pull_manifest(&image)
-            .await
-            .expect("pull manifest should not fail");
+            // But this should pass
+            let mut c = Client::default();
+            c.auth(&reference, None).await.expect("authenticated");
+            let (manifest, _) = c
+                .pull_manifest(&reference)
+                .await
+                .expect("pull manifest should not fail");
 
-        // The test on the manifest checks all fields. This is just a brief sanity check.
-        assert_eq!(manifest.schema_version, 2);
-        assert!(!manifest.layers.is_empty());
+            // The test on the manifest checks all fields. This is just a brief sanity check.
+            assert_eq!(manifest.schema_version, 2);
+            assert!(!manifest.layers.is_empty());
+        }
     }
 
     #[tokio::test]
     async fn test_fetch_digest() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-
         let mut c = Client::default();
-        c.fetch_manifest_digest(&image)
-            .await
-            .expect("pull manifest should not fail");
 
-        // This should pass
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-        let mut c = Client::default();
-        c.auth(&image, None).await.expect("authenticated");
-        let digest = c
-            .fetch_manifest_digest(&image)
-            .await
-            .expect("pull manifest should not fail");
+        for &image in TEST_IMAGES {
+            let reference = Reference::try_from(image).expect("failed to parse reference");
+            c.fetch_manifest_digest(&reference)
+                .await
+                .expect("pull manifest should not fail");
 
-        assert_eq!(
-            digest,
-            "sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7"
-        );
+            // This should pass
+            let reference = Reference::try_from(image).expect("failed to parse reference");
+            let mut c = Client::default();
+            c.auth(&reference, None).await.expect("authenticated");
+            let digest = c
+                .fetch_manifest_digest(&reference)
+                .await
+                .expect("pull manifest should not fail");
+
+            assert_eq!(
+                digest,
+                "sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7"
+            );
+        }
     }
 
     #[tokio::test]
     async fn test_pull_layer() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
         let mut c = Client::default();
-        c.auth(&image, None).await.expect("authenticated");
-        let (manifest, _) = c
-            .pull_manifest(&image)
-            .await
-            .expect("failed to pull manifest");
 
-        // Pull one specific layer
-        let mut file: Vec<u8> = Vec::new();
-        let layer0 = &manifest.layers[0];
+        for &image in TEST_IMAGES {
+            let reference = Reference::try_from(image).expect("failed to parse reference");
+            c.auth(&reference, None).await.expect("authenticated");
+            let (manifest, _) = c
+                .pull_manifest(&reference)
+                .await
+                .expect("failed to pull manifest");
 
-        c.pull_layer(&image, &layer0.digest, &mut file)
-            .await
-            .expect("Pull layer into vec");
+            // Pull one specific layer
+            let mut file: Vec<u8> = Vec::new();
+            let layer0 = &manifest.layers[0];
 
-        // The manifest says how many bytes we should expect.
-        assert_eq!(file.len(), layer0.size as usize);
+            c.pull_layer(&reference, &layer0.digest, &mut file)
+                .await
+                .expect("Pull layer into vec");
+
+            // The manifest says how many bytes we should expect.
+            assert_eq!(file.len(), layer0.size as usize);
+        }
     }
 
     #[tokio::test]
     async fn test_pull_image() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-        let mut c = Client::default();
+        for &image in TEST_IMAGES {
+            let reference = Reference::try_from(image).expect("failed to parse reference");
 
-        let image_data = c.pull_image(&image).await.expect("failed to pull manifest");
+            let image_data = Client::default()
+                .pull_image(&reference)
+                .await
+                .expect("failed to pull manifest");
 
-        assert!(image_data.content.len() != 0);
-        assert!(image_data.digest.is_some());
+            assert!(image_data.content.len() != 0);
+            assert!(image_data.digest.is_some());
+        }
     }
 }
