@@ -477,7 +477,9 @@ mod test {
 
     #[test]
     fn manifest_url_generation_respects_http_protocol() {
-        let c = Client::new(ClientConfig { protocol: ClientProtocol::Http });
+        let c = Client::new(ClientConfig {
+            protocol: ClientProtocol::Http,
+        });
         let reference = Reference::try_from("webassembly.azurecr.io/hello:v1".to_owned())
             .expect("Could not parse reference");
         assert_eq!(
@@ -488,12 +490,18 @@ mod test {
 
     #[test]
     fn blob_url_generation_respects_http_protocol() {
-        let c = Client::new(ClientConfig { protocol: ClientProtocol::Http });
+        let c = Client::new(ClientConfig {
+            protocol: ClientProtocol::Http,
+        });
         let reference = Reference::try_from("webassembly.azurecr.io/hello@sha256:1234".to_owned())
             .expect("Could not parse reference");
         assert_eq!(
             "http://webassembly.azurecr.io/v2/hello/blobs/sha256:1234",
-            c.to_v2_blob_url(&reference.registry(), reference.repository(), reference.digest().unwrap())
+            c.to_v2_blob_url(
+                &reference.registry(),
+                reference.repository(),
+                reference.digest().unwrap()
+            )
         );
     }
 
@@ -532,7 +540,11 @@ mod test {
             .expect("Could not parse reference");
         assert_eq!(
             "https://webassembly.azurecr.io/v2/hello/blobs/sha256:1234",
-            c.to_v2_blob_url(&reference.registry(), reference.repository(), reference.digest().unwrap())
+            c.to_v2_blob_url(
+                &reference.registry(),
+                reference.repository(),
+                reference.digest().unwrap()
+            )
         );
     }
 
@@ -545,7 +557,11 @@ mod test {
             .expect("Could not parse reference");
         assert_eq!(
             "http://oci.registry.local/v2/hello/blobs/sha256:1234",
-            c.to_v2_blob_url(&reference.registry(), reference.repository(), reference.digest().unwrap())
+            c.to_v2_blob_url(
+                &reference.registry(),
+                reference.repository(),
+                reference.digest().unwrap()
+            )
         );
     }
 
