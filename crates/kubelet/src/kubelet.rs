@@ -1,3 +1,5 @@
+#![allow(deprecated)] // TODO: remove when Informer has been replaced by kube_run::watcher
+
 ///! This library contains code for running a kubelet. Use this to create a new
 ///! Kubelet with a specific handler (called a `Provider`)
 use crate::config::Config;
