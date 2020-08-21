@@ -1,10 +1,27 @@
 use std::convert::{Into, TryFrom};
+use std::str::FromStr;
 
 /// An OCI image reference
 ///
-/// currently, the library only accepts modules tagged in the following structure:
-/// <registry>/<repository>, <registry>/<repository>:<tag>, or <registry>/<repository>@<digest>
-/// for example: webassembly.azurecr.io/hello:v1 or webassembly.azurecr.io/hello
+/// Parsing references in the following formats is supported:
+/// - `<registry>/<repository>`
+/// - `<registry>/<repository>:<tag>`
+/// - `<registry>/<repository>@<digest>`
+/// - `<registry>/<repository>:<tag>@<digest>`
+///
+/// # Examples
+///
+/// Parsing a tagged image reference:
+/// ```
+/// use oci_distribution::Reference;
+///
+/// let reference: Reference = "docker.io/library/hello-world:latest".parse().unwrap();
+///
+/// assert_eq!("docker.io", reference.registry());
+/// assert_eq!("library/hello-world", reference.repository());
+/// assert_eq!(Some("latest"), reference.tag());
+/// assert_eq!(None, reference.digest());
+/// ```
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct Reference {
     whole: String,
@@ -108,6 +125,14 @@ impl TryFrom<&str> for Reference {
     type Error = anyhow::Error;
     fn try_from(string: &str) -> Result<Self, Self::Error> {
         TryFrom::try_from(string.to_owned())
+    }
+}
+
+impl FromStr for Reference {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Reference::try_from(s)
     }
 }
 
