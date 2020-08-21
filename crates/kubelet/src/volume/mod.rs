@@ -218,13 +218,13 @@ fn pod_dir_name(pod: &Pod) -> String {
     format!("{}-{}", pod.name(), pod.namespace())
 }
 
-fn mount_setting_for(key: &String, items_to_mount: &Option<Vec<KeyToPath>>) -> ItemMount {
+fn mount_setting_for(key: &str, items_to_mount: &Option<Vec<KeyToPath>>) -> ItemMount {
     match items_to_mount {
         None => ItemMount::MountAt(key.to_string()),
         Some(items) => ItemMount::from(
             items
                 .iter()
-                .find(|kp| &kp.key == key)
+                .find(|kp| kp.key == key)
                 .map(|kp| kp.path.to_string()),
         ),
     }

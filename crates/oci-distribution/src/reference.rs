@@ -76,10 +76,13 @@ impl TryFrom<String> for Reference {
         let tag_start = match (digest_start, first_colon) {
             // Check if a colon comes before a digest delimeter, indicating
             // that image ref is in the form registry/repo:tag@digest
-            (Some(ds), Some(fc)) => match fc < ds {
-                true => Some(fc),
-                false => None,
-            },
+            (Some(ds), Some(fc)) => {
+                if fc < ds {
+                    Some(fc)
+                } else {
+                    None
+                }
+            }
             // No digest delimeter was found but a colon is present, so ref
             // must be in the form registry/repo:tag
             (None, Some(fc)) => Some(fc),
