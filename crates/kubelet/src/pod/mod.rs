@@ -4,19 +4,16 @@ mod queue;
 mod status;
 
 pub use handle::{key_from_pod, pod_key, Handle};
+pub use queue::PodChange;
 pub(crate) use queue::Queue;
 pub use status::{update_status, Phase, Status, StatusMessage};
 
-use std::collections::HashMap;
-
-use crate::container::{Container, ContainerKey, ContainerMap};
+use crate::container::{Container, ContainerKey};
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::{
-    Container as KubeContainer, ContainerStatus as KubeContainerStatus, Pod as KubePod,
-    Volume as KubeVolume,
+    Container as KubeContainer, Pod as KubePod, Volume as KubeVolume,
 };
-use kube::api::{Api, Meta, PatchParams};
-use log::{debug, error};
+use kube::api::Meta;
 
 /// A Kubernetes Pod
 ///
@@ -261,17 +258,17 @@ impl Pod {
     //     self.patch_status(client.clone(), all_waiting).await;
     // }
 
-    fn all_waiting(container_keys: &[ContainerKey]) -> ContainerMap<crate::container::Status> {
-        let mut all_waiting_map = HashMap::new();
-        for key in container_keys {
-            let waiting = crate::container::Status::Waiting {
-                timestamp: chrono::Utc::now(),
-                message: "PodInitializing".to_owned(),
-            };
-            all_waiting_map.insert(key.clone(), waiting);
-        }
-        all_waiting_map
-    }
+    // fn all_waiting(container_keys: &[ContainerKey]) -> ContainerMap<crate::container::Status> {
+    //     let mut all_waiting_map = HashMap::new();
+    //     for key in container_keys {
+    //         let waiting = crate::container::Status::Waiting {
+    //             timestamp: chrono::Utc::now(),
+    //             message: "PodInitializing".to_owned(),
+    //         };
+    //         all_waiting_map.insert(key.clone(), waiting);
+    //     }
+    //     all_waiting_map
+    // }
 
     /// Get a pod's containers
     pub fn containers(&self) -> Vec<Container> {

@@ -33,11 +33,11 @@ pub struct Kubelet<P> {
     config: Box<Config>,
 }
 
-impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
+impl<P: 'static + Provider + Sync + Send> Kubelet<P> {
     /// Create a new Kubelet with a provider, a kubernetes configuration,
     /// and a kubelet configuration
     pub async fn new(
-        provider: T,
+        provider: P,
         kube_config: kube::Config,
         config: Config,
     ) -> anyhow::Result<Self> {
@@ -96,7 +96,7 @@ impl<T: 'static + Provider + Sync + Send> Kubelet<T> {
 
         // Create a queue that locks on events per pod
         let queue = Queue::new(self.provider.clone(), client.clone());
-        let pod_informer = start_pod_informer::<T>(
+        let pod_informer = start_pod_informer::<P>(
             client.clone(),
             self.config.node_name.clone(),
             queue,

@@ -51,7 +51,6 @@
 
 mod bootstrapping;
 mod kubelet;
-pub mod state;
 
 pub(crate) mod kubeconfig;
 pub(crate) mod webserver;
@@ -63,6 +62,7 @@ pub mod log;
 pub mod node;
 pub mod pod;
 pub mod provider;
+pub mod state;
 pub mod store;
 pub mod volume;
 

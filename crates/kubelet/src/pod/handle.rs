@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use log::{debug, error, info};
 use tokio::io::{AsyncRead, AsyncSeek};
-use tokio::stream::{StreamExt, StreamMap};
+use tokio::stream::StreamMap;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
@@ -10,7 +10,7 @@ use crate::container::{ContainerMapByName, HandleMap as ContainerHandleMap};
 use crate::handle::StopHandler;
 use crate::log::{HandleFactory, Sender};
 use crate::pod::Pod;
-use crate::pod::{Status, StatusMessage};
+// use crate::pod::{Status, StatusMessage};
 use crate::provider::ProviderError;
 use crate::volume::Ref;
 
@@ -35,11 +35,11 @@ impl<H: StopHandler, F> Handle<H, F> {
     pub async fn new(
         container_handles: ContainerHandleMap<H, F>,
         pod: Pod,
-        client: kube::Client,
+        _client: kube::Client,
         volumes: Option<HashMap<String, Ref>>,
-        initial_message: Option<String>,
+        _initial_message: Option<String>,
     ) -> anyhow::Result<Self> {
-        let container_keys: Vec<_> = container_handles.keys().cloned().collect();
+        // let container_keys: Vec<_> = container_handles.keys().cloned().collect();
         // pod.initialise_status(&client, &container_keys, initial_message)
         //     .await;
 
@@ -51,27 +51,27 @@ impl<H: StopHandler, F> Handle<H, F> {
         // move the stream map and lose the ability to insert a new channel for
         // the restarted runtime. It may involve sending things to the task with
         // a channel
-        let cloned_pod = pod.clone();
+        // let cloned_pod = pod.clone();
         let status_handle = tokio::task::spawn(async move {
-            loop {
-                let (name, status) = match channel_map.next().await {
-                    Some(s) => s,
-                    // None means everything is closed, so go ahead and exit
-                    None => {
-                        return;
-                    }
-                };
+            // loop {
+            //     let (name, status) = match channel_map.next().await {
+            //         Some(s) => s,
+            //         // None means everything is closed, so go ahead and exit
+            //         None => {
+            //             return;
+            //         }
+            //     };
 
-                let mut container_statuses = HashMap::new();
-                container_statuses.insert(name, status);
+            //     let mut container_statuses = HashMap::new();
+            //     container_statuses.insert(name, status);
 
-                let pod_status = Status {
-                    message: StatusMessage::LeaveUnchanged, // TODO: sure?
-                    container_statuses,
-                };
+            //     let pod_status = Status {
+            //         message: StatusMessage::LeaveUnchanged, // TODO: sure?
+            //         container_statuses,
+            //     };
 
-                // cloned_pod.patch_status(client.clone(), pod_status).await;
-            }
+            //     cloned_pod.patch_status(client.clone(), pod_status).await;
+            // }
         });
         Ok(Self {
             container_handles: RwLock::new(container_handles),

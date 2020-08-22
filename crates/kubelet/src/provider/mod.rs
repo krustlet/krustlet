@@ -51,8 +51,11 @@ use crate::state::State;
 /// ```
 #[async_trait]
 pub trait Provider: Sized {
+    /// The state that is passed between Pod state handlers.
+    type PodState: 'static + Send + Sync;
+
     /// The initial state for Pod state machine.
-    type InitialState: Default + State<Self>;
+    type InitialState: Default + State<Self::PodState>;
 
     /// Arch returns a string specifying what architecture this provider supports
     const ARCH: &'static str;
@@ -62,17 +65,9 @@ pub trait Provider: Sized {
         Ok(())
     }
 
-    /// Given an updated Pod definition, update the given workload.
-    ///
-    /// Pods that are sent to this function have already met certain criteria for modification.
-    /// For example, updates to the `status` of a Pod will not be sent into this function.
-    async fn modify(&self, pod: Pod);
-
-    /// Given the definition of a deleted Pod, remove the workload from the runtime.
-    ///
-    /// This does not need to actually delete the Pod definition -- just destroy the
-    /// associated workload.
-    async fn delete(&self, pod: Pod);
+    /// Hook to allow provider to introduced shared state into Pod state.
+    // TODO: Is there a way to provide a default implementation of this if Self::PodState: Default?
+    async fn initialize_pod_state(&self) -> anyhow::Result<Self::PodState>;
 
     /// Given a Pod, get back the logs for the associated workload.
     async fn logs(
