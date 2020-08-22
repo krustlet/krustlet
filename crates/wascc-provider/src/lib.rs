@@ -32,29 +32,19 @@
 #![deny(missing_docs)]
 
 use async_trait::async_trait;
-use k8s_openapi::api::core::v1::{ContainerStatus as KubeContainerStatus, Pod as KubePod};
-use kube::{api::{DeleteParams, WatchEvent}, Api};
-use kubelet::container::Container;
-use kubelet::container::{
-    ContainerKey, Handle as ContainerHandle, HandleMap as ContainerHandleMap,
-    Status as ContainerStatus,
-};
+use kubelet::container::{Handle as ContainerHandle, Status as ContainerStatus};
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
-use kubelet::pod::{key_from_pod, pod_key, Handle};
-use kubelet::pod::{
-    update_status, Phase, Pod, Status as PodStatus, StatusMessage as PodStatusMessage,
-};
+use kubelet::pod::Phase;
+use kubelet::pod::{pod_key, Handle};
 use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
 use kubelet::store::Store;
-use kubelet::state::default::{Registered, DefaultStateProvider};
+
 use kubelet::volume::Ref;
-use log::{debug, error, info, trace};
-use std::error::Error;
-use std::fmt;
+use log::{debug, info};
 use tempfile::NamedTempFile;
-use tokio::sync::watch::{self, Receiver};
+use tokio::sync::watch::Receiver;
 use tokio::sync::RwLock;
 use wascc_fs::FileSystemProvider;
 use wascc_host::{Actor, NativeCapability, WasccHost};
@@ -62,12 +52,13 @@ use wascc_httpsrv::HttpServerProvider;
 use wascc_logging::{LoggingProvider, LOG_PATH_KEY};
 
 extern crate rand;
-use rand::Rng;
-use std::collections::{HashMap, HashSet};
-use std::ops::Deref;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Mutex as TokioMutex;
+
+mod states;
+use states::registered::Registered;
 
 /// The architecture that the pod targets.
 const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
@@ -208,197 +199,46 @@ impl WasccProvider {
             port_map,
         })
     }
-
-    async fn assign_container_port(&self, pod: &Pod, container: &Container) -> anyhow::Result<i32> {
-        let mut port_assigned: i32 = 0;
-        if let Some(container_vec) = container.ports().as_ref() {
-            for c_port in container_vec.iter() {
-                let container_port = c_port.container_port;
-                if let Some(host_port) = c_port.host_port {
-                    let mut lock = self.port_map.lock().await;
-                    if !lock.contains_key(&host_port) {
-                        port_assigned = host_port;
-                        lock.insert(port_assigned, pod.name().to_string());
-                    } else {
-                        error!(
-                            "Failed to assign hostport {}, because it's taken",
-                            &host_port
-                        );
-                        return Err(anyhow::anyhow!("Port {} is currently in use", &host_port));
-                    }
-                } else if container_port >= 0 && container_port <= 65536 {
-                    port_assigned =
-                        find_available_port(&self.port_map, pod.name().to_string()).await?;
-                }
-            }
-        }
-        Ok(port_assigned)
-    }
-
-    async fn start_container(
-        &self,
-        run_context: &mut ModuleRunContext,
-        container: &Container,
-        pod: &Pod,
-        port_assigned: i32,
-    ) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
-        let env = Self::env_vars(&container, &pod, &self.client).await;
-        let volume_bindings: Vec<VolumeBinding> =
-            if let Some(volume_mounts) = container.volume_mounts().as_ref() {
-                volume_mounts
-                    .iter()
-                    .map(|vm| -> anyhow::Result<VolumeBinding> {
-                        // Check the volume exists first
-                        let vol = run_context.volumes.get(&vm.name).ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "no volume with the name of {} found for container {}",
-                                vm.name,
-                                container.name()
-                            )
-                        })?;
-                        // We can safely assume that this should be valid UTF-8 because it would have
-                        // been validated by the k8s API
-                        Ok(VolumeBinding {
-                            name: vm.name.clone(),
-                            host_path: vol.deref().clone(),
-                        })
-                    })
-                    .collect::<anyhow::Result<_>>()?
-            } else {
-                vec![]
-            };
-
-        debug!("Starting container {} on thread", container.name());
-
-        let module_data = run_context
-            .modules
-            .remove(container.name())
-            .expect("FATAL ERROR: module map not properly populated");
-        let lp = self.log_path.clone();
-        let (status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
-            timestamp: chrono::Utc::now(),
-            message: "No status has been received from the process".into(),
-        });
-        let host = self.host.clone();
-        let http_result = tokio::task::spawn_blocking(move || {
-            wascc_run_http(
-                host,
-                module_data,
-                env,
-                volume_bindings,
-                &lp,
-                status_recv,
-                port_assigned,
-            )
-        })
-        .await?;
-        http_result
-    }
 }
 
 struct ModuleRunContext {
     modules: HashMap<String, Vec<u8>>,
     volumes: HashMap<String, Ref>,
-    event_tx: tokio::sync::mpsc::Sender<WatchEvent<KubePod>>,
-    event_rx: tokio::sync::mpsc::Receiver<WatchEvent<KubePod>>,
 }
 
-#[async_trait::async_trait]
-impl DefaultStateProvider for WasccProvider {
-    /// A new Pod has been created.
-    async fn registered(&self, pod: &Pod) -> anyhow::Result<()> {
-        info!("Pod added: {}.", pod.name());
-        validate_pod_runnable(&pod)?;
-        info!("Pod validated: {}.", pod.name());
-        let (event_tx, event_rx) = tokio::sync::mpsc::channel(16);
-        let run_context = ModuleRunContext {
-            modules: Default::default(),
-            volumes: Default::default(),
-            event_tx,
-            event_rx
-        };
+fn make_status(phase: Phase, reason: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::json!(
+       {
+           "metadata": {
+               "resourceVersion": "",
+           },
+           "status": {
+               "phase": phase,
+               "reason": reason,
+               "containerStatuses": Vec::<()>::new(),
+               "initContainerStatuses": Vec::<()>::new(),
+           }
+       }
+    ))
+}
 
-        let pod_handle_key = key_from_pod(&pod);
-        info!("Pod registering run context: {}", pod.name());
-        self.run_contexts.write().await.insert(pod_handle_key, run_context);
-        info!("Pod registered: {}.", pod.name());
-        Ok(())
-    }
-
-    /// Pull images for containers.
-    async fn image_pull(&self, pod: &Pod) -> anyhow::Result<()> {
-        let pod_handle_key = key_from_pod(&pod);
-        match self.run_contexts.write().await.get_mut(&pod_handle_key) {
-            Some(mut run_context) => {
-                run_context.modules = self.store.fetch_pod_modules(&pod).await?;
-            }
-            None => anyhow::bail!("Could not locate pod run context: {}", pod_handle_key)
-        }
-        Ok(())
-    }
-
-    /// Mount volumes for containers.
-    async fn volume_mount(&self, pod: &Pod) -> anyhow::Result<()> {
-        let pod_handle_key = key_from_pod(&pod);
-        match self.run_contexts.write().await.get_mut(&pod_handle_key) {
-            Some(mut run_context) => {
-                run_context.volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &self.client).await?;
-            }
-            None => anyhow::bail!("Could not locate pod run context: {}", pod_handle_key)
-        }
-        Ok(())
-    }
-
-    /// Start containers.
-    async fn starting(&self, pod: &Pod) -> anyhow::Result<()> {
-        info!("Starting containers for pod {:?}", pod.name());
-
-        let pod_handle_key = key_from_pod(&pod);
-
-        let mut run_contexts = self.run_contexts.write().await; 
-        let mut run_context = run_contexts.get_mut(&pod_handle_key).ok_or_else(|| {
-            anyhow::anyhow!("Could not locate pod run context: {}", pod_handle_key)
-        })?;
-
-        let mut container_handles = HashMap::new();
-        for container in pod.containers() {
-            let port_assigned = self.assign_container_port(&pod, &container).await?;
-            debug!(
-                "New port assigned to {} is: {}",
-                container.name(),
-                port_assigned
-            );
-
-            let container_handle = self.start_container(&mut run_context, &container, &pod, port_assigned)
-                .await?;
-            container_handles.insert(ContainerKey::App(container.name().to_string()), container_handle);
-        }
-        let pod_handle = Handle::new(container_handles, pod.clone(), self.client.clone(), None, None).await?;
-
-        // Wrap this in a block so the write lock goes out of scope when we are done
-        {
-            let mut handles = self.handles.write().await;
-            handles.insert(pod_handle_key, pod_handle);
-        }
-
-        info!(
-            "All containers started for pod {:?}.",
-            pod.name()
-        );
-        Ok(())
-    }
-
-    /// Running state.
-    async fn running(&self, _pod: &Pod) -> anyhow::Result<()> {
-        /// Listen for pod changes.
-        loop { tokio::time::delay_for(std::time::Duration::from_secs(30)).await; }
-        Ok(())
-    }
+/// State that is shared between pod state handlers.
+pub struct PodState {
+    run_context: ModuleRunContext,
+    store: Arc<dyn Store + Sync + Send>,
+    client: kube::Client,
+    volume_path: std::path::PathBuf,
+    errors: usize,
+    port_map: Arc<TokioMutex<HashMap<i32, String>>>,
+    handle: Option<Handle<ActorHandle, LogHandleFactory>>,
+    log_path: PathBuf,
+    host: Arc<Mutex<WasccHost>>,
 }
 
 #[async_trait]
 impl Provider for WasccProvider {
     type InitialState = Registered;
+    type PodState = PodState;
 
     const ARCH: &'static str = TARGET_WASM32_WASCC;
 
@@ -408,130 +248,110 @@ impl Provider for WasccProvider {
         Ok(())
     }
 
-    async fn modify(&self, pod: Pod) {
-        let pod_handle_key = key_from_pod(&pod);
-        match self.run_contexts.write().await.get_mut(&pod_handle_key) {
-            Some(mut run_context) => {
-                run_context.event_tx.send(WatchEvent::Modified(pod.into_kube_pod())).await.ok();
-            }
-            None => () 
-        }
+    async fn initialize_pod_state(&self) -> anyhow::Result<Self::PodState> {
+        let run_context = ModuleRunContext {
+            modules: Default::default(),
+            volumes: Default::default(),
+        };
 
-        // // The only things we care about are:
-        // // 1. metadata.deletionTimestamp => signal all containers to stop and then mark them
-        // //    as terminated
-        // // 2. spec.containers[*].image, spec.initContainers[*].image => stop the currently
-        // //    running containers and start new ones?
-        // // 3. spec.activeDeadlineSeconds => Leaving unimplemented for now
-        // // TODO: Determine what the proper behavior should be if labels change
-        // let pod_name = pod.name().to_owned();
-        // let pod_namespace = pod.namespace().to_owned();
-        // debug!(
-        //     "Got pod modified event for {} in namespace {}",
-        //     pod_name, pod_namespace
-        // );
-        // trace!("Modified pod spec: {:#?}", pod.as_kube_pod());
-        // if let Some(_timestamp) = pod.deletion_timestamp() {
-        //     debug!(
-        //         "Found delete timestamp for pod {} in namespace {}. Stopping running actors",
-        //         pod_name, pod_namespace
-        //     );
-        //     let mut handles = self.handles.write().await;
-        //     match handles.get_mut(&key_from_pod(&pod)) {
-        //         Some(h) => {
-        //             h.stop().await.unwrap();
-
-        //             debug!(
-        //                 "All actors stopped for pod {} in namespace {}, updating status",
-        //                 pod_name, pod_namespace
-        //             );
-        //             // Having to do this here isn't my favorite thing, but we need to update the
-        //             // status of the container so it can be deleted. We will probably need to have
-        //             // some sort of provider that can send a message about status to the Kube API
-        //             let now = chrono::Utc::now();
-        //             let terminated = ContainerStatus::Terminated {
-        //                 timestamp: now,
-        //                 message: "Pod stopped".to_owned(),
-        //                 failed: false,
-        //             };
-
-        //             let container_statuses: Vec<KubeContainerStatus> = pod
-        //                 .into_kube_pod()
-        //                 .spec
-        //                 .unwrap_or_default()
-        //                 .containers
-        //                 .into_iter()
-        //                 .map(|c| terminated.to_kubernetes(c.name))
-        //                 .collect();
-
-        //             let json_status = serde_json::json!(
-        //                 {
-        //                     "metadata": {
-        //                         "resourceVersion": "",
-        //                     },
-        //                     "status": {
-        //                         "message": "Pod stopped",
-        //                         "phase": Phase::Succeeded,
-        //                         "containerStatuses": container_statuses,
-        //                     }
-        //                 }
-        //             );
-        //             update_status(self.client.clone(), &pod_namespace, &pod_name, &json_status).await.unwrap();
-
-        //             let pod_client: Api<KubePod> = Api::namespaced(self.client.clone(), &pod_namespace);
-        //             let dp = DeleteParams {
-        //                 grace_period_seconds: Some(0),
-        //                 ..Default::default()
-        //             };
-        //             pod_client.delete(&pod_name, &dp).await.unwrap();
-        //         }
-        //         None => {
-        //             // This isn't an error with the pod, so don't return an error (otherwise it will
-        //             // get updated in its status). This is an unlikely case to get into and means
-        //             // that something is likely out of sync, so just log the error
-        //             error!(
-        //                 "Unable to find pod {} in namespace {} when trying to stop all containers",
-        //                 pod_name, pod_namespace
-        //             );
-        //         }
-        //     }
-        // } else {
-        // };
-        // // TODO: Implement behavior for stopping old containers and restarting when the container
-        // // image changes
+        Ok(PodState {
+            run_context,
+            store: Arc::clone(&self.store),
+            client: self.client.clone(),
+            volume_path: self.volume_path.clone(),
+            errors: 0,
+            port_map: Arc::clone(&self.port_map),
+            handle: None,
+            log_path: self.log_path.clone(),
+            host: Arc::clone(&self.host),
+        })
     }
 
-    async fn delete(&self, pod: Pod) {
-        let pod_handle_key = key_from_pod(&pod);
-        match self.run_contexts.write().await.get_mut(&pod_handle_key) {
-            Some(mut run_context) => {
-                run_context.event_tx.send(WatchEvent::Deleted(pod.into_kube_pod())).await.ok();
-            }
-            None => () 
-        }
+    // async fn modify(&self, pod: Pod) {
+    //     let pod_handle_key = key_from_pod(&pod);
+    //     // The only things we care about are:
+    //     // 1. metadata.deletionTimestamp => signal all containers to stop and then mark them
+    //     //    as terminated
+    //     // 2. spec.containers[*].image, spec.initContainers[*].image => stop the currently
+    //     //    running containers and start new ones?
+    //     // 3. spec.activeDeadlineSeconds => Leaving unimplemented for now
+    //     // TODO: Determine what the proper behavior should be if labels change
+    //     let pod_name = pod.name().to_owned();
+    //     let pod_namespace = pod.namespace().to_owned();
+    //     debug!(
+    //         "Got pod modified event for {} in namespace {}",
+    //         pod_name, pod_namespace
+    //     );
+    //     trace!("Modified pod spec: {:#?}", pod.as_kube_pod());
+    //     if let Some(_timestamp) = pod.deletion_timestamp() {
+    //         debug!(
+    //             "Found delete timestamp for pod {} in namespace {}. Stopping running actors",
+    //             pod_name, pod_namespace
+    //         );
+    //         let mut handles = self.handles.write().await;
+    //         match handles.get_mut(&key_from_pod(&pod)) {
+    //             Some(h) => {
+    //                 h.stop().await.unwrap();
 
-        // let mut delete_key: i32 = 0;
-        // let mut lock = self.port_map.lock().await;
-        // for (key, val) in lock.iter() {
-        //     if val == pod.name() {
-        //         delete_key = *key
-        //     }
-        // }
-        // lock.remove(&delete_key);
-        // let mut handles = self.handles.write().await;
-        // match handles.remove(&key_from_pod(&pod)) {
-        //     Some(_) => debug!(
-        //         "Pod {} in namespace {} removed",
-        //         pod.name(),
-        //         pod.namespace()
-        //     ),
-        //     None => info!(
-        //         "unable to find pod {} in namespace {}, it was likely already deleted",
-        //         pod.name(),
-        //         pod.namespace()
-        //     ),
-        // }
-    }
+    //                 debug!(
+    //                     "All actors stopped for pod {} in namespace {}, updating status",
+    //                     pod_name, pod_namespace
+    //                 );
+    //                 // Having to do this here isn't my favorite thing, but we need to update the
+    //                 // status of the container so it can be deleted. We will probably need to have
+    //                 // some sort of provider that can send a message about status to the Kube API
+    //                 let now = chrono::Utc::now();
+    //                 let terminated = ContainerStatus::Terminated {
+    //                     timestamp: now,
+    //                     message: "Pod stopped".to_owned(),
+    //                     failed: false,
+    //                 };
+
+    //                 let container_statuses: Vec<KubeContainerStatus> = pod
+    //                     .into_kube_pod()
+    //                     .spec
+    //                     .unwrap_or_default()
+    //                     .containers
+    //                     .into_iter()
+    //                     .map(|c| terminated.to_kubernetes(c.name))
+    //                     .collect();
+
+    //                 let json_status = serde_json::json!(
+    //                     {
+    //                         "metadata": {
+    //                             "resourceVersion": "",
+    //                         },
+    //                         "status": {
+    //                             "message": "Pod stopped",
+    //                             "phase": Phase::Succeeded,
+    //                             "containerStatuses": container_statuses,
+    //                         }
+    //                     }
+    //                 );
+    //                 update_status(self.client.clone(), &pod_namespace, &pod_name, &json_status).await.unwrap();
+
+    //                 let pod_client: Api<KubePod> = Api::namespaced(self.client.clone(), &pod_namespace);
+    //                 let dp = DeleteParams {
+    //                     grace_period_seconds: Some(0),
+    //                     ..Default::default()
+    //                 };
+    //                 pod_client.delete(&pod_name, &dp).await.unwrap();
+    //             }
+    //             None => {
+    //                 // This isn't an error with the pod, so don't return an error (otherwise it will
+    //                 // get updated in its status). This is an unlikely case to get into and means
+    //                 // that something is likely out of sync, so just log the error
+    //                 error!(
+    //                     "Unable to find pod {} in namespace {} when trying to stop all containers",
+    //                     pod_name, pod_namespace
+    //                 );
+    //             }
+    //         }
+    //     } else {
+    //     };
+    //     // TODO: Implement behavior for stopping old containers and restarting when the container
+    //     // image changes
+    // }
 
     async fn logs(
         &self,
@@ -547,37 +367,6 @@ impl Provider for WasccProvider {
                 pod_name: pod_name.clone(),
             })?;
         handle.output(&container_name, sender).await
-    }
-}
-
-fn validate_pod_runnable(pod: &Pod) -> anyhow::Result<()> {
-    if !pod.init_containers().is_empty() {
-        return Err(anyhow::anyhow!(
-            "Cannot run {}: spec specifies init containers which are not supported on wasCC",
-            pod.name()
-        ));
-    }
-    for container in pod.containers() {
-        validate_container_runnable(&container)?;
-    }
-    Ok(())
-}
-
-fn validate_container_runnable(container: &Container) -> anyhow::Result<()> {
-    if has_args(container) {
-        return Err(anyhow::anyhow!(
-            "Cannot run {}: spec specifies container args which are not supported on wasCC",
-            container.name()
-        ));
-    }
-
-    Ok(())
-}
-
-fn has_args(container: &Container) -> bool {
-    match &container.args() {
-        None => false,
-        Some(vec) => !vec.is_empty(),
     }
 }
 
@@ -607,44 +396,6 @@ fn wascc_run_http(
         env,
     });
     wascc_run(host, data, &mut caps, volumes, log_path, status_recv)
-}
-
-#[derive(Debug)]
-struct PortAllocationError {}
-
-impl PortAllocationError {
-    fn new() -> PortAllocationError {
-        PortAllocationError {}
-    }
-}
-impl fmt::Display for PortAllocationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "all ports are currently in use")
-    }
-}
-impl Error for PortAllocationError {
-    fn description(&self) -> &str {
-        "all ports are currently in use"
-    }
-}
-
-async fn find_available_port(
-    port_map: &Arc<TokioMutex<HashMap<i32, String>>>,
-    pod_name: String,
-) -> Result<i32, PortAllocationError> {
-    let mut port: Option<i32> = None;
-    let mut empty_port: HashSet<i32> = HashSet::new();
-    let mut lock = port_map.lock().await;
-    while empty_port.len() < 2768 {
-        let generated_port: i32 = rand::thread_rng().gen_range(30000, 32768);
-        port.replace(generated_port);
-        empty_port.insert(port.unwrap());
-        if !lock.contains_key(&port.unwrap()) {
-            lock.insert(port.unwrap(), pod_name);
-            break;
-        }
-    }
-    port.ok_or_else(PortAllocationError::new)
 }
 
 /// Capability describes a waSCC capability.
