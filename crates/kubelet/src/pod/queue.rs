@@ -6,7 +6,6 @@ use kube::api::{Meta, WatchEvent};
 use kube::Client as KubeClient;
 use log::{debug, error, info};
 use tokio::sync::watch;
-use tokio::task::JoinHandle;
 
 use crate::pod::{pod_key, Pod};
 use crate::provider::Provider;
@@ -22,23 +21,41 @@ pub enum PodChange {
     Delete,
 }
 
-struct Worker {
-    sender: watch::Sender<WatchEvent<KubePod>>,
-    _worker: JoinHandle<()>,
+/// A per-pod queue that takes incoming Kubernetes events and broadcasts them to the correct queue
+/// for that pod.
+///
+/// It will also send a error out on the given sender that can be handled in another process (namely
+/// the main kubelet process). This queue will only handle the latest update. So if a modify comes
+/// in while it is still handling a create and then another modify comes in after, only the second
+/// modify will be handled, which is ok given that each event contains the whole pod object
+pub(crate) struct Queue<P> {
+    provider: Arc<P>,
+    handlers: HashMap<String, watch::Sender<WatchEvent<KubePod>>>,
+    client: KubeClient,
 }
 
-impl Worker {
-    fn create<P>(initial_event: WatchEvent<KubePod>, provider: Arc<P>, client: KubeClient) -> Self
-    where
-        P: 'static + Provider + Sync + Send,
-    {
+impl<P: 'static + Provider + Sync + Send> Queue<P> {
+    pub fn new(provider: Arc<P>, client: KubeClient) -> Self {
+        Queue {
+            provider,
+            handlers: HashMap::new(),
+            client,
+        }
+    }
+
+    async fn run_pod(
+        &self,
+        initial_event: WatchEvent<KubePod>,
+    ) -> anyhow::Result<watch::Sender<WatchEvent<KubePod>>> {
         let (sender, mut receiver) = watch::channel(initial_event);
 
         // These should be set on the first Add.
         let mut pod_definition: Option<KubePod> = None;
         let mut state_tx: Option<tokio::sync::mpsc::Sender<PodChange>> = None;
 
-        let worker = tokio::spawn(async move {
+        let task_provider = Arc::clone(&self.provider);
+        let task_client = self.client.clone();
+        tokio::spawn(async move {
             while let Some(event) = receiver.recv().await {
                 // Watch errors are handled before an event ever gets here, so it should always have
                 // a pod
@@ -52,8 +69,9 @@ impl Worker {
                         state_tx = Some(tx);
                         pod_definition = Some(pod.clone());
 
-                        let client = client.clone();
-                        let pod_state: P::PodState = provider.initialize_pod_state().await.unwrap();
+                        let client = task_client.clone();
+                        let pod_state: P::PodState =
+                            task_provider.initialize_pod_state().await.unwrap();
                         tokio::spawn(async move {
                             let state: P::InitialState = Default::default();
                             let pod = Pod::new(pod);
@@ -89,33 +107,7 @@ impl Worker {
                 }
             }
         });
-        Worker {
-            sender,
-            _worker: worker,
-        }
-    }
-}
-
-/// A per-pod queue that takes incoming Kubernetes events and broadcasts them to the correct queue
-/// for that pod.
-///
-/// It will also send a error out on the given sender that can be handled in another process (namely
-/// the main kubelet process). This queue will only handle the latest update. So if a modify comes
-/// in while it is still handling a create and then another modify comes in after, only the second
-/// modify will be handled, which is ok given that each event contains the whole pod object
-pub(crate) struct Queue<P> {
-    provider: Arc<P>,
-    handlers: HashMap<String, Worker>,
-    client: KubeClient,
-}
-
-impl<P: 'static + Provider + Sync + Send> Queue<P> {
-    pub fn new(provider: Arc<P>, client: KubeClient) -> Self {
-        Queue {
-            provider,
-            handlers: HashMap::new(),
-            client,
-        }
+        Ok(sender)
     }
 
     pub async fn enqueue(&mut self, event: WatchEvent<KubePod>) -> anyhow::Result<()> {
@@ -129,21 +121,19 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                 let key = pod_key(&pod_namespace, &pod_name);
                 // We are explicitly not using the entry api here to insert to avoid the need for a
                 // mutex
-                let handler = match self.handlers.get(&key) {
-                    Some(h) => h,
+                let sender = match self.handlers.get(&key) {
+                    Some(s) => s,
                     None => {
                         self.handlers.insert(
                             key.clone(),
-                            Worker::create::<P>(
-                                event.clone(),
-                                Arc::clone(&self.provider),
-                                self.client.clone(),
-                            ),
+                            // TODO Do we want to capture join handles? Worker wasnt using them.
+                            // TODO Does this mean we handle the Add event twice?
+                            self.run_pod(event.clone()).await?,
                         );
                         self.handlers.get(&key).unwrap()
                     }
                 };
-                match handler.sender.broadcast(event) {
+                match sender.broadcast(event) {
                     Ok(_) => debug!(
                         "successfully sent event to handler for pod {} in namespace {}",
                         pod_name, pod_namespace

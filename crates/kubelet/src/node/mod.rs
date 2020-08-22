@@ -1,9 +1,7 @@
 //! `node` contains wrappers around the Kubernetes node API, containing ways to create and update
 //! nodes operating within the cluster.
 use crate::config::Config;
-// use crate::container::{ContainerKey, ContainerMap, Status as ContainerStatus};
 use crate::pod::Pod;
-// use crate::pod::{Status as PodStatus, StatusMessage as PodStatusMessage};
 use crate::provider::Provider;
 use chrono::prelude::*;
 use futures::{StreamExt, TryStreamExt};
