@@ -238,12 +238,19 @@ mod test {
 
     struct MockProvider;
 
+    struct PodState;
+
     #[async_trait::async_trait]
     impl Provider for MockProvider {
         type InitialState = crate::state::Stub;
+        type PodState = PodState;
+
         const ARCH: &'static str = "mock";
-        async fn modify(&self, _pod: Pod) {}
-        async fn delete(&self, _pod: Pod) {}
+
+        async fn initialize_pod_state(&self) -> anyhow::Result<Self::PodState> {
+            Ok(PodState)
+        }
+
         async fn logs(
             &self,
             _namespace: String,

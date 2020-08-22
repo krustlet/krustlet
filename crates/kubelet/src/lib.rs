@@ -15,18 +15,20 @@
 //! // Create some type that will act as your provider
 //! struct MyProvider;
 //!
+//! // Track pod state amongst pod state handlers.
+//! struct PodState;
+//!
 //! // Implement the `Provider` trait for that type
 //! #[async_trait::async_trait]
 //! impl Provider for MyProvider {
 //!     const ARCH: &'static str = "my-arch";
 //!     type InitialState = Stub;
-//!
-//!     async fn modify(&self, pod: Pod) {
-//!        todo!("Implement Provider::add")
+//!     type PodState = PodState;
+//!    
+//!     async fn initialize_pod_state(&self) -> anyhow::Result<Self::PodState> {
+//!         Ok(PodState)
 //!     }
 //!
-//!     // Implement the rest of the methods
-//!     async fn delete(&self, pod: Pod) { todo!() }
 //!     async fn logs(&self, namespace: String, pod: String, container: String, sender: kubelet::log::Sender) -> anyhow::Result<()> { todo!() }
 //! }
 //!
