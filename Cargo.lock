@@ -2108,6 +2108,8 @@ dependencies = [
  "hyperx",
  "log 0.4.11",
  "reqwest",
+ "rstest",
+ "rstest_reuse",
  "serde",
  "serde_json",
  "tokio",
@@ -2733,6 +2735,29 @@ dependencies = [
  "byteorder",
  "rmp",
  "serde",
+]
+
+[[package]]
+name = "rstest"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dec448bc157977efdc0a71369cf923915b0c4806b1b2449c3fb011071d6f7c38"
+dependencies = [
+ "cfg-if",
+ "proc-macro2",
+ "quote",
+ "rustc_version",
+ "syn",
+]
+
+[[package]]
+name = "rstest_reuse"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea58a205448b6b691df0025d0871882c60ce66b46ee8b26217d68f794eb0f965"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]

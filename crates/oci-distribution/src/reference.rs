@@ -145,80 +145,99 @@ impl Into<String> for Reference {
 #[cfg(test)]
 mod test {
     use super::*;
+    use rstest::rstest;
+    use std::convert::TryInto;
 
-    mod parse {
-        use super::*;
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct ParseResult {
+        registry: String,
+        repository: String,
+        tag: Option<String>,
+        digest: Option<String>,
+    }
 
-        fn must_parse(image: &str) -> Reference {
-            Reference::try_from(image).expect("could not parse reference")
+    impl ParseResult {
+        fn new<'a>(registry: &str, repository: &str) -> Self {
+            Self {
+                registry: registry.to_owned(),
+                repository: repository.to_owned(),
+                tag: None,
+                digest: None,
+            }
         }
 
-        fn validate_registry_and_repository(reference: &Reference) {
-            assert_eq!(reference.registry(), "webassembly.azurecr.io");
-            assert_eq!(reference.repository(), "hello");
+        fn empty() -> Self {
+            Self::new("", "")
         }
 
-        fn validate_tag(reference: &Reference) {
-            assert_eq!(reference.tag(), Some("v1"));
+        fn with_tag(&mut self, tag: &str) -> Self {
+            self.tag = Some(tag.to_owned());
+            self.to_owned()
         }
 
-        fn validate_digest(reference: &Reference) {
-            assert_eq!(
-                reference.digest(),
-                Some("sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9")
-            );
+        fn with_digest(&mut self, digest: &str) -> Self {
+            self.digest = Some(digest.to_owned());
+            self.to_owned()
         }
+    }
 
-        #[test]
-        fn owned_string() {
-            let reference = Reference::try_from("webassembly.azurecr.io/hello:v1".to_owned())
-                .expect("could not parse reference");
+    #[rstest(
+        image, expected,
+        case::owned_string(
+            "webassembly.azurecr.io/hello:v1".to_owned(),
+            ParseResult::new("webassembly.azurecr.io", "hello")
+                .with_tag("v1"),
+        ),
+        case::tag(
+            "webassembly.azurecr.io/hello:v1",
+            ParseResult::new("webassembly.azurecr.io", "hello")
+                .with_tag("v1"),
+        ),
+        case::digest(
+            "webassembly.azurecr.io/hello@sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7",
+            ParseResult::new("webassembly.azurecr.io", "hello")
+                .with_digest("sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7"),
+        ),
+        case::tag_and_digest(
+            "webassembly.azurecr.io/hello:v1@sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7",
+            ParseResult::new("webassembly.azurecr.io", "hello")
+                .with_tag("v1")
+                .with_digest("sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7"),
+        ),
+        case::no_tag_or_digest(
+            "webassembly.azurecr.io/hello",
+            ParseResult::new("webassembly.azurecr.io", "hello"),
+        ),
+        #[should_panic(expected = "parsing failed: Failed to parse reference string \'webassembly.azurecr.io:hello\'. Expected at least one slash (/)")]
+        case::missing_slash(
+            "webassembly.azurecr.io:hello",
+            ParseResult::empty(),
+        ),
+        #[should_panic(expected = "parsing failed: Failed to parse reference string \'\'. Expected at least one slash (/)")]
+        case::empty(
+            "",
+            ParseResult::empty(),
+        ),
+        ::trace
+    )]
+    fn parse<T>(image: T, expected: ParseResult)
+    where
+        T: TryInto<Reference>,
+        T::Error: Into<anyhow::Error>,
+    {
+        let r: Reference = image
+            .try_into()
+            .map_err(Into::into)
+            .expect("parsing failed");
 
-            validate_registry_and_repository(&reference);
-            validate_tag(&reference);
-            assert_eq!(reference.digest(), None);
-        }
-
-        #[test]
-        fn tag_only() {
-            let reference = must_parse("webassembly.azurecr.io/hello:v1");
-
-            validate_registry_and_repository(&reference);
-            validate_tag(&reference);
-            assert_eq!(reference.digest(), None);
-        }
-
-        #[test]
-        fn digest_only() {
-            let reference = must_parse("webassembly.azurecr.io/hello@sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9");
-
-            validate_registry_and_repository(&reference);
-            validate_digest(&reference);
-            assert_eq!(reference.tag(), None);
-        }
-
-        #[test]
-        fn tag_and_digest() {
-            let reference = must_parse("webassembly.azurecr.io/hello:v1@sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9");
-
-            validate_registry_and_repository(&reference);
-            validate_tag(&reference);
-            validate_digest(&reference);
-        }
-
-        #[test]
-        fn no_tag_or_digest() {
-            let reference = must_parse("webassembly.azurecr.io/hello");
-
-            validate_registry_and_repository(&reference);
-            assert_eq!(reference.tag(), None);
-            assert_eq!(reference.digest(), None);
-        }
-
-        #[test]
-        fn missing_slash_char() {
-            Reference::try_from("webassembly.azurecr.io:hello")
-                .expect_err("no slash should produce an error");
-        }
+        assert_eq!(
+            ParseResult {
+                registry: r.registry().to_owned(),
+                repository: r.repository().to_owned(),
+                tag: r.tag().map(|t| t.to_owned()),
+                digest: r.digest().map(|d| d.to_owned()),
+            },
+            expected
+        );
     }
 }
