@@ -349,7 +349,7 @@ impl Default for ClientProtocol {
 }
 
 impl ClientProtocol {
-    pub(crate) fn scheme_for(&self, registry: &str) -> &str {
+    fn scheme_for(&self, registry: &str) -> &str {
         match self {
             ClientProtocol::Https => "https",
             ClientProtocol::Http => "http",
