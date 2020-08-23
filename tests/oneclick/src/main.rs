@@ -84,12 +84,13 @@ fn build_workspace() -> anyhow::Result<()> {
         .args(&["build"])
         .output()?;
 
-    match build_result.status.success() {
-        true => Ok(()),
-        false => Err(anyhow::anyhow!(
+    if build_result.status.success() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(
             "{}",
             String::from_utf8(build_result.stderr).unwrap()
-        )),
+        ))
     }
 }
 
@@ -165,7 +166,7 @@ fn prepare_for_bootstrap() -> BootstrapReadiness {
     // We have now deleted all the local certificate files, and all the CSRs that
     // might get in the way of our re-bootstrapping.  Let the caller know they
     // will need to re-approve once the new CSRs come up.
-    return BootstrapReadiness::NeedBootstrapAndApprove;
+    BootstrapReadiness::NeedBootstrapAndApprove
 }
 
 enum AllOrNone {
@@ -229,10 +230,10 @@ fn is_resource_gone(kubectl_output: &std::process::Output) -> bool {
 
 fn run_bootstrap() -> anyhow::Result<()> {
     let (shell, ext) = match std::env::consts::OS {
-        "windows" => ("powershell.exe", "ps1"),
-        "linux" | "macos" => ("bash", "sh"),
-        os => Err(anyhow::anyhow!("Unsupported OS {}", os))?,
-    };
+        "windows" => Ok(("powershell.exe", "ps1")),
+        "linux" | "macos" => Ok(("bash", "sh")),
+        os => Err(anyhow::anyhow!("Unsupported OS {}", os)),
+    }?;
 
     let repo_root = std::env!("CARGO_MANIFEST_DIR");
 
