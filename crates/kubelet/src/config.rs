@@ -356,7 +356,7 @@ impl ConfigBuilder {
             max_pods,
             bootstrap_file,
             allow_local_modules: self.allow_local_modules.unwrap_or(false),
-            insecure_registries: self.insecure_registries.clone(),
+            insecure_registries: self.insecure_registries,
             server_config: ServerConfig {
                 cert_file: server_tls_cert_file,
                 private_key_file: server_tls_private_key_file,
@@ -587,7 +587,7 @@ fn invalid_config_value_error(e: anyhow::Error, value_name: &str) -> anyhow::Err
 }
 
 fn parse_comma_separated(source: String) -> Vec<String> {
-    source.split(",").map(|s| s.trim().to_owned()).collect()
+    source.split(',').map(|s| s.trim().to_owned()).collect()
 }
 
 #[cfg(test)]
