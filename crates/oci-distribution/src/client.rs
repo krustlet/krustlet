@@ -47,6 +47,14 @@ pub struct Client {
     client: reqwest::Client,
 }
 
+/// A source that can provide a `ClientConfig`.
+/// If you are using this crate in your own application, you can implement this
+/// trait on your configuration type so that it can be passed to `Client::from_source`.
+pub trait ClientConfigSource {
+    /// Provides a `ClientConfig`.
+    fn client_config(&self) -> ClientConfig;
+}
+
 impl Client {
     /// Create a new client with the supplied config
     pub fn new(config: ClientConfig) -> Self {
@@ -55,6 +63,11 @@ impl Client {
             tokens: HashMap::new(),
             client: reqwest::Client::new(),
         }
+    }
+
+    /// Create a new client with the supplied config
+    pub fn from_source(config_source: &impl ClientConfigSource) -> Self {
+        Self::new(config_source.client_config())
     }
 
     /// Pull an image and return the bytes
@@ -105,7 +118,7 @@ impl Client {
         // The version request will tell us where to go.
         let url = format!(
             "{}://{}/v2/",
-            self.config.protocol.as_str(),
+            self.config.protocol.scheme_for(image.registry()),
             image.registry()
         );
         let res = self.client.get(&url).send().await?;
@@ -268,7 +281,7 @@ impl Client {
         if let Some(digest) = reference.digest() {
             format!(
                 "{}://{}/v2/{}/manifests/{}",
-                self.config.protocol.as_str(),
+                self.config.protocol.scheme_for(reference.registry()),
                 reference.registry(),
                 reference.repository(),
                 digest,
@@ -276,7 +289,7 @@ impl Client {
         } else {
             format!(
                 "{}://{}/v2/{}/manifests/{}",
-                self.config.protocol.as_str(),
+                self.config.protocol.scheme_for(reference.registry()),
                 reference.registry(),
                 reference.repository(),
                 reference.tag().unwrap_or("latest")
@@ -288,7 +301,7 @@ impl Client {
     fn to_v2_blob_url(&self, registry: &str, repository: &str, digest: &str) -> String {
         format!(
             "{}://{}/v2/{}/blobs/{}",
-            self.config.protocol.as_str(),
+            self.config.protocol.scheme_for(registry),
             registry,
             repository,
             digest,
@@ -319,12 +332,14 @@ pub struct ClientConfig {
 }
 
 /// The protocol that the client should use to connect
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ClientProtocol {
     #[allow(missing_docs)]
     Http,
     #[allow(missing_docs)]
     Https,
+    #[allow(missing_docs)]
+    HttpsExcept(Vec<String>),
 }
 
 impl Default for ClientProtocol {
@@ -334,10 +349,17 @@ impl Default for ClientProtocol {
 }
 
 impl ClientProtocol {
-    fn as_str(&self) -> &str {
+    fn scheme_for(&self, registry: &str) -> &str {
         match self {
             ClientProtocol::Https => "https",
             ClientProtocol::Http => "http",
+            ClientProtocol::HttpsExcept(exceptions) => {
+                if exceptions.contains(&registry.to_owned()) {
+                    "http"
+                } else {
+                    "https"
+                }
+            }
         }
     }
 }
@@ -451,6 +473,96 @@ mod test {
                 let reference = Reference::try_from(image).expect("failed to parse reference");
                 assert_eq!(c.to_v2_manifest_url(&reference), expected_uri);
         }
+    }
+
+    #[test]
+    fn manifest_url_generation_respects_http_protocol() {
+        let c = Client::new(ClientConfig {
+            protocol: ClientProtocol::Http,
+        });
+        let reference = Reference::try_from("webassembly.azurecr.io/hello:v1".to_owned())
+            .expect("Could not parse reference");
+        assert_eq!(
+            "http://webassembly.azurecr.io/v2/hello/manifests/v1",
+            c.to_v2_manifest_url(&reference)
+        );
+    }
+
+    #[test]
+    fn blob_url_generation_respects_http_protocol() {
+        let c = Client::new(ClientConfig {
+            protocol: ClientProtocol::Http,
+        });
+        let reference = Reference::try_from("webassembly.azurecr.io/hello@sha256:1234".to_owned())
+            .expect("Could not parse reference");
+        assert_eq!(
+            "http://webassembly.azurecr.io/v2/hello/blobs/sha256:1234",
+            c.to_v2_blob_url(
+                &reference.registry(),
+                reference.repository(),
+                reference.digest().unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn manifest_url_generation_uses_https_if_not_on_exception_list() {
+        let insecure_registries = vec!["localhost".to_owned(), "oci.registry.local".to_owned()];
+        let protocol = ClientProtocol::HttpsExcept(insecure_registries);
+        let c = Client::new(ClientConfig { protocol });
+        let reference = Reference::try_from("webassembly.azurecr.io/hello:v1".to_owned())
+            .expect("Could not parse reference");
+        assert_eq!(
+            "https://webassembly.azurecr.io/v2/hello/manifests/v1",
+            c.to_v2_manifest_url(&reference)
+        );
+    }
+
+    #[test]
+    fn manifest_url_generation_uses_http_if_on_exception_list() {
+        let insecure_registries = vec!["localhost".to_owned(), "oci.registry.local".to_owned()];
+        let protocol = ClientProtocol::HttpsExcept(insecure_registries);
+        let c = Client::new(ClientConfig { protocol });
+        let reference = Reference::try_from("oci.registry.local/hello:v1".to_owned())
+            .expect("Could not parse reference");
+        assert_eq!(
+            "http://oci.registry.local/v2/hello/manifests/v1",
+            c.to_v2_manifest_url(&reference)
+        );
+    }
+
+    #[test]
+    fn blob_url_generation_uses_https_if_not_on_exception_list() {
+        let insecure_registries = vec!["localhost".to_owned(), "oci.registry.local".to_owned()];
+        let protocol = ClientProtocol::HttpsExcept(insecure_registries);
+        let c = Client::new(ClientConfig { protocol });
+        let reference = Reference::try_from("webassembly.azurecr.io/hello@sha256:1234".to_owned())
+            .expect("Could not parse reference");
+        assert_eq!(
+            "https://webassembly.azurecr.io/v2/hello/blobs/sha256:1234",
+            c.to_v2_blob_url(
+                &reference.registry(),
+                reference.repository(),
+                reference.digest().unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn blob_url_generation_uses_http_if_on_exception_list() {
+        let insecure_registries = vec!["localhost".to_owned(), "oci.registry.local".to_owned()];
+        let protocol = ClientProtocol::HttpsExcept(insecure_registries);
+        let c = Client::new(ClientConfig { protocol });
+        let reference = Reference::try_from("oci.registry.local/hello@sha256:1234".to_owned())
+            .expect("Could not parse reference");
+        assert_eq!(
+            "http://oci.registry.local/v2/hello/blobs/sha256:1234",
+            c.to_v2_blob_url(
+                &reference.registry(),
+                reference.repository(),
+                reference.digest().unwrap()
+            )
+        );
     }
 
     #[tokio::test]

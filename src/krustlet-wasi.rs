@@ -24,7 +24,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn make_store(config: &Config) -> Arc<dyn kubelet::store::Store + Send + Sync> {
-    let client = oci_distribution::Client::default();
+    let client = oci_distribution::Client::from_source(config);
     let mut store_path = config.data_dir.join(".oci");
     store_path.push("modules");
     let file_store = Arc::new(FileStore::new(client, &store_path));

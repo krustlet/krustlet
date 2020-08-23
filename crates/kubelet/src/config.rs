@@ -56,6 +56,9 @@ pub struct Config {
     /// Whether to allow modules to be loaded directly from local
     /// filesystem paths, as well as from registries
     pub allow_local_modules: bool,
+    /// Registries that should be accessed using HTTP instead of
+    /// HTTPS.
+    pub insecure_registries: Option<Vec<String>>,
 }
 /// The configuration for the Kubelet server.
 #[derive(Clone, Debug)]
@@ -111,6 +114,8 @@ struct ConfigBuilder {
     pub server_tls_private_key_file: Option<PathBuf>,
     #[serde(default, rename = "allowLocalModules")]
     pub allow_local_modules: Option<bool>,
+    #[serde(default, rename = "insecureRegistries")]
+    pub insecure_registries: Option<Vec<String>>,
 }
 
 struct ConfigBuilderFallbacks {
@@ -142,6 +147,7 @@ impl Config {
             max_pods: DEFAULT_MAX_PODS,
             bootstrap_file: PathBuf::from(BOOTSTRAP_FILE),
             allow_local_modules: false,
+            insecure_registries: None,
             server_config: ServerConfig {
                 addr: match preferred_ip_family {
                     // Just unwrap these because they are programmer error if they
@@ -266,6 +272,7 @@ impl ConfigBuilder {
             data_dir: opts.data_dir,
             max_pods: ok_result_of(opts.max_pods),
             allow_local_modules: opts.allow_local_modules,
+            insecure_registries: opts.insecure_registries.map(parse_comma_separated),
             server_addr: ok_result_of(opts.addr),
             server_port: ok_result_of(opts.port),
             server_tls_cert_file: opts.cert_file,
@@ -301,6 +308,7 @@ impl ConfigBuilder {
             server_tls_cert_file: other.server_tls_cert_file.or(self.server_tls_cert_file),
             bootstrap_file: other.bootstrap_file.or(self.bootstrap_file),
             allow_local_modules: other.allow_local_modules.or(self.allow_local_modules),
+            insecure_registries: other.insecure_registries.or(self.insecure_registries),
             server_tls_private_key_file: other
                 .server_tls_private_key_file
                 .or(self.server_tls_private_key_file),
@@ -348,6 +356,7 @@ impl ConfigBuilder {
             max_pods,
             bootstrap_file,
             allow_local_modules: self.allow_local_modules.unwrap_or(false),
+            insecure_registries: self.insecure_registries,
             server_config: ServerConfig {
                 cert_file: server_tls_cert_file,
                 private_key_file: server_tls_private_key_file,
@@ -482,6 +491,13 @@ pub struct Opts {
         help = "(Experimental) Whether to allow loading modules directly from the filesystem"
     )]
     allow_local_modules: Option<bool>,
+
+    #[structopt(
+        long = "insecure-registries",
+        env = "KRUSTLET_INSECURE_REGISTRIES",
+        help = "Registries that should be accessed over HTTP instead of HTTPS (comma separated)"
+    )]
+    insecure_registries: Option<String>,
 }
 
 fn default_hostname() -> anyhow::Result<String> {
@@ -570,6 +586,10 @@ fn invalid_config_value_error(e: anyhow::Error, value_name: &str) -> anyhow::Err
     e.context(context)
 }
 
+fn parse_comma_separated(source: String) -> Vec<String> {
+    source.split(',').map(|s| s.trim().to_owned()).collect()
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -607,7 +627,11 @@ mod test {
             "tlsCertificateFile": "/my/secure/cert.pfx",
             "tlsPrivateKeyFile": "/the/key",
             "bootstrapFile": "/the/bootstrap/file.txt",
-            "allowLocalModules": true
+            "allowLocalModules": true,
+            "insecureRegistries": [
+                "local",
+                "dev"
+            ]
         }"#,
         );
         let config = config_builder.unwrap().build(fallbacks()).unwrap();
@@ -633,6 +657,9 @@ mod test {
         assert_eq!(config.allow_local_modules, true);
         assert_eq!(config.node_labels.len(), 2);
         assert_eq!(config.node_labels.get("label1"), Some(&("val1".to_owned())));
+        assert_eq!(config.insecure_registries.clone().unwrap().len(), 2);
+        assert_eq!(&config.insecure_registries.clone().unwrap()[0], "local");
+        assert_eq!(&config.insecure_registries.clone().unwrap()[1], "dev");
     }
 
     #[test]
@@ -688,6 +715,7 @@ mod test {
         assert_eq!(config.data_dir.to_string_lossy(), "/fallback/data/dir");
         assert_eq!(format!("{}", config.node_ip), "4.4.4.4");
         assert_eq!(config.allow_local_modules, false);
+        assert_eq!(config.insecure_registries, None);
         assert_eq!(config.node_labels.len(), 0);
     }
 
@@ -719,6 +747,7 @@ mod test {
             },
             "nodeName": "krusty-node",
             "allowLocalModules": true,
+            "insecureRegistries": ["local1", "local2"],
             "tlsCertificateFile": "/my/secure/cert.pfx",
             "tlsPrivateKeyFile": "/the/key"
         }"#,
@@ -737,6 +766,7 @@ mod test {
             },
             "nodeName": "krusty-node-2",
             "allowLocalModules": false,
+            "insecureRegistries": ["local"],
             "tlsCertificateFile": "/my/secure/cert-2.pfx",
             "tlsPrivateKeyFile": "/the/2nd/key"
         }"#,
@@ -759,6 +789,8 @@ mod test {
         assert_eq!(config.data_dir.to_string_lossy(), "/krusty/data/dir/2");
         assert_eq!(format!("{}", config.node_ip), "173.183.193.22");
         assert_eq!(config.allow_local_modules, false);
+        assert_eq!(config.insecure_registries.clone().unwrap().len(), 1);
+        assert_eq!(&config.insecure_registries.clone().unwrap()[0], "local");
         assert_eq!(config.node_labels.len(), 2);
         assert_eq!(
             config.node_labels.get("label21"),
@@ -781,6 +813,7 @@ mod test {
             },
             "nodeName": "krusty-node",
             "allowLocalModules": true,
+            "insecureRegistries": ["local"],
             "tlsCertificateFile": "/my/secure/cert.pfx",
             "tlsPrivateKeyFile": "/the/key"
         }"#,
@@ -809,6 +842,8 @@ mod test {
         assert_eq!(config.data_dir.to_string_lossy(), "/krusty/data/dir");
         assert_eq!(format!("{}", config.node_ip), "173.183.193.2");
         assert_eq!(config.allow_local_modules, true);
+        assert_eq!(config.insecure_registries.clone().unwrap().len(), 1);
+        assert_eq!(&config.insecure_registries.clone().unwrap()[0], "local");
         assert_eq!(config.node_labels.len(), 2);
         assert_eq!(config.node_labels.get("label1"), Some(&("val1".to_owned())));
     }
