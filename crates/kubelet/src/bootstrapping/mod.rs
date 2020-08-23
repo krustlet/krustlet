@@ -1,3 +1,5 @@
+#![allow(deprecated)] // TODO: remove when Informer has been replaced by kube_run::watcher
+
 use std::{convert::TryFrom, env, path::Path, str};
 
 use futures::{StreamExt, TryStreamExt};
