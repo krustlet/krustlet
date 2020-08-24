@@ -3,12 +3,9 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use log::{debug, error, info};
-use tokio::sync::watch;
 use tokio::sync::Mutex;
 
-use kubelet::container::{
-    Container, ContainerKey, Handle as ContainerHandle, Status as ContainerStatus,
-};
+use kubelet::container::{Container, ContainerKey, Handle as ContainerHandle};
 use kubelet::provider::Provider;
 use kubelet::state::{PodChangeRx, State, Transition};
 use kubelet::{
@@ -133,21 +130,9 @@ async fn start_container(
         .remove(container.name())
         .expect("FATAL ERROR: module map not properly populated");
     let lp = pod_state.log_path.clone();
-    let (_status_sender, status_recv) = watch::channel(ContainerStatus::Waiting {
-        timestamp: chrono::Utc::now(),
-        message: "No status has been received from the process".into(),
-    });
     let host = pod_state.host.clone();
     tokio::task::spawn_blocking(move || {
-        wascc_run_http(
-            host,
-            module_data,
-            env,
-            volume_bindings,
-            &lp,
-            status_recv,
-            port_assigned,
-        )
+        wascc_run_http(host, module_data, env, volume_bindings, &lp, port_assigned)
     })
     .await?
 }
@@ -182,14 +167,7 @@ state!(
             );
         }
 
-        let pod_handle = Handle::new(
-            container_handles,
-            pod.clone(),
-            pod_state.client.clone(),
-            None,
-            None,
-        )
-        .await?;
+        let pod_handle = Handle::new(container_handles, pod.clone(), None).await?;
         pod_state.handle = Some(pod_handle);
 
         info!("All containers started for pod {:?}.", pod.name());

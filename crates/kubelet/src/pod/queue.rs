@@ -4,8 +4,7 @@ use std::sync::Arc;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Meta, WatchEvent};
 use kube::Client as KubeClient;
-use log::{debug, error, info};
-use tokio::sync::watch;
+use log::{debug, error, info, warn};
 
 use crate::pod::{pod_key, Pod};
 use crate::provider::Provider;
@@ -30,7 +29,7 @@ pub enum PodChange {
 /// modify will be handled, which is ok given that each event contains the whole pod object
 pub(crate) struct Queue<P> {
     provider: Arc<P>,
-    handlers: HashMap<String, watch::Sender<WatchEvent<KubePod>>>,
+    handlers: HashMap<String, tokio::sync::mpsc::Sender<WatchEvent<KubePod>>>,
     client: KubeClient,
 }
 
@@ -46,64 +45,56 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
     async fn run_pod(
         &self,
         initial_event: WatchEvent<KubePod>,
-    ) -> anyhow::Result<watch::Sender<WatchEvent<KubePod>>> {
-        let (sender, mut receiver) = watch::channel(initial_event);
+    ) -> anyhow::Result<tokio::sync::mpsc::Sender<WatchEvent<KubePod>>> {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel::<WatchEvent<KubePod>>(16);
 
-        // These should be set on the first Add.
-        let mut pod_definition: Option<KubePod> = None;
-        let mut state_tx: Option<tokio::sync::mpsc::Sender<PodChange>> = None;
+        let (mut state_tx, mut pod_definition) = match initial_event {
+            WatchEvent::Added(pod) => {
+                let task_client = self.client.clone();
+                let (state_tx, state_rx) = tokio::sync::mpsc::channel::<PodChange>(16);
+                let pod_definition = pod.clone();
 
-        let task_provider = Arc::clone(&self.provider);
-        let task_client = self.client.clone();
+                let pod_state: P::PodState = self.provider.initialize_pod_state().await?;
+                tokio::spawn(async move {
+                    let state: P::InitialState = Default::default();
+                    let pod = Pod::new(pod);
+                    let name = pod.name().to_string();
+                    match run_to_completion(task_client, state, pod_state, pod, state_rx).await {
+                        Ok(()) => info!("Pod {} state machine exited without error", name),
+                        Err(e) => error!("Pod {} state machine exited with error: {:?}", name, e),
+                    }
+                });
+
+                (state_tx, pod_definition)
+            }
+            _ => anyhow::bail!("Pod with initial event not Added: {:?}", &initial_event),
+        };
+
         tokio::spawn(async move {
             while let Some(event) = receiver.recv().await {
                 // Watch errors are handled before an event ever gets here, so it should always have
                 // a pod
                 match event {
-                    WatchEvent::Added(pod) => {
-                        // TODO Can we avoid having this called multiple times (multiple state machines)?.
-                        // I'm thinking we wait for an initial Pod added event before this loop to set
-                        // pod_definition and state_tx and start state machine, and after that it is handled differently.
-
-                        let (tx, state_rx) = tokio::sync::mpsc::channel::<PodChange>(16);
-                        state_tx = Some(tx);
-                        pod_definition = Some(pod.clone());
-
-                        let client = task_client.clone();
-                        let pod_state: P::PodState =
-                            task_provider.initialize_pod_state().await.unwrap();
-                        tokio::spawn(async move {
-                            let state: P::InitialState = Default::default();
-                            let pod = Pod::new(pod);
-                            let name = pod.name().to_string();
-                            match run_to_completion(client, state, pod_state, pod, state_rx).await {
-                                Ok(()) => info!("Pod {} state machine exited without error", name),
-                                Err(e) => {
-                                    error!("Pod {} state machine exited with error: {:?}", name, e)
-                                }
-                            }
-                        });
-                    }
-                    WatchEvent::Modified(_pod) => {
-                        // TODO Need to actually detect what change happens. Some kind of diffing functions? Can reference and update pod_definition.
-                        match state_tx {
-                            Some(ref mut sender) => match sender.send(PodChange::Shutdown).await {
+                    WatchEvent::Modified(pod) => {
+                        // Not really using this right now but will be useful for detecting changes.
+                        pod_definition = pod.clone();
+                        let pod = Pod::new(pod);
+                        // TODO, detect other changes we want to support, or should this just forward the new pod def to state machine?
+                        if let Some(_timestamp) = pod.deletion_timestamp() {
+                            match state_tx.send(PodChange::Shutdown).await {
                                 Ok(_) => (),
-                                // This should only happen if the state machine has completed and rx was dropped.
                                 Err(_) => break,
-                            },
-                            None => unimplemented!(),
+                            }
                         }
                     }
-                    WatchEvent::Deleted(_pod) => match state_tx {
-                        Some(ref mut sender) => match sender.send(PodChange::Delete).await {
+                    WatchEvent::Deleted(pod) => {
+                        pod_definition = pod;
+                        match state_tx.send(PodChange::Delete).await {
                             Ok(_) => (),
                             Err(_) => break,
-                        },
-                        None => unimplemented!(),
-                    },
-                    WatchEvent::Bookmark(_) => (),
-                    _ => unreachable!(),
+                        }
+                    }
+                    _ => warn!("Pod got unexpected event, ignoring: {:?}", &event),
                 }
             }
         });
@@ -121,7 +112,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                 let key = pod_key(&pod_namespace, &pod_name);
                 // We are explicitly not using the entry api here to insert to avoid the need for a
                 // mutex
-                let sender = match self.handlers.get(&key) {
+                let sender = match self.handlers.get_mut(&key) {
                     Some(s) => s,
                     None => {
                         self.handlers.insert(
@@ -130,10 +121,10 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                             // TODO Does this mean we handle the Add event twice?
                             self.run_pod(event.clone()).await?,
                         );
-                        self.handlers.get(&key).unwrap()
+                        self.handlers.get_mut(&key).unwrap()
                     }
                 };
-                match sender.broadcast(event) {
+                match sender.send(event).await {
                     Ok(_) => debug!(
                         "successfully sent event to handler for pod {} in namespace {}",
                         pod_name, pod_namespace

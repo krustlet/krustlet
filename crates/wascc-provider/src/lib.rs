@@ -32,7 +32,7 @@
 #![deny(missing_docs)]
 
 use async_trait::async_trait;
-use kubelet::container::{Handle as ContainerHandle, Status as ContainerStatus};
+use kubelet::container::Handle as ContainerHandle;
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
 use kubelet::pod::Phase;
@@ -44,7 +44,6 @@ use kubelet::store::Store;
 use kubelet::volume::Ref;
 use log::{debug, info};
 use tempfile::NamedTempFile;
-use tokio::sync::watch::Receiver;
 use tokio::sync::RwLock;
 use wascc_fs::FileSystemProvider;
 use wascc_host::{Actor, NativeCapability, WasccHost};
@@ -384,7 +383,6 @@ fn wascc_run_http(
     mut env: EnvVars,
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
-    status_recv: Receiver<ContainerStatus>,
     port_assigned: i32,
 ) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
     let mut caps: Vec<Capability> = Vec::new();
@@ -395,7 +393,7 @@ fn wascc_run_http(
         binding: None,
         env,
     });
-    wascc_run(host, data, &mut caps, volumes, log_path, status_recv)
+    wascc_run(host, data, &mut caps, volumes, log_path)
 }
 
 /// Capability describes a waSCC capability.
@@ -431,7 +429,6 @@ fn wascc_run(
     capabilities: &mut Vec<Capability>,
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
-    status_recv: Receiver<ContainerStatus>,
 ) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
     info!("sending actor to wascc host");
     let log_output = NamedTempFile::new_in(log_path)?;
@@ -500,6 +497,5 @@ fn wascc_run(
             volumes,
         },
         log_handle_factory,
-        status_recv,
     ))
 }
