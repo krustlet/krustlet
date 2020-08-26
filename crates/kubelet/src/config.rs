@@ -12,8 +12,7 @@
 //!   (requires you to turn on the "cli" feature)
 
 use std::iter::FromIterator;
-use std::net::IpAddr;
-use std::net::ToSocketAddrs;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
 use std::path::PathBuf;
 
 #[cfg(feature = "cli")]
@@ -150,10 +149,8 @@ impl Config {
             insecure_registries: None,
             server_config: ServerConfig {
                 addr: match preferred_ip_family {
-                    // Just unwrap these because they are programmer error if they
-                    // don't parse
-                    IpAddr::V4(_) => "0.0.0.0".parse().unwrap(),
-                    IpAddr::V6(_) => "::".parse().unwrap(),
+                    IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                    IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
                 },
                 port: DEFAULT_PORT,
                 cert_file,
@@ -236,12 +233,8 @@ impl Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self::default_config(
-            &"127.0.0.1"
-                .parse()
-                .expect("Could not parse hardcoded address"),
-        )
-        .expect("Could not create default config")
+        Self::default_config(&IpAddr::V4(Ipv4Addr::LOCALHOST)) // indicate we want IPv4 by default
+            .expect("Could not create default config")
     }
 }
 
@@ -295,7 +288,7 @@ impl ConfigBuilder {
         serde_json::from_reader(reader).map_err(anyhow::Error::new)
     }
 
-    fn with_override(self: Self, other: Self) -> Self {
+    fn with_override(self, other: Self) -> Self {
         ConfigBuilder {
             node_ip: other.node_ip.or(self.node_ip),
             node_name: other.node_name.or(self.node_name),
@@ -315,7 +308,7 @@ impl ConfigBuilder {
         }
     }
 
-    fn build(self: Self, fallbacks: ConfigBuilderFallbacks) -> anyhow::Result<Config> {
+    fn build(self, fallbacks: ConfigBuilderFallbacks) -> anyhow::Result<Config> {
         let empty_ip_addr = IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0));
 
         let hostname = self.hostname.unwrap_or_else(fallbacks.hostname);

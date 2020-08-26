@@ -742,11 +742,11 @@ mod test {
         node_labels.insert("beta.kubernetes.io/os".to_owned(), "managed".to_owned());
 
         let config = Config {
-            node_ip: IpAddr::from(Ipv4Addr::new(127, 0, 0, 1)),
+            node_ip: IpAddr::from(Ipv4Addr::LOCALHOST),
             hostname: String::from("foo"),
             node_name: String::from("bar"),
             server_config: ServerConfig {
-                addr: IpAddr::from(Ipv4Addr::new(127, 0, 0, 1)),
+                addr: IpAddr::from(Ipv4Addr::LOCALHOST),
                 port: 8080,
                 cert_file: PathBuf::new(),
                 private_key_file: PathBuf::new(),
