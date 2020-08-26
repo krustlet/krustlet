@@ -3,6 +3,7 @@
 use crate::store::PullPolicy;
 use crate::store::Store;
 use async_trait::async_trait;
+use oci_distribution::secrets::RegistrySecrets;
 use oci_distribution::Reference;
 use std::sync::Arc;
 
@@ -60,11 +61,16 @@ struct CompositeStore {
 
 #[async_trait]
 impl Store for CompositeStore {
-    async fn get(&self, image_ref: &Reference, pull_policy: PullPolicy) -> anyhow::Result<Vec<u8>> {
+    async fn get(
+        &self,
+        image_ref: &Reference,
+        pull_policy: PullPolicy,
+        secrets: &RegistrySecrets,
+    ) -> anyhow::Result<Vec<u8>> {
         if self.interceptor.intercepts(image_ref) {
-            self.interceptor.get(image_ref, pull_policy).await
+            self.interceptor.get(image_ref, pull_policy, secrets).await
         } else {
-            self.base.get(image_ref, pull_policy).await
+            self.base.get(image_ref, pull_policy, secrets).await
         }
     }
 }
@@ -72,6 +78,7 @@ impl Store for CompositeStore {
 #[cfg(test)]
 mod test {
     use super::*;
+    use oci_distribution::secrets::RegistrySecrets;
     use std::convert::TryFrom;
 
     struct FakeBase {}
@@ -83,6 +90,7 @@ mod test {
             &self,
             _image_ref: &Reference,
             _pull_policy: PullPolicy,
+            _secrets: &RegistrySecrets,
         ) -> anyhow::Result<Vec<u8>> {
             Ok(vec![11, 10, 5, 14])
         }
@@ -94,6 +102,7 @@ mod test {
             &self,
             _image_ref: &Reference,
             _pull_policy: PullPolicy,
+            _secrets: &RegistrySecrets,
         ) -> anyhow::Result<Vec<u8>> {
             Ok(vec![1, 2, 3])
         }
@@ -109,7 +118,11 @@ mod test {
     async fn if_interceptor_matches_then_composite_store_returns_intercepting_value() {
         let store = Arc::new(FakeBase {}).with_override(Arc::new(FakeInterceptor {}));
         let result = store
-            .get(&Reference::try_from("int/foo").unwrap(), PullPolicy::Never)
+            .get(
+                &Reference::try_from("int/foo").unwrap(),
+                PullPolicy::Never,
+                &RegistrySecrets::none(),
+            )
             .await
             .unwrap();
         assert_eq!(3, result.len());
@@ -120,7 +133,11 @@ mod test {
     async fn if_interceptor_does_not_match_then_composite_store_returns_base_value() {
         let store = Arc::new(FakeBase {}).with_override(Arc::new(FakeInterceptor {}));
         let result = store
-            .get(&Reference::try_from("mint/foo").unwrap(), PullPolicy::Never)
+            .get(
+                &Reference::try_from("mint/foo").unwrap(),
+                PullPolicy::Never,
+                &RegistrySecrets::none(),
+            )
             .await
             .unwrap();
         assert_eq!(4, result.len());

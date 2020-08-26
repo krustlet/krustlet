@@ -5,6 +5,7 @@
 
 use crate::errors::*;
 use crate::manifest::OciManifest;
+use crate::secrets::RegistrySecrets;
 use crate::Reference;
 
 use anyhow::Context;
@@ -74,11 +75,15 @@ impl Client {
     ///
     /// The client will check if it's already been authenticated and if
     /// not will attempt to do.
-    pub async fn pull_image(&mut self, image: &Reference) -> anyhow::Result<ImageData> {
+    pub async fn pull_image(
+        &mut self,
+        image: &Reference,
+        secrets: &RegistrySecrets,
+    ) -> anyhow::Result<ImageData> {
         debug!("Pulling image: {:?}", image);
 
         if !self.tokens.contains_key(image.registry()) {
-            self.auth(image, None).await?;
+            self.auth(image, secrets).await?;
         }
 
         let (manifest, digest) = self.pull_manifest(image).await?;
@@ -113,7 +118,7 @@ impl Client {
     ///
     /// This performs authorization and then stores the token internally to be used
     /// on other requests.
-    async fn auth(&mut self, image: &Reference, _secret: Option<&str>) -> anyhow::Result<()> {
+    async fn auth(&mut self, image: &Reference, _secrets: &RegistrySecrets) -> anyhow::Result<()> {
         debug!("Authorzing for image: {:?}", image);
         // The version request will tell us where to go.
         let url = format!(
@@ -174,9 +179,13 @@ impl Client {
     ///
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
-    pub async fn fetch_manifest_digest(&mut self, image: &Reference) -> anyhow::Result<String> {
+    pub async fn fetch_manifest_digest(
+        &mut self,
+        image: &Reference,
+        secrets: &RegistrySecrets,
+    ) -> anyhow::Result<String> {
         if !self.tokens.contains_key(image.registry()) {
-            self.auth(image, None).await?;
+            self.auth(image, secrets).await?;
         }
 
         let url = self.to_v2_manifest_url(image);
@@ -570,7 +579,7 @@ mod test {
         for &image in TEST_IMAGES {
             let reference = Reference::try_from(image).expect("failed to parse reference");
             let mut c = Client::default();
-            c.auth(&reference, None)
+            c.auth(&reference, &RegistrySecrets::none())
                 .await
                 .expect("result from auth request");
 
@@ -595,7 +604,9 @@ mod test {
 
             // But this should pass
             let mut c = Client::default();
-            c.auth(&reference, None).await.expect("authenticated");
+            c.auth(&reference, &RegistrySecrets::none())
+                .await
+                .expect("authenticated");
             let (manifest, _) = c
                 .pull_manifest(&reference)
                 .await
@@ -613,16 +624,18 @@ mod test {
 
         for &image in TEST_IMAGES {
             let reference = Reference::try_from(image).expect("failed to parse reference");
-            c.fetch_manifest_digest(&reference)
+            c.fetch_manifest_digest(&reference, &RegistrySecrets::none())
                 .await
                 .expect("pull manifest should not fail");
 
             // This should pass
             let reference = Reference::try_from(image).expect("failed to parse reference");
             let mut c = Client::default();
-            c.auth(&reference, None).await.expect("authenticated");
+            c.auth(&reference, &RegistrySecrets::none())
+                .await
+                .expect("authenticated");
             let digest = c
-                .fetch_manifest_digest(&reference)
+                .fetch_manifest_digest(&reference, &RegistrySecrets::none())
                 .await
                 .expect("pull manifest should not fail");
 
@@ -639,7 +652,9 @@ mod test {
 
         for &image in TEST_IMAGES {
             let reference = Reference::try_from(image).expect("failed to parse reference");
-            c.auth(&reference, None).await.expect("authenticated");
+            c.auth(&reference, &RegistrySecrets::none())
+                .await
+                .expect("authenticated");
             let (manifest, _) = c
                 .pull_manifest(&reference)
                 .await
@@ -664,7 +679,7 @@ mod test {
             let reference = Reference::try_from(image).expect("failed to parse reference");
 
             let image_data = Client::default()
-                .pull_image(&reference)
+                .pull_image(&reference, &RegistrySecrets::none())
                 .await
                 .expect("failed to pull manifest");
 
