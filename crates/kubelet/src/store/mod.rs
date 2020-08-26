@@ -4,7 +4,7 @@ pub mod fs;
 pub mod oci;
 
 use oci_distribution::client::ImageData;
-use oci_distribution::secrets::RegistrySecrets;
+use oci_distribution::secrets::RegistryAuth;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -26,7 +26,7 @@ use crate::store::oci::Client;
 ///  ```rust
 /// use async_trait::async_trait;
 /// use oci_distribution::Reference;
-/// use oci_distribution::secrets::RegistrySecrets;
+/// use oci_distribution::secrets::RegistryAuth;
 /// use kubelet::container::PullPolicy;
 /// use kubelet::store::Store;
 /// use std::collections::HashMap;
@@ -37,7 +37,7 @@ use crate::store::oci::Client;
 ///
 /// #[async_trait]
 /// impl Store for InMemoryStore {
-///     async fn get(&self, image_ref: &Reference, pull_policy: PullPolicy, _secrets: &RegistrySecrets) -> anyhow::Result<Vec<u8>> {
+///     async fn get(&self, image_ref: &Reference, pull_policy: PullPolicy, _auth: &RegistryAuth) -> anyhow::Result<Vec<u8>> {
 ///         match pull_policy {
 ///             PullPolicy::Never => (),
 ///             _ => todo!("Implement support for pull policies"),
@@ -56,7 +56,7 @@ pub trait Store: Sync {
         &self,
         image_ref: &Reference,
         pull_policy: PullPolicy,
-        secrets: &RegistrySecrets,
+        auth: &RegistryAuth,
     ) -> anyhow::Result<Vec<u8>>;
 
     /// Fetch all container modules for a given `Pod` storing the name of the
@@ -92,7 +92,7 @@ pub trait Store: Sync {
             async move {
                 Ok((
                     container.name().to_string(),
-                    self.get(&reference, pull_policy, &RegistrySecrets::none())
+                    self.get(&reference, pull_policy, &RegistryAuth::Anonymous)
                         .await?,
                 ))
             }
@@ -114,9 +114,9 @@ pub struct LocalStore<S: Storer, C: Client> {
 }
 
 impl<S: Storer, C: Client> LocalStore<S, C> {
-    async fn pull(&self, image_ref: &Reference, secrets: &RegistrySecrets) -> anyhow::Result<()> {
+    async fn pull(&self, image_ref: &Reference, auth: &RegistryAuth) -> anyhow::Result<()> {
         debug!("Pulling image ref '{:?}' from registry", image_ref);
-        let image_data = self.client.lock().await.pull(image_ref, secrets).await?;
+        let image_data = self.client.lock().await.pull(image_ref, auth).await?;
         self.storer
             .write()
             .await
@@ -132,12 +132,12 @@ impl<S: Storer + Sync + Send, C: Client + Sync + Send> Store for LocalStore<S, C
         &self,
         image_ref: &Reference,
         pull_policy: PullPolicy,
-        secrets: &RegistrySecrets,
+        auth: &RegistryAuth,
     ) -> anyhow::Result<Vec<u8>> {
         match pull_policy {
             PullPolicy::IfNotPresent => {
                 if !self.storer.read().await.is_present(image_ref).await {
-                    self.pull(image_ref, secrets).await?
+                    self.pull(image_ref, auth).await?
                 }
             }
             PullPolicy::Always => {
@@ -145,7 +145,7 @@ impl<S: Storer + Sync + Send, C: Client + Sync + Send> Store for LocalStore<S, C
                     .client
                     .lock()
                     .await
-                    .fetch_digest(image_ref, secrets)
+                    .fetch_digest(image_ref, auth)
                     .await?;
                 let already_got_with_digest = self
                     .storer
@@ -154,7 +154,7 @@ impl<S: Storer + Sync + Send, C: Client + Sync + Send> Store for LocalStore<S, C
                     .is_present_with_digest(image_ref, digest)
                     .await;
                 if !already_got_with_digest {
-                    self.pull(image_ref, secrets).await?
+                    self.pull(image_ref, auth).await?
                 }
             }
             PullPolicy::Never => (),

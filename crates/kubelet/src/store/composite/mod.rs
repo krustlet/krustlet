@@ -3,7 +3,7 @@
 use crate::store::PullPolicy;
 use crate::store::Store;
 use async_trait::async_trait;
-use oci_distribution::secrets::RegistrySecrets;
+use oci_distribution::secrets::RegistryAuth;
 use oci_distribution::Reference;
 use std::sync::Arc;
 
@@ -65,12 +65,12 @@ impl Store for CompositeStore {
         &self,
         image_ref: &Reference,
         pull_policy: PullPolicy,
-        secrets: &RegistrySecrets,
+        auth: &RegistryAuth,
     ) -> anyhow::Result<Vec<u8>> {
         if self.interceptor.intercepts(image_ref) {
-            self.interceptor.get(image_ref, pull_policy, secrets).await
+            self.interceptor.get(image_ref, pull_policy, auth).await
         } else {
-            self.base.get(image_ref, pull_policy, secrets).await
+            self.base.get(image_ref, pull_policy, auth).await
         }
     }
 }
@@ -78,7 +78,7 @@ impl Store for CompositeStore {
 #[cfg(test)]
 mod test {
     use super::*;
-    use oci_distribution::secrets::RegistrySecrets;
+    use oci_distribution::secrets::RegistryAuth;
     use std::convert::TryFrom;
 
     struct FakeBase {}
@@ -90,7 +90,7 @@ mod test {
             &self,
             _image_ref: &Reference,
             _pull_policy: PullPolicy,
-            _secrets: &RegistrySecrets,
+            _auth: &RegistryAuth,
         ) -> anyhow::Result<Vec<u8>> {
             Ok(vec![11, 10, 5, 14])
         }
@@ -102,7 +102,7 @@ mod test {
             &self,
             _image_ref: &Reference,
             _pull_policy: PullPolicy,
-            _secrets: &RegistrySecrets,
+            _auth: &RegistryAuth,
         ) -> anyhow::Result<Vec<u8>> {
             Ok(vec![1, 2, 3])
         }
@@ -121,7 +121,7 @@ mod test {
             .get(
                 &Reference::try_from("int/foo").unwrap(),
                 PullPolicy::Never,
-                &RegistrySecrets::none(),
+                &RegistryAuth::Anonymous,
             )
             .await
             .unwrap();
@@ -136,7 +136,7 @@ mod test {
             .get(
                 &Reference::try_from("mint/foo").unwrap(),
                 PullPolicy::Never,
-                &RegistrySecrets::none(),
+                &RegistryAuth::Anonymous,
             )
             .await
             .unwrap();

@@ -128,7 +128,7 @@ mod test {
     use crate::container::PullPolicy;
     use crate::store::Store;
     use oci_distribution::client::ImageData;
-    use oci_distribution::secrets::RegistrySecrets;
+    use oci_distribution::secrets::RegistryAuth;
     use std::collections::HashMap;
     use std::convert::TryFrom;
     use std::sync::RwLock;
@@ -199,7 +199,7 @@ mod test {
         async fn pull(
             &mut self,
             image_ref: &Reference,
-            _secrets: &RegistrySecrets,
+            _auth: &RegistryAuth,
         ) -> anyhow::Result<ImageData> {
             let images = self
                 .images
@@ -240,7 +240,7 @@ mod test {
             .get(
                 &fake_ref,
                 PullPolicy::IfNotPresent,
-                &RegistrySecrets::none(),
+                &RegistryAuth::Anonymous,
             )
             .await?;
         assert_eq!(3, module_bytes.len());
@@ -255,7 +255,7 @@ mod test {
         let scratch_dir = create_temp_dir();
         let store = FileStore::new(fake_client, &scratch_dir.path);
         let module_bytes = store
-            .get(&fake_ref, PullPolicy::Always, &RegistrySecrets::none())
+            .get(&fake_ref, PullPolicy::Always, &RegistryAuth::Anonymous)
             .await?;
         assert_eq!(3, module_bytes.len());
         assert_eq!(2, module_bytes[1]);
@@ -269,7 +269,7 @@ mod test {
         let scratch_dir = create_temp_dir();
         let store = FileStore::new(fake_client, &scratch_dir.path);
         let module_bytes = store
-            .get(&fake_ref, PullPolicy::Never, &RegistrySecrets::none())
+            .get(&fake_ref, PullPolicy::Never, &RegistryAuth::Anonymous)
             .await;
         assert!(
             module_bytes.is_err(),
@@ -285,11 +285,11 @@ mod test {
         let scratch_dir = create_temp_dir();
         let store = FileStore::new(fake_client, &scratch_dir.path);
         let prime_cache = store
-            .get(&fake_ref, PullPolicy::Always, &RegistrySecrets::none())
+            .get(&fake_ref, PullPolicy::Always, &RegistryAuth::Anonymous)
             .await;
         assert!(prime_cache.is_ok());
         let module_bytes = store
-            .get(&fake_ref, PullPolicy::Never, &RegistrySecrets::none())
+            .get(&fake_ref, PullPolicy::Never, &RegistryAuth::Anonymous)
             .await?;
         assert_eq!(3, module_bytes.len());
         assert_eq!(2, module_bytes[1]);
@@ -307,7 +307,7 @@ mod test {
             .get(
                 &fake_ref,
                 PullPolicy::IfNotPresent,
-                &RegistrySecrets::none(),
+                &RegistryAuth::Anonymous,
             )
             .await?;
         assert_eq!(3, module_bytes_orig.len());
@@ -317,7 +317,7 @@ mod test {
             .get(
                 &fake_ref,
                 PullPolicy::IfNotPresent,
-                &RegistrySecrets::none(),
+                &RegistryAuth::Anonymous,
             )
             .await?;
         assert_eq!(3, module_bytes_after.len());
@@ -336,14 +336,14 @@ mod test {
             .get(
                 &fake_ref,
                 PullPolicy::IfNotPresent,
-                &RegistrySecrets::none(),
+                &RegistryAuth::Anonymous,
             )
             .await?;
         assert_eq!(3, module_bytes_orig.len());
         assert_eq!(2, module_bytes_orig[1]);
         fake_client.update("foo/bar:1.0", vec![4, 5, 6, 7], "sha256:4567");
         let module_bytes_after = store
-            .get(&fake_ref, PullPolicy::Always, &RegistrySecrets::none())
+            .get(&fake_ref, PullPolicy::Always, &RegistryAuth::Anonymous)
             .await?;
         assert_eq!(4, module_bytes_after.len());
         assert_eq!(5, module_bytes_after[1]);
@@ -357,7 +357,7 @@ mod test {
         let scratch_dir = create_temp_dir();
         let store = FileStore::new(fake_client, &scratch_dir.path);
         let module_bytes = store
-            .get(&fake_ref, PullPolicy::Always, &RegistrySecrets::none())
+            .get(&fake_ref, PullPolicy::Always, &RegistryAuth::Anonymous)
             .await?;
         assert_eq!(2, module_bytes.len());
         assert_eq!(3, module_bytes[1]);
@@ -373,14 +373,14 @@ mod test {
         let store = FileStore::new(fake_client.clone(), &scratch_dir.path);
         let policy = PullPolicy::parse_effective(None, Some(fake_ref.clone()))?;
         let module_bytes_orig = store
-            .get(&fake_ref, policy, &RegistrySecrets::none())
+            .get(&fake_ref, policy, &RegistryAuth::Anonymous)
             .await?;
         assert_eq!(3, module_bytes_orig.len());
         assert_eq!(7, module_bytes_orig[1]);
         fake_client.update("foo/bar:2.0", vec![8, 9], "sha256:89");
         // But with no policy it should *not* re-fetch a tag that's in cache
         let module_bytes_after = store
-            .get(&fake_ref, policy, &RegistrySecrets::none())
+            .get(&fake_ref, policy, &RegistryAuth::Anonymous)
             .await?;
         assert_eq!(3, module_bytes_after.len());
         assert_eq!(7, module_bytes_after[1]);
@@ -397,13 +397,13 @@ mod test {
         let store = FileStore::new(fake_client.clone(), &scratch_dir.path);
         let policy = PullPolicy::parse_effective(None, Some(fake_ref.clone()))?;
         let module_bytes_orig = store
-            .get(&fake_ref, policy, &RegistrySecrets::none())
+            .get(&fake_ref, policy, &RegistryAuth::Anonymous)
             .await?;
         assert_eq!(2, module_bytes_orig.len());
         assert_eq!(4, module_bytes_orig[1]);
         fake_client.update("foo/bar:latest", vec![5, 6, 7], "sha256:567");
         let module_bytes_after = store
-            .get(&fake_ref, policy, &RegistrySecrets::none())
+            .get(&fake_ref, policy, &RegistryAuth::Anonymous)
             .await?;
         assert_eq!(3, module_bytes_after.len());
         assert_eq!(6, module_bytes_after[1]);
@@ -418,13 +418,13 @@ mod test {
         let store = FileStore::new(fake_client.clone(), &scratch_dir.path);
         let policy = PullPolicy::parse_effective(None, Some(fake_ref.clone()))?;
         let module_bytes_orig = store
-            .get(&fake_ref, policy, &RegistrySecrets::none())
+            .get(&fake_ref, policy, &RegistryAuth::Anonymous)
             .await?;
         assert_eq!(2, module_bytes_orig.len());
         assert_eq!(4, module_bytes_orig[1]);
         fake_client.update("foo/bar", vec![5, 6, 7], "sha256:567");
         let module_bytes_after = store
-            .get(&fake_ref, policy, &RegistrySecrets::none())
+            .get(&fake_ref, policy, &RegistryAuth::Anonymous)
             .await?;
         assert_eq!(3, module_bytes_after.len());
         assert_eq!(6, module_bytes_after[1]);

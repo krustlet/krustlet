@@ -1,19 +1,19 @@
 //! Types for working with registry access secrets
 
-/// Contains secrets for accessing a set of registries
-pub struct RegistrySecrets {}
+/// A method for authenticating to a registry
+pub enum RegistryAuth {
+    /// Access the registry anonymously
+    Anonymous,
+}
 
-/// Contains a secret for accessing a registry
-pub struct RegistrySecret {}
+pub(crate) trait Authenticable {
+    fn apply_authentication(self, auth: &RegistryAuth) -> Self;
+}
 
-impl RegistrySecrets {
-    /// A `RegistrySecrets` that contains no secrets
-    pub fn none() -> Self {
-        RegistrySecrets {}
-    }
-
-    /// Gets the secret for the specified registry, if present
-    pub fn find_registry_secret(&self, _registry: &str) -> Option<RegistrySecret> {
-        None
+impl Authenticable for reqwest::RequestBuilder {
+    fn apply_authentication(self, auth: &RegistryAuth) -> Self {
+        match auth {
+            RegistryAuth::Anonymous => self,
+        }
     }
 }

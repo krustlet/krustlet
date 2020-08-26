@@ -3,7 +3,7 @@
 use crate::store::composite::InterceptingStore;
 use crate::store::{PullPolicy, Store};
 use async_trait::async_trait;
-use oci_distribution::secrets::RegistrySecrets;
+use oci_distribution::secrets::RegistryAuth;
 use oci_distribution::Reference;
 use std::path::PathBuf;
 
@@ -24,7 +24,7 @@ impl Store for FileSystemStore {
         &self,
         image_ref: &Reference,
         _pull_policy: PullPolicy,
-        _secrets: &RegistrySecrets,
+        _auth: &RegistryAuth,
     ) -> anyhow::Result<Vec<u8>> {
         let path = PathBuf::from(image_ref.repository());
         Ok(tokio::fs::read(&path).await?)
