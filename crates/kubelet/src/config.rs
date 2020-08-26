@@ -309,7 +309,7 @@ impl ConfigBuilder {
     }
 
     fn build(self, fallbacks: ConfigBuilderFallbacks) -> anyhow::Result<Config> {
-        let empty_ip_addr = IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0));
+        let empty_ip_addr = IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED);
 
         let hostname = self.hostname.unwrap_or_else(fallbacks.hostname);
         let data_dir = self.data_dir.unwrap_or_else(fallbacks.data_dir);
