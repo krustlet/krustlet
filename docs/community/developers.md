@@ -34,7 +34,7 @@ $ just build
 If you are on a system that doesn't have OpenSSL (or has the incorrect version), you have the option
 to build Krustlet using the Rustls project (Rust native TLS implementation):
 
-```shell
+```console
 $ just build --no-default-features --features rustls-tls
 ```
 
@@ -52,10 +52,8 @@ options like minikube or KinD as they do not have an FQDN
 You can build Krustlet on WSL but will need a few prerequisites that aren't included in the
 Ubuntu distro in the Microsoft Store:
 
-```
-sudo apt install build-essential
-sudo apt-get install libssl-dev
-sudo apt-get install pkg-config
+```console
+$ sudo apt install build-essential libssl-dev pkg-config
 ```
 
 **NOTE:** We've had mixed success developing Krustlet on WSL.  It has been successfully
@@ -144,14 +142,14 @@ $ just run-wasi
 
 And in terminal 3:
 
-```
+```console
 $ just test-e2e
 ```
 
 You can run the integration tests without creating additional terminals or
 manually running the kubelets by running:
 
-```
+```console
 $ just test-e2e-standalone
 ```
 
