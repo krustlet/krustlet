@@ -67,7 +67,7 @@ pub trait Store: Sync {
     /// # Panics
     ///
     /// This panics if any of the pod's containers do not have an image associated with them
-    async fn fetch_pod_modules(&self, pod: &Pod) -> anyhow::Result<HashMap<String, Vec<u8>>> {
+    async fn fetch_pod_modules(&self, pod: &Pod, auth: &crate::secret::RegistryAuthResolver) -> anyhow::Result<HashMap<String, Vec<u8>>> {
         debug!(
             "Fetching all the container modules for pod '{}'",
             pod.name()
@@ -85,9 +85,10 @@ pub trait Store: Sync {
                 .effective_pull_policy()
                 .expect("Could not identify pull policy.");
             async move {
+                let registry_authentication = auth.resolve_registry_auth(&reference).await?;
                 Ok((
                     container.name().to_string(),
-                    self.get(&reference, pull_policy, &RegistryAuth::Anonymous)
+                    self.get(&reference, pull_policy, &registry_authentication)
                         .await?,
                 ))
             }
