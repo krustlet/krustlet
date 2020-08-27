@@ -350,7 +350,7 @@ impl Provider for WasccProvider {
         validate_pod_runnable(&pod)?;
 
         let client = kube::Client::new(self.kubeconfig.clone());
-        let auth_resolver = kubelet::secret::RegistryAuthResolver::new(&client, &pod);
+        let auth_resolver = kubelet::secret::RegistryAuthResolver::new(client.clone(), &pod);
 
         info!("Starting containers for pod {:?}", pod.name());
         let mut modules = self.store.fetch_pod_modules(&pod, &auth_resolver).await?;

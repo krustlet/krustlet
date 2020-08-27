@@ -13,11 +13,11 @@ pub struct RegistryAuthResolver {
 
 impl RegistryAuthResolver {
     /// Creates a resolver for the given pod
-    pub fn new(client: &kube::Client, pod: &crate::pod::Pod) -> Self {
+    pub fn new(client: kube::Client, pod: &crate::pod::Pod) -> Self {
         // TODO: is it safe to capture this stuff or might we need to re-resolve e.g.
         // the list of secret names after a pod modify?
         RegistryAuthResolver {
-            kube_client: client.clone(),
+            kube_client: client,
             pod_namespace: pod.namespace().to_owned(),
             image_pull_secret_names: pod.image_pull_secrets(),
         }
@@ -40,7 +40,7 @@ impl RegistryAuthResolver {
 
         for secret_result in secret_results {
             match secret_result {
-                Err(e) => return Err(anyhow::Error::from(e)),
+                Err(e) => return Err(e.into()),
                 Ok(secret) => {
                     if let Some(auth) = parse_auth(&secret, reference.registry()) {
                         return Ok(auth);
