@@ -67,7 +67,11 @@ pub trait Store: Sync {
     /// # Panics
     ///
     /// This panics if any of the pod's containers do not have an image associated with them
-    async fn fetch_pod_modules(&self, pod: &Pod, auth: &crate::secret::RegistryAuthResolver) -> anyhow::Result<HashMap<String, Vec<u8>>> {
+    async fn fetch_pod_modules(
+        &self,
+        pod: &Pod,
+        auth: &crate::secret::RegistryAuthResolver,
+    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
         debug!(
             "Fetching all the container modules for pod '{}'",
             pod.name()

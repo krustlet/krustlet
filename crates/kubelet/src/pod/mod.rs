@@ -90,6 +90,20 @@ impl Pod {
             .unwrap_or_else(|| &EMPTY_MAP)
     }
 
+    /// Get the names of the pod's image pull secrets
+    pub fn image_pull_secrets(&self) -> Vec<String> {
+        match self.0.spec.as_ref() {
+            None => vec![],
+            Some(spec) => match spec.image_pull_secrets.as_ref() {
+                None => vec![],
+                Some(objrefs) => objrefs
+                    .iter()
+                    .filter_map(|objref| objref.name.clone())
+                    .collect(),
+            },
+        }
+    }
+
     /// Indicate if this pod is a static pod.
     /// TODO: A missing owner_references field was an indication of static pod in my testing but I
     /// dont know how reliable this is.

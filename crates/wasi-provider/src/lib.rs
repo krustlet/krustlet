@@ -282,7 +282,7 @@ impl Provider for WasiProvider {
 
         let client = kube::Client::new(self.kubeconfig.clone());
         let auth_resolver = kubelet::secret::RegistryAuthResolver::new(&client, &pod);
-        
+
         let mut modules = self.store.fetch_pod_modules(&pod, &auth_resolver).await?;
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
 
