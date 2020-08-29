@@ -9,7 +9,7 @@ use kubelet::container::{Container, ContainerKey, Handle as ContainerHandle};
 use kubelet::provider::Provider;
 use kubelet::state::{PodChangeRx, State, Transition};
 use kubelet::{
-    pod::{Handle, Phase, Pod},
+    pod::{Handle, Phase, Pod, key_from_pod},
     state,
 };
 
@@ -96,7 +96,7 @@ async fn start_container(
     pod: &Pod,
     port_assigned: i32,
 ) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
-    let env = <WasccProvider as Provider>::env_vars(&container, &pod, &pod_state.client).await;
+    let env = <WasccProvider as Provider>::env_vars(&container, &pod, &pod_state.shared.client).await;
     let volume_bindings: Vec<VolumeBinding> =
         if let Some(volume_mounts) = container.volume_mounts().as_ref() {
             volume_mounts
@@ -129,8 +129,8 @@ async fn start_container(
         .modules
         .remove(container.name())
         .expect("FATAL ERROR: module map not properly populated");
-    let lp = pod_state.log_path.clone();
-    let host = pod_state.host.clone();
+    let lp = pod_state.shared.log_path.clone();
+    let host = pod_state.shared.host.clone();
     tokio::task::spawn_blocking(move || {
         wascc_run_http(host, module_data, env, volume_bindings, &lp, port_assigned)
     })
@@ -149,7 +149,7 @@ state!(
         let mut container_handles = HashMap::new();
         for container in pod.containers() {
             let port_assigned =
-                assign_container_port(Arc::clone(&pod_state.port_map), &pod, &container)
+                assign_container_port(Arc::clone(&pod_state.shared.port_map), &pod, &container)
                     .await
                     .unwrap();
             debug!(
@@ -168,7 +168,11 @@ state!(
         }
 
         let pod_handle = Handle::new(container_handles, pod.clone(), None).await?;
-        pod_state.handle = Some(pod_handle);
+        let pod_key = key_from_pod(&pod);
+        {
+            let mut handles = pod_state.shared.handles.write().await;
+            handles.insert(pod_key, pod_handle);
+        }
 
         info!("All containers started for pod {:?}.", pod.name());
 

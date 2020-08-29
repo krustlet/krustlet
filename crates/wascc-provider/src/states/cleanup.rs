@@ -1,6 +1,6 @@
 use kubelet::state::{PodChangeRx, State, Transition};
 use kubelet::{
-    pod::{Phase, Pod},
+    pod::{Phase, Pod, key_from_pod},
     state,
 };
 
@@ -14,13 +14,19 @@ state!(
     Cleanup,
     {
         let mut delete_key: i32 = 0;
-        let mut lock = pod_state.port_map.lock().await;
+        let mut lock = pod_state.shared.port_map.lock().await;
         for (key, val) in lock.iter() {
             if val == pod.name() {
                 delete_key = *key
             }
         }
         lock.remove(&delete_key);
+
+        let pod_key = key_from_pod(&pod);
+        {
+            let mut handles = pod_state.shared.handles.write().await;
+            handles.remove(&pod_key);
+        }
 
         Ok(Transition::Complete(Ok(())))
     },

@@ -17,7 +17,7 @@ state!(
     VolumeMount,
     ImagePullBackoff,
     {
-        pod_state.run_context.modules = match pod_state.store.fetch_pod_modules(&pod).await {
+        pod_state.run_context.modules = match pod_state.shared.store.fetch_pod_modules(&pod).await {
             Ok(modules) => modules,
             Err(e) => {
                 error!("{:?}", e);

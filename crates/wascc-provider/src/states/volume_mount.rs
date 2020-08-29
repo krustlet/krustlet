@@ -18,7 +18,7 @@ state!(
     Error,
     {
         pod_state.run_context.volumes =
-            Ref::volumes_from_pod(&pod_state.volume_path, &pod, &pod_state.client)
+            Ref::volumes_from_pod(&pod_state.shared.volume_path, &pod, &pod_state.shared.client)
                 .await
                 .unwrap();
         Ok(Transition::Advance(Starting))
