@@ -1,4 +1,4 @@
-use kubelet::state::{PodChangeRx, State, Transition};
+use kubelet::state::{State, Transition};
 use kubelet::{
     pod::{Phase, Pod},
     state,
@@ -6,18 +6,18 @@ use kubelet::{
 
 use crate::{make_status, PodState};
 
-use super::cleanup::Cleanup;
-
 state!(
     /// Pod was deleted.
     Terminated,
     PodState,
-    Cleanup,
+    Terminated,
     Terminated,
     {
-        // TODO: Stop workload
-        // TODO: Wait for deleted.
-        Ok(Transition::Advance(Cleanup))
+        let mut lock = pod_state.shared.handles.write().await;
+        if let Some(handle) = lock.get_mut(&pod_state.key) {
+            handle.stop().await.unwrap()
+        }
+        Ok(Transition::Complete(Ok(())))
     },
     { make_status(Phase::Succeeded, "Terminated") }
 );

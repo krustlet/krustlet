@@ -1,4 +1,4 @@
-use kubelet::state::{PodChangeRx, State, Transition};
+use kubelet::state::{State, Transition};
 use kubelet::{
     pod::{Phase, Pod},
     state,

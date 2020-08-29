@@ -26,7 +26,6 @@ macro_rules! state {
                 self,
                 #[allow(unused_variables)] pod_state: &mut $state,
                 #[allow(unused_variables)] pod: &Pod,
-                #[allow(unused_variables)] state_rx: &mut PodChangeRx
             ) -> anyhow::Result<Transition<Self::Success, Self::Error>> {
                 #[allow(unused_braces)]
                 $work
@@ -65,7 +64,6 @@ macro_rules! state {
                 self,
                 #[allow(unused_variables)] pod_state: &mut $state,
                 #[allow(unused_variables)] pod: &Pod,
-                #[allow(unused_variables)] state_rx: &mut PodChangeRx
             ) -> anyhow::Result<Transition<Self::Success, Self::Error>> {
                 $work(self, pod).await
             }

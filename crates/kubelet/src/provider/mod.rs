@@ -11,7 +11,7 @@ use crate::container::Container;
 use crate::log::Sender;
 use crate::node::Builder;
 use crate::pod::Pod;
-use crate::state::State;
+use crate::state::{AsyncDrop, State};
 
 /// A back-end for a Kubelet.
 ///
@@ -31,20 +31,26 @@ use crate::state::State;
 /// use async_trait::async_trait;
 /// use kubelet::pod::Pod;
 /// use kubelet::provider::Provider;
-/// use kubelet::state::Stub;
+/// use kubelet::state::{Stub, AsyncDrop};
 ///
 /// struct MyProvider;
 ///
 /// struct PodState;
 ///
 /// #[async_trait]
+/// impl AsyncDrop for PodState {
+///     async fn async_drop(&mut self) { }
+/// }
+///
+/// #[async_trait]
 /// impl Provider for MyProvider {
 ///     type InitialState = Stub;
+///     type TerminatedState = Stub;
 ///     const ARCH: &'static str = "my-arch";
 ///
 ///     type PodState = PodState;
 ///    
-///     async fn initialize_pod_state(&self) -> anyhow::Result<Self::PodState> {
+///     async fn initialize_pod_state(&self, _pod: &Pod) -> anyhow::Result<Self::PodState> {
 ///         Ok(PodState)
 ///     }
 ///
@@ -54,10 +60,13 @@ use crate::state::State;
 #[async_trait]
 pub trait Provider: Sized {
     /// The state that is passed between Pod state handlers.
-    type PodState: 'static + Send + Sync;
+    type PodState: 'static + Send + Sync + AsyncDrop;
 
     /// The initial state for Pod state machine.
     type InitialState: Default + State<Self::PodState>;
+
+    /// The a state to handle early Pod termination.
+    type TerminatedState: Default + State<Self::PodState>;
 
     /// Arch returns a string specifying what architecture this provider supports
     const ARCH: &'static str;
@@ -69,7 +78,7 @@ pub trait Provider: Sized {
 
     /// Hook to allow provider to introduced shared state into Pod state.
     // TODO: Is there a way to provide a default implementation of this if Self::PodState: Default?
-    async fn initialize_pod_state(&self) -> anyhow::Result<Self::PodState>;
+    async fn initialize_pod_state(&self, pod: &Pod) -> anyhow::Result<Self::PodState>;
 
     /// Given a Pod, get back the logs for the associated workload.
     async fn logs(

@@ -1,4 +1,4 @@
-use kubelet::state::{PodChangeRx, State, Transition};
+use kubelet::state::{State, Transition};
 use kubelet::volume::Ref;
 use kubelet::{
     pod::{Phase, Pod},
@@ -17,10 +17,13 @@ state!(
     Starting,
     Error,
     {
-        pod_state.run_context.volumes =
-            Ref::volumes_from_pod(&pod_state.shared.volume_path, &pod, &pod_state.shared.client)
-                .await
-                .unwrap();
+        pod_state.run_context.volumes = Ref::volumes_from_pod(
+            &pod_state.shared.volume_path,
+            &pod,
+            &pod_state.shared.client,
+        )
+        .await
+        .unwrap();
         Ok(Transition::Advance(Starting))
     },
     { make_status(Phase::Pending, "VolumeMount") }

@@ -1,7 +1,7 @@
 use log::{error, info};
 
 use crate::{make_status, PodState};
-use kubelet::state::{PodChangeRx, State, Transition};
+use kubelet::state::{State, Transition};
 use kubelet::{
     container::Container,
     pod::{Phase, Pod},

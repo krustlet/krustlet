@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::convert::TryFrom;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -7,9 +8,9 @@ use tokio::sync::Mutex;
 
 use kubelet::container::{Container, ContainerKey, Handle as ContainerHandle};
 use kubelet::provider::Provider;
-use kubelet::state::{PodChangeRx, State, Transition};
+use kubelet::state::{State, Transition};
 use kubelet::{
-    pod::{Handle, Phase, Pod, key_from_pod},
+    pod::{key_from_pod, Handle, Phase, Pod},
     state,
 };
 
@@ -22,13 +23,7 @@ use super::error::Error;
 use super::running::Running;
 
 #[derive(Debug)]
-struct PortAllocationError {}
-
-impl PortAllocationError {
-    fn new() -> PortAllocationError {
-        PortAllocationError {}
-    }
-}
+struct PortAllocationError;
 
 impl std::fmt::Display for PortAllocationError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -43,38 +38,38 @@ impl std::error::Error for PortAllocationError {
 }
 
 async fn find_available_port(
-    port_map: &Arc<Mutex<HashMap<i32, String>>>,
-    pod_name: String,
-) -> Result<i32, PortAllocationError> {
-    let mut port: Option<i32> = None;
-    let mut empty_port: HashSet<i32> = HashSet::new();
+    port_map: &Arc<Mutex<BTreeMap<u16, String>>>,
+    pod: &Pod,
+) -> Result<u16, PortAllocationError> {
+    let pod_key = key_from_pod(pod);
+    let mut empty_port: BTreeSet<u16> = BTreeSet::new();
     let mut lock = port_map.lock().await;
     while empty_port.len() < 2768 {
-        let generated_port: i32 = rand::thread_rng().gen_range(30000, 32768);
-        port.replace(generated_port);
-        empty_port.insert(port.unwrap());
-        if !lock.contains_key(&port.unwrap()) {
-            lock.insert(port.unwrap(), pod_name);
-            break;
+        let generated_port: u16 = rand::thread_rng().gen_range(30000, 32768);
+        if !lock.contains_key(&generated_port) {
+            lock.insert(generated_port, pod_key);
+            return Ok(generated_port);
         }
+        empty_port.insert(generated_port);
     }
-    port.ok_or_else(PortAllocationError::new)
+    Err(PortAllocationError)
 }
 
 async fn assign_container_port(
-    port_map: Arc<Mutex<HashMap<i32, String>>>,
+    port_map: Arc<Mutex<BTreeMap<u16, String>>>,
     pod: &Pod,
     container: &Container,
-) -> anyhow::Result<i32> {
-    let mut port_assigned: i32 = 0;
+) -> anyhow::Result<u16> {
+    let mut port_assigned: u16 = 0;
     if let Some(container_vec) = container.ports().as_ref() {
         for c_port in container_vec.iter() {
             let container_port = c_port.container_port;
             if let Some(host_port) = c_port.host_port {
+                let host_port: u16 = u16::try_from(host_port)?;
                 let mut lock = port_map.lock().await;
                 if !lock.contains_key(&host_port) {
                     port_assigned = host_port;
-                    lock.insert(port_assigned, pod.name().to_string());
+                    lock.insert(port_assigned, key_from_pod(pod));
                 } else {
                     error!(
                         "Failed to assign hostport {}, because it's taken",
@@ -83,7 +78,7 @@ async fn assign_container_port(
                     return Err(anyhow::anyhow!("Port {} is currently in use", &host_port));
                 }
             } else if container_port >= 0 && container_port <= 65536 {
-                port_assigned = find_available_port(&port_map, pod.name().to_string()).await?;
+                port_assigned = find_available_port(&port_map, pod).await?;
             }
         }
     }
@@ -94,9 +89,10 @@ async fn start_container(
     pod_state: &mut PodState,
     container: &Container,
     pod: &Pod,
-    port_assigned: i32,
+    port_assigned: u16,
 ) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
-    let env = <WasccProvider as Provider>::env_vars(&container, &pod, &pod_state.shared.client).await;
+    let env =
+        <WasccProvider as Provider>::env_vars(&container, &pod, &pod_state.shared.client).await;
     let volume_bindings: Vec<VolumeBinding> =
         if let Some(volume_mounts) = container.volume_mounts().as_ref() {
             volume_mounts
@@ -150,8 +146,7 @@ state!(
         for container in pod.containers() {
             let port_assigned =
                 assign_container_port(Arc::clone(&pod_state.shared.port_map), &pod, &container)
-                    .await
-                    .unwrap();
+                    .await?;
             debug!(
                 "New port assigned to {} is: {}",
                 container.name(),

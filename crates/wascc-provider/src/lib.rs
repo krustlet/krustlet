@@ -36,7 +36,7 @@ use kubelet::container::Handle as ContainerHandle;
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
 use kubelet::pod::Phase;
-use kubelet::pod::{pod_key, Handle};
+use kubelet::pod::{key_from_pod, pod_key, Handle, Pod};
 use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
 use kubelet::store::Store;
@@ -51,13 +51,14 @@ use wascc_httpsrv::HttpServerProvider;
 use wascc_logging::{LoggingProvider, LOG_PATH_KEY};
 
 extern crate rand;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Mutex as TokioMutex;
 
 mod states;
 use states::registered::Registered;
+use states::terminated::Terminated;
 
 /// The architecture that the pod targets.
 const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
@@ -124,18 +125,18 @@ impl StopHandler for ActorHandle {
 /// from Kubernetes.
 #[derive(Clone)]
 pub struct WasccProvider {
-    shared: SharedPodState
+    shared: SharedPodState,
 }
 
 #[derive(Clone)]
 struct SharedPodState {
     client: kube::Client,
-    handles: Arc<RwLock<HashMap<String, Handle<ActorHandle, LogHandleFactory>>>>,
+    handles: Arc<RwLock<BTreeMap<String, Handle<ActorHandle, LogHandleFactory>>>>,
     store: Arc<dyn Store + Sync + Send>,
     volume_path: PathBuf,
     log_path: PathBuf,
     host: Arc<Mutex<WasccHost>>,
-    port_map: Arc<TokioMutex<HashMap<i32, String>>>,
+    port_map: Arc<TokioMutex<BTreeMap<u16, String>>>,
 }
 
 impl WasccProvider {
@@ -150,7 +151,7 @@ impl WasccProvider {
         let host = Arc::new(Mutex::new(WasccHost::new()));
         let log_path = config.data_dir.join(LOG_DIR_NAME);
         let volume_path = config.data_dir.join(VOLUME_DIR);
-        let port_map = Arc::new(TokioMutex::new(HashMap::<i32, String>::new()));
+        let port_map = Arc::new(TokioMutex::new(BTreeMap::<u16, String>::new()));
         tokio::fs::create_dir_all(&log_path).await?;
         tokio::fs::create_dir_all(&volume_path).await?;
 
@@ -200,7 +201,7 @@ impl WasccProvider {
                 log_path,
                 host,
                 port_map,
-            }
+            },
         })
     }
 }
@@ -228,14 +229,41 @@ fn make_status(phase: Phase, reason: &str) -> anyhow::Result<serde_json::Value> 
 
 /// State that is shared between pod state handlers.
 pub struct PodState {
+    key: String,
     run_context: ModuleRunContext,
     errors: usize,
-    shared: SharedPodState
+    shared: SharedPodState,
+}
+
+// No cleanup state needed, we clean up when dropping PodState.
+#[async_trait]
+impl kubelet::state::AsyncDrop for PodState {
+    async fn async_drop(&mut self) {
+        {
+            info!("Pod {} releasing ports.", &self.key);
+            let mut lock = self.shared.port_map.lock().await;
+            debug!("{}, {:?}", self.key, *lock);
+            let ports_to_remove: Vec<u16> = lock
+                .iter()
+                .filter_map(|(k, v)| if v == &self.key { Some(*k) } else { None })
+                .collect();
+            info!("Releasing {:?}.", &ports_to_remove);
+            for port in ports_to_remove {
+                lock.remove(&port);
+            }
+        }
+        {
+            info!("Pod {} dropping handles.", &self.key);
+            let mut handles = self.shared.handles.write().await;
+            handles.remove(&self.key);
+        }
+    }
 }
 
 #[async_trait]
 impl Provider for WasccProvider {
     type InitialState = Registered;
+    type TerminatedState = Terminated;
     type PodState = PodState;
 
     const ARCH: &'static str = TARGET_WASM32_WASCC;
@@ -246,16 +274,17 @@ impl Provider for WasccProvider {
         Ok(())
     }
 
-    async fn initialize_pod_state(&self) -> anyhow::Result<Self::PodState> {
+    async fn initialize_pod_state(&self, pod: &Pod) -> anyhow::Result<Self::PodState> {
         let run_context = ModuleRunContext {
             modules: Default::default(),
             volumes: Default::default(),
         };
-
+        let key = key_from_pod(pod);
         Ok(PodState {
+            key,
             run_context,
             errors: 0,
-            shared: self.shared.clone()
+            shared: self.shared.clone(),
         })
     }
 
@@ -290,7 +319,7 @@ fn wascc_run_http(
     mut env: EnvVars,
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
-    port_assigned: i32,
+    port_assigned: u16,
 ) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
     let mut caps: Vec<Capability> = Vec::new();
 

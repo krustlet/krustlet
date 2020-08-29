@@ -1,5 +1,5 @@
 use kubelet::pod::{Phase, Pod};
-use kubelet::state::{PodChangeRx, State, Transition};
+use kubelet::state::{State, Transition};
 
 use super::crash_loop_backoff::CrashLoopBackoff;
 use super::registered::Registered;
@@ -21,7 +21,6 @@ impl State<PodState> for Error {
         self,
         pod_state: &mut PodState,
         _pod: &Pod,
-        _state_rx: &mut PodChangeRx,
     ) -> anyhow::Result<Transition<Self::Success, Self::Error>> {
         // TODO: Handle pod delete?
         pod_state.errors += 1;

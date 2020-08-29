@@ -1,4 +1,4 @@
-use kubelet::state::{PodChangeRx, State, Transition};
+use kubelet::state::{State, Transition};
 use kubelet::{
     pod::{Phase, Pod},
     state,
@@ -16,9 +16,11 @@ state!(
     Finished,
     Error,
     {
-        // Listen for pod changes.
-        // Wait for execution to complete.
-        Ok(Transition::Advance(Finished))
+        // Wascc has no notion of exiting so we just sleep.
+        // I _think_ that periodically awaiting will allow the task to be interrupted.
+        loop {
+            tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
+        }
     },
     { make_status(Phase::Running, "Running") }
 );

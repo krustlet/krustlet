@@ -1,6 +1,6 @@
 use super::image_pull::ImagePull;
 use crate::{make_status, PodState};
-use kubelet::state::{PodChangeRx, State, Transition};
+use kubelet::state::{State, Transition};
 use kubelet::{
     pod::{Phase, Pod},
     state,
@@ -12,6 +12,9 @@ state!(
     PodState,
     ImagePull,
     ImagePullBackoff,
-    { Ok(Transition::Advance(ImagePull)) },
+    {
+        tokio::time::delay_for(std::time::Duration::from_secs(60)).await;
+        Ok(Transition::Advance(ImagePull))
+    },
     { make_status(Phase::Pending, "ImagePullBackoff") }
 );
