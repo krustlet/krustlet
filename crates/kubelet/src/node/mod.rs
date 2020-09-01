@@ -443,7 +443,6 @@ fn node_labels_definition(arch: &str, config: &Config, builder: &mut Builder) {
     // Add mandatory static labels
     builder.add_label("beta.kubernetes.io/os", "linux");
     builder.add_label("kubernetes.io/os", "linux");
-    builder.add_label("kubernetes.io/role", "agent");
     builder.add_label("type", "krustlet");
     // add the mandatory labels that are dependent on injected values
     builder.add_label("beta.kubernetes.io/arch", arch);
@@ -458,7 +457,6 @@ fn node_labels_definition(arch: &str, config: &Config, builder: &mut Builder) {
         "kubernetes.io/arch",
         "kubernetes.io/hostname",
         "kubernetes.io/os",
-        "kubernetes.io/role",
         "type",
     ];
     let allowed_k8s_namespace_labels = [
@@ -764,7 +762,6 @@ mod test {
 
         let result = builder.labels;
 
-        assert!(result.contains_key("kubernetes.io/role"));
         assert!(result.contains_key("foo"));
         assert!(result.contains_key("kubelet.kubernetes.io/allowed-prefix"));
         assert!(!result.contains_key("not-allowed.kubernetes.io"));
