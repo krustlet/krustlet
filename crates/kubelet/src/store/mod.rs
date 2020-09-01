@@ -4,6 +4,7 @@ pub mod fs;
 pub mod oci;
 
 use oci_distribution::client::ImageData;
+use oci_distribution::secrets::RegistryAuth;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -25,6 +26,7 @@ use crate::store::oci::Client;
 ///  ```rust
 /// use async_trait::async_trait;
 /// use oci_distribution::Reference;
+/// use oci_distribution::secrets::RegistryAuth;
 /// use kubelet::container::PullPolicy;
 /// use kubelet::store::Store;
 /// use std::collections::HashMap;
@@ -35,7 +37,7 @@ use crate::store::oci::Client;
 ///
 /// #[async_trait]
 /// impl Store for InMemoryStore {
-///     async fn get(&self, image_ref: &Reference, pull_policy: PullPolicy) -> anyhow::Result<Vec<u8>> {
+///     async fn get(&self, image_ref: &Reference, pull_policy: PullPolicy, _auth: &RegistryAuth) -> anyhow::Result<Vec<u8>> {
 ///         match pull_policy {
 ///             PullPolicy::Never => (),
 ///             _ => todo!("Implement support for pull policies"),
@@ -50,7 +52,12 @@ use crate::store::oci::Client;
 #[async_trait]
 pub trait Store: Sync {
     /// Get a module's data given its image `Reference`.
-    async fn get(&self, image_ref: &Reference, pull_policy: PullPolicy) -> anyhow::Result<Vec<u8>>;
+    async fn get(
+        &self,
+        image_ref: &Reference,
+        pull_policy: PullPolicy,
+        auth: &RegistryAuth,
+    ) -> anyhow::Result<Vec<u8>>;
 
     /// Fetch all container modules for a given `Pod` storing the name of the
     /// container and the module's data as key/value pairs in a hashmap.
@@ -60,17 +67,16 @@ pub trait Store: Sync {
     /// # Panics
     ///
     /// This panics if any of the pod's containers do not have an image associated with them
-    async fn fetch_pod_modules(&self, pod: &Pod) -> anyhow::Result<HashMap<String, Vec<u8>>> {
+    async fn fetch_pod_modules(
+        &self,
+        pod: &Pod,
+        auth: &crate::secret::RegistryAuthResolver,
+    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
         debug!(
             "Fetching all the container modules for pod '{}'",
             pod.name()
         );
         // Fetch all of the container modules in parallel
-        // let containers = pod.containers();
-        // let container_module_futures = containers.iter().map(move |container| {
-        //     let reference = container
-        //         .image()
-        //         .expect("Could not parse image.")
         let init_containers = pod.init_containers();
         let containers = pod.containers();
         let all_containers = init_containers.iter().chain(containers.iter());
@@ -83,9 +89,11 @@ pub trait Store: Sync {
                 .effective_pull_policy()
                 .expect("Could not identify pull policy.");
             async move {
+                let registry_authentication = auth.resolve_registry_auth(&reference).await?;
                 Ok((
                     container.name().to_string(),
-                    self.get(&reference, pull_policy).await?,
+                    self.get(&reference, pull_policy, &registry_authentication)
+                        .await?,
                 ))
             }
         });
@@ -106,9 +114,9 @@ pub struct LocalStore<S: Storer, C: Client> {
 }
 
 impl<S: Storer, C: Client> LocalStore<S, C> {
-    async fn pull(&self, image_ref: &Reference) -> anyhow::Result<()> {
+    async fn pull(&self, image_ref: &Reference, auth: &RegistryAuth) -> anyhow::Result<()> {
         debug!("Pulling image ref '{:?}' from registry", image_ref);
-        let image_data = self.client.lock().await.pull(image_ref).await?;
+        let image_data = self.client.lock().await.pull(image_ref, auth).await?;
         self.storer
             .write()
             .await
@@ -120,15 +128,25 @@ impl<S: Storer, C: Client> LocalStore<S, C> {
 
 #[async_trait]
 impl<S: Storer + Sync + Send, C: Client + Sync + Send> Store for LocalStore<S, C> {
-    async fn get(&self, image_ref: &Reference, pull_policy: PullPolicy) -> anyhow::Result<Vec<u8>> {
+    async fn get(
+        &self,
+        image_ref: &Reference,
+        pull_policy: PullPolicy,
+        auth: &RegistryAuth,
+    ) -> anyhow::Result<Vec<u8>> {
         match pull_policy {
             PullPolicy::IfNotPresent => {
                 if !self.storer.read().await.is_present(image_ref).await {
-                    self.pull(image_ref).await?
+                    self.pull(image_ref, auth).await?
                 }
             }
             PullPolicy::Always => {
-                let digest = self.client.lock().await.fetch_digest(image_ref).await?;
+                let digest = self
+                    .client
+                    .lock()
+                    .await
+                    .fetch_digest(image_ref, auth)
+                    .await?;
                 let already_got_with_digest = self
                     .storer
                     .read()
@@ -136,7 +154,7 @@ impl<S: Storer + Sync + Send, C: Client + Sync + Send> Store for LocalStore<S, C
                     .is_present_with_digest(image_ref, digest)
                     .await;
                 if !already_got_with_digest {
-                    self.pull(image_ref).await?
+                    self.pull(image_ref, auth).await?
                 }
             }
             PullPolicy::Never => (),

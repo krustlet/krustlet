@@ -349,10 +349,12 @@ impl Provider for WasccProvider {
 
         validate_pod_runnable(&pod)?;
 
-        info!("Starting containers for pod {:?}", pod.name());
-        let mut modules = self.store.fetch_pod_modules(&pod).await?;
-        let mut container_handles = HashMap::new();
         let client = kube::Client::new(self.kubeconfig.clone());
+        let auth_resolver = kubelet::secret::RegistryAuthResolver::new(client.clone(), &pod);
+
+        info!("Starting containers for pod {:?}", pod.name());
+        let mut modules = self.store.fetch_pod_modules(&pod, &auth_resolver).await?;
+        let mut container_handles = HashMap::new();
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
 
         let mut run_context = ModuleRunContext {

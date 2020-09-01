@@ -62,6 +62,7 @@ pub mod log;
 pub mod node;
 pub mod pod;
 pub mod provider;
+pub mod secret;
 pub mod store;
 pub mod volume;
 
