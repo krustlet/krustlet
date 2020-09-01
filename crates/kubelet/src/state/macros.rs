@@ -7,8 +7,6 @@ macro_rules! state {
        $(#[$meta:meta])*
        $name:ident,
        $state:ty,
-       $success:ty,
-       $error: ty,
        $work:block,
        $patch:block
     ) => {
@@ -19,14 +17,11 @@ macro_rules! state {
 
         #[async_trait::async_trait]
         impl State<$state> for $name {
-            type Success = $success;
-            type Error = $error;
-
             async fn next(
-                self,
+                &self,
                 #[allow(unused_variables)] pod_state: &mut $state,
                 #[allow(unused_variables)] pod: &Pod,
-            ) -> anyhow::Result<Transition<Self::Success, Self::Error>> {
+            ) -> anyhow::Result<Transition<Box<dyn State<$state>>,Box<dyn State<$state>>>> {
                 #[allow(unused_braces)]
                 $work
             }
@@ -45,8 +40,6 @@ macro_rules! state {
        $(#[$meta:meta])*
        $name:ident,
        $state:ty,
-       $success:ty,
-       $error: ty,
        $work:path,
        $patch:block
     ) => {
@@ -57,14 +50,11 @@ macro_rules! state {
 
         #[async_trait::async_trait]
         impl State<$state> for $name {
-            type Success = $success;
-            type Error = $error;
-
             async fn next(
-                self,
+                &self,
                 #[allow(unused_variables)] pod_state: &mut $state,
                 #[allow(unused_variables)] pod: &Pod,
-            ) -> anyhow::Result<Transition<Self::Success, Self::Error>> {
+            ) -> anyhow::Result<Transition<Box<dyn State<$state>>,Box<dyn State<$state>>>> {
                 $work(self, pod).await
             }
 

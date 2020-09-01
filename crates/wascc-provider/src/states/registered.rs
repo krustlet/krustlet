@@ -46,8 +46,6 @@ state!(
     /// The Kubelet is aware of the Pod.
     Registered,
     PodState,
-    ImagePull,
-    Error,
     {
         info!("Pod added: {}.", pod.name());
         match validate_pod_runnable(&pod) {
@@ -55,12 +53,12 @@ state!(
             Err(e) => {
                 let message = format!("{:?}", e);
                 error!("{}", message);
-                return Ok(Transition::Error(Error { message }));
+                return Ok(Transition::Error(Box::new(Error { message })));
             }
         }
         info!("Pod validated: {}.", pod.name());
         info!("Pod registered: {}.", pod.name());
-        Ok(Transition::Advance(ImagePull))
+        Ok(Transition::Advance(Box::new(ImagePull)))
     },
     { make_status(Phase::Pending, "Registered") }
 );

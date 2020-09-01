@@ -19,7 +19,6 @@ use crate::VolumeBinding;
 use crate::{make_status, PodState};
 use crate::{wascc_run_http, ActorHandle, LogHandleFactory, WasccProvider};
 
-use super::error::Error;
 use super::running::Running;
 
 #[derive(Debug)]
@@ -137,8 +136,6 @@ state!(
     /// The Kubelet is starting the Pod.
     Starting,
     PodState,
-    Running,
-    Error,
     {
         info!("Starting containers for pod {:?}", pod.name());
 
@@ -171,7 +168,7 @@ state!(
 
         info!("All containers started for pod {:?}.", pod.name());
 
-        Ok(Transition::Advance(Running))
+        Ok(Transition::Advance(Box::new(Running)))
     },
     { make_status(Phase::Pending, "Starting") }
 );

@@ -30,17 +30,12 @@ pub trait AsyncDrop {
 #[async_trait::async_trait]
 /// A trait representing a node in the state graph.
 pub trait State<PodState>: Sync + Send + 'static + std::fmt::Debug {
-    /// The next state on success.
-    type Success: State<PodState>;
-    /// The next state on error.
-    type Error: State<PodState>;
-
     /// Provider supplies method to be executed when in this state.
     async fn next(
-        self,
+        &self,
         pod_state: &mut PodState,
         pod: &Pod,
-    ) -> anyhow::Result<Transition<Self::Success, Self::Error>>;
+    ) -> anyhow::Result<Transition<Box<dyn State<PodState>>, Box<dyn State<PodState>>>>;
 
     /// Provider supplies JSON status patch to apply when entering this state.
     async fn json_status(
@@ -50,39 +45,40 @@ pub trait State<PodState>: Sync + Send + 'static + std::fmt::Debug {
     ) -> anyhow::Result<serde_json::Value>;
 }
 
-#[async_recursion::async_recursion]
-/// Recursively evaluate state machine until a state returns Complete.
-pub async fn run_to_completion<PodState: Send + Sync + 'static + AsyncDrop>(
+/// Iteratively evaluate state machine until it returns Complete.
+pub async fn run_to_completion<PodState: Send + Sync + 'static>(
     client: &kube::Client,
     state: impl State<PodState>,
     pod_state: &mut PodState,
     pod: &Pod,
 ) -> anyhow::Result<()> {
-    info!("Pod {} entering state {:?}", pod.name(), state);
-
-    // When handling a new state, we update the Pod state with Kubernetes.
     let api: Api<KubePod> = Api::namespaced(client.clone(), pod.namespace());
-    let patch = state.json_status(pod_state, &pod).await?;
-    info!("Pod {} status patch: {:?}", pod.name(), &patch);
-    let data = serde_json::to_vec(&patch)?;
-    api.patch_status(&pod.name(), &PatchParams::default(), data)
-        .await?;
 
-    info!("Pod {} executing state handler {:?}", pod.name(), state);
-    // Execute state.
-    let transition = { state.next(pod_state, &pod).await? };
+    let mut state: Box<dyn State<PodState>> = Box::new(state);
 
-    info!(
-        "Pod {} state execution result: {:?}",
-        pod.name(),
-        transition
-    );
+    loop {
+        info!("Pod {} entering state {:?}", pod.name(), state);
 
-    // Handle transition
-    match transition {
-        Transition::Advance(s) => run_to_completion(client, s, pod_state, pod).await,
-        Transition::Error(s) => run_to_completion(client, s, pod_state, pod).await,
-        Transition::Complete(result) => result,
+        let patch = state.json_status(pod_state, &pod).await?;
+        info!("Pod {} status patch: {:?}", pod.name(), &patch);
+        let data = serde_json::to_vec(&patch)?;
+        api.patch_status(&pod.name(), &PatchParams::default(), data)
+            .await?;
+        info!("Pod {} executing state handler {:?}", pod.name(), state);
+
+        let transition = { state.next(pod_state, &pod).await? };
+
+        info!(
+            "Pod {} state execution result: {:?}",
+            pod.name(),
+            transition
+        );
+
+        state = match transition {
+            Transition::Advance(s) => s,
+            Transition::Error(s) => s,
+            Transition::Complete(result) => break result,
+        };
     }
 }
 
@@ -92,14 +88,11 @@ pub struct Stub;
 
 #[async_trait::async_trait]
 impl<P: 'static + Sync + Send> State<P> for Stub {
-    type Success = Stub;
-    type Error = Stub;
-
     async fn next(
-        self,
+        &self,
         _pod_state: &mut P,
         _pod: &Pod,
-    ) -> anyhow::Result<Transition<Self::Success, Self::Error>> {
+    ) -> anyhow::Result<Transition<Box<dyn State<P>>, Box<dyn State<P>>>> {
         Ok(Transition::Complete(Ok(())))
     }
 

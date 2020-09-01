@@ -14,22 +14,19 @@ pub struct Error {
 
 #[async_trait::async_trait]
 impl State<PodState> for Error {
-    type Success = Registered;
-    type Error = CrashLoopBackoff;
-
     async fn next(
-        self,
+        &self,
         pod_state: &mut PodState,
         _pod: &Pod,
-    ) -> anyhow::Result<Transition<Self::Success, Self::Error>> {
+    ) -> anyhow::Result<Transition<Box<dyn State<PodState>>, Box<dyn State<PodState>>>> {
         // TODO: Handle pod delete?
         pod_state.errors += 1;
         if pod_state.errors > 3 {
             pod_state.errors = 0;
-            Ok(Transition::Error(CrashLoopBackoff))
+            Ok(Transition::Error(Box::new(CrashLoopBackoff)))
         } else {
             tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
-            Ok(Transition::Advance(Registered))
+            Ok(Transition::Advance(Box::new(Registered)))
         }
     }
 

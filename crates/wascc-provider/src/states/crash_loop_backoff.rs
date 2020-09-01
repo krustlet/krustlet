@@ -12,11 +12,9 @@ state!(
     /// Pod has failed multiple times.
     CrashLoopBackoff,
     PodState,
-    Registered,
-    CrashLoopBackoff,
     {
         tokio::time::delay_for(std::time::Duration::from_secs(60)).await;
-        Ok(Transition::Advance(Registered))
+        Ok(Transition::Advance(Box::new(Registered)))
     },
     { make_status(Phase::Pending, "CrashLoopBackoff") }
 );

@@ -10,8 +10,6 @@ state!(
     /// Pod was deleted.
     Terminated,
     PodState,
-    Terminated,
-    Terminated,
     {
         let mut lock = pod_state.shared.handles.write().await;
         if let Some(handle) = lock.get_mut(&pod_state.key) {

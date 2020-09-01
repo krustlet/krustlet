@@ -14,17 +14,15 @@ state!(
     /// Kubelet is pulling container images.
     ImagePull,
     PodState,
-    VolumeMount,
-    ImagePullBackoff,
     {
         pod_state.run_context.modules = match pod_state.shared.store.fetch_pod_modules(&pod).await {
             Ok(modules) => modules,
             Err(e) => {
                 error!("{:?}", e);
-                return Ok(Transition::Error(ImagePullBackoff));
+                return Ok(Transition::Error(Box::new(ImagePullBackoff)));
             }
         };
-        Ok(Transition::Advance(VolumeMount))
+        Ok(Transition::Advance(Box::new(VolumeMount)))
     },
     { make_status(Phase::Pending, "ImagePull") }
 );
