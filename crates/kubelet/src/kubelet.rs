@@ -355,7 +355,7 @@ mod test {
         labels.insert("label".to_string(), "value".to_string());
         let mut annotations = BTreeMap::new();
         annotations.insert("annotation".to_string(), "value".to_string());
-        let pod = Pod::new(KubePod {
+        let pod = Pod::from(KubePod {
             metadata: ObjectMeta {
                 labels: Some(labels),
                 annotations: Some(annotations),

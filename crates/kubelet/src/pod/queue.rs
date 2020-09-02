@@ -45,7 +45,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
         match initial_event {
             WatchEvent::Added(pod) => {
                 let task_client = self.client.clone();
-                let pod = Pod::new(pod);
+                let pod = Pod::from(pod);
 
                 let mut pod_state: P::PodState = self.provider.initialize_pod_state(&pod).await?;
                 tokio::spawn(async move {
@@ -129,11 +129,11 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                 // a pod
                 match event {
                     WatchEvent::Modified(pod) => {
-                        debug!("Pod {} modified.", Pod::new(pod.clone()).name());
                         // Not really using this right now but will be useful for detecting changes.
-                        let pod = Pod::new(pod);
+                        let p = Pod::from(pod);
+                        debug!("Pod {} modified.", p.name());
                         // TODO, detect other changes we want to support, or should this just forward the new pod def to state machine?
-                        if let Some(_timestamp) = pod.deletion_timestamp() {
+                        if let Some(_timestamp) = p.deletion_timestamp() {
                             *(pod_deleted.write().await) = true;
                         }
                     }
@@ -142,7 +142,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                         // Modified event, and I think we only get this after *we* delete the pod.
                         // There is the case where someone force deletes, but we want to go through
                         // our normal terminate and deregister flow anyway.
-                        debug!("Pod {} deleted.", Pod::new(pod).name());
+                        debug!("Pod {} deleted.", Pod::from(pod).name());
                         *(pod_deleted.write().await) = true;
                         break;
                     }

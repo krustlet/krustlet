@@ -97,7 +97,7 @@ mod test {
             }
         }))
         .unwrap();
-        Pod::new(kube_pod)
+        Pod::from(kube_pod)
     }
 
     #[test]
