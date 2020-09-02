@@ -167,6 +167,17 @@ kind of Kubernetes cluster you're using and so doesn't know how to infer a node 
 _WARNING:_ The standalone integration tester has not been, er, tested on Windows.
 Hashtag irony.
 
+### Integration test debris
+
+There are some failure modes - for example image pull timeout - where the integration
+tests are not able to complete cleanup of their resources.  Specifically you can
+sometimes get pods stuck in `Terminating`, which prevents namespace cleanup and
+causes the next test run to break.
+
+You can forcibly clean up such debris by running `cargo run --bin podsmiter`.  You
+may need to way a couple of minutes after pod deletion for the namespaces to be
+collected.
+
 ## Creating your own Kubelets with Krustlet
 
 If you want to create your own Kubelet based on Krustlet, all you need to do is implement a
