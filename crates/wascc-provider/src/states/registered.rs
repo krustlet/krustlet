@@ -56,8 +56,6 @@ state!(
                 return Ok(Transition::Error(Box::new(Error { message })));
             }
         }
-        info!("Pod validated: {}.", pod.name());
-        info!("Pod registered: {}.", pod.name());
         Ok(Transition::Advance(Box::new(ImagePull)))
     },
     { make_status(Phase::Pending, "Registered") }

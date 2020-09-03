@@ -20,7 +20,7 @@
 //!
 //! #[async_trait::async_trait]
 //! impl AsyncDrop for PodState {
-//!     async fn async_drop(&mut self) {}
+//!     async fn async_drop(self) {}
 //! }
 //!
 //! // Implement the `Provider` trait for that type
