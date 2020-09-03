@@ -1,11 +1,13 @@
 //! `node` contains wrappers around the Kubernetes node API, containing ways to create and update
 //! nodes operating within the cluster.
 use crate::config::Config;
-use crate::pod::Pod;
+use crate::container::Status as ContainerStatus;
+use crate::pod::{Phase, Pod};
 use crate::provider::Provider;
 use chrono::prelude::*;
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::coordination::v1::Lease;
+use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 use k8s_openapi::api::core::v1::Node as KubeNode;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
@@ -204,14 +206,29 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
             info!("Skipping eviction of DaemonSet '{}'", pod.name());
             continue;
         } else if pod.is_static() {
-            // TODO How to mark this with state machine architecture?
-            // let container_statuses = all_terminated_due_to_shutdown(&pod.all_containers());
+            let api: Api<KubePod> = Api::namespaced(client.clone(), pod.namespace());
+            let patch = serde_json::json!(
+                {
+                    "metadata": {
+                        "resourceVersion": "",
+                    },
+                    "status": {
+                        "phase": Phase::Succeeded,
+                        "reason": "Pod terminated on node shutdown.",
+                        "containerStatuses": pod.all_containers().iter().map(|key| {
+                            ContainerStatus::Terminated {
+                                timestamp: Utc::now(),
+                                message: "Evicted on node shutdown".to_string(),
+                                failed: false
+                            }.to_kubernetes(key.name())
+                        }).collect::<Vec<KubeContainerStatus>>()
+                    }
+                }
+            );
+            let data = serde_json::to_vec(&patch)?;
+            api.patch_status(&pod.name(), &PatchParams::default(), data)
+                .await?;
 
-            // let status = PodStatus {
-            //     message: PodStatusMessage::Message("Evicted on node shutdown.".to_string()),
-            //     container_statuses,
-            // };
-            // pod.patch_status(client.clone(), status).await;
             info!("Marked static pod as terminated.");
             continue;
         } else {
@@ -226,23 +243,6 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
     }
     Ok(())
 }
-
-// fn all_terminated_due_to_shutdown(
-//     container_keys: &[ContainerKey],
-// ) -> ContainerMap<ContainerStatus> {
-//     let mut container_statuses = HashMap::new();
-//     for container_key in container_keys {
-//         container_statuses.insert(
-//             container_key.clone(),
-//             ContainerStatus::Terminated {
-//                 timestamp: Utc::now(),
-//                 message: "Evicted on node shutdown.".to_string(),
-//                 failed: false,
-//             },
-//         );
-//     }
-//     container_statuses
-// }
 
 type PodStream = std::pin::Pin<
     Box<
