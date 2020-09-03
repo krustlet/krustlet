@@ -15,8 +15,14 @@ state!(
     ImagePull,
     PodState,
     {
-        let auth_resolver = kubelet::secret::RegistryAuthResolver::new(pod_state.shared.client.clone(), &pod);
-        pod_state.run_context.modules = match pod_state.shared.store.fetch_pod_modules(&pod, &auth_resolver).await {
+        let auth_resolver =
+            kubelet::secret::RegistryAuthResolver::new(pod_state.shared.client.clone(), &pod);
+        pod_state.run_context.modules = match pod_state
+            .shared
+            .store
+            .fetch_pod_modules(&pod, &auth_resolver)
+            .await
+        {
             Ok(modules) => modules,
             Err(e) => {
                 error!("{:?}", e);
