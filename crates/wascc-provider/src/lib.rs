@@ -240,20 +240,17 @@ pub struct PodState {
 impl kubelet::state::AsyncDrop for PodState {
     async fn async_drop(self) {
         {
-            info!("Pod {} releasing ports.", &self.key);
             let mut lock = self.shared.port_map.lock().await;
-            debug!("{}, {:?}", self.key, *lock);
             let ports_to_remove: Vec<u16> = lock
                 .iter()
                 .filter_map(|(k, v)| if v == &self.key { Some(*k) } else { None })
                 .collect();
-            info!("Releasing {:?}.", &ports_to_remove);
+            debug!("Pod {} releasing ports {:?}.", &self.key, &ports_to_remove);
             for port in ports_to_remove {
                 lock.remove(&port);
             }
         }
         {
-            info!("Pod {} dropping handles.", &self.key);
             let mut handles = self.shared.handles.write().await;
             handles.remove(&self.key);
         }
