@@ -1,5 +1,5 @@
 //! Used to define a state machine of Pod states.
-use log::info;
+use log::debug;
 
 // pub mod default;
 #[macro_use]
@@ -57,18 +57,18 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
     let mut state: Box<dyn State<PodState>> = Box::new(state);
 
     loop {
-        info!("Pod {} entering state {:?}", pod.name(), state);
+        debug!("Pod {} entering state {:?}", pod.name(), state);
 
         let patch = state.json_status(pod_state, &pod).await?;
-        info!("Pod {} status patch: {:?}", pod.name(), &patch);
+        debug!("Pod {} status patch: {:?}", pod.name(), &patch);
         let data = serde_json::to_vec(&patch)?;
         api.patch_status(&pod.name(), &PatchParams::default(), data)
             .await?;
-        info!("Pod {} executing state handler {:?}", pod.name(), state);
+        debug!("Pod {} executing state handler {:?}", pod.name(), state);
 
         let transition = { state.next(pod_state, &pod).await? };
 
-        info!(
+        debug!(
             "Pod {} state execution result: {:?}",
             pod.name(),
             transition

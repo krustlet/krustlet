@@ -4,7 +4,7 @@ use std::sync::Arc;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Meta, WatchEvent};
 use kube::Client as KubeClient;
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use tokio::sync::RwLock;
 
 use crate::pod::{pod_key, Phase, Pod};
@@ -63,7 +63,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
 
                     tokio::select! {
                         result = run_to_completion(&task_client, state, &mut pod_state, &pod) => match result {
-                            Ok(()) => info!("Pod {} state machine exited without error", name),
+                            Ok(()) => debug!("Pod {} state machine exited without error", name),
                             Err(e) => {
                                 error!("Pod {} state machine exited with error: {:?}", name, e);
                                 let api: kube::Api<KubePod> = kube::Api::namespaced(task_client.clone(), pod.namespace());
@@ -87,19 +87,19 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                         },
                         _ = check => {
                             let state: P::TerminatedState = Default::default();
-                            info!("Pod {} terminated. Jumping to state {:?}.", name, state);
+                            debug!("Pod {} terminated. Jumping to state {:?}.", name, state);
                             match run_to_completion(&task_client, state, &mut pod_state, &pod).await {
-                                Ok(()) => info!("Pod {} state machine exited without error", name),
+                                Ok(()) => debug!("Pod {} state machine exited without error", name),
                                 Err(e) => error!("Pod {} state machine exited with error: {:?}", name, e),
                             }
                         }
                     }
 
-                    info!("Pod {} waiting for deregistration.", name);
+                    debug!("Pod {} waiting for deregistration.", name);
                     loop {
                         tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
                         if *check_pod_deleted.read().await {
-                            info!("Pod {} deleted.", name);
+                            debug!("Pod {} deleted.", name);
                             break;
                         }
                     }
@@ -114,10 +114,11 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                     };
                     match pod_client.delete(&pod.name(), &dp).await {
                         Ok(_) => {
-                            info!("Pod {} deregistered.", name);
+                            debug!("Pod {} deregistered.", name);
                         }
                         Err(e) => {
-                            error!("Unable to deregister {} with Kubernetes API: {:?}", name, e);
+                            // This could happen if Pod was force deleted.
+                            warn!("Unable to deregister {} with Kubernetes API: {:?}", name, e);
                         }
                     }
                 });
@@ -131,7 +132,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                 // a pod
                 match event {
                     WatchEvent::Modified(pod) => {
-                        info!("Pod {} modified.", Pod::new(pod.clone()).name());
+                        debug!("Pod {} modified.", Pod::new(pod.clone()).name());
                         // Not really using this right now but will be useful for detecting changes.
                         let pod = Pod::new(pod);
                         // TODO, detect other changes we want to support, or should this just forward the new pod def to state machine?
@@ -144,7 +145,8 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                         // Modified event, and I think we only get this after *we* delete the pod.
                         // There is the case where someone force deletes, but we want to go through
                         // our normal terminate and deregister flow anyway.
-                        info!("Pod {} deleted.", Pod::new(pod).name());
+                        debug!("Pod {} deleted.", Pod::new(pod).name());
+                        *(pod_deleted.write().await) = true;
                         break;
                     }
                     _ => warn!("Pod got unexpected event, ignoring: {:?}", &event),
