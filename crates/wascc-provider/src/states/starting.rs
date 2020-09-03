@@ -17,7 +17,7 @@ use kubelet::{
 use crate::rand::Rng;
 use crate::VolumeBinding;
 use crate::{make_status, PodState};
-use crate::{wascc_run_http, ActorHandle, LogHandleFactory, WasccProvider};
+use crate::{wascc_run, ActorHandle, LogHandleFactory, WasccProvider};
 
 use super::running::Running;
 
@@ -127,7 +127,7 @@ async fn start_container(
     let lp = pod_state.shared.log_path.clone();
     let host = pod_state.shared.host.clone();
     tokio::task::spawn_blocking(move || {
-        wascc_run_http(host, module_data, env, volume_bindings, &lp, port_assigned)
+        wascc_run(host, module_data, env, volume_bindings, &lp, port_assigned)
     })
     .await?
 }

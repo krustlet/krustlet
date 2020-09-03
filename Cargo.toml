@@ -46,7 +46,7 @@ env_logger = "0.7"
 kubelet = { path = "./crates/kubelet", version = "0.4", default-features = false, features = ["cli"] }
 wascc-provider = { path = "./crates/wascc-provider", version = "0.4", default-features = false }
 # wasi-provider = { path = "./crates/wasi-provider", version = "0.4", default-features = false }
-oci-distribution = { path = "./crates/oci-distribution", version = "0.4", default-features = false }
+oci-distribution = { path = "./crates/oci-distribution", version = "0.3", default-features = false }
 dirs = "2.0"
 hostname = "0.3"
 regex = "1.3"
