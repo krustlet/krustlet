@@ -104,7 +104,6 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                         }
                     }
                     pod_state.async_drop().await;
-                    drop(pod_state);
 
                     let pod_client: kube::Api<KubePod> =
                         kube::Api::namespaced(task_client, pod.namespace());

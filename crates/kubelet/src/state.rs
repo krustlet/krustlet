@@ -21,10 +21,10 @@ pub enum Transition<S, E> {
 }
 
 #[async_trait::async_trait]
-/// Allow for asyncronous cleanup up of PodState.
-pub trait AsyncDrop {
+/// Allow for asynchronous cleanup up of PodState.
+pub trait AsyncDrop: Sized {
     /// Clean up PodState.
-    async fn async_drop(&mut self);
+    async fn async_drop(self);
 }
 
 #[async_trait::async_trait]

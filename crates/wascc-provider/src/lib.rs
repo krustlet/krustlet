@@ -238,7 +238,7 @@ pub struct PodState {
 // No cleanup state needed, we clean up when dropping PodState.
 #[async_trait]
 impl kubelet::state::AsyncDrop for PodState {
-    async fn async_drop(&mut self) {
+    async fn async_drop(self) {
         {
             info!("Pod {} releasing ports.", &self.key);
             let mut lock = self.shared.port_map.lock().await;

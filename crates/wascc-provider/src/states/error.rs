@@ -19,7 +19,6 @@ impl State<PodState> for Error {
         pod_state: &mut PodState,
         _pod: &Pod,
     ) -> anyhow::Result<Transition<Box<dyn State<PodState>>, Box<dyn State<PodState>>>> {
-        // TODO: Handle pod delete?
         pod_state.errors += 1;
         if pod_state.errors > 3 {
             pod_state.errors = 0;
