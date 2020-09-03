@@ -31,7 +31,7 @@ async fn smite_all_integration_test_pods() -> anyhow::Result<&'static str> {
     if namespaces.is_empty() {
         return Ok("No e2e namespaces found");
     }
-    if namespaces.is_empty() || !confirm_smite(&namespaces) {
+    if !confirm_smite(&namespaces) {
         return Ok("Operation cancelled");
     }
 
