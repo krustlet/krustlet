@@ -3,7 +3,6 @@ mod handle;
 mod queue;
 mod status;
 pub use handle::{key_from_pod, pod_key, Handle};
-pub use queue::PodChange;
 pub(crate) use queue::Queue;
 pub use status::{update_status, Phase, Status, StatusMessage};
 

@@ -11,16 +11,6 @@ use crate::pod::{pod_key, Phase, Pod};
 use crate::provider::Provider;
 use crate::state::{run_to_completion, AsyncDrop};
 
-/// Possible mutations to Pod that state machine should detect.
-pub enum PodChange {
-    /// A container image has changed.
-    ImageChange,
-    /// The pod was marked for deletion.
-    Shutdown,
-    /// The pod was deregistered with the Kubernetes API and should be cleaned up.
-    Delete,
-}
-
 /// A per-pod queue that takes incoming Kubernetes events and broadcasts them to the correct queue
 /// for that pod.
 ///
