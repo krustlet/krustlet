@@ -62,9 +62,13 @@ impl<P: 'static + Provider + Sync + Send> Kubelet<P> {
         // Create the node. If it already exists, this will exit
         node::create(&client, &self.config, self.provider.clone()).await;
 
+        // TODO(bacongobbler): this entire control loop for graceful shutdown
+        // needs some cleanup. For now, commenting it out to allow the project
+        // to compile again.
+
         // Flag to indicate graceful shutdown has started.
-        let signal = Arc::new(AtomicBool::new(false));
-        let signal_task = start_signal_task(Arc::clone(&signal)).fuse();
+        // let signal = Arc::new(AtomicBool::new(false));
+        // let signal_task = start_signal_task(Arc::clone(&signal)).fuse();
 
         // Start the webserver
         let webserver = start_webserver(self.provider.clone(), &self.config.server_config).fuse();
@@ -72,58 +76,59 @@ impl<P: 'static + Provider + Sync + Send> Kubelet<P> {
         // Start updating the node lease and status periodically
         let node_updater = start_node_updater(client.clone(), self.config.node_name.clone()).fuse();
 
-        // If any of these tasks fail, we can initiate graceful shutdown.
+        // // If any of these tasks fail, we can initiate graceful shutdown.
         let services = Box::pin(async {
             tokio::select! {
-                res = signal_task => if let Err(e) = res {
-                    error!("Signal task completed with error {:?}", &e);
-                },
+                // res = signal_task => if let Err(e) = res {
+                //     error!("Signal task completed with error {:?}", &e);
+                // },
                 res = webserver => error!("Webserver task completed with result {:?}", &res),
                 res = node_updater => if let Err(e) = res {
                     error!("Node updater task completed with error {:?}", &e);
                 }
             };
             // Use relaxed ordering because we just need other tasks to eventually catch the signal.
-            signal.store(true, Ordering::Relaxed);
+            // signal.store(true, Ordering::Relaxed);
             Ok::<(), anyhow::Error>(())
         });
 
-        // Periodically checks for shutdown signal and cleans up resources gracefully if caught.
-        let signal_handler = start_signal_handler(
-            Arc::clone(&signal),
-            client.clone(),
-            self.config.node_name.clone(),
-        )
-        .fuse();
+        // // Periodically checks for shutdown signal and cleans up resources gracefully if caught.
+        // let signal_handler = start_signal_handler(
+        //     Arc::clone(&signal),
+        //     client.clone(),
+        //     self.config.node_name.clone(),
+        // )
+        // .fuse();
 
-        // Create a queue that locks on events per pod
-        let queue = Queue::new(self.provider.clone(), client.clone());
-        let pod_informer = start_pod_informer::<P>(
-            client.clone(),
-            self.config.node_name.clone(),
-            queue,
-            Arc::clone(&signal),
-        )
-        .fuse();
+        // // Create a queue that locks on events per pod
+        // let queue = Queue::new(self.provider.clone(), client.clone());
+        // let pod_informer = start_pod_informer::<P>(
+        //     client.clone(),
+        //     self.config.node_name.clone(),
+        //     queue,
+        //     Arc::clone(&signal),
+        // )
+        // .fuse();
 
-        // These must all be running for graceful shutdown. An error here exits ungracefully.
-        let core = Box::pin(async {
-            tokio::select! {
-                res = signal_handler => res.map_err(|e| {
-                    error!("Signal handler task joined with error {:?}", &e);
-                    e
-                }),
-                res = pod_informer => res.map_err(|e| {
-                    error!("Pod informer task joined with error {:?}", &e);
-                    e
-                })
-            }
-        });
+        // // These must all be running for graceful shutdown. An error here exits ungracefully.
+        // let core = Box::pin(async {
+        //     tokio::select! {
+        //         res = signal_handler => res.map_err(|e| {
+        //             error!("Signal handler task joined with error {:?}", &e);
+        //             e
+        //         }),
+        //         res = pod_informer => res.map_err(|e| {
+        //             error!("Pod informer task joined with error {:?}", &e);
+        //             e
+        //         })
+        //     }
+        // });
 
-        // Services will not return an error, so this will wait for both to return, or core to
-        // return an error. Services will return if signal is set because pod_informer will drop
-        // error_sender and error_handler will exit.
-        tokio::try_join!(core, services)?;
+        // // Services will not return an error, so this will wait for both to return, or core to
+        // // return an error. Services will return if signal is set because pod_informer will drop
+        // // error_sender and error_handler will exit.
+        // tokio::try_join!(core, services)?;
+        tokio::try_join!(services)?;
         Ok(())
     }
 }
