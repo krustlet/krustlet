@@ -2,8 +2,8 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use k8s_openapi::api::core::v1::{ConfigMap, EnvVarSource, Pod as KubePod, Secret};
-use kube::api::{Api, WatchEvent};
+use k8s_openapi::api::core::v1::{ConfigMap, EnvVarSource, Secret};
+use kube::api::Api;
 use log::{error, info};
 use thiserror::Error;
 
@@ -11,6 +11,7 @@ use crate::container::Container;
 use crate::log::Sender;
 use crate::node::Builder;
 use crate::pod::Pod;
+use crate::state::{AsyncDrop, State};
 
 /// A back-end for a Kubelet.
 ///
@@ -30,25 +31,43 @@ use crate::pod::Pod;
 /// use async_trait::async_trait;
 /// use kubelet::pod::Pod;
 /// use kubelet::provider::Provider;
+/// use kubelet::state::{Stub, AsyncDrop};
 ///
 /// struct MyProvider;
 ///
+/// struct PodState;
+///
+/// #[async_trait]
+/// impl AsyncDrop for PodState {
+///     async fn async_drop(self) { }
+/// }
+///
 /// #[async_trait]
 /// impl Provider for MyProvider {
+///     type InitialState = Stub;
+///     type TerminatedState = Stub;
 ///     const ARCH: &'static str = "my-arch";
 ///
-///     async fn add(&self, pod: Pod) -> anyhow::Result<()> {
-///         todo!("Implement Provider::add")
+///     type PodState = PodState;
+///    
+///     async fn initialize_pod_state(&self, _pod: &Pod) -> anyhow::Result<Self::PodState> {
+///         Ok(PodState)
 ///     }
 ///
-///     // Implement the rest of the methods using `async` for the ones that return futures ...
-///     # async fn modify(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
-///     # async fn delete(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
-///     # async fn logs(&self, namespace: String, pod: String, container: String, sender: kubelet::log::Sender) -> anyhow::Result<()> { todo!() }
+///     async fn logs(&self, namespace: String, pod: String, container: String, sender: kubelet::log::Sender) -> anyhow::Result<()> { todo!() }
 /// }
 /// ```
 #[async_trait]
-pub trait Provider {
+pub trait Provider: Sized {
+    /// The state that is passed between Pod state handlers.
+    type PodState: 'static + Send + Sync + AsyncDrop;
+
+    /// The initial state for Pod state machine.
+    type InitialState: Default + State<Self::PodState>;
+
+    /// The a state to handle early Pod termination.
+    type TerminatedState: Default + State<Self::PodState>;
+
     /// Arch returns a string specifying what architecture this provider supports
     const ARCH: &'static str;
 
@@ -57,20 +76,9 @@ pub trait Provider {
         Ok(())
     }
 
-    /// Given a Pod definition, execute the workload.
-    async fn add(&self, pod: Pod) -> anyhow::Result<()>;
-
-    /// Given an updated Pod definition, update the given workload.
-    ///
-    /// Pods that are sent to this function have already met certain criteria for modification.
-    /// For example, updates to the `status` of a Pod will not be sent into this function.
-    async fn modify(&self, pod: Pod) -> anyhow::Result<()>;
-
-    /// Given the definition of a deleted Pod, remove the workload from the runtime.
-    ///
-    /// This does not need to actually delete the Pod definition -- just destroy the
-    /// associated workload.
-    async fn delete(&self, pod: Pod) -> anyhow::Result<()>;
+    /// Hook to allow provider to introduced shared state into Pod state.
+    // TODO: Is there a way to provide a default implementation of this if Self::PodState: Default?
+    async fn initialize_pod_state(&self, pod: &Pod) -> anyhow::Result<Self::PodState>;
 
     /// Given a Pod, get back the logs for the associated workload.
     async fn logs(
@@ -87,32 +95,6 @@ pub trait Provider {
     /// not available. Override this only when there is an implementation.
     async fn exec(&self, _pod: Pod, _command: String) -> anyhow::Result<Vec<String>> {
         Err(NotImplementedError.into())
-    }
-
-    /// Determine what to do when a new event comes in.
-    ///
-    /// In most cases, this should not be overridden. It is exposed for rare cases when
-    /// the underlying event handling needs to change.
-    async fn handle_event(&self, event: WatchEvent<KubePod>) -> anyhow::Result<()> {
-        match event {
-            WatchEvent::Added(pod) => {
-                let pod = pod.into();
-                self.add(pod).await
-            }
-            WatchEvent::Modified(pod) => {
-                let pod = pod.into();
-                self.modify(pod).await
-            }
-            WatchEvent::Deleted(pod) => {
-                let pod = pod.into();
-                self.delete(pod).await
-            }
-            WatchEvent::Error(e) => {
-                error!("Event error: {}", e);
-                Err(e.into())
-            }
-            WatchEvent::Bookmark(_) => Ok(()),
-        }
     }
 
     /// Resolve the environment variables for a container.

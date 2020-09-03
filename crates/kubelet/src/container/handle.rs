@@ -1,9 +1,8 @@
 use std::io::SeekFrom;
 
 use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt};
-use tokio::sync::watch::Receiver;
 
-use crate::container::{ContainerMap, Status};
+use crate::container::ContainerMap;
 use crate::handle::StopHandler;
 use crate::log::{stream, HandleFactory, Sender};
 
@@ -14,21 +13,15 @@ use crate::log::{stream, HandleFactory, Sender};
 pub struct Handle<H, F> {
     handle: H,
     handle_factory: F,
-    status_channel: Receiver<Status>,
 }
 
 impl<H: StopHandler, F> Handle<H, F> {
     /// Create a new runtime with the given handle for stopping the runtime,
     /// a reader for log output, and a status channel.
-    ///
-    /// The status channel is a [Tokio watch `Receiver`][Receiver]. The sender part
-    /// of the channel should be given to the running process and the receiver half
-    /// passed to this constructor to be used for reporting current status
-    pub fn new(handle: H, handle_factory: F, status_channel: Receiver<Status>) -> Self {
+    pub fn new(handle: H, handle_factory: F) -> Self {
         Self {
             handle,
             handle_factory,
-            status_channel,
         }
     }
 
@@ -49,12 +42,6 @@ impl<H: StopHandler, F> Handle<H, F> {
         handle.seek(SeekFrom::Start(0)).await?;
         tokio::spawn(stream(handle, sender));
         Ok(())
-    }
-
-    /// Returns a clone of the status_channel for use in reporting the status to
-    /// another process
-    pub fn status(&self) -> Receiver<Status> {
-        self.status_channel.clone()
     }
 
     /// Wait for the running process to complete. Generally speaking,

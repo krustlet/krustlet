@@ -10,23 +10,32 @@
 //! use kubelet::config::Config;
 //! use kubelet::pod::Pod;
 //! use kubelet::provider::Provider;
+//! use kubelet::state::{Stub, AsyncDrop};
 //!
 //! // Create some type that will act as your provider
 //! struct MyProvider;
 //!
+//! // Track pod state amongst pod state handlers.
+//! struct PodState;
+//!
+//! #[async_trait::async_trait]
+//! impl AsyncDrop for PodState {
+//!     async fn async_drop(self) {}
+//! }
+//!
 //! // Implement the `Provider` trait for that type
 //! #[async_trait::async_trait]
 //! impl Provider for MyProvider {
-//!    const ARCH: &'static str = "my-arch";
-//!
-//!    async fn add(&self, pod: Pod) -> anyhow::Result<()> {
-//!        todo!("Implement Provider::add")
+//!     const ARCH: &'static str = "my-arch";
+//!     type InitialState = Stub;
+//!     type TerminatedState = Stub;
+//!     type PodState = PodState;
+//!    
+//!     async fn initialize_pod_state(&self, _pod: &Pod) -> anyhow::Result<Self::PodState> {
+//!         Ok(PodState)
 //!     }
 //!
-//!     // Implement the rest of the methods
-//!     # async fn modify(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
-//!     # async fn delete(&self, pod: Pod) -> anyhow::Result<()> { todo!() }
-//!     # async fn logs(&self, namespace: String, pod: String, container: String, sender: kubelet::log::Sender) -> anyhow::Result<()> { todo!() }
+//!     async fn logs(&self, namespace: String, pod: String, container: String, sender: kubelet::log::Sender) -> anyhow::Result<()> { todo!() }
 //! }
 //!
 //! async {
@@ -63,6 +72,7 @@ pub mod node;
 pub mod pod;
 pub mod provider;
 pub mod secret;
+pub mod state;
 pub mod store;
 pub mod volume;
 

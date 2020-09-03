@@ -35,8 +35,8 @@ maintenance = { status = "actively-developed" }
 
 [features]
 default = ["native-tls"]
-native-tls = ["kube/native-tls", "kubelet/kube-native-tls", "wasi-provider/native-tls", "wascc-provider/native-tls", "oci-distribution/native-tls"]
-rustls-tls = ["kube/rustls-tls", "kubelet/rustls-tls", "wasi-provider/rustls-tls", "wascc-provider/rustls-tls", "oci-distribution/rustls-tls"]
+native-tls = ["kube/native-tls", "kubelet/kube-native-tls", "wascc-provider/native-tls", "oci-distribution/native-tls"]
+rustls-tls = ["kube/rustls-tls", "kubelet/rustls-tls", "wascc-provider/rustls-tls", "oci-distribution/rustls-tls"]
 
 [dependencies]
 anyhow = "1.0"
@@ -45,7 +45,7 @@ kube = { version= "0.35", default-features = false }
 env_logger = "0.7"
 kubelet = { path = "./crates/kubelet", version = "0.4", default-features = false, features = ["cli"] }
 wascc-provider = { path = "./crates/wascc-provider", version = "0.4", default-features = false }
-wasi-provider = { path = "./crates/wasi-provider", version = "0.4", default-features = false }
+# wasi-provider = { path = "./crates/wasi-provider", version = "0.4", default-features = false }
 oci-distribution = { path = "./crates/oci-distribution", version = "0.3", default-features = false }
 dirs = "2.0"
 hostname = "0.3"
@@ -62,16 +62,21 @@ tempfile = "3.1"
 
 [workspace]
 members = [
-    "crates/*"
+    "crates/kubelet",
+    "crates/oci-distribution",
+    "crates/wascc-logging",
+    "crates/wascc-provider"
 ]
+
 
 [[bin]]
 name = "krustlet-wascc"
 path = "src/krustlet-wascc.rs"
 
-[[bin]]
-name = "krustlet-wasi"
-path = "src/krustlet-wasi.rs"
+
+# [[bin]]
+# name = "krustlet-wasi"
+# path = "src/krustlet-wasi.rs"
 
 [[bin]]
 name = "oneclick"
