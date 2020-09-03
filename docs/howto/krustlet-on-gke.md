@@ -200,7 +200,7 @@ spec:
   nodeSelector:
     kubernetes.io/arch: "wasm32-wasi"
   tolerations:
-    - key: "krustlet/arch"
+    - key: "kubernetes.io/arch"
       operator: "Equal"
       value: "wasm32-wasi"
       effect: "NoExecute"

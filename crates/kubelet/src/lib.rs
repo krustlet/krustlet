@@ -58,6 +58,7 @@
 #![cfg_attr(feature = "docs", feature(doc_cfg))]
 
 mod bootstrapping;
+mod config_interpreter;
 mod kubelet;
 
 pub(crate) mod kubeconfig;
@@ -71,6 +72,7 @@ pub mod node;
 pub mod pod;
 pub mod provider;
 pub mod state;
+pub mod secret;
 pub mod store;
 pub mod volume;
 

@@ -270,7 +270,7 @@ impl Provider for WasccProvider {
 
     async fn node(&self, builder: &mut Builder) -> anyhow::Result<()> {
         builder.set_architecture("wasm-wasi");
-        builder.add_taint("NoExecute", "krustlet/arch", Self::ARCH);
+        builder.add_taint("NoExecute", "kubernetes.io/arch", Self::ARCH);
         Ok(())
     }
 
@@ -310,28 +310,6 @@ struct VolumeBinding {
     host_path: PathBuf,
 }
 
-/// Run a WasCC module inside of the host, configuring it to handle HTTP requests.
-///
-/// This bootstraps an HTTP host, using the value of the env's `PORT` key to expose a port.
-fn wascc_run_http(
-    host: Arc<Mutex<WasccHost>>,
-    data: Vec<u8>,
-    mut env: EnvVars,
-    volumes: Vec<VolumeBinding>,
-    log_path: &Path,
-    port_assigned: u16,
-) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
-    let mut caps: Vec<Capability> = Vec::new();
-
-    env.insert("PORT".to_string(), port_assigned.to_string());
-    caps.push(Capability {
-        name: HTTP_CAPABILITY,
-        binding: None,
-        env,
-    });
-    wascc_run(host, data, &mut caps, volumes, log_path)
-}
-
 /// Capability describes a waSCC capability.
 ///
 /// Capabilities are made available to actors through a two-part processthread:
@@ -362,10 +340,12 @@ impl kubelet::log::HandleFactory<tokio::fs::File> for LogHandleFactory {
 fn wascc_run(
     host: Arc<Mutex<WasccHost>>,
     data: Vec<u8>,
-    capabilities: &mut Vec<Capability>,
+    mut env: EnvVars,
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
+    port_assigned: u16,
 ) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
+    let mut capabilities: Vec<Capability> = Vec::new();
     info!("sending actor to wascc host");
     let log_output = NamedTempFile::new_in(log_path)?;
     let mut logenv: HashMap<String, String> = HashMap::new();
@@ -373,16 +353,30 @@ fn wascc_run(
         LOG_PATH_KEY.to_string(),
         log_output.path().to_str().unwrap().to_owned(),
     );
-    capabilities.push(Capability {
-        name: LOG_CAPABILITY,
-        binding: None,
-        env: logenv,
-    });
 
     let load = Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
     let pk = load.public_key();
 
-    if load.capabilities().contains(&FS_CAPABILITY.to_owned()) {
+    let actor_caps = load.capabilities();
+
+    if actor_caps.contains(&LOG_CAPABILITY.to_owned()) {
+        capabilities.push(Capability {
+            name: LOG_CAPABILITY,
+            binding: None,
+            env: logenv,
+        });
+    }
+
+    if actor_caps.contains(&HTTP_CAPABILITY.to_owned()) {
+        env.insert("PORT".to_string(), port_assigned.to_string());
+        capabilities.push(Capability {
+            name: HTTP_CAPABILITY,
+            binding: None,
+            env,
+        });
+    }
+
+    if actor_caps.contains(&FS_CAPABILITY.to_owned()) {
         for vol in &volumes {
             info!(
                 "Loading File System capability for volume name: '{}' host_path: '{}'",

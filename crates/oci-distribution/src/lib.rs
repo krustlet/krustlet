@@ -5,6 +5,7 @@ pub mod client;
 pub mod errors;
 pub mod manifest;
 mod reference;
+pub mod secrets;
 
 #[doc(inline)]
 pub use client::Client;

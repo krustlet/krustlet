@@ -8,7 +8,9 @@ mod pod_builder;
 mod pod_setup;
 mod test_resource_manager;
 use expectations::{assert_container_statuses, ContainerStatusExpectation};
-use pod_builder::{wasmerciser_pod, WasmerciserContainerSpec, WasmerciserVolumeSpec};
+use pod_builder::{
+    wasmerciser_pod, WasmerciserContainerSpec, WasmerciserVolumeSource, WasmerciserVolumeSpec,
+};
 use pod_setup::{wait_for_pod_complete, wait_for_pod_ready, OnFailure};
 use test_resource_manager::{TestResource, TestResourceManager, TestResourceSpec};
 
@@ -75,15 +77,15 @@ async fn verify_wascc_node(node: Node) -> () {
         .expect("node had no taints");
     let taint = taints
         .iter()
-        .find(|t| t.key == "krustlet/arch")
-        .expect("did not find krustlet/arch taint");
+        .find(|t| t.key == "kubernetes.io/arch")
+        .expect("did not find kubernetes.io/arch taint");
     // There is no "operator" field in the type for the crate for some reason,
     // so we can't compare it here
     assert_eq!(
         taint,
         &Taint {
             effect: "NoExecute".to_owned(),
-            key: "krustlet/arch".to_owned(),
+            key: "kubernetes.io/arch".to_owned(),
             value: Some("wasm32-wascc".to_owned()),
             ..Default::default()
         }
@@ -113,7 +115,7 @@ async fn create_wascc_pod(client: kube::Client, pods: &Api<Pod>) -> anyhow::Resu
             "tolerations": [
                 {
                     "effect": "NoExecute",
-                    "key": "krustlet/arch",
+                    "key": "kubernetes.io/arch",
                     "operator": "Equal",
                     "value": "wasm32-wascc"
                 },
@@ -183,15 +185,15 @@ async fn verify_wasi_node(node: Node) -> () {
         .expect("node had no taints");
     let taint = taints
         .iter()
-        .find(|t| t.key == "krustlet/arch")
-        .expect("did not find krustlet/arch taint");
+        .find(|t| t.key == "kubernetes.io/arch")
+        .expect("did not find kubernetes.io/arch taint");
     // There is no "operator" field in the type for the crate for some reason,
     // so we can't compare it here
     assert_eq!(
         taint,
         &Taint {
             effect: "NoExecute".to_owned(),
-            key: "krustlet/arch".to_owned(),
+            key: "kubernetes.io/arch".to_owned(),
             value: Some("wasm32-wasi".to_owned()),
             ..Default::default()
         }
@@ -201,6 +203,8 @@ async fn verify_wasi_node(node: Node) -> () {
 const SIMPLE_WASI_POD: &str = "hello-wasi";
 const VERBOSE_WASI_POD: &str = "hello-world-verbose";
 const FAILY_POD: &str = "faily-pod";
+const MULTI_MOUNT_WASI_POD: &str = "multi-mount-pod";
+const MULTI_ITEMS_MOUNT_WASI_POD: &str = "multi-mount-items-pod";
 const LOGGY_POD: &str = "loggy-pod";
 const INITY_WASI_POD: &str = "hello-wasi-with-inits";
 const FAILY_INITS_POD: &str = "faily-inits-pod";
@@ -243,7 +247,7 @@ async fn create_wasi_pod(
             "tolerations": [
                 {
                     "effect": "NoExecute",
-                    "key": "krustlet/arch",
+                    "key": "kubernetes.io/arch",
                     "operator": "Equal",
                     "value": "wasm32-wasi"
                 },
@@ -311,7 +315,7 @@ async fn create_fancy_schmancy_wasi_pod(
             "tolerations": [
                 {
                     "effect": "NoExecute",
-                    "key": "krustlet/arch",
+                    "key": "kubernetes.io/arch",
                     "operator": "Equal",
                     "value": "wasm32-wasi"
                 },
@@ -332,6 +336,118 @@ async fn create_fancy_schmancy_wasi_pod(
         pod_name,
         resource_manager.namespace(),
         OnFailure::Panic,
+    )
+    .await
+}
+
+async fn create_multi_mount_pod(
+    client: kube::Client,
+    pods: &Api<Pod>,
+    resource_manager: &mut TestResourceManager,
+) -> anyhow::Result<()> {
+    let pod_name = MULTI_MOUNT_WASI_POD;
+
+    let containers = vec![WasmerciserContainerSpec {
+        name: "multimount",
+        args: &[
+            "assert_exists(file:/mcm/mcm1)",
+            "assert_exists(file:/mcm/mcm2)",
+            "assert_exists(file:/mcm/mcm5)",
+            "assert_exists(file:/ms/ms1)",
+            "assert_exists(file:/ms/ms2)",
+            "assert_exists(file:/ms/ms3)",
+            "read(file:/mcm/mcm1)to(var:mcm1)",
+            "read(file:/mcm/mcm5)to(var:mcm5)",
+            "read(file:/ms/ms1)to(var:ms1)",
+            "read(file:/ms/ms3)to(var:ms3)",
+            "write(var:mcm1)to(stm:stdout)",
+            "write(var:mcm5)to(stm:stdout)",
+            "write(var:ms1)to(stm:stdout)",
+            "write(var:ms3)to(stm:stdout)",
+        ],
+    }];
+
+    let volumes = vec![
+        WasmerciserVolumeSpec {
+            volume_name: "multicm",
+            mount_path: "/mcm",
+            source: WasmerciserVolumeSource::ConfigMap("multi-configmap"),
+        },
+        WasmerciserVolumeSpec {
+            volume_name: "multisecret",
+            mount_path: "/ms",
+            source: WasmerciserVolumeSource::Secret("multi-secret"),
+        },
+    ];
+
+    wasmercise_wasi(
+        pod_name,
+        client,
+        pods,
+        vec![],
+        containers,
+        volumes,
+        OnFailure::Panic,
+        resource_manager,
+    )
+    .await
+}
+
+async fn create_multi_items_mount_pod(
+    client: kube::Client,
+    pods: &Api<Pod>,
+    resource_manager: &mut TestResourceManager,
+) -> anyhow::Result<()> {
+    let pod_name = MULTI_ITEMS_MOUNT_WASI_POD;
+
+    let containers = vec![WasmerciserContainerSpec {
+        name: "multimount",
+        args: &[
+            "assert_exists(file:/mcm/mcm1)",
+            "assert_not_exists(file:/mcm/mcm2)",
+            "assert_exists(file:/mcm/mcm-five)",
+            "assert_exists(file:/ms/ms1)",
+            "assert_not_exists(file:/ms/ms2)",
+            "assert_exists(file:/ms/ms-three)",
+            "read(file:/mcm/mcm1)to(var:mcm1)",
+            "read(file:/mcm/mcm-five)to(var:mcm5)",
+            "read(file:/ms/ms1)to(var:ms1)",
+            "read(file:/ms/ms-three)to(var:ms3)",
+            "write(var:mcm1)to(stm:stdout)",
+            "write(var:mcm5)to(stm:stdout)",
+            "write(var:ms1)to(stm:stdout)",
+            "write(var:ms3)to(stm:stdout)",
+        ],
+    }];
+
+    let volumes = vec![
+        WasmerciserVolumeSpec {
+            volume_name: "multicm",
+            mount_path: "/mcm",
+            source: WasmerciserVolumeSource::ConfigMapItems(
+                "multi-configmap",
+                vec![("mcm1", "mcm1"), ("mcm5", "mcm-five")],
+            ),
+        },
+        WasmerciserVolumeSpec {
+            volume_name: "multisecret",
+            mount_path: "/ms",
+            source: WasmerciserVolumeSource::SecretItems(
+                "multi-secret",
+                vec![("ms1", "ms1"), ("ms3", "ms-three")],
+            ),
+        },
+    ];
+
+    wasmercise_wasi(
+        pod_name,
+        client,
+        pods,
+        vec![],
+        containers,
+        volumes,
+        OnFailure::Panic,
+        resource_manager,
     )
     .await
 }
@@ -444,6 +560,7 @@ async fn create_pod_with_init_containers(
     let volumes = vec![WasmerciserVolumeSpec {
         volume_name: "hostpath-test",
         mount_path: "/hp",
+        source: WasmerciserVolumeSource::HostPath,
     }];
 
     wasmercise_wasi(
@@ -547,6 +664,87 @@ async fn test_pod_logs_and_mounts() -> anyhow::Result<()> {
         "configmap-test/myval",
         "a cool configmap",
         "unable to open configmap file",
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_can_mount_multi_values() -> anyhow::Result<()> {
+    let test_ns = "wasi-e2e-can-mount-multi-values";
+    let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
+
+    resource_manager
+        .set_up_resources(vec![
+            TestResourceSpec::secret_multi(
+                "multi-secret",
+                &[
+                    ("ms1", "tell nobody"),
+                    ("ms2", "but the password is"),
+                    ("ms3", "wait was that a foot-- aargh!!!"),
+                ],
+            ),
+            TestResourceSpec::config_map_multi(
+                "multi-configmap",
+                &[
+                    ("mcm1", "value1"),
+                    ("mcm2", "value two"),
+                    ("mcm5", "VALUE NUMBER FIVE"),
+                ],
+            ),
+        ])
+        .await?;
+
+    create_multi_mount_pod(client.clone(), &pods, &mut resource_manager).await?;
+    assert::pod_exited_successfully(&pods, MULTI_MOUNT_WASI_POD).await?;
+
+    assert::pod_log_contains(&pods, MULTI_MOUNT_WASI_POD, "value1").await?;
+    assert::pod_log_contains(&pods, MULTI_MOUNT_WASI_POD, "VALUE NUMBER FIVE").await?;
+
+    assert::pod_log_contains(&pods, MULTI_MOUNT_WASI_POD, "tell nobody").await?;
+    assert::pod_log_contains(&pods, MULTI_MOUNT_WASI_POD, "was that a foot-- aargh!!!").await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_can_mount_individual_values() -> anyhow::Result<()> {
+    let test_ns = "wasi-e2e-can-mount-individual-values";
+    let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
+
+    resource_manager
+        .set_up_resources(vec![
+            TestResourceSpec::secret_multi(
+                "multi-secret",
+                &[
+                    ("ms1", "tell nobody"),
+                    ("ms2", "but the password is"),
+                    ("ms3", "wait was that a foot-- aargh!!!"),
+                ],
+            ),
+            TestResourceSpec::config_map_multi(
+                "multi-configmap",
+                &[
+                    ("mcm1", "value1"),
+                    ("mcm2", "value two"),
+                    ("mcm5", "VALUE NUMBER FIVE"),
+                ],
+            ),
+        ])
+        .await?;
+
+    create_multi_items_mount_pod(client.clone(), &pods, &mut resource_manager).await?;
+    assert::pod_exited_successfully(&pods, MULTI_ITEMS_MOUNT_WASI_POD).await?;
+
+    assert::pod_log_contains(&pods, MULTI_ITEMS_MOUNT_WASI_POD, "value1").await?;
+    assert::pod_log_contains(&pods, MULTI_ITEMS_MOUNT_WASI_POD, "VALUE NUMBER FIVE").await?;
+
+    assert::pod_log_contains(&pods, MULTI_ITEMS_MOUNT_WASI_POD, "tell nobody").await?;
+    assert::pod_log_contains(
+        &pods,
+        MULTI_ITEMS_MOUNT_WASI_POD,
+        "was that a foot-- aargh!!!",
     )
     .await?;
 

@@ -31,8 +31,8 @@ impl Pod {
     pub fn name(&self) -> &str {
         self.0
             .metadata
-            .as_ref()
-            .and_then(|m| m.name.as_deref())
+            .name
+            .as_deref()
             .expect("Pod name should always be set but was not")
     }
 
@@ -40,10 +40,7 @@ impl Pod {
     ///
     /// Returns "default" if no namespace was explictily set
     pub fn namespace(&self) -> &str {
-        let metadata = self.0.metadata.as_ref();
-        metadata
-            .and_then(|m| m.namespace.as_deref())
-            .unwrap_or("default")
+        self.0.metadata.namespace.as_deref().unwrap_or("default")
     }
 
     /// Get the pod's node_selector map
@@ -87,6 +84,20 @@ impl Pod {
             .annotations
             .as_ref()
             .unwrap_or_else(|| &EMPTY_MAP)
+    }
+
+    /// Get the names of the pod's image pull secrets
+    pub fn image_pull_secrets(&self) -> Vec<String> {
+        match self.0.spec.as_ref() {
+            None => vec![],
+            Some(spec) => match spec.image_pull_secrets.as_ref() {
+                None => vec![],
+                Some(objrefs) => objrefs
+                    .iter()
+                    .filter_map(|objref| objref.name.clone())
+                    .collect(),
+            },
+        }
     }
 
     /// Indicate if this pod is a static pod.

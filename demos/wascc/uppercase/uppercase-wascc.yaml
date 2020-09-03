@@ -13,14 +13,13 @@ spec:
         - containerPort: 8080
           hostPort: 8080
   nodeSelector:
-    kubernetes.io/role: agent
     beta.kubernetes.io/os: linux
     beta.kubernetes.io/arch: wasm32-wascc
   tolerations:
     - key: "node.kubernetes.io/network-unavailable"
       operator: "Exists"
       effect: "NoSchedule"
-    - key: "krustlet/arch"
+    - key: "kubernetes.io/arch"
       operator: "Equal"
       value: "wasm32-wascc"
       effect: "NoExecute"

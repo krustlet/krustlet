@@ -136,7 +136,7 @@ pub async fn create<P: 'static + Provider + Sync + Send>(
     let node = builder.build().into_inner();
     match retry!(node_client.create(&PostParams::default(), &node).await, times: 4) {
         Ok(node) => {
-            let node_uid = node.metadata.unwrap().uid.unwrap();
+            let node_uid = node.metadata.uid.unwrap();
             if let Err(e) = create_lease(&node_uid, &config.node_name, &client).await {
                 error!("Failed to create lease: {}", e);
                 return;
@@ -160,7 +160,7 @@ pub async fn uid(client: &kube::Client, node_name: &str) -> anyhow::Result<Strin
     match retry!(node_client.get(node_name).await, times: 4, log_error: |e| error!("Failed to get node to cordon: {:?}", e))
     {
         Ok(KubeNode {
-            metadata: Some(ObjectMeta { uid: Some(uid), .. }),
+            metadata: ObjectMeta { uid: Some(uid), .. },
             ..
         }) => Ok(uid),
         Ok(_) => {
@@ -442,7 +442,6 @@ fn node_labels_definition(arch: &str, config: &Config, builder: &mut Builder) {
     // Add mandatory static labels
     builder.add_label("beta.kubernetes.io/os", "linux");
     builder.add_label("kubernetes.io/os", "linux");
-    builder.add_label("kubernetes.io/role", "agent");
     builder.add_label("type", "krustlet");
     // add the mandatory labels that are dependent on injected values
     builder.add_label("beta.kubernetes.io/arch", arch);
@@ -457,7 +456,6 @@ fn node_labels_definition(arch: &str, config: &Config, builder: &mut Builder) {
         "kubernetes.io/arch",
         "kubernetes.io/hostname",
         "kubernetes.io/os",
-        "kubernetes.io/role",
         "type",
     ];
     let allowed_k8s_namespace_labels = [
@@ -678,7 +676,7 @@ impl Builder {
         status.addresses = Some(self.addresses);
 
         let kube_node = k8s_openapi::api::core::v1::Node {
-            metadata: Some(metadata),
+            metadata,
             spec: Some(spec),
             status: Some(status),
         };
@@ -741,17 +739,18 @@ mod test {
         node_labels.insert("beta.kubernetes.io/os".to_owned(), "managed".to_owned());
 
         let config = Config {
-            node_ip: IpAddr::from(Ipv4Addr::new(127, 0, 0, 1)),
+            node_ip: IpAddr::from(Ipv4Addr::LOCALHOST),
             hostname: String::from("foo"),
             node_name: String::from("bar"),
             server_config: ServerConfig {
-                addr: IpAddr::from(Ipv4Addr::new(127, 0, 0, 1)),
+                addr: IpAddr::from(Ipv4Addr::LOCALHOST),
                 port: 8080,
                 cert_file: PathBuf::new(),
                 private_key_file: PathBuf::new(),
             },
             bootstrap_file: "doesnt/matter".into(),
             allow_local_modules: false,
+            insecure_registries: None,
             data_dir: PathBuf::new(),
             node_labels,
             max_pods: 110,
@@ -762,7 +761,6 @@ mod test {
 
         let result = builder.labels;
 
-        assert!(result.contains_key("kubernetes.io/role"));
         assert!(result.contains_key("foo"));
         assert!(result.contains_key("kubelet.kubernetes.io/allowed-prefix"));
         assert!(!result.contains_key("not-allowed.kubernetes.io"));

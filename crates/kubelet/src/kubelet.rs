@@ -1,3 +1,5 @@
+#![allow(deprecated)] // TODO: remove when Informer has been replaced by kube_run::watcher
+
 ///! This library contains code for running a kubelet. Use this to create a new
 ///! Kubelet with a specific handler (called a `Provider`)
 use crate::config::Config;
@@ -354,13 +356,13 @@ mod test {
         let mut annotations = BTreeMap::new();
         annotations.insert("annotation".to_string(), "value".to_string());
         let pod = Pod::new(KubePod {
-            metadata: Some(ObjectMeta {
+            metadata: ObjectMeta {
                 labels: Some(labels),
                 annotations: Some(annotations),
                 name: Some(name),
                 namespace,
                 ..Default::default()
-            }),
+            },
             spec: Some(PodSpec {
                 service_account_name: Some("svc".to_string()),
                 ..Default::default()

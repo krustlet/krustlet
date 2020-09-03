@@ -5,7 +5,7 @@ use std::ops::Deref;
 use std::path::PathBuf;
 
 use k8s_openapi::api::core::v1::Volume as KubeVolume;
-use k8s_openapi::api::core::v1::{ConfigMap, Secret};
+use k8s_openapi::api::core::v1::{ConfigMap, KeyToPath, Secret};
 use k8s_openapi::ByteString;
 use kube::api::Api;
 use log::{debug, error};
@@ -120,6 +120,7 @@ async fn configure(
             namespace,
             client,
             path,
+            &cm.items,
         )
         .await
     } else if let Some(s) = &vol.secret {
@@ -130,6 +131,7 @@ async fn configure(
             namespace,
             client,
             path,
+            &s.items,
         )
         .await
     } else if let Some(hostpath) = &vol.host_path {
@@ -148,14 +150,20 @@ async fn populate_from_secret(
     namespace: &str,
     client: &kube::Client,
     path: &PathBuf,
+    items: &Option<Vec<KeyToPath>>,
 ) -> anyhow::Result<Type> {
     tokio::fs::create_dir_all(path).await?;
     let secret_client: Api<Secret> = Api::namespaced(client.clone(), namespace);
     let secret = secret_client.get(name).await?;
     let data = secret.data.unwrap_or_default();
     let data = data.iter().map(|(key, ByteString(data))| async move {
-        let file_path = path.join(key);
-        tokio::fs::write(file_path, &data).await
+        match mount_setting_for(key, items) {
+            ItemMount::MountAt(mount_path) => {
+                let file_path = path.join(mount_path);
+                tokio::fs::write(file_path, &data).await
+            }
+            ItemMount::DoNotMount => Ok(()),
+        }
     });
     futures::future::join_all(data)
         .await
@@ -170,20 +178,31 @@ async fn populate_from_config_map(
     namespace: &str,
     client: &kube::Client,
     path: &PathBuf,
+    items: &Option<Vec<KeyToPath>>,
 ) -> anyhow::Result<Type> {
     tokio::fs::create_dir_all(path).await?;
     let cm_client: Api<ConfigMap> = Api::namespaced(client.clone(), namespace);
     let config_map = cm_client.get(name).await?;
     let binary_data = config_map.binary_data.unwrap_or_default();
     let binary_data = binary_data.iter().map(|(key, data)| async move {
-        let file_path = path.join(key);
-        tokio::fs::write(file_path, &data.0).await
+        match mount_setting_for(key, items) {
+            ItemMount::MountAt(mount_path) => {
+                let file_path = path.join(mount_path);
+                tokio::fs::write(file_path, &data.0).await
+            }
+            ItemMount::DoNotMount => Ok(()),
+        }
     });
     let binary_data = futures::future::join_all(binary_data);
     let data = config_map.data.unwrap_or_default();
     let data = data.iter().map(|(key, data)| async move {
-        let file_path = path.join(key);
-        tokio::fs::write(file_path, data).await
+        match mount_setting_for(key, items) {
+            ItemMount::MountAt(mount_path) => {
+                let file_path = path.join(mount_path);
+                tokio::fs::write(file_path, data).await
+            }
+            ItemMount::DoNotMount => Ok(()),
+        }
     });
     let data = futures::future::join_all(data);
     let (binary_data, data) = futures::future::join(binary_data, data).await;
@@ -197,4 +216,30 @@ async fn populate_from_config_map(
 
 fn pod_dir_name(pod: &Pod) -> String {
     format!("{}-{}", pod.name(), pod.namespace())
+}
+
+fn mount_setting_for(key: &str, items_to_mount: &Option<Vec<KeyToPath>>) -> ItemMount {
+    match items_to_mount {
+        None => ItemMount::MountAt(key.to_string()),
+        Some(items) => ItemMount::from(
+            items
+                .iter()
+                .find(|kp| kp.key == key)
+                .map(|kp| kp.path.to_string()),
+        ),
+    }
+}
+
+enum ItemMount {
+    MountAt(String),
+    DoNotMount,
+}
+
+impl From<Option<String>> for ItemMount {
+    fn from(option: Option<String>) -> Self {
+        match option {
+            None => ItemMount::DoNotMount,
+            Some(path) => ItemMount::MountAt(path),
+        }
+    }
 }

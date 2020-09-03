@@ -268,7 +268,7 @@ impl Provider for WasiProvider {
 
     async fn node(&self, builder: &mut Builder) -> anyhow::Result<()> {
         builder.set_architecture("wasm-wasi");
-        builder.add_taint("NoExecute", "krustlet/arch", Self::ARCH);
+        builder.add_taint("NoExecute", "kubernetes.io/arch", Self::ARCH);
         Ok(())
     }
 
@@ -280,8 +280,10 @@ impl Provider for WasiProvider {
 
         let mut container_handles = ContainerHandleMap::new();
 
-        let mut modules = self.store.fetch_pod_modules(&pod).await?;
         let client = kube::Client::new(self.kubeconfig.clone());
+        let auth_resolver = kubelet::secret::RegistryAuthResolver::new(client.clone(), &pod);
+
+        let mut modules = self.store.fetch_pod_modules(&pod, &auth_resolver).await?;
         let volumes = Ref::volumes_from_pod(&self.volume_path, &pod, &client).await?;
 
         let (init_handles, init_error) = self

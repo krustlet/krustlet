@@ -5,6 +5,8 @@
 
 use crate::errors::*;
 use crate::manifest::OciManifest;
+use crate::secrets::RegistryAuth;
+use crate::secrets::*;
 use crate::Reference;
 
 use anyhow::Context;
@@ -16,8 +18,6 @@ use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
-
-const OCI_VERSION_KEY: &str = "Docker-Distribution-Api-Version";
 
 /// The data for an image or module.
 #[derive(Clone)]
@@ -49,6 +49,14 @@ pub struct Client {
     client: reqwest::Client,
 }
 
+/// A source that can provide a `ClientConfig`.
+/// If you are using this crate in your own application, you can implement this
+/// trait on your configuration type so that it can be passed to `Client::from_source`.
+pub trait ClientConfigSource {
+    /// Provides a `ClientConfig`.
+    fn client_config(&self) -> ClientConfig;
+}
+
 impl Client {
     /// Create a new client with the supplied config
     pub fn new(config: ClientConfig) -> Self {
@@ -59,15 +67,24 @@ impl Client {
         }
     }
 
+    /// Create a new client with the supplied config
+    pub fn from_source(config_source: &impl ClientConfigSource) -> Self {
+        Self::new(config_source.client_config())
+    }
+
     /// Pull an image and return the bytes
     ///
     /// The client will check if it's already been authenticated and if
     /// not will attempt to do.
-    pub async fn pull_image(&mut self, image: &Reference) -> anyhow::Result<ImageData> {
+    pub async fn pull_image(
+        &mut self,
+        image: &Reference,
+        auth: &RegistryAuth,
+    ) -> anyhow::Result<ImageData> {
         debug!("Pulling image: {:?}", image);
 
         if !self.tokens.contains_key(image.registry()) {
-            self.auth(image, None).await?;
+            self.auth(image, auth).await?;
         }
 
         let (manifest, digest) = self.pull_manifest(image).await?;
@@ -98,33 +115,20 @@ impl Client {
         })
     }
 
-    /// According to the v2 specification, 200 and 401 error codes MUST return the
-    /// version. It appears that any other response code should be deemed non-v2.
-    ///
-    /// For this implementation, it will return v2 or an error result. If the error is a
-    /// `reqwest` error, the request itself failed. All other error messages mean that
-    /// v2 is not supported.
-    async fn version(&self, host: &str) -> anyhow::Result<String> {
-        let url = format!("{}://{}/v2/", self.config.protocol.as_str(), host);
-        let res = self.client.get(&url).send().await?;
-        let dist_hdr = res.headers().get(OCI_VERSION_KEY);
-        let version = dist_hdr
-            .ok_or_else(|| anyhow::anyhow!("no header v2 found"))?
-            .to_str()?
-            .to_owned();
-        Ok(version)
-    }
-
     /// Perform an OAuth v2 auth request if necessary.
     ///
     /// This performs authorization and then stores the token internally to be used
     /// on other requests.
-    async fn auth(&mut self, image: &Reference, _secret: Option<&str>) -> anyhow::Result<()> {
+    async fn auth(
+        &mut self,
+        image: &Reference,
+        authentication: &RegistryAuth,
+    ) -> anyhow::Result<()> {
         debug!("Authorzing for image: {:?}", image);
         // The version request will tell us where to go.
         let url = format!(
             "{}://{}/v2/",
-            self.config.protocol.as_str(),
+            self.config.protocol.scheme_for(image.registry()),
             image.registry()
         );
         let res = self.client.get(&url).send().await?;
@@ -155,6 +159,7 @@ impl Client {
             .client
             .get(realm)
             .query(&[("service", service), ("scope", &pull_perms)])
+            .apply_authentication(authentication)
             .send()
             .await?;
 
@@ -180,12 +185,16 @@ impl Client {
     ///
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
-    pub async fn fetch_manifest_digest(&mut self, image: &Reference) -> anyhow::Result<String> {
+    pub async fn fetch_manifest_digest(
+        &mut self,
+        image: &Reference,
+        auth: &RegistryAuth,
+    ) -> anyhow::Result<String> {
         if !self.tokens.contains_key(image.registry()) {
-            self.auth(image, None).await?;
+            self.auth(image, auth).await?;
         }
 
-        let url = image.to_v2_manifest_url(self.config.protocol.as_str());
+        let url = self.to_v2_manifest_url(image);
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
 
@@ -216,7 +225,7 @@ impl Client {
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
     async fn pull_manifest(&self, image: &Reference) -> anyhow::Result<(OciManifest, String)> {
-        let url = image.to_v2_manifest_url(self.config.protocol.as_str());
+        let url = self.to_v2_manifest_url(image);
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
 
@@ -266,7 +275,7 @@ impl Client {
         digest: &str,
         mut out: T,
     ) -> anyhow::Result<()> {
-        let url = image.to_v2_blob_url(self.config.protocol.as_str(), digest);
+        let url = self.to_v2_blob_url(image.registry(), image.repository(), digest);
         let mut stream = self
             .client
             .get(&url)
@@ -280,6 +289,38 @@ impl Client {
         }
 
         Ok(())
+    }
+
+    /// Convert a Reference to a v2 manifest URL.
+    fn to_v2_manifest_url(&self, reference: &Reference) -> String {
+        if let Some(digest) = reference.digest() {
+            format!(
+                "{}://{}/v2/{}/manifests/{}",
+                self.config.protocol.scheme_for(reference.registry()),
+                reference.registry(),
+                reference.repository(),
+                digest,
+            )
+        } else {
+            format!(
+                "{}://{}/v2/{}/manifests/{}",
+                self.config.protocol.scheme_for(reference.registry()),
+                reference.registry(),
+                reference.repository(),
+                reference.tag().unwrap_or("latest")
+            )
+        }
+    }
+
+    /// Convert a Reference to a v2 blob (layer) URL.
+    fn to_v2_blob_url(&self, registry: &str, repository: &str, digest: &str) -> String {
+        format!(
+            "{}://{}/v2/{}/blobs/{}",
+            self.config.protocol.scheme_for(registry),
+            registry,
+            repository,
+            digest,
+        )
     }
 
     /// Generate the headers necessary for authentication.
@@ -306,12 +347,14 @@ pub struct ClientConfig {
 }
 
 /// The protocol that the client should use to connect
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ClientProtocol {
     #[allow(missing_docs)]
     Http,
     #[allow(missing_docs)]
     Https,
+    #[allow(missing_docs)]
+    HttpsExcept(Vec<String>),
 }
 
 impl Default for ClientProtocol {
@@ -321,10 +364,17 @@ impl Default for ClientProtocol {
 }
 
 impl ClientProtocol {
-    fn as_str(&self) -> &str {
+    fn scheme_for(&self, registry: &str) -> &str {
         match self {
             ClientProtocol::Https => "https",
             ClientProtocol::Http => "http",
+            ClientProtocol::HttpsExcept(exceptions) => {
+                if exceptions.contains(&registry.to_owned()) {
+                    "http"
+                } else {
+                    "https"
+                }
+            }
         }
     }
 }
@@ -397,109 +447,250 @@ mod test {
     use super::*;
     use std::convert::TryFrom;
 
-    const HELLO_IMAGE: &str = "webassembly.azurecr.io/hello-wasm:v1";
+    const HELLO_IMAGE_NO_TAG: &str = "webassembly.azurecr.io/hello-wasm";
+    const HELLO_IMAGE_TAG: &str = "webassembly.azurecr.io/hello-wasm:v1";
+    const HELLO_IMAGE_DIGEST: &str = "webassembly.azurecr.io/hello-wasm@sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7";
+    const HELLO_IMAGE_TAG_AND_DIGEST: &str = "webassembly.azurecr.io/hello-wasm:v1@sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7";
+    const TEST_IMAGES: &'static [&str] = &[
+        // TODO(jlegrone): this image cannot be pulled currently because no `latest`
+        //                 tag exists on the image repository. Re-enable this image
+        //                 in tests once `latest` is published.
+        // HELLO_IMAGE_NO_TAG,
+        HELLO_IMAGE_TAG,
+        HELLO_IMAGE_DIGEST,
+        HELLO_IMAGE_TAG_AND_DIGEST,
+    ];
 
-    #[tokio::test]
-    async fn test_version() {
-        let c = Client::default();
-        let ver = c
-            .version("webassembly.azurecr.io")
-            .await
-            .expect("result from version request");
-        assert_eq!("registry/2.0".to_owned(), ver);
-    }
-
-    #[tokio::test]
-    async fn test_auth() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-        let mut c = Client::default();
-        c.auth(&image, None)
-            .await
-            .expect("result from auth request");
-
-        let tok = c.tokens.get(image.registry()).expect("token is available");
-        // We test that the token is longer than a minimal hash.
-        assert!(tok.token.len() > 64);
-    }
-
-    #[tokio::test]
-    async fn test_pull_manifest() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-        // Currently, pull_manifest does not perform Authz, so this will fail.
-        let c = Client::default();
-        c.pull_manifest(&image)
-            .await
-            .expect_err("pull manifest should fail");
-
-        // But this should pass
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-        // Currently, pull_manifest does not perform Authz, so this will fail.
-        let mut c = Client::default();
-        c.auth(&image, None).await.expect("authenticated");
-        let (manifest, _) = c
-            .pull_manifest(&image)
-            .await
-            .expect("pull manifest should not fail");
-
-        // The test on the manifest checks all fields. This is just a brief sanity check.
-        assert_eq!(manifest.schema_version, 2);
-        assert!(!manifest.layers.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_fetch_digest() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-
-        let mut c = Client::default();
-        c.fetch_manifest_digest(&image)
-            .await
-            .expect("pull manifest should not fail");
-
-        // This should pass
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-        let mut c = Client::default();
-        c.auth(&image, None).await.expect("authenticated");
-        let digest = c
-            .fetch_manifest_digest(&image)
-            .await
-            .expect("pull manifest should not fail");
-
+    #[test]
+    fn test_to_v2_blob_url() {
+        let image = Reference::try_from(HELLO_IMAGE_TAG).expect("failed to parse reference");
+        let blob_url = Client::default().to_v2_blob_url(
+            image.registry(),
+            image.repository(),
+            "sha256:deadbeef",
+        );
         assert_eq!(
-            digest,
-            "sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7"
+            blob_url,
+            "https://webassembly.azurecr.io/v2/hello-wasm/blobs/sha256:deadbeef"
+        )
+    }
+
+    #[test]
+    fn test_to_v2_manifest() {
+        let c = Client::default();
+
+        for &(image, expected_uri) in [
+            (HELLO_IMAGE_NO_TAG, "https://webassembly.azurecr.io/v2/hello-wasm/manifests/latest"), // TODO: confirm this is the right translation when no tag
+            (HELLO_IMAGE_TAG, "https://webassembly.azurecr.io/v2/hello-wasm/manifests/v1"),
+            (HELLO_IMAGE_DIGEST, "https://webassembly.azurecr.io/v2/hello-wasm/manifests/sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7"),
+            (HELLO_IMAGE_TAG_AND_DIGEST, "https://webassembly.azurecr.io/v2/hello-wasm/manifests/sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7"),
+            ].iter() {
+                let reference = Reference::try_from(image).expect("failed to parse reference");
+                assert_eq!(c.to_v2_manifest_url(&reference), expected_uri);
+        }
+    }
+
+    #[test]
+    fn manifest_url_generation_respects_http_protocol() {
+        let c = Client::new(ClientConfig {
+            protocol: ClientProtocol::Http,
+        });
+        let reference = Reference::try_from("webassembly.azurecr.io/hello:v1".to_owned())
+            .expect("Could not parse reference");
+        assert_eq!(
+            "http://webassembly.azurecr.io/v2/hello/manifests/v1",
+            c.to_v2_manifest_url(&reference)
+        );
+    }
+
+    #[test]
+    fn blob_url_generation_respects_http_protocol() {
+        let c = Client::new(ClientConfig {
+            protocol: ClientProtocol::Http,
+        });
+        let reference = Reference::try_from("webassembly.azurecr.io/hello@sha256:1234".to_owned())
+            .expect("Could not parse reference");
+        assert_eq!(
+            "http://webassembly.azurecr.io/v2/hello/blobs/sha256:1234",
+            c.to_v2_blob_url(
+                &reference.registry(),
+                reference.repository(),
+                reference.digest().unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn manifest_url_generation_uses_https_if_not_on_exception_list() {
+        let insecure_registries = vec!["localhost".to_owned(), "oci.registry.local".to_owned()];
+        let protocol = ClientProtocol::HttpsExcept(insecure_registries);
+        let c = Client::new(ClientConfig { protocol });
+        let reference = Reference::try_from("webassembly.azurecr.io/hello:v1".to_owned())
+            .expect("Could not parse reference");
+        assert_eq!(
+            "https://webassembly.azurecr.io/v2/hello/manifests/v1",
+            c.to_v2_manifest_url(&reference)
+        );
+    }
+
+    #[test]
+    fn manifest_url_generation_uses_http_if_on_exception_list() {
+        let insecure_registries = vec!["localhost".to_owned(), "oci.registry.local".to_owned()];
+        let protocol = ClientProtocol::HttpsExcept(insecure_registries);
+        let c = Client::new(ClientConfig { protocol });
+        let reference = Reference::try_from("oci.registry.local/hello:v1".to_owned())
+            .expect("Could not parse reference");
+        assert_eq!(
+            "http://oci.registry.local/v2/hello/manifests/v1",
+            c.to_v2_manifest_url(&reference)
+        );
+    }
+
+    #[test]
+    fn blob_url_generation_uses_https_if_not_on_exception_list() {
+        let insecure_registries = vec!["localhost".to_owned(), "oci.registry.local".to_owned()];
+        let protocol = ClientProtocol::HttpsExcept(insecure_registries);
+        let c = Client::new(ClientConfig { protocol });
+        let reference = Reference::try_from("webassembly.azurecr.io/hello@sha256:1234".to_owned())
+            .expect("Could not parse reference");
+        assert_eq!(
+            "https://webassembly.azurecr.io/v2/hello/blobs/sha256:1234",
+            c.to_v2_blob_url(
+                &reference.registry(),
+                reference.repository(),
+                reference.digest().unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn blob_url_generation_uses_http_if_on_exception_list() {
+        let insecure_registries = vec!["localhost".to_owned(), "oci.registry.local".to_owned()];
+        let protocol = ClientProtocol::HttpsExcept(insecure_registries);
+        let c = Client::new(ClientConfig { protocol });
+        let reference = Reference::try_from("oci.registry.local/hello@sha256:1234".to_owned())
+            .expect("Could not parse reference");
+        assert_eq!(
+            "http://oci.registry.local/v2/hello/blobs/sha256:1234",
+            c.to_v2_blob_url(
+                &reference.registry(),
+                reference.repository(),
+                reference.digest().unwrap()
+            )
         );
     }
 
     #[tokio::test]
-    async fn test_pull_layer() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
+    async fn test_auth() {
+        for &image in TEST_IMAGES {
+            let reference = Reference::try_from(image).expect("failed to parse reference");
+            let mut c = Client::default();
+            c.auth(&reference, &RegistryAuth::Anonymous)
+                .await
+                .expect("result from auth request");
+
+            let tok = c
+                .tokens
+                .get(reference.registry())
+                .expect("token is available");
+            // We test that the token is longer than a minimal hash.
+            assert!(tok.token.len() > 64);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pull_manifest() {
+        for &image in TEST_IMAGES {
+            let reference = Reference::try_from(image).expect("failed to parse reference");
+            // Currently, pull_manifest does not perform Authz, so this will fail.
+            let c = Client::default();
+            c.pull_manifest(&reference)
+                .await
+                .expect_err("pull manifest should fail");
+
+            // But this should pass
+            let mut c = Client::default();
+            c.auth(&reference, &RegistryAuth::Anonymous)
+                .await
+                .expect("authenticated");
+            let (manifest, _) = c
+                .pull_manifest(&reference)
+                .await
+                .expect("pull manifest should not fail");
+
+            // The test on the manifest checks all fields. This is just a brief sanity check.
+            assert_eq!(manifest.schema_version, 2);
+            assert!(!manifest.layers.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_digest() {
         let mut c = Client::default();
-        c.auth(&image, None).await.expect("authenticated");
-        let (manifest, _) = c
-            .pull_manifest(&image)
-            .await
-            .expect("failed to pull manifest");
 
-        // Pull one specific layer
-        let mut file: Vec<u8> = Vec::new();
-        let layer0 = &manifest.layers[0];
+        for &image in TEST_IMAGES {
+            let reference = Reference::try_from(image).expect("failed to parse reference");
+            c.fetch_manifest_digest(&reference, &RegistryAuth::Anonymous)
+                .await
+                .expect("pull manifest should not fail");
 
-        c.pull_layer(&image, &layer0.digest, &mut file)
-            .await
-            .expect("Pull layer into vec");
+            // This should pass
+            let reference = Reference::try_from(image).expect("failed to parse reference");
+            let mut c = Client::default();
+            c.auth(&reference, &RegistryAuth::Anonymous)
+                .await
+                .expect("authenticated");
+            let digest = c
+                .fetch_manifest_digest(&reference, &RegistryAuth::Anonymous)
+                .await
+                .expect("pull manifest should not fail");
 
-        // The manifest says how many bytes we should expect.
-        assert_eq!(file.len(), layer0.size as usize);
+            assert_eq!(
+                digest,
+                "sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pull_layer() {
+        let mut c = Client::default();
+
+        for &image in TEST_IMAGES {
+            let reference = Reference::try_from(image).expect("failed to parse reference");
+            c.auth(&reference, &RegistryAuth::Anonymous)
+                .await
+                .expect("authenticated");
+            let (manifest, _) = c
+                .pull_manifest(&reference)
+                .await
+                .expect("failed to pull manifest");
+
+            // Pull one specific layer
+            let mut file: Vec<u8> = Vec::new();
+            let layer0 = &manifest.layers[0];
+
+            c.pull_layer(&reference, &layer0.digest, &mut file)
+                .await
+                .expect("Pull layer into vec");
+
+            // The manifest says how many bytes we should expect.
+            assert_eq!(file.len(), layer0.size as usize);
+        }
     }
 
     #[tokio::test]
     async fn test_pull_image() {
-        let image = Reference::try_from(HELLO_IMAGE).expect("failed to parse reference");
-        let mut c = Client::default();
+        for &image in TEST_IMAGES {
+            let reference = Reference::try_from(image).expect("failed to parse reference");
 
-        let image_data = c.pull_image(&image).await.expect("failed to pull manifest");
+            let image_data = Client::default()
+                .pull_image(&reference, &RegistryAuth::Anonymous)
+                .await
+                .expect("failed to pull manifest");
 
-        assert!(image_data.content.len() != 0);
-        assert!(image_data.digest.is_some());
+            assert!(image_data.content.len() != 0);
+            assert!(image_data.digest.is_some());
+        }
     }
 }
