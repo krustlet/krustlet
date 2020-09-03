@@ -1,6 +1,6 @@
 use k8s_openapi::api::core::v1::{Namespace, Pod};
-use k8s_openapi::Metadata;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+use k8s_openapi::Metadata;
 use kube::api::{Api, DeleteParams, ListParams};
 
 #[tokio::main(threaded_scheduler)]
@@ -18,7 +18,12 @@ async fn main() -> anyhow::Result<()> {
 async fn smite_all_integration_test_pods() -> anyhow::Result<&'static str> {
     let client = match kube::Client::try_default().await {
         Ok(c) => c,
-        Err(e) => return Err(anyhow::anyhow!("Failed to acquire Kubernetes client: {}", e)),
+        Err(e) => {
+            return Err(anyhow::anyhow!(
+                "Failed to acquire Kubernetes client: {}",
+                e
+            ))
+        }
     };
 
     let namespaces = list_e2e_namespaces(client.clone()).await?;
@@ -30,12 +35,14 @@ async fn smite_all_integration_test_pods() -> anyhow::Result<&'static str> {
         return Ok("Operation cancelled");
     }
 
-    let smite_operations = namespaces.iter().map(|ns| smite_namespace_pods(client.clone(), ns));
+    let smite_operations = namespaces
+        .iter()
+        .map(|ns| smite_namespace_pods(client.clone(), ns));
     let smite_results = futures::future::join_all(smite_operations).await;
     let (_, errors) = smite_results.partition_success();
 
     if !errors.is_empty() {
-        return Err(anyhow::anyhow!(smite_failure_message(&errors)))
+        return Err(anyhow::anyhow!(smite_failure_message(&errors)));
     }
 
     Ok("All e2e pods force-deleted; namespace cleanup may take a couple of minutes")
@@ -47,7 +54,11 @@ async fn list_e2e_namespaces(client: kube::Client) -> anyhow::Result<Vec<String>
     let nsapi: Api<Namespace> = Api::all(client.clone());
     let nslist = nsapi.list(&ListParams::default()).await?;
 
-    Ok(nslist.iter().map(name_of).filter(|n| is_e2e_namespace(n)).collect())
+    Ok(nslist
+        .iter()
+        .map(name_of)
+        .filter(|n| is_e2e_namespace(n))
+        .collect())
 }
 
 fn name_of(ns: &impl Metadata<Ty = ObjectMeta>) -> String {
@@ -71,7 +82,9 @@ async fn smite_namespace_pods(client: kube::Client, namespace: &str) -> anyhow::
     let (_, errors) = delete_results.partition_success();
 
     if !errors.is_empty() {
-        return Err(anyhow::anyhow!(smite_pods_failure_message(namespace, &errors)))
+        return Err(anyhow::anyhow!(smite_pods_failure_message(
+            namespace, &errors
+        )));
     }
 
     Ok(())
@@ -79,29 +92,51 @@ async fn smite_namespace_pods(client: kube::Client, namespace: &str) -> anyhow::
 
 async fn smite_pod(podapi: &Api<Pod>, pod: &Pod) -> anyhow::Result<()> {
     let pod_name = name_of(pod);
-    let _ = podapi.delete(&pod_name, &DeleteParams { grace_period_seconds: Some(0), ..DeleteParams::default() }).await?;
+    let _ = podapi
+        .delete(
+            &pod_name,
+            &DeleteParams {
+                grace_period_seconds: Some(0),
+                ..DeleteParams::default()
+            },
+        )
+        .await?;
     Ok(())
 }
 
-fn smite_failure_message(errors: &Vec<anyhow::Error>) -> String {
-    let message_list = errors.iter().map(|e| format!("{}", e)).collect::<Vec<_>>().join("\n");
-    format!("Some integration test resources were not cleaned up:\n{}", message_list)
+fn smite_failure_message(errors: &[anyhow::Error]) -> String {
+    let message_list = errors
+        .iter()
+        .map(|e| format!("{}", e))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "Some integration test resources were not cleaned up:\n{}",
+        message_list
+    )
 }
 
-fn smite_pods_failure_message(namespace: &str, errors: &Vec<anyhow::Error>) -> String {
-    let message_list = errors.iter().map(|e| format!("  - {}", e)).collect::<Vec<_>>().join("\n");
-    format!("- Namespace {}: pod delete(s) failed:\n{}", namespace, message_list)
+fn smite_pods_failure_message(namespace: &str, errors: &[anyhow::Error]) -> String {
+    let message_list = errors
+        .iter()
+        .map(|e| format!("  - {}", e))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "- Namespace {}: pod delete(s) failed:\n{}",
+        namespace, message_list
+    )
 }
 
-fn confirm_smite(namespaces: &Vec<String>) -> bool {
+fn confirm_smite(namespaces: &[String]) -> bool {
     println!("Smite pods in namespaces {}? (y/n) ", namespaces.join(", "));
     let mut response = String::new();
     match std::io::stdin().read_line(&mut response) {
         Err(e) => {
             eprintln!("Error reading response: {}", e);
             confirm_smite(namespaces)
-        },
-        Ok(_) => response.starts_with('y') || response.starts_with('Y')
+        }
+        Ok(_) => response.starts_with('y') || response.starts_with('Y'),
     }
 }
 
