@@ -1,11 +1,6 @@
-use kubelet::state::{State, Transition};
+use crate::PodState;
+use kubelet::state::prelude::*;
 use kubelet::volume::Ref;
-use kubelet::{
-    pod::{Phase, Pod},
-    state,
-};
-
-use crate::{make_status, PodState};
 
 use super::starting::Starting;
 

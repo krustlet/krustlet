@@ -19,7 +19,16 @@ pub struct Handle<H, F> {
     pod: Pod,
     // Storage for the volume references so they don't get dropped until the runtime handle is
     // dropped
+    // TODO: remove this; this is now part of the ModuleRunContext
     _volumes: HashMap<String, Ref>,
+}
+
+impl<H, F> std::fmt::Debug for Handle<H, F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Handle")
+            .field("pod", &self.pod.name())
+            .finish()
+    }
 }
 
 impl<H: StopHandler, F> Handle<H, F> {

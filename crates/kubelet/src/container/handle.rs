@@ -15,6 +15,12 @@ pub struct Handle<H, F> {
     handle_factory: F,
 }
 
+impl<H, F> std::fmt::Debug for Handle<H, F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ContainerHandle").finish()
+    }
+}
+
 impl<H: StopHandler, F> Handle<H, F> {
     /// Create a new runtime with the given handle for stopping the runtime,
     /// a reader for log output, and a status channel.
@@ -47,7 +53,7 @@ impl<H: StopHandler, F> Handle<H, F> {
     /// Wait for the running process to complete. Generally speaking,
     /// [`Handle::stop`] should be called first. This uses the underlying
     /// [`StopHandler`] implementation passed to the constructor
-    pub(crate) async fn wait(&mut self) -> anyhow::Result<()> {
+    pub async fn wait(&mut self) -> anyhow::Result<()> {
         self.handle.wait().await
     }
 }
