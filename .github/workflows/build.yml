@@ -76,6 +76,7 @@ jobs:
           KRUSTLET_NODE_IP: "172.17.0.1"
           # The default location for the cert is not accessible on build hosts, so do it in the current dir
           CONFIG_DIR: "./config"
+          KRUSTLET_E2E_IMAGE_PULL_SECRET: ${{ secrets.KRUSTLET_E2E_IMAGE_PULL_SECRET }}
         run: |
           just bootstrap
           just build
