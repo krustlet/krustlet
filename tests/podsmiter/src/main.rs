@@ -35,14 +35,26 @@ async fn smite_all_integration_test_pods() -> anyhow::Result<&'static str> {
         return Ok("Operation cancelled");
     }
 
-    let smite_operations = namespaces
+    let pod_smite_operations = namespaces
         .iter()
         .map(|ns| smite_namespace_pods(client.clone(), ns));
-    let smite_results = futures::future::join_all(smite_operations).await;
-    let (_, errors) = smite_results.partition_success();
+    let pod_smite_results = futures::future::join_all(pod_smite_operations).await;
+    let (_, pod_smite_errors) = pod_smite_results.partition_success();
 
-    if !errors.is_empty() {
-        return Err(anyhow::anyhow!(smite_failure_message(&errors)));
+    if !pod_smite_errors.is_empty() {
+        return Err(anyhow::anyhow!(smite_failure_message(&pod_smite_errors)));
+    }
+
+    println!("Requested force-delete of all pods; requesting delete of namespaces...");
+
+    let ns_smite_operations = namespaces
+        .iter()
+        .map(|ns| smite_namespace(client.clone(), ns));
+    let ns_smite_results = futures::future::join_all(ns_smite_operations).await;
+    let (_, ns_smite_errors) = ns_smite_results.partition_success();
+
+    if !ns_smite_errors.is_empty() {
+        return Err(anyhow::anyhow!(smite_failure_message(&pod_smite_errors)));
     }
 
     Ok("All e2e pods force-deleted; namespace cleanup may take a couple of minutes")
@@ -104,6 +116,12 @@ async fn smite_pod(podapi: &Api<Pod>, pod: &Pod) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn smite_namespace(client: kube::Client, namespace: &str) -> anyhow::Result<()> {
+    let nsapi: Api<Namespace> = Api::all(client.clone());
+    nsapi.delete(namespace, &DeleteParams::default()).await?;
+    Ok(())
+}
+
 fn smite_failure_message(errors: &[anyhow::Error]) -> String {
     let message_list = errors
         .iter()
@@ -129,7 +147,10 @@ fn smite_pods_failure_message(namespace: &str, errors: &[anyhow::Error]) -> Stri
 }
 
 fn confirm_smite(namespaces: &[String]) -> bool {
-    println!("Smite pods in namespaces {}? (y/n) ", namespaces.join(", "));
+    println!(
+        "Smite these namespaces and all resources within them: {}? (y/n) ",
+        namespaces.join(", ")
+    );
     let mut response = String::new();
     match std::io::stdin().read_line(&mut response) {
         Err(e) => {
