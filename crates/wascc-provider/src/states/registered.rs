@@ -1,12 +1,8 @@
 use log::{error, info};
 
-use crate::{make_status, PodState};
-use kubelet::state::{State, Transition};
-use kubelet::{
-    container::Container,
-    pod::{Phase, Pod},
-    state,
-};
+use crate::PodState;
+use kubelet::container::Container;
+use kubelet::state::prelude::*;
 
 use super::error::Error;
 use super::image_pull::ImagePull;
@@ -30,6 +26,11 @@ fn validate_container_runnable(container: &Container) -> anyhow::Result<()> {
             "Cannot run {}: spec specifies container args which are not supported on wasCC",
             container.name()
         ));
+    }
+    if let Some(image) = container.image()? {
+        if image.whole().starts_with("k8s.gcr.io/kube-proxy") {
+            return Err(anyhow::anyhow!("Cannot run kube-proxy"));
+        }
     }
 
     Ok(())

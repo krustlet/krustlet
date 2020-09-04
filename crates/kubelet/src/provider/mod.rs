@@ -135,6 +135,38 @@ pub trait Provider: Sized {
     }
 }
 
+/// Resolve the environment variables for a container.
+///
+/// This generally should not be overwritten unless you need to handle
+/// environment variable resolution in a special way, such as allowing
+/// custom Downward API fields.
+///
+/// It is safe to call from within your own providers.
+pub async fn env_vars(
+    container: &Container,
+    pod: &Pod,
+    client: &kube::Client,
+) -> HashMap<String, String> {
+    let mut env = HashMap::new();
+    let vars = match container.env().as_ref() {
+        Some(e) => e,
+        None => return env,
+    };
+
+    for env_var in vars.clone().into_iter() {
+        let key = env_var.name;
+        let value = match env_var.value {
+            Some(v) => v,
+            None => {
+                on_missing_env_value(env_var.value_from, client, pod.namespace(), &field_map(pod))
+                    .await
+            }
+        };
+        env.insert(key, value);
+    }
+    env
+}
+
 /// Called when an env var does not have a value associated with.
 ///
 /// This follows the env_var_source to get the value

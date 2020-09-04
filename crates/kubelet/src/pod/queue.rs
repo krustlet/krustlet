@@ -75,8 +75,6 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                                         "status": {
                                             "phase": Phase::Failed,
                                             "reason": format!("{:?}", e),
-                                            "containerStatuses": Vec::<()>::new(),
-                                            "initContainerStatuses": Vec::<()>::new(),
                                         }
                                     }
                                 );

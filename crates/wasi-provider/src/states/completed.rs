@@ -3,7 +3,7 @@ use kubelet::state::prelude::*;
 
 state!(
     /// Pod was deleted.
-    Terminated,
+    Completed,
     PodState,
     {
         let mut lock = pod_state.shared.handles.write().await;
@@ -12,5 +12,5 @@ state!(
         }
         Ok(Transition::Complete(Ok(())))
     },
-    { make_status(Phase::Succeeded, "Terminated") }
+    { make_status(Phase::Succeeded, "Completed") }
 );

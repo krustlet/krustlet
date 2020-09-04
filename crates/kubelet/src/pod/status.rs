@@ -5,6 +5,21 @@ use kube::{api::PatchParams, Api};
 
 use crate::container::{ContainerMap, Status as ContainerStatus};
 
+/// Create basic Pod status patch.
+pub fn make_status(phase: Phase, reason: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::json!(
+       {
+           "metadata": {
+               "resourceVersion": "",
+           },
+           "status": {
+               "phase": phase,
+               "reason": reason,
+           }
+       }
+    ))
+}
+
 /// Describe the status of a workload.
 #[derive(Clone, Debug, Default)]
 pub struct Status {

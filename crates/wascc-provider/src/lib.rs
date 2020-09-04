@@ -35,7 +35,6 @@ use async_trait::async_trait;
 use kubelet::container::Handle as ContainerHandle;
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
-use kubelet::pod::Phase;
 use kubelet::pod::{key_from_pod, pod_key, Handle, Pod};
 use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
@@ -209,22 +208,6 @@ impl WasccProvider {
 struct ModuleRunContext {
     modules: HashMap<String, Vec<u8>>,
     volumes: HashMap<String, Ref>,
-}
-
-fn make_status(phase: Phase, reason: &str) -> anyhow::Result<serde_json::Value> {
-    Ok(serde_json::json!(
-       {
-           "metadata": {
-               "resourceVersion": "",
-           },
-           "status": {
-               "phase": phase,
-               "reason": reason,
-               "containerStatuses": Vec::<()>::new(),
-               "initContainerStatuses": Vec::<()>::new(),
-           }
-       }
-    ))
 }
 
 /// State that is shared between pod state handlers.
