@@ -14,6 +14,10 @@ use pod_builder::{
 use pod_setup::{wait_for_pod_complete, wait_for_pod_ready, OnFailure};
 use test_resource_manager::{TestResource, TestResourceManager, TestResourceSpec};
 
+fn in_ci_environment() -> bool {
+    std::env::var("KRUSTLET_TEST_ENV") == Ok("ci".to_owned())
+}
+
 #[tokio::test]
 async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     let client = kube::Client::try_default().await?;
@@ -208,6 +212,7 @@ const MULTI_ITEMS_MOUNT_WASI_POD: &str = "multi-mount-items-pod";
 const LOGGY_POD: &str = "loggy-pod";
 const INITY_WASI_POD: &str = "hello-wasi-with-inits";
 const FAILY_INITS_POD: &str = "faily-inits-pod";
+const PRIVATE_REGISTRY_POD: &str = "private-registry-pod";
 
 async fn create_wasi_pod(
     client: kube::Client,
@@ -585,6 +590,31 @@ async fn create_pod_with_failing_init_container(
     .await
 }
 
+async fn create_private_registry_pod(
+    client: kube::Client,
+    pods: &Api<Pod>,
+    resource_manager: &mut TestResourceManager,
+) -> anyhow::Result<()> {
+    let pod_name = PRIVATE_REGISTRY_POD;
+
+    let containers = vec![
+        WasmerciserContainerSpec::named("floofycat").with_args(&["write(lit:slats)to(stm:stdout)"]).private(),
+        WasmerciserContainerSpec::named("neatcat").with_args(&["write(lit:kiki)to(stm:stdout)"]).private(),
+    ];
+
+    wasmercise_wasi(
+        pod_name,
+        client,
+        pods,
+        vec![],
+        containers,
+        vec![],
+        OnFailure::Panic,
+        resource_manager,
+    )
+    .await
+}
+
 async fn set_up_test(
     test_ns: &str,
 ) -> anyhow::Result<(kube::Client, Api<Pod>, TestResourceManager)> {
@@ -812,6 +842,22 @@ async fn test_failing_init_containers() -> anyhow::Result<()> {
     // TODO: needs moar container?
     // assert_pod_log_does_not_contain(&pods, FAILY_INITS_POD, "slats").await?;
     // assert_pod_log_does_not_contain(&pods, FAILY_INITS_POD, "also.nope.txt").await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pull_from_private_registry() -> anyhow::Result<()> {
+    if !in_ci_environment() {
+        return Ok(());
+    }
+
+    let test_ns = "wasi-e2e-private-registry";
+    let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
+
+    create_private_registry_pod(client.clone(), &pods, &mut resource_manager).await?;
+    assert::pod_container_log_contains(&pods, PRIVATE_REGISTRY_POD, "floofycat", r#"slats"#).await?;
+    assert::pod_container_log_contains(&pods, PRIVATE_REGISTRY_POD, "neatcat", r#"kiki"#).await?;
 
     Ok(())
 }

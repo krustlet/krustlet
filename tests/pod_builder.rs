@@ -1,4 +1,4 @@
-use k8s_openapi::api::core::v1::{Container, Pod, Volume, VolumeMount};
+use k8s_openapi::api::core::v1::{Container, LocalObjectReference, Pod, Volume, VolumeMount};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -27,10 +27,10 @@ impl WasmerciserContainerSpec {
         self
     }
 
-    // pub fn private(mut self) -> Self {
-    //     self.use_private_registry = true;
-    //     self
-    // }
+    pub fn private(mut self) -> Self {
+        self.use_private_registry = true;
+        self
+    }
 }
 
 pub struct WasmerciserVolumeSpec {
@@ -165,7 +165,7 @@ pub fn wasmerciser_pod(
 
     let use_private_registry = containers.iter().any(|c| c.use_private_registry);
     let image_pull_secrets = if use_private_registry {
-        Some(vec!["registry-creds"])
+        Some(local_object_references(&["registry-creds"]))
     } else {
         None
     };
@@ -209,4 +209,8 @@ fn unzip<T, U: Clone>(source: &Vec<(T, U)>) -> (Vec<&T>, Vec<U>) {
 
 fn option_values<T: Clone>(source: &Vec<Option<T>>) -> Vec<T> {
     source.iter().filter_map(|t| t.clone()).collect()
+}
+
+fn local_object_references(names: &[&str]) -> Vec<LocalObjectReference> {
+    names.iter().map(|n| LocalObjectReference { name: Some(n.to_string()) }).collect()
 }

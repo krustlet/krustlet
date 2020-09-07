@@ -95,9 +95,9 @@ impl TestResourceManager {
         // through the system.  TODO: make this less worse
         tokio::time::delay_for(tokio::time::Duration::from_millis(100)).await;
 
-        let image_pull_secret_opt = option_env!("KRUSTLET_E2E_IMAGE_PULL_SECRET");
+        let image_pull_secret_opt = std::env::var("KRUSTLET_E2E_IMAGE_PULL_SECRET");
 
-        if let Some(image_pull_secret) = image_pull_secret_opt {
+        if let Ok(image_pull_secret) = image_pull_secret_opt {
             let secrets: Api<Secret> = Api::namespaced(client.clone(), namespace);
             secrets
                 .create(
