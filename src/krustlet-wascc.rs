@@ -1,3 +1,4 @@
+#![type_length_limit = "1271125"]
 use kubelet::config::Config;
 use kubelet::store::composite::ComposableStore;
 use kubelet::store::oci::FileStore;
