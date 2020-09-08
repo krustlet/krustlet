@@ -42,7 +42,7 @@ async fn smite_all_integration_test_pods() -> anyhow::Result<&'static str> {
     let (_, pod_smite_errors) = pod_smite_results.partition_success();
 
     if !pod_smite_errors.is_empty() {
-        return Err(anyhow::anyhow!(smite_failure_message(&pod_smite_errors)));
+        return Err(smite_failure_error(&pod_smite_errors));
     }
 
     println!("Requested force-delete of all pods; requesting delete of namespaces...");
@@ -54,7 +54,7 @@ async fn smite_all_integration_test_pods() -> anyhow::Result<&'static str> {
     let (_, ns_smite_errors) = ns_smite_results.partition_success();
 
     if !ns_smite_errors.is_empty() {
-        return Err(anyhow::anyhow!(smite_failure_message(&pod_smite_errors)));
+        return Err(smite_failure_error(&pod_smite_errors));
     }
 
     Ok("All e2e pods force-deleted; namespace cleanup may take a couple of minutes")
@@ -94,9 +94,7 @@ async fn smite_namespace_pods(client: kube::Client, namespace: &str) -> anyhow::
     let (_, errors) = delete_results.partition_success();
 
     if !errors.is_empty() {
-        return Err(anyhow::anyhow!(smite_pods_failure_message(
-            namespace, &errors
-        )));
+        return Err(smite_pods_failure_error(namespace, &errors));
     }
 
     Ok(())
@@ -122,27 +120,28 @@ async fn smite_namespace(client: kube::Client, namespace: &str) -> anyhow::Resul
     Ok(())
 }
 
-fn smite_failure_message(errors: &[anyhow::Error]) -> String {
+fn smite_failure_error(errors: &[anyhow::Error]) -> anyhow::Error {
     let message_list = errors
         .iter()
         .map(|e| format!("{}", e))
         .collect::<Vec<_>>()
         .join("\n");
-    format!(
+    anyhow::anyhow!(
         "Some integration test resources were not cleaned up:\n{}",
         message_list
     )
 }
 
-fn smite_pods_failure_message(namespace: &str, errors: &[anyhow::Error]) -> String {
+fn smite_pods_failure_error(namespace: &str, errors: &[anyhow::Error]) -> anyhow::Error {
     let message_list = errors
         .iter()
         .map(|e| format!("  - {}", e))
         .collect::<Vec<_>>()
         .join("\n");
-    format!(
+    anyhow::anyhow!(
         "- Namespace {}: pod delete(s) failed:\n{}",
-        namespace, message_list
+        namespace,
+        message_list
     )
 }
 
