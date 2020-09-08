@@ -56,7 +56,7 @@ async fn smite_all_integration_test_pods() -> anyhow::Result<&'static str> {
     let (_, ns_smite_errors) = ns_smite_results.partition_success();
 
     if !ns_smite_errors.is_empty() {
-        return Err(smite_failure_error(&pod_smite_errors));
+        return Err(smite_failure_error(&ns_smite_errors));
     }
 
     Ok("All e2e pods force-deleted; namespace cleanup may take a couple of minutes")
