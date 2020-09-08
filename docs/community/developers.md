@@ -175,7 +175,7 @@ sometimes get pods stuck in `Terminating`, which prevents namespace cleanup and
 causes the next test run to break.
 
 You can forcibly clean up such debris by running `cargo run --bin podsmiter`.  You
-may need to way a couple of minutes after pod deletion for the namespaces to be
+may need to wait a couple of minutes after pod deletion for the namespaces to be
 collected.
 
 ## Creating your own Kubelets with Krustlet
