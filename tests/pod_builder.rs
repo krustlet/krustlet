@@ -8,9 +8,9 @@ pub struct PodLifetimeOwner {
 }
 
 pub struct WasmerciserContainerSpec {
-    pub name: &'static str,
-    pub args: &'static [&'static str],
-    pub use_private_registry: bool,
+    name: &'static str,
+    args: &'static [&'static str],
+    use_private_registry: bool,
 }
 
 impl WasmerciserContainerSpec {
@@ -212,5 +212,10 @@ fn option_values<T: Clone>(source: &Vec<Option<T>>) -> Vec<T> {
 }
 
 fn local_object_references(names: &[&str]) -> Vec<LocalObjectReference> {
-    names.iter().map(|n| LocalObjectReference { name: Some(n.to_string()) }).collect()
+    names
+        .iter()
+        .map(|n| LocalObjectReference {
+            name: Some(n.to_string()),
+        })
+        .collect()
 }
