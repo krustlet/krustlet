@@ -398,6 +398,11 @@ impl OwnedChildProcess {
             )),
         }
     }
+
+    fn exited(&mut self) -> anyhow::Result<bool> {
+        let exit_status = self.child.try_wait()?;
+        Ok(exit_status.is_some())
+    }
 }
 
 impl Drop for OwnedChildProcess {
@@ -441,6 +446,8 @@ fn run_tests(readiness: BootstrapReadiness) -> anyhow::Result<()> {
     let mut wascc_process = wascc_process_result.unwrap();
 
     if matches!(test_result, Err(_)) {
+        warn_if_premature_exit(&mut wasi_process, "krustlet-wasi");
+        warn_if_premature_exit(&mut wascc_process, "krustlet-wascc");
         // TODO: ideally we shouldn't have to wait for termination before getting logs
         let terminate_result = wasi_process
             .terminate()
@@ -468,6 +475,14 @@ fn run_tests(readiness: BootstrapReadiness) -> anyhow::Result<()> {
     }
 
     test_result
+}
+
+fn warn_if_premature_exit(process: &mut OwnedChildProcess, name: &str) {
+    match process.exited() {
+        Err(e) => eprintln!("FAILED checking kubelet process {} exit state ({})", name, e),
+        Ok(false) => eprintln!("WARNING: Kubelet process {} exited prematurely", name),
+        _ => ()
+    };
 }
 
 fn run_test_suite() -> anyhow::Result<()> {
