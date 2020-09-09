@@ -14,6 +14,10 @@ use pod_builder::{
 use pod_setup::{wait_for_pod_complete, wait_for_pod_ready, OnFailure};
 use test_resource_manager::{TestResource, TestResourceManager, TestResourceSpec};
 
+fn in_ci_environment() -> bool {
+    std::env::var("KRUSTLET_TEST_ENV") == Ok("ci".to_owned())
+}
+
 #[tokio::test]
 async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     let client = kube::Client::try_default().await?;
@@ -208,6 +212,7 @@ const MULTI_ITEMS_MOUNT_WASI_POD: &str = "multi-mount-items-pod";
 const LOGGY_POD: &str = "loggy-pod";
 const INITY_WASI_POD: &str = "hello-wasi-with-inits";
 const FAILY_INITS_POD: &str = "faily-inits-pod";
+const PRIVATE_REGISTRY_POD: &str = "private-registry-pod";
 
 async fn create_wasi_pod(
     client: kube::Client,
@@ -347,25 +352,22 @@ async fn create_multi_mount_pod(
 ) -> anyhow::Result<()> {
     let pod_name = MULTI_MOUNT_WASI_POD;
 
-    let containers = vec![WasmerciserContainerSpec {
-        name: "multimount",
-        args: &[
-            "assert_exists(file:/mcm/mcm1)",
-            "assert_exists(file:/mcm/mcm2)",
-            "assert_exists(file:/mcm/mcm5)",
-            "assert_exists(file:/ms/ms1)",
-            "assert_exists(file:/ms/ms2)",
-            "assert_exists(file:/ms/ms3)",
-            "read(file:/mcm/mcm1)to(var:mcm1)",
-            "read(file:/mcm/mcm5)to(var:mcm5)",
-            "read(file:/ms/ms1)to(var:ms1)",
-            "read(file:/ms/ms3)to(var:ms3)",
-            "write(var:mcm1)to(stm:stdout)",
-            "write(var:mcm5)to(stm:stdout)",
-            "write(var:ms1)to(stm:stdout)",
-            "write(var:ms3)to(stm:stdout)",
-        ],
-    }];
+    let containers = vec![WasmerciserContainerSpec::named("multimount").with_args(&[
+        "assert_exists(file:/mcm/mcm1)",
+        "assert_exists(file:/mcm/mcm2)",
+        "assert_exists(file:/mcm/mcm5)",
+        "assert_exists(file:/ms/ms1)",
+        "assert_exists(file:/ms/ms2)",
+        "assert_exists(file:/ms/ms3)",
+        "read(file:/mcm/mcm1)to(var:mcm1)",
+        "read(file:/mcm/mcm5)to(var:mcm5)",
+        "read(file:/ms/ms1)to(var:ms1)",
+        "read(file:/ms/ms3)to(var:ms3)",
+        "write(var:mcm1)to(stm:stdout)",
+        "write(var:mcm5)to(stm:stdout)",
+        "write(var:ms1)to(stm:stdout)",
+        "write(var:ms3)to(stm:stdout)",
+    ])];
 
     let volumes = vec![
         WasmerciserVolumeSpec {
@@ -400,25 +402,22 @@ async fn create_multi_items_mount_pod(
 ) -> anyhow::Result<()> {
     let pod_name = MULTI_ITEMS_MOUNT_WASI_POD;
 
-    let containers = vec![WasmerciserContainerSpec {
-        name: "multimount",
-        args: &[
-            "assert_exists(file:/mcm/mcm1)",
-            "assert_not_exists(file:/mcm/mcm2)",
-            "assert_exists(file:/mcm/mcm-five)",
-            "assert_exists(file:/ms/ms1)",
-            "assert_not_exists(file:/ms/ms2)",
-            "assert_exists(file:/ms/ms-three)",
-            "read(file:/mcm/mcm1)to(var:mcm1)",
-            "read(file:/mcm/mcm-five)to(var:mcm5)",
-            "read(file:/ms/ms1)to(var:ms1)",
-            "read(file:/ms/ms-three)to(var:ms3)",
-            "write(var:mcm1)to(stm:stdout)",
-            "write(var:mcm5)to(stm:stdout)",
-            "write(var:ms1)to(stm:stdout)",
-            "write(var:ms3)to(stm:stdout)",
-        ],
-    }];
+    let containers = vec![WasmerciserContainerSpec::named("multimount").with_args(&[
+        "assert_exists(file:/mcm/mcm1)",
+        "assert_not_exists(file:/mcm/mcm2)",
+        "assert_exists(file:/mcm/mcm-five)",
+        "assert_exists(file:/ms/ms1)",
+        "assert_not_exists(file:/ms/ms2)",
+        "assert_exists(file:/ms/ms-three)",
+        "read(file:/mcm/mcm1)to(var:mcm1)",
+        "read(file:/mcm/mcm-five)to(var:mcm5)",
+        "read(file:/ms/ms1)to(var:ms1)",
+        "read(file:/ms/ms-three)to(var:ms3)",
+        "write(var:mcm1)to(stm:stdout)",
+        "write(var:mcm5)to(stm:stdout)",
+        "write(var:ms1)to(stm:stdout)",
+        "write(var:ms3)to(stm:stdout)",
+    ])];
 
     let volumes = vec![
         WasmerciserVolumeSpec {
@@ -460,14 +459,8 @@ async fn create_loggy_pod(
     let pod_name = LOGGY_POD;
 
     let containers = vec![
-        WasmerciserContainerSpec {
-            name: "floofycat",
-            args: &["write(lit:slats)to(stm:stdout)"],
-        },
-        WasmerciserContainerSpec {
-            name: "neatcat",
-            args: &["write(lit:kiki)to(stm:stdout)"],
-        },
+        WasmerciserContainerSpec::named("floofycat").with_args(&["write(lit:slats)to(stm:stdout)"]),
+        WasmerciserContainerSpec::named("neatcat").with_args(&["write(lit:kiki)to(stm:stdout)"]),
     ];
 
     wasmercise_wasi(
@@ -490,10 +483,8 @@ async fn create_faily_pod(
 ) -> anyhow::Result<()> {
     let pod_name = FAILY_POD;
 
-    let containers = vec![WasmerciserContainerSpec {
-        name: pod_name,
-        args: &["assert_exists(file:/nope.nope.nope.txt)"],
-    }];
+    let containers = vec![WasmerciserContainerSpec::named(pod_name)
+        .with_args(&["assert_exists(file:/nope.nope.nope.txt)"])];
 
     wasmercise_wasi(
         pod_name,
@@ -536,26 +527,19 @@ async fn create_pod_with_init_containers(
     let pod_name = INITY_WASI_POD;
 
     let inits = vec![
-        WasmerciserContainerSpec {
-            name: "init-1",
-            args: &["write(lit:slats)to(file:/hp/floofycat.txt)"],
-        },
-        WasmerciserContainerSpec {
-            name: "init-2",
-            args: &["write(lit:kiki)to(file:/hp/neatcat.txt)"],
-        },
+        WasmerciserContainerSpec::named("init-1")
+            .with_args(&["write(lit:slats)to(file:/hp/floofycat.txt)"]),
+        WasmerciserContainerSpec::named("init-2")
+            .with_args(&["write(lit:kiki)to(file:/hp/neatcat.txt)"]),
     ];
 
-    let containers = vec![WasmerciserContainerSpec {
-        name: pod_name,
-        args: &[
-            "assert_exists(file:/hp/floofycat.txt)",
-            "assert_exists(file:/hp/neatcat.txt)",
-            "read(file:/hp/floofycat.txt)to(var:fcat)",
-            "assert_value(var:fcat)is(lit:slats)",
-            "write(var:fcat)to(stm:stdout)",
-        ],
-    }];
+    let containers = vec![WasmerciserContainerSpec::named(pod_name).with_args(&[
+        "assert_exists(file:/hp/floofycat.txt)",
+        "assert_exists(file:/hp/neatcat.txt)",
+        "read(file:/hp/floofycat.txt)to(var:fcat)",
+        "assert_value(var:fcat)is(lit:slats)",
+        "write(var:fcat)to(stm:stdout)",
+    ])];
 
     let volumes = vec![WasmerciserVolumeSpec {
         volume_name: "hostpath-test",
@@ -584,20 +568,14 @@ async fn create_pod_with_failing_init_container(
     let pod_name = FAILY_INITS_POD;
 
     let inits = vec![
-        WasmerciserContainerSpec {
-            name: "init-that-fails",
-            args: &["assert_exists(file:/nope.nope.nope.txt)"],
-        },
-        WasmerciserContainerSpec {
-            name: "init-that-would-succeed-if-it-ran",
-            args: &["write(lit:slats)to(stm:stdout)"],
-        },
+        WasmerciserContainerSpec::named("init-that-fails")
+            .with_args(&["assert_exists(file:/nope.nope.nope.txt)"]),
+        WasmerciserContainerSpec::named("init-that-would-succeed-if-it-ran")
+            .with_args(&["write(lit:slats)to(stm:stdout)"]),
     ];
 
-    let containers = vec![WasmerciserContainerSpec {
-        name: pod_name,
-        args: &["assert_exists(file:/also.nope.txt)"],
-    }];
+    let containers = vec![WasmerciserContainerSpec::named(pod_name)
+        .with_args(&["assert_exists(file:/also.nope.txt)"])];
 
     wasmercise_wasi(
         pod_name,
@@ -607,6 +585,35 @@ async fn create_pod_with_failing_init_container(
         containers,
         vec![],
         OnFailure::Accept,
+        resource_manager,
+    )
+    .await
+}
+
+async fn create_private_registry_pod(
+    client: kube::Client,
+    pods: &Api<Pod>,
+    resource_manager: &mut TestResourceManager,
+) -> anyhow::Result<()> {
+    let pod_name = PRIVATE_REGISTRY_POD;
+
+    let containers = vec![
+        WasmerciserContainerSpec::named("floofycat")
+            .with_args(&["write(lit:slats)to(stm:stdout)"])
+            .private(),
+        WasmerciserContainerSpec::named("neatcat")
+            .with_args(&["write(lit:kiki)to(stm:stdout)"])
+            .private(),
+    ];
+
+    wasmercise_wasi(
+        pod_name,
+        client,
+        pods,
+        vec![],
+        containers,
+        vec![],
+        OnFailure::Panic,
         resource_manager,
     )
     .await
@@ -839,6 +846,23 @@ async fn test_failing_init_containers() -> anyhow::Result<()> {
     // TODO: needs moar container?
     // assert_pod_log_does_not_contain(&pods, FAILY_INITS_POD, "slats").await?;
     // assert_pod_log_does_not_contain(&pods, FAILY_INITS_POD, "also.nope.txt").await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_pull_from_private_registry() -> anyhow::Result<()> {
+    if !in_ci_environment() {
+        return Ok(());
+    }
+
+    let test_ns = "wasi-e2e-private-registry";
+    let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
+
+    create_private_registry_pod(client.clone(), &pods, &mut resource_manager).await?;
+    assert::pod_container_log_contains(&pods, PRIVATE_REGISTRY_POD, "floofycat", r#"slats"#)
+        .await?;
+    assert::pod_container_log_contains(&pods, PRIVATE_REGISTRY_POD, "neatcat", r#"kiki"#).await?;
 
     Ok(())
 }

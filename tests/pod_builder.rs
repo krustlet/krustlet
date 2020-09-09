@@ -1,4 +1,4 @@
-use k8s_openapi::api::core::v1::{Container, Pod, Volume, VolumeMount};
+use k8s_openapi::api::core::v1::{Container, LocalObjectReference, Pod, Volume, VolumeMount};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -8,8 +8,29 @@ pub struct PodLifetimeOwner {
 }
 
 pub struct WasmerciserContainerSpec {
-    pub name: &'static str,
-    pub args: &'static [&'static str],
+    name: &'static str,
+    args: &'static [&'static str],
+    use_private_registry: bool,
+}
+
+impl WasmerciserContainerSpec {
+    pub fn named(name: &'static str) -> Self {
+        WasmerciserContainerSpec {
+            name,
+            args: &[],
+            use_private_registry: false,
+        }
+    }
+
+    pub fn with_args(mut self, args: &'static [&'static str]) -> Self {
+        self.args = args;
+        self
+    }
+
+    pub fn private(mut self) -> Self {
+        self.use_private_registry = true;
+        self
+    }
 }
 
 pub struct WasmerciserVolumeSpec {
@@ -26,6 +47,9 @@ pub enum WasmerciserVolumeSource {
     SecretItems(&'static str, Vec<(&'static str, &'static str)>),
 }
 
+const DEFAULT_TEST_REGISTRY: &str = "webassembly";
+const PRIVATE_TEST_REGISTRY: &str = "krustletintegrationtestprivate";
+
 fn wasmerciser_container(
     spec: &WasmerciserContainerSpec,
     volumes: &Vec<WasmerciserVolumeSpec>,
@@ -34,9 +58,14 @@ fn wasmerciser_container(
         .iter()
         .map(|v| wasmerciser_volume_mount(v).unwrap())
         .collect();
+    let registry = if spec.use_private_registry {
+        PRIVATE_TEST_REGISTRY
+    } else {
+        DEFAULT_TEST_REGISTRY
+    };
     let container: Container = serde_json::from_value(json!({
         "name": spec.name,
-        "image": "webassembly.azurecr.io/wasmerciser:v0.2.0",
+        "image": format!("{}.azurecr.io/wasmerciser:v0.2.0", registry),
         "args": spec.args,
         "volumeMounts": volume_mounts,
     }))?;
@@ -134,6 +163,13 @@ pub fn wasmerciser_pod(
         .collect();
     let (volumes, tempdirs) = unzip(&volume_maps);
 
+    let use_private_registry = containers.iter().any(|c| c.use_private_registry);
+    let image_pull_secrets = if use_private_registry {
+        Some(local_object_references(&["registry-creds"]))
+    } else {
+        None
+    };
+
     let pod = serde_json::from_value(json!({
         "apiVersion": "v1",
         "kind": "Pod",
@@ -155,6 +191,7 @@ pub fn wasmerciser_pod(
                 "kubernetes.io/arch": architecture
             },
             "volumes": volumes,
+            "imagePullSecrets": image_pull_secrets,
         }
     }))?;
 
@@ -172,4 +209,13 @@ fn unzip<T, U: Clone>(source: &Vec<(T, U)>) -> (Vec<&T>, Vec<U>) {
 
 fn option_values<T: Clone>(source: &Vec<Option<T>>) -> Vec<T> {
     source.iter().filter_map(|t| t.clone()).collect()
+}
+
+fn local_object_references(names: &[&str]) -> Vec<LocalObjectReference> {
+    names
+        .iter()
+        .map(|n| LocalObjectReference {
+            name: Some(n.to_string()),
+        })
+        .collect()
 }
