@@ -479,9 +479,12 @@ fn run_tests(readiness: BootstrapReadiness) -> anyhow::Result<()> {
 
 fn warn_if_premature_exit(process: &mut OwnedChildProcess, name: &str) {
     match process.exited() {
-        Err(e) => eprintln!("FAILED checking kubelet process {} exit state ({})", name, e),
+        Err(e) => eprintln!(
+            "FAILED checking kubelet process {} exit state ({})",
+            name, e
+        ),
         Ok(false) => eprintln!("WARNING: Kubelet process {} exited prematurely", name),
-        _ => ()
+        _ => (),
     };
 }
 
