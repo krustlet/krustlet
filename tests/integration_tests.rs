@@ -598,8 +598,12 @@ async fn create_private_registry_pod(
     let pod_name = PRIVATE_REGISTRY_POD;
 
     let containers = vec![
-        WasmerciserContainerSpec::named("floofycat").with_args(&["write(lit:slats)to(stm:stdout)"]).private(),
-        WasmerciserContainerSpec::named("neatcat").with_args(&["write(lit:kiki)to(stm:stdout)"]).private(),
+        WasmerciserContainerSpec::named("floofycat")
+            .with_args(&["write(lit:slats)to(stm:stdout)"])
+            .private(),
+        WasmerciserContainerSpec::named("neatcat")
+            .with_args(&["write(lit:kiki)to(stm:stdout)"])
+            .private(),
     ];
 
     wasmercise_wasi(
@@ -856,7 +860,8 @@ async fn test_pull_from_private_registry() -> anyhow::Result<()> {
     let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
 
     create_private_registry_pod(client.clone(), &pods, &mut resource_manager).await?;
-    assert::pod_container_log_contains(&pods, PRIVATE_REGISTRY_POD, "floofycat", r#"slats"#).await?;
+    assert::pod_container_log_contains(&pods, PRIVATE_REGISTRY_POD, "floofycat", r#"slats"#)
+        .await?;
     assert::pod_container_log_contains(&pods, PRIVATE_REGISTRY_POD, "neatcat", r#"kiki"#).await?;
 
     Ok(())
