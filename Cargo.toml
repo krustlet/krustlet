@@ -35,8 +35,18 @@ maintenance = { status = "actively-developed" }
 
 [features]
 default = ["native-tls"]
-native-tls = ["kube/native-tls", "kubelet/kube-native-tls", "wascc-provider/native-tls", "oci-distribution/native-tls"]
-rustls-tls = ["kube/rustls-tls", "kubelet/rustls-tls", "wascc-provider/rustls-tls", "oci-distribution/rustls-tls"]
+native-tls = [
+    "kube/native-tls",
+    "kubelet/kube-native-tls",
+    "wascc-provider/native-tls",
+    "oci-distribution/native-tls"
+]
+rustls-tls = [
+    "kube/rustls-tls",
+    "kubelet/rustls-tls",
+    "wascc-provider/rustls-tls",
+    "oci-distribution/rustls-tls"
+]
 
 [dependencies]
 anyhow = "1.0"
@@ -65,7 +75,8 @@ members = [
     "crates/kubelet",
     "crates/oci-distribution",
     "crates/wascc-logging",
-    "crates/wascc-provider"
+    "crates/wascc-provider",
+    "crates/wasi-provider"
 ]
 
 

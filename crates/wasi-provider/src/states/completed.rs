@@ -1,16 +1,29 @@
 use crate::PodState;
 use kubelet::state::prelude::*;
 
-state!(
-    /// Pod was deleted.
-    Completed,
-    PodState,
-    {
+/// Pod was deleted.
+#[derive(Default, Debug)]
+pub struct Completed;
+
+#[async_trait::async_trait]
+impl State<PodState> for Completed {
+    async fn next(
+        &self,
+        pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> anyhow::Result<Transition<PodState>> {
         let mut lock = pod_state.shared.handles.write().await;
         if let Some(handle) = lock.get_mut(&pod_state.key) {
             handle.stop().await.unwrap()
         }
         Ok(Transition::Complete(Ok(())))
-    },
-    { make_status(Phase::Succeeded, "Completed") }
-);
+    }
+
+    async fn json_status(
+        &self,
+        _pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> anyhow::Result<serde_json::Value> {
+        make_status(Phase::Succeeded, "Terminated")
+    }
+}

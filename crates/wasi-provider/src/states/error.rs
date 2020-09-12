@@ -17,14 +17,14 @@ impl State<PodState> for Error {
         &self,
         pod_state: &mut PodState,
         _pod: &Pod,
-    ) -> anyhow::Result<Transition<Box<dyn State<PodState>>, Box<dyn State<PodState>>>> {
+    ) -> anyhow::Result<Transition<PodState>> {
         pod_state.errors += 1;
         if pod_state.errors > 3 {
             pod_state.errors = 0;
-            Ok(Transition::Error(Box::new(CrashLoopBackoff)))
+            Ok(Transition::next(self, CrashLoopBackoff))
         } else {
             tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
-            Ok(Transition::Advance(Box::new(Registered)))
+            Ok(Transition::next(self, Registered))
         }
     }
 
@@ -36,3 +36,6 @@ impl State<PodState> for Error {
         make_status(Phase::Pending, &self.message)
     }
 }
+
+impl EdgeTo<Registered> for Error {}
+impl EdgeTo<CrashLoopBackoff> for Error {}

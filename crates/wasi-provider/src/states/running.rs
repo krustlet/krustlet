@@ -56,11 +56,17 @@ async fn patch_container_status(
     Ok(())
 }
 
-state!(
-    /// The Kubelet is running the Pod.
-    Running,
-    PodState,
-    {
+/// The Kubelet is running the Pod.
+#[derive(Default, Debug)]
+pub struct Running;
+
+#[async_trait::async_trait]
+impl State<PodState> for Running {
+    async fn next(
+        &self,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> anyhow::Result<Transition<PodState>> {
         let client: Api<KubePod> = Api::namespaced(
             kube::Client::new(pod_state.shared.kubeconfig.clone()),
             pod.namespace(),
@@ -80,16 +86,26 @@ state!(
             } = status
             {
                 if failed {
-                    return Ok(Transition::Error(Box::new(Error { message })));
+                    return Ok(Transition::next(self, Error { message }));
                 } else {
                     completed += 1;
                     if completed == total_containers {
-                        return Ok(Transition::Advance(Box::new(Completed)));
+                        return Ok(Transition::next(self, Completed));
                     }
                 }
             }
         }
-        Ok(Transition::Advance(Box::new(Completed)))
-    },
-    { make_status(Phase::Running, "Running") }
-);
+        Ok(Transition::next(self, Completed))
+    }
+
+    async fn json_status(
+        &self,
+        _pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> anyhow::Result<serde_json::Value> {
+        make_status(Phase::Running, "Running")
+    }
+}
+
+impl EdgeTo<Completed> for Running {}
+impl EdgeTo<Error> for Running {}
