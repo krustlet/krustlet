@@ -205,17 +205,6 @@ impl<PodState> Transition<PodState> {
     }
 }
 
-impl<PodState> std::fmt::Display for Transition<PodState> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-        match self {
-            Transition::Next(StateHolder { state: ref b }) => {
-                f.write_str(&format!("Next({:?})", *b))
-            }
-            Transition::Complete(r) => f.write_str(&format!("Complete({:?})", r)),
-        }
-    }
-}
-
 #[async_trait::async_trait]
 /// Allow for asynchronous cleanup up of PodState.
 pub trait AsyncDrop: Sized {
@@ -264,11 +253,24 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
 
         let transition = { state.next(pod_state, &pod).await? };
 
-        debug!("Pod {} state execution result: {}", pod.name(), transition);
-
         state = match transition {
-            Transition::Next(s) => s.state,
-            Transition::Complete(result) => break result,
+            Transition::Next(s) => {
+                debug!(
+                    "Pod {} transitioning from {:?} to {:?}.",
+                    pod.name(),
+                    state,
+                    s.state
+                );
+                s.state
+            }
+            Transition::Complete(result) => {
+                debug!(
+                    "Pod {} execution complete with result {:?}.",
+                    pod.name(),
+                    result
+                );
+                break result;
+            }
         };
     }
 }
