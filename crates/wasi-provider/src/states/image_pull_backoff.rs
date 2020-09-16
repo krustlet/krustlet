@@ -1,6 +1,7 @@
 use super::image_pull::ImagePull;
 use crate::PodState;
 use kubelet::state::prelude::*;
+
 state!(
     /// Kubelet encountered an error when pulling container image.
     ImagePullBackoff,

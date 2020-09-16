@@ -1,10 +1,5 @@
-use kubelet::state::{State, Transition};
-use kubelet::{
-    pod::{Phase, Pod},
-    state,
-};
-
-use crate::{make_status, PodState};
+use crate::PodState;
+use kubelet::state::prelude::*;
 
 state!(
     /// The Kubelet is running the Pod.

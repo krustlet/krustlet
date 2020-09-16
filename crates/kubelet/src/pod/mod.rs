@@ -4,7 +4,7 @@ mod queue;
 mod status;
 pub use handle::{key_from_pod, pod_key, Handle};
 pub(crate) use queue::Queue;
-pub use status::{update_status, Phase, Status, StatusMessage};
+pub use status::{make_status, update_status, Phase, Status, StatusMessage};
 
 use crate::container::{Container, ContainerKey};
 use chrono::{DateTime, Utc};
@@ -158,7 +158,7 @@ impl Pod {
         let app_container_keys = app_containers
             .iter()
             .map(|c| ContainerKey::App(c.name().to_owned()));
-        let init_containers = self.containers();
+        let init_containers = self.init_containers();
         let init_container_keys = init_containers
             .iter()
             .map(|c| ContainerKey::Init(c.name().to_owned()));

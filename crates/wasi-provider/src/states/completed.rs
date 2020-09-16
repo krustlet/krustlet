@@ -3,8 +3,8 @@ use kubelet::state::prelude::*;
 
 state!(
     /// Pod execution completed with no errors.
-    Finished,
+    Completed,
     PodState,
     { Ok(Transition::Complete(Ok(()))) },
-    { make_status(Phase::Succeeded, "Finished") }
+    { make_status(Phase::Succeeded, "Completed") }
 );

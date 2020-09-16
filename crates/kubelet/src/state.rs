@@ -4,6 +4,7 @@ use log::debug;
 // pub mod default;
 #[macro_use]
 pub mod macros;
+pub mod prelude;
 
 use crate::pod::Pod;
 use k8s_openapi::api::core::v1::Pod as KubePod;

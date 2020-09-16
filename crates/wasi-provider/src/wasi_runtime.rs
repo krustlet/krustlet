@@ -1,15 +1,15 @@
 use anyhow::bail;
-use log::{debug, error, info};
+use futures::task;
+use log::{debug, error, info, trace};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use tempfile::NamedTempFile;
-use tokio::sync::{
-    oneshot,
-    watch::{self, Sender},
-};
+use tokio::sync::mpsc::Sender;
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use wasi_common::preopen_dir;
 use wasmtime::InterruptHandle;
@@ -41,10 +41,14 @@ impl StopHandler for Runtime {
 /// WasiRuntime provides a WASI compatible runtime. A runtime should be used for
 /// each "instance" of a process and can be passed to a thread pool for running
 pub struct WasiRuntime {
+    // name of the process
+    name: String,
     /// Data needed for the runtime
     data: Arc<Data>,
     /// The tempfile that output from the wasmtime process writes to
     output: Arc<NamedTempFile>,
+    /// A channel to send status updates on the runtime
+    status_sender: Sender<(String, Status)>,
 }
 
 struct Data {
@@ -85,11 +89,13 @@ impl WasiRuntime {
     ///     the same path will be allowed in the runtime
     /// * `log_dir` - location for storing logs
     pub async fn new<L: AsRef<Path> + Send + Sync + 'static>(
+        name: String,
         module_data: Vec<u8>,
         env: HashMap<String, String>,
         args: Vec<String>,
         dirs: HashMap<PathBuf, Option<PathBuf>>,
         log_dir: L,
+        status_sender: Sender<(String, Status)>,
     ) -> anyhow::Result<Self> {
         let temp = tokio::task::spawn_blocking(move || -> anyhow::Result<NamedTempFile> {
             Ok(NamedTempFile::new_in(log_dir)?)
@@ -103,6 +109,7 @@ impl WasiRuntime {
         // loop that runs elsewhere. These will get deleted when the reference
         // is dropped
         Ok(WasiRuntime {
+            name,
             data: Arc::new(Data {
                 module_data,
                 env,
@@ -110,6 +117,7 @@ impl WasiRuntime {
                 dirs,
             }),
             output: Arc::new(temp),
+            status_sender,
         })
     }
 
@@ -122,11 +130,7 @@ impl WasiRuntime {
         })
         .await??;
 
-        let (status_sender, status_recv) = watch::channel(Status::Waiting {
-            timestamp: chrono::Utc::now(),
-            message: "No status has been received from the process".into(),
-        });
-        let (interrupt_handle, handle) = self.spawn_wasmtime(status_sender, output_write).await?;
+        let (interrupt_handle, handle) = self.spawn_wasmtime(output_write).await?;
 
         let log_handle_factory = HandleFactory {
             temp: self.output.clone(),
@@ -138,7 +142,6 @@ impl WasiRuntime {
                 interrupt_handle,
             },
             log_handle_factory,
-            status_recv,
         ))
     }
 
@@ -147,15 +150,17 @@ impl WasiRuntime {
     // needs to be done within the spawned task
     async fn spawn_wasmtime(
         &self,
-        status_sender: Sender<Status>,
         output_write: std::fs::File,
     ) -> anyhow::Result<(InterruptHandle, JoinHandle<anyhow::Result<()>>)> {
         // Clone the module data Arc so it can be moved
         let data = self.data.clone();
-
+        let name = self.name.clone();
+        let status_sender = self.status_sender.clone();
         let (tx, rx) = oneshot::channel();
 
         let handle = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+            let waker = task::noop_waker();
+            let mut cx = Context::from_waker(&waker);
             // Build the WASI instance and then generate a list of WASI modules
             let mut ctx_builder_snapshot = WasiCtxBuilder::new();
             let mut ctx_builder_snapshot = ctx_builder_snapshot
@@ -201,13 +206,16 @@ impl WasiRuntime {
                 Err(e) => {
                     let message = "unable to create module";
                     error!("{}: {:?}", message, e);
-                    status_sender
-                        .broadcast(Status::Terminated {
+                    send(
+                        status_sender.clone(),
+                        name.clone(),
+                        Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
-                        })
-                        .expect("status should be able to send");
+                        },
+                        &mut cx,
+                    );
                     return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
             };
@@ -238,13 +246,16 @@ impl WasiRuntime {
                 Err(e) => {
                     let message = "unable to load module";
                     error!("{}: {:?}", message, e);
-                    status_sender
-                        .broadcast(Status::Terminated {
+                    send(
+                        status_sender.clone(),
+                        name,
+                        Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
-                        })
-                        .expect("status should be able to send");
+                        },
+                        &mut cx,
+                    );
                     return Err(e);
                 }
             };
@@ -256,13 +267,16 @@ impl WasiRuntime {
                 Err(e) => {
                     let message = "unable to instantiate module";
                     error!("{}: {:?}", message, e);
-                    status_sender
-                        .broadcast(Status::Terminated {
+                    send(
+                        status_sender.clone(),
+                        name,
+                        Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
-                        })
-                        .expect("status should be able to send");
+                        },
+                        &mut cx,
+                    );
                     // Converting from anyhow
                     return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
@@ -271,11 +285,14 @@ impl WasiRuntime {
             // NOTE(taylor): In the future, if we want to pass args directly, we'll
             // need to do a bit more to pass them in here.
             info!("starting run of module");
-            status_sender
-                .broadcast(Status::Running {
+            send(
+                status_sender.clone(),
+                name.clone(),
+                Status::Running {
                     timestamp: chrono::Utc::now(),
-                })
-                .expect("status should be able to send");
+                },
+                &mut cx,
+            );
             let export = instance
                 .get_export("_start")
                 .ok_or_else(|| anyhow::anyhow!("_start import doesn't exist in wasm module"))?;
@@ -294,29 +311,53 @@ impl WasiRuntime {
                 Err(e) => {
                     let message = "unable to run module";
                     error!("{}: {:?}", message, e);
-                    status_sender
-                        .broadcast(Status::Terminated {
+                    send(
+                        status_sender.clone(),
+                        name.clone(),
+                        Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
-                        })
-                        .expect("status should be able to send");
+                        },
+                        &mut cx,
+                    );
                     return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
             };
 
             info!("module run complete");
-            status_sender
-                .broadcast(Status::Terminated {
+            send(
+                status_sender.clone(),
+                name,
+                Status::Terminated {
                     failed: false,
                     message: "Module run completed".into(),
                     timestamp: chrono::Utc::now(),
-                })
-                .expect("status should be able to send");
+                },
+                &mut cx,
+            );
             Ok(())
         });
         // Wait for the interrupt to be sent back to us
         let interrupt = rx.await?;
         Ok((interrupt, handle))
+    }
+}
+
+fn send(mut sender: Sender<(String, Status)>, name: String, status: Status, cx: &mut Context<'_>) {
+    loop {
+        if let Poll::Ready(r) = sender.poll_ready(cx) {
+            if r.is_ok() {
+                sender
+                    .try_send((name, status))
+                    .expect("Possible deadlock, exiting");
+                return;
+            }
+            trace!("Receiver for status showing as closed: {:?}", r);
+        }
+        trace!(
+            "Channel for container {} not ready for send. Attempting again",
+            name
+        );
     }
 }
