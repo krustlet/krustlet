@@ -33,7 +33,7 @@ pub trait AsyncDrop: Sized {
 pub trait State<PodState>: Sync + Send + 'static + std::fmt::Debug {
     /// Provider supplies method to be executed when in this state.
     async fn next(
-        &self,
+        &mut self,
         pod_state: &mut PodState,
         pod: &Pod,
     ) -> anyhow::Result<Transition<Box<dyn State<PodState>>, Box<dyn State<PodState>>>>;
@@ -90,7 +90,7 @@ pub struct Stub;
 #[async_trait::async_trait]
 impl<P: 'static + Sync + Send> State<P> for Stub {
     async fn next(
-        &self,
+        &mut self,
         _pod_state: &mut P,
         _pod: &Pod,
     ) -> anyhow::Result<Transition<Box<dyn State<P>>, Box<dyn State<P>>>> {

@@ -90,6 +90,7 @@ state!(
                 {
                     error!("Unable to patch status, will retry on next update: {:?}", e);
                 }
+
                 if let ContainerStatus::Terminated {
                     timestamp: _,
                     message,

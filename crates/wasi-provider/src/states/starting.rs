@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use log::{debug, info};
-use tokio::sync::Mutex;
 
 use kubelet::container::{Container, ContainerKey};
 use kubelet::pod::{key_from_pod, Handle};
@@ -84,30 +82,24 @@ pub(crate) type ContainerHandleMap =
 #[derive(Default, Debug)]
 /// The Kubelet is starting the Pod containers
 pub(crate) struct Starting {
-    init_handles: Arc<Mutex<ContainerHandleMap>>,
+    init_handles: ContainerHandleMap,
 }
 
 impl Starting {
     pub(crate) fn new(init_handles: ContainerHandleMap) -> Self {
-        Starting {
-            init_handles: Arc::new(Mutex::new(init_handles)),
-        }
+        Starting { init_handles }
     }
 }
 
 #[async_trait::async_trait]
 impl State<PodState> for Starting {
     async fn next(
-        &self,
+        &mut self,
         pod_state: &mut PodState,
         pod: &Pod,
     ) -> anyhow::Result<Transition<Box<dyn State<PodState>>, Box<dyn State<PodState>>>> {
         let mut container_handles: ContainerHandleMap = HashMap::new();
-
-        {
-            let mut lock = self.init_handles.lock().await;
-            container_handles.extend((*lock).drain())
-        }
+        container_handles.extend(self.init_handles.drain());
 
         info!("Starting containers for pod {:?}", pod.name());
         for container in pod.containers() {

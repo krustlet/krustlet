@@ -73,6 +73,7 @@ state!(
             if let Err(e) = patch_container_status(&client, &pod.name(), name, &status).await {
                 error!("Unable to patch status, will retry on next update: {:?}", e);
             }
+
             if let Status::Terminated {
                 timestamp: _,
                 message,

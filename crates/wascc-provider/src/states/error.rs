@@ -14,7 +14,7 @@ pub struct Error {
 #[async_trait::async_trait]
 impl State<PodState> for Error {
     async fn next(
-        &self,
+        &mut self,
         pod_state: &mut PodState,
         _pod: &Pod,
     ) -> anyhow::Result<Transition<Box<dyn State<PodState>>, Box<dyn State<PodState>>>> {

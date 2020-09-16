@@ -29,6 +29,5 @@ containers (they definitely are not if you are using one of the providers implem
 repository), but Kubernetes still thinks of them as a "container." The basic workflow is like this:
 
 1. `kubelet` receives a pod event from the stream
-1. Depending on the event type (added, modified, deleted), it calls the corresponding `Provider`
-   method and creates, updates, or stops/deletes the "container"
-1. The `Provider` does work and returns an error if there is a problem
+1. Each event either a) spawns a new pod (implemented as a state machine) or b) triggers cleanup
+1. The `Provider` does its work and returns an error if there is a problem

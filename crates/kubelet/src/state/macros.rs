@@ -18,7 +18,7 @@ macro_rules! state {
         #[async_trait::async_trait]
         impl State<$state> for $name {
             async fn next(
-                &self,
+                &mut self,
                 #[allow(unused_variables)] pod_state: &mut $state,
                 #[allow(unused_variables)] pod: &Pod,
             ) -> anyhow::Result<Transition<Box<dyn State<$state>>,Box<dyn State<$state>>>> {
@@ -51,7 +51,7 @@ macro_rules! state {
         #[async_trait::async_trait]
         impl State<$state> for $name {
             async fn next(
-                &self,
+                &mut self,
                 #[allow(unused_variables)] pod_state: &mut $state,
                 #[allow(unused_variables)] pod: &Pod,
             ) -> anyhow::Result<Transition<Box<dyn State<$state>>,Box<dyn State<$state>>>> {
