@@ -16,6 +16,7 @@ use crate::PodState;
 use crate::VolumeBinding;
 use crate::{wascc_run, ActorHandle, LogHandleFactory, WasccProvider};
 
+use super::error::Error;
 use super::running::Running;
 
 #[derive(Debug)]
@@ -120,7 +121,13 @@ async fn start_container(
         .run_context
         .modules
         .remove(container.name())
-        .expect("FATAL ERROR: module map not properly populated");
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "FATAL ERROR: module map not properly populated ({}/{})",
+                pod.name(),
+                container.name()
+            )
+        })?;
     let lp = pod_state.shared.log_path.clone();
     let host = pod_state.shared.host.clone();
     tokio::task::spawn_blocking(move || {
@@ -144,25 +151,62 @@ impl State<PodState> for Starting {
 
         let mut container_handles = HashMap::new();
         for container in pod.containers() {
-            let port_assigned =
-                assign_container_port(Arc::clone(&pod_state.shared.port_map), &pod, &container)
-                    .await?;
+            let port_assigned = match assign_container_port(
+                Arc::clone(&pod_state.shared.port_map),
+                &pod,
+                &container,
+            )
+            .await
+            {
+                Ok(port) => port,
+                Err(e) => {
+                    error!("{:?}", e);
+                    let error_state = Error {
+                        message: e.to_string(),
+                    };
+                    return Ok(Transition::next(self, error_state));
+                }
+            };
             debug!(
                 "New port assigned to {} is: {}",
                 container.name(),
                 port_assigned
             );
 
-            let container_handle = start_container(pod_state, &container, &pod, port_assigned)
-                .await
-                .unwrap();
+            let container_handle =
+                match start_container(pod_state, &container, &pod, port_assigned).await {
+                    Ok(handle) => handle,
+                    Err(e) => {
+                        // TODO: identify if any of the start_container errors are fatal
+                        // enough that we should return an Err and exit the run loop
+                        error!("{:?}", e);
+                        let error_state = Error {
+                            message: e.to_string(),
+                        };
+                        return Ok(Transition::next(self, error_state));
+                    }
+                };
             container_handles.insert(
                 ContainerKey::App(container.name().to_string()),
                 container_handle,
             );
         }
 
-        let pod_handle = Handle::new(container_handles, pod.clone(), None).await?;
+        // TODO: I don't think Handle::new can ever return an Error.
+        // Can we safely change it to return a Self instead of a Result<Self>?
+        // Then we could get rid of all this.
+        // TODO: Does Handle::new still need to be async?  It doesn't seem to
+        // await anything.
+        let pod_handle = match Handle::new(container_handles, pod.clone(), None).await {
+            Ok(handle) => handle,
+            Err(e) => {
+                error!("{:?}", e);
+                let error_state = Error {
+                    message: e.to_string(),
+                };
+                return Ok(Transition::next(self, error_state));
+            }
+        };
         let pod_key = key_from_pod(&pod);
         {
             let mut handles = pod_state.shared.handles.write().await;
@@ -184,3 +228,4 @@ impl State<PodState> for Starting {
 }
 
 impl TransitionTo<Running> for Starting {}
+impl TransitionTo<Error> for Starting {}
