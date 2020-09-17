@@ -14,7 +14,7 @@ impl State<PodState> for Terminated {
     ) -> anyhow::Result<Transition<PodState>> {
         let mut lock = pod_state.shared.handles.write().await;
         if let Some(handle) = lock.get_mut(&pod_state.key) {
-            handle.stop().await.unwrap()
+            handle.stop().await?;
         }
         Ok(Transition::Complete(Ok(())))
     }
