@@ -12,10 +12,6 @@ impl State<PodState> for Completed {
         pod_state: &mut PodState,
         _pod: &Pod,
     ) -> anyhow::Result<Transition<PodState>> {
-        let mut lock = pod_state.shared.handles.write().await;
-        if let Some(handle) = lock.get_mut(&pod_state.key) {
-            handle.stop().await.unwrap()
-        }
         Ok(Transition::Complete(Ok(())))
     }
 
@@ -24,6 +20,6 @@ impl State<PodState> for Completed {
         _pod_state: &mut PodState,
         _pod: &Pod,
     ) -> anyhow::Result<serde_json::Value> {
-        make_status(Phase::Succeeded, "Terminated")
+        make_status(Phase::Succeeded, "Completed")
     }
 }

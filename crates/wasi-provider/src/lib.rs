@@ -48,8 +48,9 @@ use tokio::sync::RwLock;
 use wasi_runtime::Runtime;
 
 mod states;
-use states::completed::Completed;
+
 use states::registered::Registered;
+use states::terminated::Terminated;
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 const LOG_DIR_NAME: &str = "wasi-logs";
@@ -123,7 +124,7 @@ impl kubelet::state::AsyncDrop for PodState {
 #[async_trait::async_trait]
 impl Provider for WasiProvider {
     type InitialState = Registered;
-    type TerminatedState = Completed;
+    type TerminatedState = Terminated;
     type PodState = PodState;
 
     const ARCH: &'static str = TARGET_WASM32_WASI;

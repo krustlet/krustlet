@@ -18,7 +18,7 @@ async fn patch_init_status(
     name: String,
     status: &ContainerStatus,
 ) -> anyhow::Result<()> {
-    // We need to fetch the current status because there is no way to merge with a strategic merge patch ere
+    // We need to fetch the current status because there is no way to merge with a strategic merge patch here
     let mut init_container_statuses = match client.get(pod_name).await {
         Ok(p) => match p.status {
             Some(s) => s.init_container_statuses.unwrap_or_default(),
