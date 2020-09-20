@@ -33,22 +33,22 @@ pub enum Transition<PodState> {
 }
 
 /// Mark an edge exists between two states.
-pub trait EdgeTo<S> {}
+pub trait TransitionTo<S> {}
 
 impl<PodState> Transition<PodState> {
     // This prevents user from having to box everything AND allows us to enforce edge constraint.
     /// Construct Transition::Next from old state and new state.
     /// Both states must be State<PodState> with matching PodState.
-    /// Input state must implement EdgeTo<OutputState>.
+    /// Input state must implement TransitionTo<OutputState>.
     ///
     /// ```
-    /// use kubelet::state::{Transition, State, EdgeTo};
+    /// use kubelet::state::{Transition, State, TransitionTo};
     /// use kubelet::pod::Pod;
     ///
     /// #[derive(Debug)]
     /// struct TestState;
     ///
-    /// impl EdgeTo<TestState> for TestState {}
+    /// impl TransitionTo<TestState> for TestState {}
     ///
     /// struct PodState;
     ///
@@ -74,7 +74,7 @@ impl<PodState> Transition<PodState> {
     ///
     /// The next state must also be State<PodState>, if it is not State, if fails to compile::
     /// ```compile_fail
-    /// use kubelet::state::{Transition, State, EdgeTo};
+    /// use kubelet::state::{Transition, State, TransitionTo};
     /// use kubelet::pod::Pod;
     ///
     /// #[derive(Debug)]
@@ -85,7 +85,7 @@ impl<PodState> Transition<PodState> {
     /// #[derive(Debug)]
     /// struct NotState;
     ///
-    /// impl EdgeTo<NotState> for TestState {}
+    /// impl TransitionTo<NotState> for TestState {}
     ///
     /// #[async_trait::async_trait]
     /// impl State<PodState> for TestState {
@@ -116,7 +116,7 @@ impl<PodState> Transition<PodState> {
     /// #[derive(Debug)]
     /// struct TestState;
     ///
-    /// // impl EdgeTo<TestState> for TestState {}
+    /// // impl TransitionTo<TestState> for TestState {}
     ///
     /// struct PodState;
     ///
@@ -127,7 +127,7 @@ impl<PodState> Transition<PodState> {
     ///         _pod_state: &mut PodState,
     ///         _pod: &Pod,
     ///     ) -> anyhow::Result<Transition<PodState>> {
-    ///         // This fails because TestState is not EdgeTo<TestState>
+    ///         // This fails because TestState is not TransitionTo<TestState>
     ///         Ok(Transition::next(self, TestState))
     ///     }
     ///
@@ -143,7 +143,7 @@ impl<PodState> Transition<PodState> {
     ///
     /// The next state must have the same PodState type, otherwise compilation will fail:
     /// ```compile_fail
-    /// use kubelet::state::{Transition, State, EdgeTo};
+    /// use kubelet::state::{Transition, State, TransitionTo};
     /// use kubelet::pod::Pod;
     ///
     /// #[derive(Debug)]
@@ -156,7 +156,7 @@ impl<PodState> Transition<PodState> {
     ///
     /// struct OtherPodState;
     ///
-    /// impl EdgeTo<OtherState> for TestState {}
+    /// impl TransitionTo<OtherState> for TestState {}
     ///
     /// #[async_trait::async_trait]
     /// impl State<PodState> for TestState {
@@ -200,7 +200,7 @@ impl<PodState> Transition<PodState> {
     #[allow(clippy::boxed_local)]
     pub fn next<I: State<PodState>, S: State<PodState>>(_i: Box<I>, s: S) -> Transition<PodState>
     where
-        I: EdgeTo<S>,
+        I: TransitionTo<S>,
     {
         Transition::Next(StateHolder { state: Box::new(s) })
     }
@@ -297,7 +297,7 @@ impl<P: 'static + Sync + Send> State<P> for Stub {
 #[cfg(test)]
 mod test {
     use crate::pod::Pod;
-    use crate::state::{EdgeTo, State, Transition};
+    use crate::state::{State, Transition, TransitionTo};
 
     #[derive(Debug)]
     struct PodState;
@@ -329,7 +329,7 @@ mod test {
         #[derive(Debug)]
         struct TestState;
 
-        impl EdgeTo<ValidState> for TestState {}
+        impl TransitionTo<ValidState> for TestState {}
 
         #[async_trait::async_trait]
         impl State<PodState> for TestState {

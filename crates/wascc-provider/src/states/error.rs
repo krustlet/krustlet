@@ -37,5 +37,5 @@ impl State<PodState> for Error {
     }
 }
 
-impl EdgeTo<CrashLoopBackoff> for Error {}
-impl EdgeTo<Registered> for Error {}
+impl TransitionTo<CrashLoopBackoff> for Error {}
+impl TransitionTo<Registered> for Error {}

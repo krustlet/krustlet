@@ -54,5 +54,5 @@ impl State<PodState> for Registered {
     }
 }
 
-impl EdgeTo<ImagePull> for Registered {}
-impl EdgeTo<Error> for Registered {}
+impl TransitionTo<ImagePull> for Registered {}
+impl TransitionTo<Error> for Registered {}

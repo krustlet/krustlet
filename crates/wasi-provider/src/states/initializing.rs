@@ -147,5 +147,5 @@ impl State<PodState> for Initializing {
     }
 }
 
-impl EdgeTo<Error> for Initializing {}
-impl EdgeTo<Starting> for Initializing {}
+impl TransitionTo<Error> for Initializing {}
+impl TransitionTo<Starting> for Initializing {}

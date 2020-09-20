@@ -43,5 +43,5 @@ impl State<PodState> for ImagePull {
     }
 }
 
-impl EdgeTo<VolumeMount> for ImagePull {}
-impl EdgeTo<ImagePullBackoff> for ImagePull {}
+impl TransitionTo<VolumeMount> for ImagePull {}
+impl TransitionTo<ImagePullBackoff> for ImagePull {}

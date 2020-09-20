@@ -26,4 +26,4 @@ impl State<PodState> for CrashLoopBackoff {
     }
 }
 
-impl EdgeTo<Registered> for CrashLoopBackoff {}
+impl TransitionTo<Registered> for CrashLoopBackoff {}

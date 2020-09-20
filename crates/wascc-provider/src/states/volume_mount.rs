@@ -34,4 +34,4 @@ impl State<PodState> for VolumeMount {
     }
 }
 
-impl EdgeTo<Starting> for VolumeMount {}
+impl TransitionTo<Starting> for VolumeMount {}

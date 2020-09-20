@@ -107,5 +107,5 @@ impl State<PodState> for Running {
     }
 }
 
-impl EdgeTo<Completed> for Running {}
-impl EdgeTo<Error> for Running {}
+impl TransitionTo<Completed> for Running {}
+impl TransitionTo<Error> for Running {}

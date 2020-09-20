@@ -138,4 +138,4 @@ impl State<PodState> for Starting {
     }
 }
 
-impl EdgeTo<Running> for Starting {}
+impl TransitionTo<Running> for Starting {}
