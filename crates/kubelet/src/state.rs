@@ -197,6 +197,7 @@ impl<PodState> Transition<PodState> {
     ///     }
     /// }
     /// ```
+    #[allow(clippy::boxed_local)]
     pub fn next<I: State<PodState>, S: State<PodState>>(_i: Box<I>, s: S) -> Transition<PodState>
     where
         I: EdgeTo<S>,
@@ -255,11 +256,7 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
 
         state = match transition {
             Transition::Next(s) => {
-                debug!(
-                    "Pod {} transitioning to {:?}.",
-                    pod.name(),
-                    s.state
-                );
+                debug!("Pod {} transitioning to {:?}.", pod.name(), s.state);
                 s.state
             }
             Transition::Complete(result) => {
@@ -280,7 +277,11 @@ pub struct Stub;
 
 #[async_trait::async_trait]
 impl<P: 'static + Sync + Send> State<P> for Stub {
-    async fn next(self: Box<Self>, _pod_state: &mut P, _pod: &Pod) -> anyhow::Result<Transition<P>> {
+    async fn next(
+        self: Box<Self>,
+        _pod_state: &mut P,
+        _pod: &Pod,
+    ) -> anyhow::Result<Transition<P>> {
         Ok(Transition::Complete(Ok(())))
     }
 
