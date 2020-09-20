@@ -13,7 +13,7 @@ pub struct ImagePull;
 #[async_trait::async_trait]
 impl State<PodState> for ImagePull {
     async fn next(
-        &self,
+        self: Box<Self>,
         pod_state: &mut PodState,
         pod: &Pod,
     ) -> anyhow::Result<Transition<PodState>> {

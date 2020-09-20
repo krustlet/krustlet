@@ -63,7 +63,7 @@ pub struct Running;
 #[async_trait::async_trait]
 impl State<PodState> for Running {
     async fn next(
-        &self,
+        self: Box<Self>,
         pod_state: &mut PodState,
         pod: &Pod,
     ) -> anyhow::Result<Transition<PodState>> {

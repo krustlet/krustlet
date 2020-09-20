@@ -8,7 +8,7 @@ pub struct Terminated;
 #[async_trait::async_trait]
 impl State<PodState> for Terminated {
     async fn next(
-        &self,
+        self: Box<Self>,
         pod_state: &mut PodState,
         _pod: &Pod,
     ) -> anyhow::Result<Transition<PodState>> {

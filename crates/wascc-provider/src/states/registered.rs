@@ -50,7 +50,7 @@ pub struct Registered;
 #[async_trait::async_trait]
 impl State<PodState> for Registered {
     async fn next(
-        &self,
+        self: Box<Self>,
         _pod_state: &mut PodState,
         pod: &Pod,
     ) -> anyhow::Result<Transition<PodState>> {

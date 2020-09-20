@@ -9,7 +9,7 @@ pub struct CrashLoopBackoff;
 #[async_trait::async_trait]
 impl State<PodState> for CrashLoopBackoff {
     async fn next(
-        &self,
+        self: Box<Self>,
         _pod_state: &mut PodState,
         _pod: &Pod,
     ) -> anyhow::Result<Transition<PodState>> {

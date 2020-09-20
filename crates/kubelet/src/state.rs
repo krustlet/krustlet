@@ -55,7 +55,7 @@ impl<PodState> Transition<PodState> {
     /// #[async_trait::async_trait]
     /// impl State<PodState> for TestState {
     ///     async fn next(
-    ///         &self,
+    ///         self: Box<Self>,
     ///         _pod_state: &mut PodState,
     ///         _pod: &Pod,
     ///     ) -> anyhow::Result<Transition<PodState>> {
@@ -90,7 +90,7 @@ impl<PodState> Transition<PodState> {
     /// #[async_trait::async_trait]
     /// impl State<PodState> for TestState {
     ///     async fn next(
-    ///         &self,
+    ///         self: Box<Self>,
     ///         _pod_state: &mut PodState,
     ///         _pod: &Pod,
     ///     ) -> anyhow::Result<Transition<PodState>> {
@@ -123,7 +123,7 @@ impl<PodState> Transition<PodState> {
     /// #[async_trait::async_trait]
     /// impl State<PodState> for TestState {
     ///     async fn next(
-    ///         &self,
+    ///         self: Box<Self>,
     ///         _pod_state: &mut PodState,
     ///         _pod: &Pod,
     ///     ) -> anyhow::Result<Transition<PodState>> {
@@ -161,7 +161,7 @@ impl<PodState> Transition<PodState> {
     /// #[async_trait::async_trait]
     /// impl State<PodState> for TestState {
     ///     async fn next(
-    ///         &self,
+    ///         self: Box<Self>,
     ///         _pod_state: &mut PodState,
     ///         _pod: &Pod,
     ///     ) -> anyhow::Result<Transition<PodState>> {
@@ -181,7 +181,7 @@ impl<PodState> Transition<PodState> {
     /// #[async_trait::async_trait]
     /// impl State<OtherPodState> for OtherState {
     ///     async fn next(
-    ///         &self,
+    ///         self: Box<Self>,
     ///         _pod_state: &mut OtherPodState,
     ///         _pod: &Pod,
     ///     ) -> anyhow::Result<Transition<OtherPodState>> {
@@ -197,7 +197,7 @@ impl<PodState> Transition<PodState> {
     ///     }
     /// }
     /// ```
-    pub fn next<I: State<PodState>, S: State<PodState>>(_i: &I, s: S) -> Transition<PodState>
+    pub fn next<I: State<PodState>, S: State<PodState>>(_i: Box<I>, s: S) -> Transition<PodState>
     where
         I: EdgeTo<S>,
     {
@@ -217,7 +217,7 @@ pub trait AsyncDrop: Sized {
 pub trait State<PodState>: Sync + Send + 'static + std::fmt::Debug {
     /// Provider supplies method to be executed when in this state.
     async fn next(
-        &self,
+        self: Box<Self>,
         pod_state: &mut PodState,
         pod: &Pod,
     ) -> anyhow::Result<Transition<PodState>>;
@@ -256,9 +256,8 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
         state = match transition {
             Transition::Next(s) => {
                 debug!(
-                    "Pod {} transitioning from {:?} to {:?}.",
+                    "Pod {} transitioning to {:?}.",
                     pod.name(),
-                    state,
                     s.state
                 );
                 s.state
@@ -281,7 +280,7 @@ pub struct Stub;
 
 #[async_trait::async_trait]
 impl<P: 'static + Sync + Send> State<P> for Stub {
-    async fn next(&self, _pod_state: &mut P, _pod: &Pod) -> anyhow::Result<Transition<P>> {
+    async fn next(self: Box<Self>, _pod_state: &mut P, _pod: &Pod) -> anyhow::Result<Transition<P>> {
         Ok(Transition::Complete(Ok(())))
     }
 
@@ -308,7 +307,7 @@ mod test {
     #[async_trait::async_trait]
     impl State<PodState> for ValidState {
         async fn next(
-            &self,
+            self: Box<Self>,
             _pod_state: &mut PodState,
             _pod: &Pod,
         ) -> anyhow::Result<Transition<PodState>> {
@@ -334,7 +333,7 @@ mod test {
         #[async_trait::async_trait]
         impl State<PodState> for TestState {
             async fn next(
-                &self,
+                self: Box<Self>,
                 _pod_state: &mut PodState,
                 _pod: &Pod,
             ) -> anyhow::Result<Transition<PodState>> {
