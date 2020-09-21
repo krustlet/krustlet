@@ -23,8 +23,8 @@ You can reach the Krustlet community and developers via the following channels:
 
 - [Kubernetes Slack](https://kubernetes.slack.com):
   - [#krustlet](https://kubernetes.slack.com/messages/krustlet)
-- Public Community Call on Mondays at 9:00 AM PT:
-  - [Zoom](https://zoom.us/j/200921512?pwd=N3hBblRaUE1FL3luVkJ6ZzZsM0NIUT09)
+- Public Community Call on Mondays at 1:00 PM PT:
+  - [Zoom](https://us04web.zoom.us/j/71695031152?pwd=T0g1d0JDZVdiMHpNNVF1blhxVC9qUT09)
   - Download the meeting calendar invite [here](https://raw.githubusercontent.com/deislabs/krustlet/master/docs/community/assets/community_meeting.ics)
 
 
