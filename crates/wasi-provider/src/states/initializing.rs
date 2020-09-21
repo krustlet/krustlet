@@ -60,11 +60,16 @@ async fn patch_init_status(
     Ok(())
 }
 
-state!(
-    /// The Kubelet is running the init containers for the pod.
-    Initializing,
-    PodState,
-    {
+#[derive(Debug)]
+pub struct Initializing;
+
+#[async_trait::async_trait]
+impl State<PodState> for Initializing {
+    async fn next(
+        self: Box<Self>,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> anyhow::Result<Transition<PodState>> {
         let client: Api<KubePod> = Api::namespaced(
             kube::Client::new(pod_state.shared.kubeconfig.clone()),
             pod.namespace(),
@@ -122,7 +127,7 @@ state!(
                                 serde_json::to_vec(&s)?,
                             )
                             .await?;
-                        return Ok(Transition::Error(Box::new(Error { message })));
+                        return Ok(Transition::next(self, Error { message }));
                     } else {
                         break;
                     }
@@ -130,9 +135,17 @@ state!(
             }
         }
         info!("Finished init containers for pod {:?}", pod.name());
-        Ok(Transition::Advance(Box::new(Starting::new(
-            container_handles,
-        ))))
-    },
-    { make_status(Phase::Running, "Initializing") }
-);
+        Ok(Transition::next(self, Starting::new(container_handles)))
+    }
+
+    async fn json_status(
+        &self,
+        _pod_state: &mut PodState,
+        _pmeod: &Pod,
+    ) -> anyhow::Result<serde_json::Value> {
+        make_status(Phase::Running, "Initializing")
+    }
+}
+
+impl TransitionTo<Error> for Initializing {}
+impl TransitionTo<Starting> for Initializing {}

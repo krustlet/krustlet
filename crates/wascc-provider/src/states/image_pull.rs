@@ -6,11 +6,17 @@ use crate::PodState;
 use super::image_pull_backoff::ImagePullBackoff;
 use super::volume_mount::VolumeMount;
 
-state!(
-    /// Kubelet is pulling container images.
-    ImagePull,
-    PodState,
-    {
+/// Kubelet is pulling container images.
+#[derive(Default, Debug)]
+pub struct ImagePull;
+
+#[async_trait::async_trait]
+impl State<PodState> for ImagePull {
+    async fn next(
+        self: Box<Self>,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> anyhow::Result<Transition<PodState>> {
         let auth_resolver =
             kubelet::secret::RegistryAuthResolver::new(pod_state.shared.client.clone(), &pod);
         pod_state.run_context.modules = match pod_state
@@ -22,10 +28,20 @@ state!(
             Ok(modules) => modules,
             Err(e) => {
                 error!("{:?}", e);
-                return Ok(Transition::Error(Box::new(ImagePullBackoff)));
+                return Ok(Transition::next(self, ImagePullBackoff));
             }
         };
-        Ok(Transition::Advance(Box::new(VolumeMount)))
-    },
-    { make_status(Phase::Pending, "ImagePull") }
-);
+        Ok(Transition::next(self, VolumeMount))
+    }
+
+    async fn json_status(
+        &self,
+        _pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> anyhow::Result<serde_json::Value> {
+        make_status(Phase::Pending, "ImagePull")
+    }
+}
+
+impl TransitionTo<ImagePullBackoff> for ImagePull {}
+impl TransitionTo<VolumeMount> for ImagePull {}

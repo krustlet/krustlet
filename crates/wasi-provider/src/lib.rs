@@ -48,6 +48,7 @@ use tokio::sync::RwLock;
 use wasi_runtime::Runtime;
 
 mod states;
+
 use states::registered::Registered;
 use states::terminated::Terminated;
 

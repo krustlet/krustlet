@@ -98,10 +98,10 @@ impl Starting {
 #[async_trait::async_trait]
 impl State<PodState> for Starting {
     async fn next(
-        &self,
+        self: Box<Self>,
         pod_state: &mut PodState,
         pod: &Pod,
-    ) -> anyhow::Result<Transition<Box<dyn State<PodState>>, Box<dyn State<PodState>>>> {
+    ) -> anyhow::Result<Transition<PodState>> {
         let mut container_handles: ContainerHandleMap = HashMap::new();
 
         {
@@ -126,7 +126,7 @@ impl State<PodState> for Starting {
         }
         info!("All containers started for pod {:?}.", pod.name());
 
-        Ok(Transition::Advance(Box::new(Running)))
+        Ok(Transition::next(self, Running))
     }
 
     async fn json_status(
@@ -137,3 +137,5 @@ impl State<PodState> for Starting {
         make_status(Phase::Pending, "Starting")
     }
 }
+
+impl TransitionTo<Running> for Starting {}

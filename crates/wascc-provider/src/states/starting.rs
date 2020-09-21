@@ -129,11 +129,17 @@ async fn start_container(
     .await?
 }
 
-state!(
-    /// The Kubelet is starting the Pod.
-    Starting,
-    PodState,
-    {
+/// The Kubelet is starting the Pod.
+#[derive(Default, Debug)]
+pub struct Starting;
+
+#[async_trait::async_trait]
+impl State<PodState> for Starting {
+    async fn next(
+        self: Box<Self>,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> anyhow::Result<Transition<PodState>> {
         info!("Starting containers for pod {:?}", pod.name());
 
         let mut container_handles = HashMap::new();
@@ -165,7 +171,16 @@ state!(
 
         info!("All containers started for pod {:?}.", pod.name());
 
-        Ok(Transition::Advance(Box::new(Running)))
-    },
-    { make_status(Phase::Pending, "Starting") }
-);
+        Ok(Transition::next(self, Running))
+    }
+
+    async fn json_status(
+        &self,
+        _pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> anyhow::Result<serde_json::Value> {
+        make_status(Phase::Pending, "Starting")
+    }
+}
+
+impl TransitionTo<Running> for Starting {}
