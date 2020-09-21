@@ -1,7 +1,9 @@
 use crate::PodState;
 use kubelet::state::prelude::*;
 use kubelet::volume::Ref;
+use log::error;
 
+use super::error::Error;
 use super::starting::Starting;
 
 /// Kubelet is pulling container images.
@@ -15,13 +17,22 @@ impl State<PodState> for VolumeMount {
         pod_state: &mut PodState,
         pod: &Pod,
     ) -> anyhow::Result<Transition<PodState>> {
-        pod_state.run_context.volumes = Ref::volumes_from_pod(
+        pod_state.run_context.volumes = match Ref::volumes_from_pod(
             &pod_state.shared.volume_path,
             &pod,
             &pod_state.shared.client,
         )
         .await
-        .unwrap();
+        {
+            Ok(volumes) => volumes,
+            Err(e) => {
+                error!("{:?}", e);
+                let error_state = Error {
+                    message: e.to_string(),
+                };
+                return Ok(Transition::next(self, error_state));
+            }
+        };
         Ok(Transition::next(self, Starting))
     }
 
@@ -35,3 +46,4 @@ impl State<PodState> for VolumeMount {
 }
 
 impl TransitionTo<Starting> for VolumeMount {}
+impl TransitionTo<Error> for VolumeMount {}
