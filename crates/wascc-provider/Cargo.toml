@@ -39,4 +39,4 @@ k8s-openapi = { version = "0.9", default-features = false, features = ["v1_17"] 
 rand = "0.7.3"
 
 [dev-dependencies]
-oci-distribution = { path = "../oci-distribution", version = "0.3" }
+oci-distribution = { path = "../oci-distribution", version = "0.4" }

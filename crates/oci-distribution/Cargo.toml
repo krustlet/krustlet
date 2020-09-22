@@ -1,6 +1,6 @@
 [package]
 name = "oci-distribution"
-version = "0.3.0"
+version = "0.4.0"
 authors = [
     "Matt Butcher <matt.butcher@microsoft.com>",
     "Matthew Fisher <matt.fisher@microsoft.com>",
