@@ -38,6 +38,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use kubelet::backoff::ExponentialBackoffStrategy;
 use kubelet::node::Builder;
 use kubelet::pod::{key_from_pod, pod_key, Handle, Pod};
 use kubelet::provider::{Provider, ProviderError};
@@ -107,6 +108,8 @@ pub struct PodState {
     key: String,
     run_context: ModuleRunContext,
     errors: usize,
+    image_pull_backoff_strategy: ExponentialBackoffStrategy,
+    crash_loop_backoff_strategy: ExponentialBackoffStrategy,
     shared: SharedPodState,
 }
 
@@ -148,6 +151,8 @@ impl Provider for WasiProvider {
             key,
             run_context,
             errors: 0,
+            image_pull_backoff_strategy: ExponentialBackoffStrategy::kubernetes_default(),
+            crash_loop_backoff_strategy: ExponentialBackoffStrategy::kubernetes_default(),
             shared: self.shared.clone(),
         })
     }

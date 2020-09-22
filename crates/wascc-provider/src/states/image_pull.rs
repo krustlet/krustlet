@@ -1,3 +1,4 @@
+use kubelet::backoff::BackoffStrategy;
 use kubelet::state::prelude::*;
 use log::error;
 
@@ -31,6 +32,7 @@ impl State<PodState> for ImagePull {
                 return Ok(Transition::next(self, ImagePullBackoff));
             }
         };
+        pod_state.image_pull_backoff_strategy.reset();
         Ok(Transition::next(self, VolumeMount))
     }
 
