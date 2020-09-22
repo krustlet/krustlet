@@ -23,16 +23,18 @@ pub struct ExponentialBackoffStrategy {
     last_duration: Duration,
 }
 
-impl ExponentialBackoffStrategy {
+impl Default for ExponentialBackoffStrategy {
     /// Gets a backoff strategy that adheres to the Kubernetes defaults.
-    pub fn kubernetes_default() -> Self {
+    fn default() -> Self {
         Self {
             base_duration: Duration::from_secs(10),
             cap: Duration::from_secs(300),
             last_duration: Duration::from_secs(0),
         }
     }
+}
 
+impl ExponentialBackoffStrategy {
     fn capped_next_duration(&self) -> Duration {
         let next_duration = if self.last_duration == Duration::from_secs(0) {
             self.base_duration
@@ -66,13 +68,13 @@ mod test {
 
     #[test]
     fn first_backoff_is_10_seconds() {
-        let mut backoff = ExponentialBackoffStrategy::kubernetes_default();
+        let mut backoff = ExponentialBackoffStrategy::default();
         assert_eq!(backoff.next_duration(), Duration::from_secs(10));
     }
 
     #[test]
     fn backoff_doubles_each_time() {
-        let mut backoff = ExponentialBackoffStrategy::kubernetes_default();
+        let mut backoff = ExponentialBackoffStrategy::default();
         assert_eq!(backoff.next_duration(), Duration::from_secs(10));
         assert_eq!(backoff.next_duration(), Duration::from_secs(20));
         assert_eq!(backoff.next_duration(), Duration::from_secs(40));
@@ -81,7 +83,7 @@ mod test {
 
     #[test]
     fn after_reset_next_backoff_is_10_seconds() {
-        let mut backoff = ExponentialBackoffStrategy::kubernetes_default();
+        let mut backoff = ExponentialBackoffStrategy::default();
         assert_eq!(backoff.next_duration(), Duration::from_secs(10));
         assert_eq!(backoff.next_duration(), Duration::from_secs(20));
         assert_eq!(backoff.next_duration(), Duration::from_secs(40));
@@ -92,7 +94,7 @@ mod test {
 
     #[test]
     fn backoff_is_capped_at_5_minutes() {
-        let mut backoff = ExponentialBackoffStrategy::kubernetes_default();
+        let mut backoff = ExponentialBackoffStrategy::default();
         assert_eq!(backoff.next_duration(), Duration::from_secs(10));
         assert_eq!(backoff.next_duration(), Duration::from_secs(20));
         assert_eq!(backoff.next_duration(), Duration::from_secs(40));

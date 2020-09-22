@@ -151,8 +151,8 @@ impl Provider for WasiProvider {
             key,
             run_context,
             errors: 0,
-            image_pull_backoff_strategy: ExponentialBackoffStrategy::kubernetes_default(),
-            crash_loop_backoff_strategy: ExponentialBackoffStrategy::kubernetes_default(),
+            image_pull_backoff_strategy: ExponentialBackoffStrategy::default(),
+            crash_loop_backoff_strategy: ExponentialBackoffStrategy::default(),
             shared: self.shared.clone(),
         })
     }
