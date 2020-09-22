@@ -64,6 +64,7 @@ mod kubelet;
 pub(crate) mod kubeconfig;
 pub(crate) mod webserver;
 
+pub mod backoff;
 pub mod config;
 pub mod container;
 pub mod handle;
