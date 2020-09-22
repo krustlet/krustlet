@@ -5,6 +5,7 @@ use log::{error, info};
 use crate::PodState;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Api, PatchParams};
+use kubelet::backoff::BackoffStrategy;
 use kubelet::container::{ContainerKey, Status as ContainerStatus};
 use kubelet::pod::{key_from_pod, Handle};
 use kubelet::state::prelude::*;
@@ -83,6 +84,9 @@ impl State<PodState> for Initializing {
                 pod.name()
             );
 
+            // Each new init container resets the CrashLoopBackoff timer.
+            pod_state.crash_loop_backoff_strategy.reset();
+
             let handle = start_container(pod_state, pod, &init_container).await?;
 
             container_handles.insert(
@@ -135,6 +139,7 @@ impl State<PodState> for Initializing {
             }
         }
         info!("Finished init containers for pod {:?}", pod.name());
+        pod_state.crash_loop_backoff_strategy.reset();
         Ok(Transition::next(self, Starting::new(container_handles)))
     }
 

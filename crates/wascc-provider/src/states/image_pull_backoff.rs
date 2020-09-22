@@ -1,5 +1,6 @@
 use super::image_pull::ImagePull;
 use crate::PodState;
+use kubelet::backoff::BackoffStrategy;
 use kubelet::state::prelude::*;
 
 /// Kubelet encountered an error when pulling container image.
@@ -10,10 +11,10 @@ pub struct ImagePullBackoff;
 impl State<PodState> for ImagePullBackoff {
     async fn next(
         self: Box<Self>,
-        _pod_state: &mut PodState,
+        pod_state: &mut PodState,
         _pod: &Pod,
     ) -> anyhow::Result<Transition<PodState>> {
-        tokio::time::delay_for(std::time::Duration::from_secs(60)).await;
+        pod_state.image_pull_backoff_strategy.wait().await;
         Ok(Transition::next(self, ImagePull))
     }
 

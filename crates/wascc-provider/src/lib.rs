@@ -32,6 +32,7 @@
 #![deny(missing_docs)]
 
 use async_trait::async_trait;
+use kubelet::backoff::ExponentialBackoffStrategy;
 use kubelet::container::Handle as ContainerHandle;
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
@@ -215,6 +216,8 @@ pub struct PodState {
     key: String,
     run_context: ModuleRunContext,
     errors: usize,
+    image_pull_backoff_strategy: ExponentialBackoffStrategy,
+    crash_loop_backoff_strategy: ExponentialBackoffStrategy,
     shared: SharedPodState,
 }
 
@@ -264,6 +267,8 @@ impl Provider for WasccProvider {
             key,
             run_context,
             errors: 0,
+            image_pull_backoff_strategy: ExponentialBackoffStrategy::default(),
+            crash_loop_backoff_strategy: ExponentialBackoffStrategy::default(),
             shared: self.shared.clone(),
         })
     }
