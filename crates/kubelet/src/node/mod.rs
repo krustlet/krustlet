@@ -201,7 +201,7 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
     info!("Evicting {} pods.", pods.len());
 
     for pod in pods {
-        let pod = Pod::new(pod);
+        let pod = Pod::from(pod);
         if pod.is_daemonset() {
             info!("Skipping eviction of DaemonSet '{}'", pod.name());
             continue;
@@ -267,7 +267,7 @@ async fn evict_pod(
         info!("Waiting for pod '{}' eviction.", name);
         while let Some(event) = stream.try_next().await? {
             if let kube::api::WatchEvent::Deleted(s) = event {
-                let pod = Pod::new(s);
+                let pod = Pod::from(s);
                 if name == pod.name() && namespace == pod.namespace() {
                     info!("Pod '{}' evicted.", name);
                     break;
