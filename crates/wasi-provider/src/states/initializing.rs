@@ -86,13 +86,8 @@ impl State<PodState> for Initializing {
             let handle = match start_container(pod_state, pod, &init_container).await {
                 Ok(h) => h,
                 Err(e) => {
-                    // TODO: identify if any of the start_container errors are fatal
-                    // enough that we should return an Err and exit the run loop
                     error!("{:?}", e);
-                    let error_state = Error {
-                        message: e.to_string(),
-                    };
-                    return Transition::next(self, error_state);
+                    return Transition::Fatal(e);
                 }
             };
 
@@ -136,10 +131,7 @@ impl State<PodState> for Initializing {
                             Ok(json) => json,
                             Err(e) => {
                                 error!("{:?}", e);
-                                let error_state = Error {
-                                    message: e.to_string(),
-                                };
-                                return Transition::next(self, error_state);
+                                return Transition::Fatal(anyhow::Error::from(e));
                             }
                         };
 
@@ -150,10 +142,7 @@ impl State<PodState> for Initializing {
                             Ok(_) => return Transition::next(self, Error { message }),
                             Err(e) => {
                                 error!("{:?}", e);
-                                let error_state = Error {
-                                    message: e.to_string(),
-                                };
-                                return Transition::next(self, error_state);
+                                return Transition::Fatal(anyhow::Error::from(e));
                             }
                         };
                     } else {

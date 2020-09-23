@@ -112,10 +112,7 @@ impl State<PodState> for Starting {
                 Ok(h) => h,
                 Err(e) => {
                     error!("{:?}", e);
-                    let error_state = Error {
-                        message: e.to_string(),
-                    };
-                    return Transition::next(self, error_state);
+                    return Transition::Fatal(e);
                 }
             };
             container_handles.insert(

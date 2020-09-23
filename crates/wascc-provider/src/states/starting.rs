@@ -173,13 +173,8 @@ impl State<PodState> for Starting {
                 match start_container(pod_state, &container, &pod, port_assigned).await {
                     Ok(handle) => handle,
                     Err(e) => {
-                        // TODO: identify if any of the start_container errors are fatal
-                        // enough that we should return an Err and exit the run loop
                         error!("{:?}", e);
-                        let error_state = Error {
-                            message: e.to_string(),
-                        };
-                        return Transition::next(self, error_state);
+                        return Transition::Fatal(e);
                     }
                 };
             container_handles.insert(
