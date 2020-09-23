@@ -213,7 +213,7 @@ async fn clean_up_resources(resources: Vec<TestResource>, namespace: String) -> 
     }
 }
 
-async fn clean_up_resource(resource: TestResource, namespace: &String) -> Option<String> {
+async fn clean_up_resource(resource: TestResource, namespace: &str) -> Option<String> {
     let client = kube::Client::try_default()
         .await
         .expect("Failed to create client");
@@ -241,7 +241,7 @@ async fn clean_up_resource(resource: TestResource, namespace: &String) -> Option
     }
 }
 
-async fn clean_up_namespace(namespace: &String) -> Option<String> {
+async fn clean_up_namespace(namespace: &str) -> Option<String> {
     let client = kube::Client::try_default()
         .await
         .expect("Failed to create client");

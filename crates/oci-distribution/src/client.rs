@@ -689,7 +689,7 @@ mod test {
                 .await
                 .expect("failed to pull manifest");
 
-            assert!(image_data.content.len() != 0);
+            assert!(!image_data.content.is_empty());
             assert!(image_data.digest.is_some());
         }
     }

@@ -1,37 +1,30 @@
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::Pod;
-use kube::{
-    api::{Api, ListParams, WatchEvent},
-    runtime::Informer,
-};
+use kube::api::{Api, ListParams};
+use kube_runtime::watcher::{watcher, Event};
 
 pub async fn wait_for_pod_ready(
     client: kube::Client,
     pod_name: &str,
     namespace: &str,
 ) -> anyhow::Result<()> {
-    let api = Api::namespaced(client, namespace);
-    let inf: Informer<Pod> = Informer::new(api).params(
+    let api: Api<Pod> = Api::namespaced(client, namespace);
+    let inf = watcher(
+        api,
         ListParams::default()
             .fields(&format!("metadata.name={}", pod_name))
             .timeout(30),
     );
 
-    let mut watcher = inf.poll().await?.boxed();
+    let mut watcher = inf.boxed();
     let mut went_ready = false;
     while let Some(event) = watcher.try_next().await? {
-        match event {
-            WatchEvent::Modified(o) => {
-                let phase = o.status.unwrap().phase.unwrap();
-                if phase == "Running" {
-                    went_ready = true;
-                    break;
-                }
+        if let Event::Applied(o) = event {
+            let phase = o.status.unwrap().phase.unwrap();
+            if phase == "Running" {
+                went_ready = true;
+                break;
             }
-            WatchEvent::Error(e) => {
-                panic!("WatchEvent error: {:?}", e);
-            }
-            _ => {}
         }
     }
 
@@ -52,38 +45,33 @@ pub async fn wait_for_pod_complete(
     namespace: &str,
     on_failure: OnFailure,
 ) -> anyhow::Result<()> {
-    let api = Api::namespaced(client.clone(), namespace);
-    let inf: Informer<Pod> = Informer::new(api).params(
+    let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
+    let inf = watcher(
+        api,
         ListParams::default()
             .fields(&format!("metadata.name={}", pod_name))
             .timeout(30),
     );
 
-    let mut watcher = inf.poll().await?.boxed();
+    let mut watcher = inf.boxed();
     let mut went_ready = false;
     while let Some(event) = watcher.try_next().await? {
-        match event {
-            WatchEvent::Modified(o) => {
-                let phase = o.status.unwrap().phase.unwrap();
-                if phase == "Failed" && on_failure == OnFailure::Accept {
-                    return Ok(());
-                }
-                if phase == "Running" {
-                    went_ready = true;
-                }
-                if phase == "Succeeded" && !went_ready {
-                    panic!(
-                        "Pod {} reached completed phase before receiving Running phase",
-                        pod_name
-                    );
-                } else if phase == "Succeeded" {
-                    break;
-                }
+        if let Event::Applied(o) = event {
+            let phase = o.status.unwrap().phase.unwrap();
+            if phase == "Failed" && on_failure == OnFailure::Accept {
+                return Ok(());
             }
-            WatchEvent::Error(e) => {
-                panic!("WatchEvent error: {:?}", e);
+            if phase == "Running" {
+                went_ready = true;
             }
-            _ => {}
+            if phase == "Succeeded" && !went_ready {
+                panic!(
+                    "Pod {} reached completed phase before receiving Running phase",
+                    pod_name
+                );
+            } else if phase == "Succeeded" {
+                break;
+            }
         }
     }
 

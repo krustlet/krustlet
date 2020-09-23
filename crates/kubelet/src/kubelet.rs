@@ -1,5 +1,3 @@
-#![allow(deprecated)] // TODO: remove when Informer has been replaced by kube_run::watcher
-
 ///! This library contains code for running a kubelet. Use this to create a new
 ///! Kubelet with a specific handler (called a `Provider`)
 use crate::config::Config;
@@ -11,7 +9,8 @@ use crate::webserver::start as start_webserver;
 use futures::future::FutureExt;
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::core::v1::Pod as KubePod;
-use kube::{api::ListParams, runtime::Informer, Api};
+use kube::{api::ListParams, Api};
+use kube_runtime::watcher;
 use log::{debug, error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -113,10 +112,10 @@ impl<P: 'static + Provider + Sync + Send> Kubelet<P> {
                     error!("Signal handler task joined with error {:?}", &e);
                     e
                 }),
-                res = pod_informer => res.map_err(|e| {
-                    error!("Pod informer task joined with error {:?}", &e);
-                    e
-                })
+                _ = pod_informer => {
+                    warn!("Pod informer has completed");
+                    Ok(())
+                }
             }
         });
 
@@ -154,43 +153,31 @@ async fn start_pod_informer<P: 'static + Provider + Sync + Send>(
     node_name: String,
     mut queue: Queue<P>,
     signal: Arc<AtomicBool>,
-) -> anyhow::Result<()> {
+) {
     let node_selector = format!("spec.nodeName={}", node_name);
     let params = ListParams {
         field_selector: Some(node_selector),
         ..Default::default()
     };
     let api = Api::<KubePod>::all(client);
-    let informer = Informer::new(api).params(params);
+    let mut informer = watcher(api, params).boxed();
     loop {
-        let mut stream = match informer.poll().await {
-            Ok(stream) => stream.boxed(),
-            Err(e) => {
-                warn!("Error polling pod informer: {:?}", e);
-                tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
-                continue;
-            }
-        };
-        loop {
-            match stream.try_next().await {
-                Ok(Some(event)) => {
-                    debug!("Handling Kubernetes pod event: {:?}", event);
-                    if let kube::api::WatchEvent::Added(_) = event {
-                        if signal.load(Ordering::Relaxed) {
-                            warn!(
-                                "Node is shutting down and unschedulable. Dropping Add Pod event."
-                            );
-                            continue;
-                        }
-                    }
-                    match queue.enqueue(event).await {
-                        Ok(()) => debug!("Enqueued event for processing"),
-                        Err(e) => warn!("Error enqueuing pod event: {}", e),
-                    };
+        match informer.try_next().await {
+            Ok(Some(event)) => {
+                debug!("Handling Kubernetes pod event: {:?}", event);
+                if matches!(event, kube_runtime::watcher::Event::Applied(_))
+                    && signal.load(Ordering::Relaxed)
+                {
+                    warn!("Node is shutting down and unschedulable. Dropping Add Pod event.");
+                    continue;
                 }
-                Ok(None) => break,
-                Err(e) => warn!("Error streaming pod events: {:?}", e),
+                match queue.enqueue(event).await {
+                    Ok(()) => debug!("Enqueued event for processing"),
+                    Err(e) => warn!("Error enqueuing pod event: {}", e),
+                };
             }
+            Ok(None) => break,
+            Err(e) => warn!("Error streaming pod events: {:?}", e),
         }
     }
 }

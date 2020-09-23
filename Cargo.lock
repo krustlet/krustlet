@@ -304,6 +304,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee2a4ec343196209d6594e19543ae87a39f96d5534d7174822a3ad825dd6ed7e"
 
 [[package]]
+name = "ahash"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8fd72866655d1904d6b0997d0b07ba561047d070fbe29de039031c641b61217"
+dependencies = [
+ "const-random",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "0.7.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -666,6 +675,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "const-random"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f1af9ac737b2dd2d577701e59fd09ba34822f6f2ebdb30a7647405d9e55e16a"
+dependencies = [
+ "const-random-macro",
+ "proc-macro-hack",
+]
+
+[[package]]
+name = "const-random-macro"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25e4c606eb459dd29f7c57b2e0879f2b6f14ee130918c2b78ccb58a9624e6c7a"
+dependencies = [
+ "getrandom",
+ "proc-macro-hack",
+]
+
+[[package]]
 name = "const_fn"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -911,10 +940,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "3.11.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f260e2fc850179ef410018660006951c1b55b79e8087e87111a2c388994b9b5"
+dependencies = [
+ "ahash",
+ "cfg-if",
+ "num_cpus",
+]
+
+[[package]]
 name = "data-encoding"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4d0e2d24e5ee3b23a01de38eefdcd978907890701f08ffffd4cb457ca4ee8d6"
+
+[[package]]
+name = "derivative"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb582b60359da160a9477ee80f15c8d784c477e69c217ef2cdd4169c24ea380f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "derive_more"
@@ -990,6 +1041,12 @@ name = "discard"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
+
+[[package]]
+name = "doc-comment"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
 
 [[package]]
 name = "dtoa"
@@ -1518,7 +1575,7 @@ dependencies = [
  "futures-util",
  "hyper",
  "log",
- "rustls 0.18.1",
+ "rustls",
  "tokio",
  "tokio-rustls",
  "webpki",
@@ -1665,20 +1722,6 @@ dependencies = [
 
 [[package]]
 name = "k8s-openapi"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eae6d236dfb2b60d27cdbcb3d20511713aff6d23f9bf2f3d6b594c232ea99e04"
-dependencies = [
- "base64 0.12.3",
- "bytes 0.5.6",
- "chrono",
- "serde",
- "serde-value 0.6.0",
- "serde_json",
-]
-
-[[package]]
-name = "k8s-openapi"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57f95fd36c08ce592e67400a0f1a66f432196997d5a7e9a97e8743c33d8a9312"
@@ -1686,9 +1729,12 @@ dependencies = [
  "base64 0.12.3",
  "bytes 0.5.6",
  "chrono",
+ "http 0.2.1",
+ "percent-encoding 2.1.0",
  "serde",
- "serde-value 0.7.0",
+ "serde-value",
  "serde_json",
+ "url 2.1.1",
 ]
 
 [[package]]
@@ -1710,8 +1756,9 @@ dependencies = [
  "env_logger",
  "futures",
  "hostname",
- "k8s-openapi 0.8.0",
- "kube 0.35.1",
+ "k8s-openapi",
+ "kube",
+ "kube-runtime",
  "kubelet",
  "oci-distribution",
  "regex",
@@ -1727,39 +1774,9 @@ dependencies = [
 
 [[package]]
 name = "kube"
-version = "0.35.1"
+version = "0.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c0578635e15e33e500d784ce9bdb82b2a0cd18eda82fdc88108eba405b02709"
-dependencies = [
- "Inflector",
- "base64 0.12.3",
- "bytes 0.5.6",
- "chrono",
- "dirs 2.0.2",
- "either",
- "futures",
- "futures-util",
- "http 0.2.1",
- "k8s-openapi 0.8.0",
- "log",
- "openssl",
- "pem",
- "reqwest",
- "rustls 0.17.0",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror",
- "time 0.2.17",
- "tokio",
- "url 2.1.1",
-]
-
-[[package]]
-name = "kube"
-version = "0.40.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be34ed86dca3021a649b574a1628917d694bb75650a3b50c492e1786589a5ac6"
+checksum = "f4f52dbe2c0e7ca54e43f1bc7b77b916750e63d7694e5a18c09b11307acc6b9d"
 dependencies = [
  "Inflector",
  "base64 0.12.3",
@@ -1770,12 +1787,12 @@ dependencies = [
  "futures",
  "futures-util",
  "http 0.2.1",
- "k8s-openapi 0.9.0",
+ "k8s-openapi",
  "log",
  "openssl",
  "pem",
  "reqwest",
- "rustls 0.18.1",
+ "rustls",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -1784,6 +1801,24 @@ dependencies = [
  "time 0.2.17",
  "tokio",
  "url 2.1.1",
+]
+
+[[package]]
+name = "kube-runtime"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78d0d3673ec4eff2c5276bd10db8e596106ce9dee8e035e01650a8c84454ac78"
+dependencies = [
+ "dashmap",
+ "derivative",
+ "futures",
+ "k8s-openapi",
+ "kube",
+ "pin-project",
+ "serde",
+ "smallvec",
+ "snafu",
+ "tokio",
 ]
 
 [[package]]
@@ -1799,8 +1834,9 @@ dependencies = [
  "hostname",
  "http 0.2.1",
  "hyper",
- "k8s-openapi 0.9.0",
- "kube 0.40.0",
+ "k8s-openapi",
+ "kube",
+ "kube-runtime",
  "lazy_static",
  "log",
  "native-tls",
@@ -2184,15 +2220,6 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
-]
-
-[[package]]
-name = "ordered-float"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3741934be594d77de1c8461ebcbbe866f585ea616a9753aa78f2bdc69f0e4579"
-dependencies = [
- "num-traits",
 ]
 
 [[package]]
@@ -2660,7 +2687,7 @@ dependencies = [
  "native-tls",
  "percent-encoding 2.1.0",
  "pin-project-lite",
- "rustls 0.18.1",
+ "rustls",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -2752,19 +2779,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
 dependencies = [
  "semver",
-]
-
-[[package]]
-name = "rustls"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0d4a31f5d68413404705d6982529b0e11a9aacd4839d1d6222ee3b8cb4015e1"
-dependencies = [
- "base64 0.11.0",
- "log",
- "ring",
- "sct",
- "webpki",
 ]
 
 [[package]]
@@ -2893,21 +2907,11 @@ dependencies = [
 
 [[package]]
 name = "serde-value"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a65a7291a8a568adcae4c10a677ebcedbc6c9cec91c054dee2ce40b0e3290eb"
-dependencies = [
- "ordered-float 1.1.0",
- "serde",
-]
-
-[[package]]
-name = "serde-value"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
 dependencies = [
- "ordered-float 2.0.0",
+ "ordered-float",
  "serde",
 ]
 
@@ -3075,6 +3079,29 @@ name = "smallvec"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fbee7696b84bbf3d89a1c2eccff0850e3047ed46bfcd2e92c29a2d074d57e252"
+
+[[package]]
+name = "snafu"
+version = "0.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c4e6046e4691afe918fd1b603fd6e515bcda5388a1092a9edbada307d159f09"
+dependencies = [
+ "doc-comment",
+ "futures-core",
+ "pin-project",
+ "snafu-derive",
+]
+
+[[package]]
+name = "snafu-derive"
+version = "0.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7073448732a89f2f3e6581989106067f403d378faeafb4a50812eb814170d3e5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "socket2"
@@ -3425,7 +3452,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e12831b255bcfa39dc0436b01e19fea231a37db570686c06ee72c423479f889a"
 dependencies = [
  "futures-core",
- "rustls 0.18.1",
+ "rustls",
  "tokio",
  "webpki",
 ]
@@ -3919,8 +3946,8 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
- "k8s-openapi 0.9.0",
- "kube 0.40.0",
+ "k8s-openapi",
+ "kube",
  "kubelet",
  "log",
  "oci-distribution",
@@ -3980,8 +4007,8 @@ dependencies = [
  "backtrace",
  "chrono",
  "futures",
- "k8s-openapi 0.9.0",
- "kube 0.40.0",
+ "k8s-openapi",
+ "kube",
  "kubelet",
  "log",
  "oci-distribution",

@@ -180,7 +180,7 @@ mod test {
             client
         }
 
-        fn update(&mut self, key: &str, content: Vec<u8>, digest: &str) -> () {
+        fn update(&mut self, key: &str, content: Vec<u8>, digest: &str) {
             let mut images = self
                 .images
                 .write()
@@ -217,7 +217,7 @@ mod test {
     }
 
     impl Drop for TemporaryDirectory {
-        fn drop(&mut self) -> () {
+        fn drop(&mut self) {
             std::fs::remove_dir_all(&self.path).expect("Failed to remove temp directory");
         }
     }
