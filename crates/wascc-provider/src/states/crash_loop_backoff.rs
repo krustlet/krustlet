@@ -10,13 +10,9 @@ pub struct CrashLoopBackoff;
 
 #[async_trait::async_trait]
 impl State<PodState> for CrashLoopBackoff {
-    async fn next(
-        self: Box<Self>,
-        pod_state: &mut PodState,
-        _pod: &Pod,
-    ) -> anyhow::Result<Transition<PodState>> {
+    async fn next(self: Box<Self>, pod_state: &mut PodState, _pod: &Pod) -> Transition<PodState> {
         pod_state.crash_loop_backoff_strategy.wait().await;
-        Ok(Transition::next(self, Registered))
+        Transition::next(self, Registered)
     }
 
     async fn json_status(

@@ -1,0 +1,133 @@
+[2020-09-23T20:10:21Z ERROR wasi_provider::states::registered] Cannot run kube-proxy
+[2020-09-23T20:10:26Z ERROR wasi_provider::states::registered] Cannot run kube-proxy
+[2020-09-23T20:10:31Z ERROR wasi_provider::states::registered] Cannot run kube-proxy
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::registered] Pod added: hello-wasi-with-inits.
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::registered] Pod added: hello-world-verbose.
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::registered] Pod added: faily-inits-pod.
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::registered] Pod added: multi-mount-pod.
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::registered] Pod added: faily-pod.
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::initializing] Starting init container "init-1" for pod "hello-wasi-with-inits"
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::registered] Pod added: hello-wasi.
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::registered] Pod added: loggy-pod.
+[2020-09-23T20:10:33Z DEBUG wasi_provider::states::starting] Starting container init-1 on thread
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /tmp/.tmpd63UZP as guestpath /hp
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/hello-wasi-with-inits-wasi-e2e-init-containers/default-token-xcrrh as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::initializing] Finished init containers for pod "hello-world-verbose"
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::registered] Pod added: multi-mount-items-pod.
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::starting] Starting containers for pod "hello-world-verbose"
+[2020-09-23T20:10:33Z DEBUG wasi_provider::states::starting] Starting container hello-world-verbose on thread
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/hello-world-verbose-wasi-e2e-container-args/default-token-4x4jp as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::starting] All containers started for pod "hello-world-verbose".
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::initializing] Finished init containers for pod "multi-mount-pod"
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::starting] Starting containers for pod "multi-mount-pod"
+[2020-09-23T20:10:33Z DEBUG wasi_provider::states::starting] Starting container multimount on thread
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/multi-mount-pod-wasi-e2e-can-mount-multi-values/multisecret as guestpath /ms
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/multi-mount-pod-wasi-e2e-can-mount-multi-values/multicm as guestpath /mcm
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/multi-mount-pod-wasi-e2e-can-mount-multi-values/default-token-4v5ql as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::starting] All containers started for pod "multi-mount-pod".
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::initializing] Finished init containers for pod "faily-pod"
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::initializing] Finished init containers for pod "hello-wasi"
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::initializing] Starting init container "init-that-fails" for pod "faily-inits-pod"
+[2020-09-23T20:10:33Z DEBUG wasi_provider::states::starting] Starting container init-that-fails on thread
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/faily-inits-pod-wasi-e2e-failing-init-containers/default-token-cbzr6 as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::initializing] Finished init containers for pod "loggy-pod"
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::starting] Starting containers for pod "loggy-pod"
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::starting] Starting containers for pod "faily-pod"
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::starting] Starting containers for pod "hello-wasi"
+[2020-09-23T20:10:33Z DEBUG wasi_provider::states::starting] Starting container floofycat on thread
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/loggy-pod-wasi-e2e-container-logging/default-token-lppdj as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:33Z DEBUG wasi_provider::states::starting] Starting container faily-pod on thread
+[2020-09-23T20:10:33Z DEBUG wasi_provider::states::starting] Starting container hello-wasi on thread
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/hello-wasi-wasi-e2e-pod-logs-and-mounts/secret-test as guestpath /foo
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/hello-wasi-wasi-e2e-pod-logs-and-mounts/configmap-test as guestpath /bar
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /tmp/.tmp9N6W0M as guestpath /baz
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/hello-wasi-wasi-e2e-pod-logs-and-mounts/default-token-g7kfc as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::starting] All containers started for pod "hello-wasi".
+[2020-09-23T20:10:33Z DEBUG wasi_provider::states::starting] Starting container neatcat on thread
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/faily-pod-wasi-e2e-module-exit-error/default-token-wtl88 as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/loggy-pod-wasi-e2e-container-logging/default-token-lppdj as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::starting] All containers started for pod "loggy-pod".
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::starting] All containers started for pod "faily-pod".
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::initializing] Finished init containers for pod "multi-mount-items-pod"
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::starting] Starting containers for pod "multi-mount-items-pod"
+[2020-09-23T20:10:33Z DEBUG wasi_provider::states::starting] Starting container multimount on thread
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/multi-mount-items-pod-wasi-e2e-can-mount-individual-values/default-token-k67gm as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/multi-mount-items-pod-wasi-e2e-can-mount-individual-values/multicm as guestpath /mcm
+[2020-09-23T20:10:33Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/multi-mount-items-pod-wasi-e2e-can-mount-individual-values/multisecret as guestpath /ms
+[2020-09-23T20:10:33Z INFO  wasi_provider::states::starting] All containers started for pod "multi-mount-items-pod".
+[2020-09-23T20:10:36Z ERROR wasi_provider::states::registered] Cannot run kube-proxy
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] starting run of module
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] module run complete
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] starting run of module
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] module run complete
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] starting run of module
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] module run complete
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] starting run of module
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] module run complete
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] starting run of module
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] starting run of module
+[2020-09-23T20:10:37Z ERROR wasi_provider::wasi_runtime] unable to run module: Exited with i32 exit status 1
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] module run complete
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] starting run of module
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] starting run of module
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] starting run of module
+[2020-09-23T20:10:37Z ERROR wasi_provider::wasi_runtime] unable to run module: Exited with i32 exit status 1
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] module run complete
+[2020-09-23T20:10:37Z INFO  wasi_provider::wasi_runtime] module run complete
+[2020-09-23T20:10:37Z INFO  wasi_provider::states::initializing] Starting init container "init-2" for pod "hello-wasi-with-inits"
+[2020-09-23T20:10:37Z DEBUG wasi_provider::states::starting] Starting container init-2 on thread
+[2020-09-23T20:10:37Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/hello-wasi-with-inits-wasi-e2e-init-containers/default-token-xcrrh as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:37Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /tmp/.tmpd63UZP as guestpath /hp
+[2020-09-23T20:10:38Z INFO  wasi_provider::wasi_runtime] starting run of module
+[2020-09-23T20:10:38Z INFO  wasi_provider::wasi_runtime] module run complete
+[2020-09-23T20:10:38Z INFO  wasi_provider::states::initializing] Finished init containers for pod "hello-wasi-with-inits"
+[2020-09-23T20:10:38Z INFO  wasi_provider::states::starting] Starting containers for pod "hello-wasi-with-inits"
+[2020-09-23T20:10:38Z DEBUG wasi_provider::states::starting] Starting container hello-wasi-with-inits on thread
+[2020-09-23T20:10:38Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/hello-wasi-with-inits-wasi-e2e-init-containers/default-token-xcrrh as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:38Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /tmp/.tmpd63UZP as guestpath /hp
+[2020-09-23T20:10:38Z INFO  wasi_provider::states::starting] All containers started for pod "hello-wasi-with-inits".
+[2020-09-23T20:10:39Z INFO  wasi_provider::wasi_runtime] starting run of module
+[2020-09-23T20:10:39Z INFO  wasi_provider::wasi_runtime] module run complete
+[2020-09-23T20:10:42Z INFO  wasi_provider::states::registered] Pod added: faily-pod.
+[2020-09-23T20:10:42Z INFO  wasi_provider::states::registered] Pod added: faily-inits-pod.
+[2020-09-23T20:10:42Z INFO  wasi_provider::states::initializing] Finished init containers for pod "faily-pod"
+[2020-09-23T20:10:42Z INFO  wasi_provider::states::starting] Starting containers for pod "faily-pod"
+[2020-09-23T20:10:42Z DEBUG wasi_provider::states::starting] Starting container faily-pod on thread
+[2020-09-23T20:10:42Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/faily-pod-wasi-e2e-module-exit-error/default-token-wtl88 as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:42Z ERROR wasi_provider::states::starting] channel closed
+[2020-09-23T20:10:42Z INFO  wasi_provider::states::initializing] Starting init container "init-that-fails" for pod "faily-inits-pod"
+[2020-09-23T20:10:42Z DEBUG wasi_provider::states::starting] Starting container init-that-fails on thread
+[2020-09-23T20:10:42Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/faily-inits-pod-wasi-e2e-failing-init-containers/default-token-cbzr6 as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:42Z ERROR wasi_provider::states::initializing] channel closed
+[2020-09-23T20:10:46Z ERROR wasi_provider::states::registered] Cannot run kube-proxy
+[2020-09-23T20:10:47Z INFO  wasi_provider::states::registered] Pod added: faily-pod.
+[2020-09-23T20:10:47Z INFO  wasi_provider::states::registered] Pod added: faily-inits-pod.
+[2020-09-23T20:10:48Z INFO  wasi_provider::states::initializing] Starting init container "init-that-fails" for pod "faily-inits-pod"
+[2020-09-23T20:10:48Z DEBUG wasi_provider::states::starting] Starting container init-that-fails on thread
+[2020-09-23T20:10:48Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/faily-inits-pod-wasi-e2e-failing-init-containers/default-token-cbzr6 as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:48Z ERROR wasi_provider::states::initializing] channel closed
+[2020-09-23T20:10:48Z INFO  wasi_provider::states::initializing] Finished init containers for pod "faily-pod"
+[2020-09-23T20:10:48Z INFO  wasi_provider::states::starting] Starting containers for pod "faily-pod"
+[2020-09-23T20:10:48Z DEBUG wasi_provider::states::starting] Starting container faily-pod on thread
+[2020-09-23T20:10:48Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/faily-pod-wasi-e2e-module-exit-error/default-token-wtl88 as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:48Z ERROR wasi_provider::states::starting] channel closed
+[2020-09-23T20:10:51Z ERROR wasi_provider::states::registered] Cannot run kube-proxy
+[2020-09-23T20:10:53Z INFO  wasi_provider::states::registered] Pod added: faily-inits-pod.
+[2020-09-23T20:10:53Z INFO  wasi_provider::states::initializing] Starting init container "init-that-fails" for pod "faily-inits-pod"
+[2020-09-23T20:10:53Z DEBUG wasi_provider::states::starting] Starting container init-that-fails on thread
+[2020-09-23T20:10:53Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/faily-inits-pod-wasi-e2e-failing-init-containers/default-token-cbzr6 as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:53Z ERROR wasi_provider::states::initializing] channel closed
+[2020-09-23T20:10:53Z INFO  wasi_provider::states::registered] Pod added: faily-pod.
+[2020-09-23T20:10:53Z INFO  wasi_provider::states::initializing] Finished init containers for pod "faily-pod"
+[2020-09-23T20:10:53Z INFO  wasi_provider::states::starting] Starting containers for pod "faily-pod"
+[2020-09-23T20:10:53Z DEBUG wasi_provider::states::starting] Starting container faily-pod on thread
+[2020-09-23T20:10:53Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/faily-pod-wasi-e2e-module-exit-error/default-token-wtl88 as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:10:53Z ERROR wasi_provider::states::starting] channel closed
+[2020-09-23T20:10:56Z ERROR wasi_provider::states::registered] Cannot run kube-proxy
+[2020-09-23T20:11:01Z ERROR wasi_provider::states::registered] Cannot run kube-proxy
+[2020-09-23T20:11:03Z INFO  wasi_provider::states::registered] Pod added: faily-inits-pod.
+[2020-09-23T20:11:03Z INFO  wasi_provider::states::registered] Pod added: faily-pod.
+[2020-09-23T20:11:03Z INFO  wasi_provider::states::initializing] Starting init container "init-that-fails" for pod "faily-inits-pod"
+[2020-09-23T20:11:03Z DEBUG wasi_provider::states::starting] Starting container init-that-fails on thread
+[2020-09-23T20:11:03Z DEBUG wasi_provider::wasi_runtime] mounting hostpath /home/ivan/.krustlet/volumes/faily-inits-pod-wasi-e2e-failing-init-containers/default-token-cbzr6 as guestpath /var/run/secrets/kubernetes.io/serviceaccount
+[2020-09-23T20:11:03Z ERROR wasi_provider::states::initializing] channel closed

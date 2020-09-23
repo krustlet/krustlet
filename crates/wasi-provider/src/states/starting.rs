@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use log::{debug, info};
+use log::{debug, error, info};
 use tokio::sync::Mutex;
 
 use kubelet::container::{Container, ContainerKey};
@@ -15,6 +15,7 @@ use kubelet::volume::Ref;
 use crate::wasi_runtime::{self, HandleFactory, Runtime, WasiRuntime};
 use crate::PodState;
 
+use super::error::Error;
 use super::running::Running;
 
 fn volume_path_map(
@@ -97,11 +98,7 @@ impl Starting {
 
 #[async_trait::async_trait]
 impl State<PodState> for Starting {
-    async fn next(
-        self: Box<Self>,
-        pod_state: &mut PodState,
-        pod: &Pod,
-    ) -> anyhow::Result<Transition<PodState>> {
+    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
         let mut container_handles: ContainerHandleMap = HashMap::new();
 
         {
@@ -111,14 +108,23 @@ impl State<PodState> for Starting {
 
         info!("Starting containers for pod {:?}", pod.name());
         for container in pod.containers() {
-            let container_handle = start_container(pod_state, &pod, &container).await?;
+            let container_handle = match start_container(pod_state, &pod, &container).await {
+                Ok(h) => h,
+                Err(e) => {
+                    error!("{:?}", e);
+                    let error_state = Error {
+                        message: e.to_string(),
+                    };
+                    return Transition::next(self, error_state);
+                }
+            };
             container_handles.insert(
                 ContainerKey::App(container.name().to_string()),
                 container_handle,
             );
         }
 
-        let pod_handle = Handle::new(container_handles, pod.clone(), None).await?;
+        let pod_handle = Handle::new(container_handles, pod.clone(), None);
         let pod_key = PodKey::from(pod);
         {
             let mut handles = pod_state.shared.handles.write().await;
@@ -126,7 +132,7 @@ impl State<PodState> for Starting {
         }
         info!("All containers started for pod {:?}.", pod.name());
 
-        Ok(Transition::next(self, Running))
+        Transition::next(self, Running)
     }
 
     async fn json_status(
@@ -139,3 +145,4 @@ impl State<PodState> for Starting {
 }
 
 impl TransitionTo<Running> for Starting {}
+impl TransitionTo<Error> for Starting {}

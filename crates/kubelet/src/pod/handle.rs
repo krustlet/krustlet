@@ -37,16 +37,16 @@ impl<H: StopHandler, F> Handle<H, F> {
     /// kubernetes object and to be able to update the status of that object. The optional volumes
     /// parameter allows a caller to pass a map of volumes to keep reference to (so that they will
     /// be dropped along with the pod)
-    pub async fn new(
+    pub fn new(
         container_handles: ContainerHandleMap<H, F>,
         pod: Pod,
         volumes: Option<HashMap<String, Ref>>,
-    ) -> anyhow::Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             container_handles: RwLock::new(container_handles),
             pod,
             _volumes: volumes.unwrap_or_default(),
-        })
+        }
     }
 
     /// Streams output from the specified container into the given sender.

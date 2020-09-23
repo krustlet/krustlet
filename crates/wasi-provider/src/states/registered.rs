@@ -28,21 +28,17 @@ pub struct Registered;
 
 #[async_trait::async_trait]
 impl State<PodState> for Registered {
-    async fn next(
-        self: Box<Self>,
-        _pod_state: &mut PodState,
-        pod: &Pod,
-    ) -> anyhow::Result<Transition<PodState>> {
+    async fn next(self: Box<Self>, _pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
         match validate_pod_runnable(&pod) {
             Ok(_) => (),
             Err(e) => {
                 let message = format!("{:?}", e);
                 error!("{}", message);
-                return Ok(Transition::next(self, Error { message }));
+                return Transition::next(self, Error { message });
             }
         }
         info!("Pod added: {}.", pod.name());
-        Ok(Transition::next(self, ImagePull))
+        Transition::next(self, ImagePull)
     }
 
     async fn json_status(

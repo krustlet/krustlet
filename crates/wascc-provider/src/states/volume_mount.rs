@@ -12,11 +12,7 @@ pub struct VolumeMount;
 
 #[async_trait::async_trait]
 impl State<PodState> for VolumeMount {
-    async fn next(
-        self: Box<Self>,
-        pod_state: &mut PodState,
-        pod: &Pod,
-    ) -> anyhow::Result<Transition<PodState>> {
+    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
         pod_state.run_context.volumes = match Ref::volumes_from_pod(
             &pod_state.shared.volume_path,
             &pod,
@@ -30,10 +26,10 @@ impl State<PodState> for VolumeMount {
                 let error_state = Error {
                     message: e.to_string(),
                 };
-                return Ok(Transition::next(self, error_state));
+                return Transition::next(self, error_state);
             }
         };
-        Ok(Transition::next(self, Starting))
+        Transition::next(self, Starting)
     }
 
     async fn json_status(

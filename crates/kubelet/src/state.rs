@@ -1,5 +1,5 @@
 //! Used to define a state machine of Pod states.
-use log::debug;
+use log::{debug, error};
 
 pub mod prelude;
 
@@ -28,8 +28,12 @@ pub struct StateHolder<PodState> {
 pub enum Transition<PodState> {
     /// Transition to new state.
     Next(StateHolder<PodState>),
-    /// This is a terminal node of the state graph.
+    /// Stop executing the state machine and report the result of the execution.
     Complete(anyhow::Result<()>),
+    /// Stop executing the state machine and report that the state machine
+    /// failed.
+    // TODO: is this really any different from Complete(Err(...))?
+    Fatal(anyhow::Error),
 }
 
 /// Mark an edge exists between two states.
@@ -58,8 +62,8 @@ impl<PodState> Transition<PodState> {
     ///         self: Box<Self>,
     ///         _pod_state: &mut PodState,
     ///         _pod: &Pod,
-    ///     ) -> anyhow::Result<Transition<PodState>> {
-    ///         Ok(Transition::next(self, TestState))
+    ///     ) -> Transition<PodState> {
+    ///         Transition::next(self, TestState)
     ///     }
     ///
     ///     async fn json_status(
@@ -217,11 +221,7 @@ pub trait AsyncDrop: Sized {
 /// A trait representing a node in the state graph.
 pub trait State<PodState>: Sync + Send + 'static + std::fmt::Debug {
     /// Provider supplies method to be executed when in this state.
-    async fn next(
-        self: Box<Self>,
-        pod_state: &mut PodState,
-        pod: &Pod,
-    ) -> anyhow::Result<Transition<PodState>>;
+    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState>;
 
     /// Provider supplies JSON status patch to apply when entering this state.
     async fn json_status(
@@ -252,7 +252,7 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
             .await?;
         debug!("Pod {} executing state handler {:?}", pod.name(), state);
 
-        let transition = { state.next(pod_state, &pod).await? };
+        let transition = { state.next(pod_state, &pod).await };
 
         state = match transition {
             Transition::Next(s) => {
@@ -267,6 +267,10 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
                 );
                 break result;
             }
+            Transition::Fatal(err) => {
+                error!("Pod {} execution fatal error {:?}", pod.name(), err);
+                break Err(err);
+            }
         };
     }
 }
@@ -277,12 +281,8 @@ pub struct Stub;
 
 #[async_trait::async_trait]
 impl<P: 'static + Sync + Send> State<P> for Stub {
-    async fn next(
-        self: Box<Self>,
-        _pod_state: &mut P,
-        _pod: &Pod,
-    ) -> anyhow::Result<Transition<P>> {
-        Ok(Transition::Complete(Ok(())))
+    async fn next(self: Box<Self>, _pod_state: &mut P, _pod: &Pod) -> Transition<P> {
+        Transition::Complete(Ok(()))
     }
 
     async fn json_status(
@@ -311,8 +311,8 @@ mod test {
             self: Box<Self>,
             _pod_state: &mut PodState,
             _pod: &Pod,
-        ) -> anyhow::Result<Transition<PodState>> {
-            Ok(Transition::Complete(Ok(())))
+        ) -> Transition<PodState> {
+            Transition::Complete(Ok(()))
         }
 
         async fn json_status(
@@ -337,8 +337,8 @@ mod test {
                 self: Box<Self>,
                 _pod_state: &mut PodState,
                 _pod: &Pod,
-            ) -> anyhow::Result<Transition<PodState>> {
-                Ok(Transition::next(self, ValidState))
+            ) -> Transition<PodState> {
+                Transition::next(self, ValidState)
             }
 
             async fn json_status(
