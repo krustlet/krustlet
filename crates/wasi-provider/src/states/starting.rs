@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use log::{debug, error, info};
+use log::{debug, info};
 use tokio::sync::Mutex;
 
 use kubelet::container::{Container, ContainerKey};
@@ -17,6 +17,7 @@ use crate::PodState;
 
 use super::error::Error;
 use super::running::Running;
+use crate::fail_fatal;
 
 fn volume_path_map(
     container: &Container,
@@ -110,10 +111,7 @@ impl State<PodState> for Starting {
         for container in pod.containers() {
             let container_handle = match start_container(pod_state, &pod, &container).await {
                 Ok(h) => h,
-                Err(e) => {
-                    error!("{:?}", e);
-                    return Transition::Fatal(e);
-                }
+                Err(e) => fail_fatal!(e),
             };
             container_handles.insert(
                 ContainerKey::App(container.name().to_string()),

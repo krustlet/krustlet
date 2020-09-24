@@ -12,6 +12,7 @@ use kubelet::state::prelude::*;
 
 use super::error::Error;
 use super::starting::{start_container, ContainerHandleMap, Starting};
+use crate::fail_fatal;
 
 async fn patch_init_status(
     client: &Api<KubePod>,
@@ -85,10 +86,7 @@ impl State<PodState> for Initializing {
 
             let handle = match start_container(pod_state, pod, &init_container).await {
                 Ok(h) => h,
-                Err(e) => {
-                    error!("{:?}", e);
-                    return Transition::Fatal(e);
-                }
+                Err(e) => fail_fatal!(e),
             };
 
             container_handles.insert(
@@ -129,10 +127,7 @@ impl State<PodState> for Initializing {
 
                         let status_json = match serde_json::to_vec(&s) {
                             Ok(json) => json,
-                            Err(e) => {
-                                error!("{:?}", e);
-                                return Transition::Fatal(anyhow::Error::from(e));
-                            }
+                            Err(e) => fail_fatal!(e),
                         };
 
                         match client
@@ -140,10 +135,7 @@ impl State<PodState> for Initializing {
                             .await
                         {
                             Ok(_) => return Transition::next(self, Error { message }),
-                            Err(e) => {
-                                error!("{:?}", e);
-                                return Transition::Fatal(anyhow::Error::from(e));
-                            }
+                            Err(e) => fail_fatal!(e),
                         };
                     } else {
                         break;

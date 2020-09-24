@@ -1,10 +1,10 @@
 use crate::PodState;
 use kubelet::state::prelude::*;
 use kubelet::volume::Ref;
-use log::error;
 
 use super::error::Error;
 use super::starting::Starting;
+use crate::transition_to_error;
 
 /// Kubelet is pulling container images.
 #[derive(Default, Debug)]
@@ -21,13 +21,7 @@ impl State<PodState> for VolumeMount {
         .await
         {
             Ok(volumes) => volumes,
-            Err(e) => {
-                error!("{:?}", e);
-                let error_state = Error {
-                    message: e.to_string(),
-                };
-                return Transition::next(self, error_state);
-            }
+            Err(e) => transition_to_error!(self, e),
         };
         Transition::next(self, Starting)
     }

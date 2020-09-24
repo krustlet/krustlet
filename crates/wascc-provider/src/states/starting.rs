@@ -18,6 +18,7 @@ use crate::{wascc_run, ActorHandle, LogHandleFactory, WasccProvider};
 
 use super::error::Error;
 use super::running::Running;
+use crate::{fail_fatal, transition_to_error};
 
 #[derive(Debug)]
 struct PortAllocationError;
@@ -155,13 +156,7 @@ impl State<PodState> for Starting {
             .await
             {
                 Ok(port) => port,
-                Err(e) => {
-                    error!("{:?}", e);
-                    let error_state = Error {
-                        message: e.to_string(),
-                    };
-                    return Transition::next(self, error_state);
-                }
+                Err(e) => transition_to_error!(self, e),
             };
             debug!(
                 "New port assigned to {} is: {}",
@@ -172,10 +167,7 @@ impl State<PodState> for Starting {
             let container_handle =
                 match start_container(pod_state, &container, &pod, port_assigned).await {
                     Ok(handle) => handle,
-                    Err(e) => {
-                        error!("{:?}", e);
-                        return Transition::Fatal(e);
-                    }
+                    Err(e) => fail_fatal!(e),
                 };
             container_handles.insert(
                 ContainerKey::App(container.name().to_string()),
