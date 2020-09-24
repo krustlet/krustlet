@@ -2,6 +2,8 @@
 mod handle;
 mod queue;
 mod status;
+// Ignore deprecated here as this is just a reexport
+#[allow(deprecated)]
 pub use handle::{key_from_pod, pod_key, Handle};
 pub(crate) use queue::Queue;
 pub use status::{make_status, update_status, Phase, Status, StatusMessage};
@@ -199,6 +201,70 @@ impl<'a> std::convert::From<&'a Pod> for &'a KubePod {
 impl std::convert::From<Pod> for KubePod {
     fn from(pod: Pod) -> Self {
         pod.kube_pod
+    }
+}
+
+/// PodKey is a unique human readable key for storing a handle to a pod in a hash.
+#[derive(Hash, Ord, Eq, PartialOrd, PartialEq, Debug, Clone, Default)]
+pub struct PodKey {
+    name: String,
+    namespace: String,
+}
+
+impl PodKey {
+    /// Creates a new pod key from arbitrary strings. In general, you'll likely want to use
+    /// [`PodKey::from`] to convert from a Kubernetes Pod or our internal [`Pod`] representation
+    pub fn new<N: AsRef<str>, T: AsRef<str>>(namespace: N, pod_name: T) -> Self {
+        PodKey {
+            name: pod_name.as_ref().to_owned(),
+            namespace: namespace.as_ref().to_owned(),
+        }
+    }
+
+    /// Returns the name of the pod in the pod key
+    pub fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    /// Returns the namespace of the pod in the pod key
+    pub fn namespace(&self) -> String {
+        self.namespace.clone()
+    }
+}
+
+impl From<Pod> for PodKey {
+    fn from(p: Pod) -> Self {
+        PodKey {
+            name: p.name().to_owned(),
+            namespace: p.namespace().to_owned(),
+        }
+    }
+}
+
+impl From<&Pod> for PodKey {
+    fn from(p: &Pod) -> Self {
+        PodKey {
+            name: p.name().to_owned(),
+            namespace: p.namespace().to_owned(),
+        }
+    }
+}
+
+impl From<KubePod> for PodKey {
+    fn from(p: KubePod) -> Self {
+        PodKey {
+            name: p.name(),
+            namespace: p.namespace().unwrap_or_else(|| "default".to_string()),
+        }
+    }
+}
+
+impl From<&KubePod> for PodKey {
+    fn from(p: &KubePod) -> Self {
+        PodKey {
+            name: p.name(),
+            namespace: p.namespace().unwrap_or_else(|| "default".to_string()),
+        }
     }
 }
 

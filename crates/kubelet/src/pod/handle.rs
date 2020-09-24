@@ -98,12 +98,21 @@ impl<H: StopHandler, F> Handle<H, F> {
 
 /// Generates a unique human readable key for storing a handle to a pod in a
 /// hash. This is a convenience wrapper around [pod_key].
+#[deprecated(
+    since = "0.6.0",
+    note = "Please use the new kubelet::pod::PodKey type. This function will be removed in 0.7"
+)]
 pub fn key_from_pod(pod: &Pod) -> String {
+    #[allow(deprecated)]
     pod_key(pod.namespace(), pod.name())
 }
 
 /// Generates a unique human readable key for storing a handle to a pod if you
 /// already have the namespace and pod name.
+#[deprecated(
+    since = "0.6.0",
+    note = "Please use the new kubelet::pod::PodKey type. This function will be removed in 0.7"
+)]
 pub fn pod_key<N: AsRef<str>, T: AsRef<str>>(namespace: N, pod_name: T) -> String {
     format!("{}:{}", namespace.as_ref(), pod_name.as_ref())
 }

@@ -1,14 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use k8s_openapi::api::core::v1::Pod as KubePod;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::Meta;
 use kube::Client as KubeClient;
 use kube_runtime::watcher::Event;
 use log::{debug, error, warn};
 use tokio::sync::RwLock;
 
-use crate::pod::{pod_key, Phase, Pod};
+use crate::pod::{Phase, Pod, PodKey};
 use crate::provider::Provider;
 use crate::state::{run_to_completion, AsyncDrop};
 
@@ -21,7 +22,7 @@ use crate::state::{run_to_completion, AsyncDrop};
 /// modify will be handled, which is ok given that each event contains the whole pod object
 pub(crate) struct Queue<P> {
     provider: Arc<P>,
-    handlers: HashMap<String, tokio::sync::mpsc::Sender<Event<KubePod>>>,
+    handlers: HashMap<PodKey, tokio::sync::mpsc::Sender<Event<KubePod>>>,
     client: KubeClient,
 }
 
@@ -80,7 +81,6 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                         *(pod_deleted.write().await) = true;
                         break;
                     }
-                    // TODO: Figure out restarts
                     _ => warn!("Pod got unexpected event, ignoring: {:?}", &event),
                 }
             }
@@ -91,9 +91,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
     pub async fn enqueue(&mut self, event: Event<KubePod>) -> anyhow::Result<()> {
         match &event {
             Event::Applied(pod) => {
-                let pod_name = pod.name();
-                let pod_namespace = pod.namespace().unwrap_or_default();
-                let key = pod_key(&pod_namespace, &pod_name);
+                let key = PodKey::from(pod);
                 // We are explicitly not using the entry api here to insert to avoid the need for a
                 // mutex
                 let sender = match self.handlers.get_mut(&key) {
@@ -116,7 +114,8 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                 match sender.send(event).await {
                     Ok(_) => debug!(
                         "successfully sent event to handler for pod {} in namespace {}",
-                        pod_name, pod_namespace
+                        key.name(),
+                        key.namespace()
                     ),
                     Err(e) => error!(
                         "error while sending event. Will retry on next event: {:?}",
@@ -126,17 +125,45 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                 Ok(())
             }
             Event::Deleted(pod) => {
-                let pod_name = pod.name();
-                let pod_namespace = pod.namespace().unwrap_or_default();
-                let key = pod_key(&pod_namespace, &pod_name);
+                let key = PodKey::from(pod);
                 if let Some(mut sender) = self.handlers.remove(&key) {
                     sender.send(event).await?;
                 }
                 Ok(())
             }
-            // TODO: Figure out how to handle restarted. It might need to be handled at a higher level (as to be reenqueued properly)
-            Event::Restarted(_) => Ok(()),
+            // Restarted should not be passed to this function, it should be passed to resync instead
+            Event::Restarted(_) => {
+                warn!("Got a restarted event. Restarted events should be resynced with the queue");
+                Ok(())
+            }
         }
+    }
+    /// Resyncs the queue given the list of pods. Pods that exist in the queue but no longer exist
+    /// in the list will be deleted
+    // TODO: I really don't like having handle the resync at the kubelet level with this function,
+    // but we can't do async recursion without boxing, which causes other issues
+    pub async fn resync(&mut self, pods: Vec<KubePod>) -> anyhow::Result<()> {
+        // First reconcile any deleted pods we might have missed (if it exists in our map, but not
+        // in the list)
+        let current_pods: HashSet<PodKey> = pods.iter().map(PodKey::from).collect();
+        let pods_in_state: HashSet<PodKey> = self.handlers.keys().cloned().collect();
+        for pk in pods_in_state.difference(&current_pods) {
+            self.enqueue(Event::Deleted(KubePod {
+                metadata: ObjectMeta {
+                    name: Some(pk.name()),
+                    namespace: Some(pk.namespace()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }))
+            .await?
+        }
+
+        // Now that we've sent off deletes, queue an apply event for all pods
+        for pod in pods.into_iter() {
+            self.enqueue(Event::Applied(pod)).await?
+        }
+        Ok(())
     }
 }
 

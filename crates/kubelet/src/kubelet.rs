@@ -171,10 +171,19 @@ async fn start_pod_informer<P: 'static + Provider + Sync + Send>(
                     warn!("Node is shutting down and unschedulable. Dropping Add Pod event.");
                     continue;
                 }
-                match queue.enqueue(event).await {
-                    Ok(()) => debug!("Enqueued event for processing"),
-                    Err(e) => warn!("Error enqueuing pod event: {}", e),
-                };
+                if let kube_runtime::watcher::Event::Restarted(pods) = event {
+                    info!("Got a pod watch restart. Resyncing queue...");
+                    // If we got a restart, we need to requeue an applied event for all pods
+                    match queue.resync(pods).await {
+                        Ok(()) => info!("Finished resync of pods"),
+                        Err(e) => warn!("Error resyncing pods: {}", e),
+                    };
+                } else {
+                    match queue.enqueue(event).await {
+                        Ok(()) => debug!("Enqueued event for processing"),
+                        Err(e) => warn!("Error enqueuing pod event: {}", e),
+                    };
+                }
             }
             Ok(None) => break,
             Err(e) => warn!("Error streaming pod events: {:?}", e),

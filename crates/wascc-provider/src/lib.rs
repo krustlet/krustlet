@@ -36,7 +36,7 @@ use kubelet::backoff::ExponentialBackoffStrategy;
 use kubelet::container::Handle as ContainerHandle;
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
-use kubelet::pod::{key_from_pod, pod_key, Handle, Pod};
+use kubelet::pod::{Handle, Pod, PodKey};
 use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
 use kubelet::store::Store;
@@ -131,12 +131,12 @@ pub struct WasccProvider {
 #[derive(Clone)]
 struct SharedPodState {
     client: kube::Client,
-    handles: Arc<RwLock<BTreeMap<String, Handle<ActorHandle, LogHandleFactory>>>>,
+    handles: Arc<RwLock<BTreeMap<PodKey, Handle<ActorHandle, LogHandleFactory>>>>,
     store: Arc<dyn Store + Sync + Send>,
     volume_path: PathBuf,
     log_path: PathBuf,
     host: Arc<Mutex<WasccHost>>,
-    port_map: Arc<TokioMutex<BTreeMap<u16, String>>>,
+    port_map: Arc<TokioMutex<BTreeMap<u16, PodKey>>>,
 }
 
 impl WasccProvider {
@@ -151,7 +151,7 @@ impl WasccProvider {
         let host = Arc::new(Mutex::new(WasccHost::new()));
         let log_path = config.data_dir.join(LOG_DIR_NAME);
         let volume_path = config.data_dir.join(VOLUME_DIR);
-        let port_map = Arc::new(TokioMutex::new(BTreeMap::<u16, String>::new()));
+        let port_map = Arc::new(TokioMutex::new(BTreeMap::<u16, PodKey>::new()));
         tokio::fs::create_dir_all(&log_path).await?;
         tokio::fs::create_dir_all(&volume_path).await?;
 
@@ -213,7 +213,7 @@ struct ModuleRunContext {
 
 /// State that is shared between pod state handlers.
 pub struct PodState {
-    key: String,
+    key: PodKey,
     run_context: ModuleRunContext,
     errors: usize,
     image_pull_backoff_strategy: ExponentialBackoffStrategy,
@@ -231,7 +231,12 @@ impl kubelet::state::AsyncDrop for PodState {
                 .iter()
                 .filter_map(|(k, v)| if v == &self.key { Some(*k) } else { None })
                 .collect();
-            debug!("Pod {} releasing ports {:?}.", &self.key, &ports_to_remove);
+            debug!(
+                "Pod {} in namespace {} releasing ports {:?}.",
+                &self.key.name(),
+                &self.key.namespace(),
+                &ports_to_remove
+            );
             for port in ports_to_remove {
                 lock.remove(&port);
             }
@@ -262,7 +267,7 @@ impl Provider for WasccProvider {
             modules: Default::default(),
             volumes: Default::default(),
         };
-        let key = key_from_pod(pod);
+        let key = PodKey::from(pod);
         Ok(PodState {
             key,
             run_context,
@@ -282,7 +287,7 @@ impl Provider for WasccProvider {
     ) -> anyhow::Result<()> {
         let mut handles = self.shared.handles.write().await;
         let handle = handles
-            .get_mut(&pod_key(&namespace, &pod_name))
+            .get_mut(&PodKey::new(&namespace, &pod_name))
             .ok_or_else(|| ProviderError::PodNotFound {
                 pod_name: pod_name.clone(),
             })?;
