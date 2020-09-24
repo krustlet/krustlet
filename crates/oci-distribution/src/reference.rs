@@ -80,12 +80,7 @@ impl Reference {
 impl TryFrom<String> for Reference {
     type Error = anyhow::Error;
     fn try_from(string: String) -> Result<Self, Self::Error> {
-        let repo_start = string.find('/').ok_or_else(|| {
-            anyhow::anyhow!(
-                "Failed to parse reference string '{}'. Expected at least one slash (/)",
-                string
-            )
-        })?;
+        let repo_start = string.find('/').unwrap_or(0);
         let first_colon = string[repo_start + 1..].find(':').map(|i| repo_start + i);
         let digest_start = string[repo_start + 1..]
             .find('@')
@@ -170,6 +165,14 @@ mod test {
                 reference.digest(),
                 Some("sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9")
             );
+        }
+
+        #[test]
+        fn default_library() {
+            let reference = must_parse("nginx");
+            assert_eq!(reference.registry(), "");
+            assert_eq!(reference.repository(), "nginx");
+            assert_eq!(reference.digest(), None);
         }
 
         #[test]
