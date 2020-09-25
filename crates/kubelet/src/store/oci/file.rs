@@ -205,7 +205,7 @@ mod test {
                 .images
                 .read()
                 .expect("should be able to read from images");
-            match images.get(image_ref.whole()) {
+            match images.get(&image_ref.whole()) {
                 Some(v) => Ok(v.clone()),
                 None => Err(anyhow::anyhow!("error pulling module")),
             }
