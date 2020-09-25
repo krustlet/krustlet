@@ -159,7 +159,7 @@ impl Container {
     /// Get image of container as `oci_distribution::Reference`.
     pub fn image(&self) -> anyhow::Result<Option<Reference>> {
         match self.0.image.as_ref() {
-            Some(s) => Some(s.clone().try_into()).transpose(),
+            Some(s) => Ok(Some(s.clone().try_into()?)),
             None => Ok(None),
         }
     }

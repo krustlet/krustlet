@@ -1,22 +1,55 @@
 use std::convert::{Into, TryFrom};
+use std::error::Error;
+use std::fmt;
+use std::path::PathBuf;
 use std::str::FromStr;
 
-/// An OCI image reference
-///
-/// Parsing references in the following formats is supported:
-/// - `<registry>/<repository>`
-/// - `<registry>/<repository>:<tag>`
-/// - `<registry>/<repository>@<digest>`
-/// - `<registry>/<repository>:<tag>@<digest>`
+/// NAME_TOTAL_LENGTH_MAX is the maximum total number of characters in a repository name.
+const NAME_TOTAL_LENGTH_MAX: usize = 255;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ParseError {
+    DigestInvalidFormat,
+    NameContainsUppercase,
+    NameEmpty,
+    NameNotCanonical,
+    NameTooLong,
+    ReferenceInvalidFormat,
+    TagInvalidFormat,
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParseError::DigestInvalidFormat => write!(f, "invalid digest format"),
+            ParseError::NameContainsUppercase => write!(f, "repository name must be lowercase"),
+            ParseError::NameEmpty => write!(f, "repository name must have at least one component"),
+            ParseError::NameNotCanonical => write!(f, "repository name must be canonical"),
+            ParseError::NameTooLong => write!(
+                f,
+                "repository name must not be more than {} characters",
+                NAME_TOTAL_LENGTH_MAX
+            ),
+            ParseError::ReferenceInvalidFormat => write!(f, "invalid reference format"),
+            ParseError::TagInvalidFormat => write!(f, "invalid tag format"),
+        }
+    }
+}
+
+impl Error for ParseError {}
+
+/// Reference provides a general type to represent any way of referencing images within an OCI registry.
 ///
 /// # Examples
 ///
 /// Parsing a tagged image reference:
+///
 /// ```
 /// use oci_distribution::Reference;
 ///
 /// let reference: Reference = "docker.io/library/hello-world:latest".parse().unwrap();
 ///
+/// assert_eq!("docker.io/library/hello-world:latest", reference.whole().as_str());
 /// assert_eq!("docker.io", reference.registry());
 /// assert_eq!("library/hello-world", reference.repository());
 /// assert_eq!(Some("latest"), reference.tag());
@@ -24,72 +57,89 @@ use std::str::FromStr;
 /// ```
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct Reference {
-    whole: String,
-    repo_start: usize,
-    repo_end: usize,
-    tag_start: Option<usize>,
-    digest_start: Option<usize>,
+    registry: String,
+    repository: String,
+    tag: Option<String>,
+    digest: Option<String>,
+}
+
+impl Reference {
+    /// registry returns the name of the registry.
+    pub fn registry(&self) -> &str {
+        &self.registry
+    }
+
+    /// repository returns the name of the repository.
+    pub fn repository(&self) -> &str {
+        &self.repository
+    }
+
+    /// tag returns the object's tag, if present.
+    pub fn tag(&self) -> Option<&str> {
+        self.tag.as_deref()
+    }
+
+    /// digest returns the object's digest, if present.
+    pub fn digest(&self) -> Option<&str> {
+        self.digest.as_deref()
+    }
+
+    /// full_name returns the full repository name and path.
+    fn full_name(&self) -> String {
+        let mut path = PathBuf::new();
+        path.push(self.registry());
+        path.push(self.repository());
+        path.to_str().unwrap_or("").to_owned()
+    }
+
+    /// whole returns the whole reference.
+    pub fn whole(&self) -> String {
+        let mut s = self.full_name();
+        if let Some(t) = self.tag() {
+            if s != "" {
+                s.push_str(":");
+            }
+            s.push_str(t);
+        }
+        if let Some(d) = self.digest() {
+            if s != "" {
+                s.push_str("@");
+            }
+            s.push_str(d);
+        }
+        s
+    }
 }
 
 impl std::fmt::Debug for Reference {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.whole)
+        write!(f, "{}", self.whole())
     }
 }
 
-impl std::fmt::Display for Reference {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.whole)
+impl fmt::Display for Reference {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.whole())
     }
 }
 
-impl Reference {
-    /// Get the original reference.
-    pub fn whole(&self) -> &str {
-        &self.whole
-    }
+impl FromStr for Reference {
+    type Err = ParseError;
 
-    /// Get the registry name.
-    pub fn registry(&self) -> &str {
-        &self.whole[..self.repo_start]
-    }
-
-    /// Get the repository (a.k.a the image name) of this reference
-    pub fn repository(&self) -> &str {
-        &self.whole[self.repo_start + 1..self.repo_end]
-    }
-
-    /// Get the tag for this reference.
-    pub fn tag(&self) -> Option<&str> {
-        match (self.digest_start, self.tag_start) {
-            (Some(d), Some(t)) => Some(&self.whole[t + 1..d]),
-            (None, Some(t)) => Some(&self.whole[t + 1..]),
-            _ => None,
-        }
-    }
-
-    /// Get the digest for this reference.
-    pub fn digest(&self) -> Option<&str> {
-        match self.digest_start {
-            Some(c) => Some(&self.whole[c + 1..]),
-            None => None,
-        }
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Reference::try_from(s)
     }
 }
 
 impl TryFrom<String> for Reference {
-    type Error = anyhow::Error;
-    fn try_from(string: String) -> Result<Self, Self::Error> {
-        let repo_start = string.find('/').ok_or_else(|| {
-            anyhow::anyhow!(
-                "Failed to parse reference string '{}'. Expected at least one slash (/)",
-                string
-            )
-        })?;
-        let first_colon = string[repo_start + 1..].find(':').map(|i| repo_start + i);
-        let digest_start = string[repo_start + 1..]
-            .find('@')
-            .map(|i| repo_start + i + 1);
+    type Error = ParseError;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        let repo_start = s
+            .find('/')
+            .ok_or_else(|| ParseError::ReferenceInvalidFormat)?;
+        let first_colon = s[repo_start + 1..].find(':').map(|i| repo_start + i);
+        let digest_start = s[repo_start + 1..].find('@').map(|i| repo_start + i + 1);
         let tag_start = match (digest_start, first_colon) {
             // Check if a colon comes before a digest delimeter, indicating
             // that image ref is in the form registry/repo:tag@digest
@@ -111,37 +161,45 @@ impl TryFrom<String> for Reference {
             (Some(_), Some(ts)) => ts,
             (None, Some(ts)) => ts,
             (Some(ds), None) => ds,
-            (None, None) => string.len(),
+            (None, None) => s.len(),
         };
 
-        Ok(Reference {
-            whole: string,
-            repo_start,
-            repo_end,
-            tag_start,
-            digest_start,
-        })
+        let tag: Option<String> = match (digest_start, tag_start) {
+            (Some(d), Some(t)) => Some(s[t + 1..d].to_string()),
+            (None, Some(t)) => Some(s[t + 1..].to_string()),
+            _ => None,
+        };
+
+        let digest: Option<String> = match digest_start {
+            Some(c) => Some(s[c + 1..].to_string()),
+            None => None,
+        };
+
+        let reference = Reference {
+            registry: s[..repo_start].to_string(),
+            repository: s[repo_start + 1..repo_end].to_string(),
+            tag: tag,
+            digest: digest,
+        };
+
+        if reference.repository().len() > NAME_TOTAL_LENGTH_MAX {
+            return Err(ParseError::NameTooLong);
+        }
+
+        Ok(reference)
     }
 }
 
 impl TryFrom<&str> for Reference {
-    type Error = anyhow::Error;
+    type Error = ParseError;
     fn try_from(string: &str) -> Result<Self, Self::Error> {
         TryFrom::try_from(string.to_owned())
     }
 }
 
-impl FromStr for Reference {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Reference::try_from(s)
-    }
-}
-
 impl Into<String> for Reference {
     fn into(self) -> String {
-        self.whole
+        self.whole().to_owned()
     }
 }
 
@@ -173,8 +231,20 @@ mod test {
         }
 
         #[test]
+        fn name_too_long() {
+            assert_eq!(
+                Reference::try_from(format!(
+                    "webassembly.azurecr.io/{}",
+                    (0..256).map(|_| "a").collect::<String>()
+                ))
+                .err(),
+                Some(ParseError::NameTooLong)
+            );
+        }
+
+        #[test]
         fn owned_string() {
-            let reference = Reference::try_from("webassembly.azurecr.io/hello:v1".to_owned())
+            let reference = Reference::from_str("webassembly.azurecr.io/hello:v1")
                 .expect("could not parse reference");
 
             validate_registry_and_repository(&reference);
