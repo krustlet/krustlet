@@ -93,7 +93,7 @@ impl TestResourceManager {
 
         // k8s seems to need a bit of time for namespace permissions to flow
         // through the system.  TODO: make this less worse
-        tokio::time::delay_for(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::delay_for(tokio::time::Duration::from_millis(1000)).await;
 
         let image_pull_secret_opt = std::env::var("KRUSTLET_E2E_IMAGE_PULL_SECRET");
 
