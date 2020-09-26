@@ -64,7 +64,7 @@ async fn verify_wascc_node(node: Node) -> () {
         "expected node to support the wasm-wasi architecture"
     );
 
-    let node_meta = node.metadata.expect("node reported no metadata");
+    let node_meta = node.metadata;
     assert_eq!(
         node_meta
             .labels
@@ -172,7 +172,7 @@ async fn verify_wasi_node(node: Node) -> () {
         "expected node to support the wasm-wasi architecture"
     );
 
-    let node_meta = node.metadata.expect("node reported no metadata");
+    let node_meta = node.metadata;
     assert_eq!(
         node_meta
             .labels

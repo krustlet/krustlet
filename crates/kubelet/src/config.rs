@@ -658,7 +658,7 @@ mod test {
         assert_eq!(config.node_labels.get("label1"), Some(&("val1".to_owned())));
         assert_eq!(config.insecure_registries.clone().unwrap().len(), 2);
         assert_eq!(&config.insecure_registries.clone().unwrap()[0], "local");
-        assert_eq!(&config.insecure_registries.clone().unwrap()[1], "dev");
+        assert_eq!(&config.insecure_registries.unwrap()[1], "dev");
     }
 
     #[test]

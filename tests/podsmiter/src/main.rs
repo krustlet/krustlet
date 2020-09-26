@@ -76,7 +76,7 @@ async fn list_e2e_namespaces(client: kube::Client) -> anyhow::Result<Vec<String>
 }
 
 fn name_of(ns: &impl Metadata<Ty = ObjectMeta>) -> String {
-    ns.metadata().unwrap().name.as_ref().unwrap().to_owned()
+    ns.metadata().name.as_ref().unwrap().to_owned()
 }
 
 fn is_e2e_namespace(namespace: &str) -> bool {

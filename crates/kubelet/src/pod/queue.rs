@@ -1,13 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use k8s_openapi::api::core::v1::Pod as KubePod;
-use kube::api::{Meta, WatchEvent};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+use kube::api::Meta;
 use kube::Client as KubeClient;
+use kube_runtime::watcher::Event;
 use log::{debug, error, warn};
 use tokio::sync::RwLock;
 
-use crate::pod::{pod_key, Phase, Pod};
+use crate::pod::{Phase, Pod, PodKey};
 use crate::provider::Provider;
 use crate::state::{run_to_completion, AsyncDrop};
 
@@ -20,7 +22,7 @@ use crate::state::{run_to_completion, AsyncDrop};
 /// modify will be handled, which is ok given that each event contains the whole pod object
 pub(crate) struct Queue<P> {
     provider: Arc<P>,
-    handlers: HashMap<String, tokio::sync::mpsc::Sender<WatchEvent<KubePod>>>,
+    handlers: HashMap<PodKey, tokio::sync::mpsc::Sender<Event<KubePod>>>,
     client: KubeClient,
 }
 
@@ -35,92 +37,24 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
 
     async fn run_pod(
         &self,
-        initial_event: WatchEvent<KubePod>,
-    ) -> anyhow::Result<tokio::sync::mpsc::Sender<WatchEvent<KubePod>>> {
-        let (sender, mut receiver) = tokio::sync::mpsc::channel::<WatchEvent<KubePod>>(16);
+        initial_event: Event<KubePod>,
+    ) -> anyhow::Result<tokio::sync::mpsc::Sender<Event<KubePod>>> {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel::<Event<KubePod>>(16);
 
         let pod_deleted = Arc::new(RwLock::new(false));
-        let check_pod_deleted = Arc::clone(&pod_deleted);
 
         match initial_event {
-            WatchEvent::Added(pod) => {
-                let task_client = self.client.clone();
+            Event::Applied(pod) => {
                 let pod = Pod::from(pod);
-
-                let mut pod_state: P::PodState = self.provider.initialize_pod_state(&pod).await?;
-                tokio::spawn(async move {
-                    let state: P::InitialState = Default::default();
-                    let name = pod.name().to_string();
-
-                    let check = async {
-                        loop {
-                            tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
-                            if *check_pod_deleted.read().await {
-                                break;
-                            }
-                        }
-                    };
-
-                    tokio::select! {
-                        result = run_to_completion(&task_client, state, &mut pod_state, &pod) => match result {
-                            Ok(()) => debug!("Pod {} state machine exited without error", name),
-                            Err(e) => {
-                                error!("Pod {} state machine exited with error: {:?}", name, e);
-                                let api: kube::Api<KubePod> = kube::Api::namespaced(task_client.clone(), pod.namespace());
-                                let patch = serde_json::json!(
-                                    {
-                                        "metadata": {
-                                            "resourceVersion": "",
-                                        },
-                                        "status": {
-                                            "phase": Phase::Failed,
-                                            "reason": format!("{:?}", e),
-                                        }
-                                    }
-                                );
-                                let data = serde_json::to_vec(&patch).unwrap();
-                                api.patch_status(&pod.name(), &kube::api::PatchParams::default(), data)
-                                    .await.unwrap();
-                            },
-                        },
-                        _ = check => {
-                            let state: P::TerminatedState = Default::default();
-                            debug!("Pod {} terminated. Jumping to state {:?}.", name, state);
-                            match run_to_completion(&task_client, state, &mut pod_state, &pod).await {
-                                Ok(()) => debug!("Pod {} state machine exited without error", name),
-                                Err(e) => error!("Pod {} state machine exited with error: {:?}", name, e),
-                            }
-                        }
-                    }
-
-                    debug!("Pod {} waiting for deregistration.", name);
-                    loop {
-                        tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
-                        if *check_pod_deleted.read().await {
-                            debug!("Pod {} deleted.", name);
-                            break;
-                        }
-                    }
-                    pod_state.async_drop().await;
-
-                    let pod_client: kube::Api<KubePod> =
-                        kube::Api::namespaced(task_client, pod.namespace());
-                    let dp = kube::api::DeleteParams {
-                        grace_period_seconds: Some(0),
-                        ..Default::default()
-                    };
-                    match pod_client.delete(&pod.name(), &dp).await {
-                        Ok(_) => {
-                            debug!("Pod {} deregistered.", name);
-                        }
-                        Err(e) => {
-                            // This could happen if Pod was force deleted.
-                            warn!("Unable to deregister {} with Kubernetes API: {:?}", name, e);
-                        }
-                    }
-                });
+                let pod_state = self.provider.initialize_pod_state(&pod).await?;
+                tokio::spawn(start_task::<P>(
+                    self.client.clone(),
+                    pod,
+                    pod_state,
+                    Arc::clone(&pod_deleted),
+                ));
             }
-            _ => anyhow::bail!("Pod with initial event not Added: {:?}", &initial_event),
+            _ => return Err(anyhow::anyhow!("Got non-apply event when starting pod")),
         }
 
         tokio::spawn(async move {
@@ -128,16 +62,17 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                 // Watch errors are handled before an event ever gets here, so it should always have
                 // a pod
                 match event {
-                    WatchEvent::Modified(pod) => {
+                    Event::Applied(pod) => {
                         // Not really using this right now but will be useful for detecting changes.
-                        let p = Pod::from(pod);
-                        debug!("Pod {} modified.", p.name());
+                        let pod = Pod::from(pod);
+                        debug!("Pod {} applied.", pod.name());
+
                         // TODO, detect other changes we want to support, or should this just forward the new pod def to state machine?
-                        if let Some(_timestamp) = p.deletion_timestamp() {
+                        if let Some(_timestamp) = pod.deletion_timestamp() {
                             *(pod_deleted.write().await) = true;
                         }
                     }
-                    WatchEvent::Deleted(pod) => {
+                    Event::Deleted(pod) => {
                         // I'm not sure if this matters, we get notified of pod deletion with a
                         // Modified event, and I think we only get this after *we* delete the pod.
                         // There is the case where someone force deletes, but we want to go through
@@ -153,25 +88,23 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
         Ok(sender)
     }
 
-    pub async fn enqueue(&mut self, event: WatchEvent<KubePod>) -> anyhow::Result<()> {
+    pub async fn enqueue(&mut self, event: Event<KubePod>) -> anyhow::Result<()> {
         match &event {
-            WatchEvent::Added(pod) | WatchEvent::Modified(pod) => {
-                let pod_name = pod.name();
-                let pod_namespace = pod.namespace().unwrap_or_default();
-                let key = pod_key(&pod_namespace, &pod_name);
+            Event::Applied(pod) => {
+                let key = PodKey::from(pod);
                 // We are explicitly not using the entry api here to insert to avoid the need for a
                 // mutex
                 let sender = match self.handlers.get_mut(&key) {
                     Some(s) => {
-                        debug!("Found existing event handler.");
+                        debug!("Found existing event handler for pod {}", pod.name());
                         s
                     }
                     None => {
-                        debug!("Creating event handler.");
+                        debug!("Creating event handler for pod {}", pod.name());
                         self.handlers.insert(
                             key.clone(),
                             // TODO Do we want to capture join handles? Worker wasnt using them.
-                            // TODO Does this mean we handle the Add event twice?
+                            // TODO: This ends up sending the initial event twice
                             // TODO How do we drop this sender / handler?
                             self.run_pod(event.clone()).await?,
                         );
@@ -181,7 +114,8 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                 match sender.send(event).await {
                     Ok(_) => debug!(
                         "successfully sent event to handler for pod {} in namespace {}",
-                        pod_name, pod_namespace
+                        key.name(),
+                        key.namespace()
                     ),
                     Err(e) => error!(
                         "error while sending event. Will retry on next event: {:?}",
@@ -190,17 +124,122 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                 }
                 Ok(())
             }
-            WatchEvent::Deleted(pod) => {
-                let pod_name = pod.name();
-                let pod_namespace = pod.namespace().unwrap_or_default();
-                let key = pod_key(&pod_namespace, &pod_name);
+            Event::Deleted(pod) => {
+                let key = PodKey::from(pod);
                 if let Some(mut sender) = self.handlers.remove(&key) {
                     sender.send(event).await?;
                 }
                 Ok(())
             }
-            WatchEvent::Bookmark(_) => Ok(()),
-            WatchEvent::Error(e) => Err(e.clone().into()),
+            // Restarted should not be passed to this function, it should be passed to resync instead
+            Event::Restarted(_) => {
+                warn!("Got a restarted event. Restarted events should be resynced with the queue");
+                Ok(())
+            }
+        }
+    }
+    /// Resyncs the queue given the list of pods. Pods that exist in the queue but no longer exist
+    /// in the list will be deleted
+    // TODO: I really don't like having handle the resync at the kubelet level with this function,
+    // but we can't do async recursion without boxing, which causes other issues
+    pub async fn resync(&mut self, pods: Vec<KubePod>) -> anyhow::Result<()> {
+        // First reconcile any deleted pods we might have missed (if it exists in our map, but not
+        // in the list)
+        let current_pods: HashSet<PodKey> = pods.iter().map(PodKey::from).collect();
+        let pods_in_state: HashSet<PodKey> = self.handlers.keys().cloned().collect();
+        for pk in pods_in_state.difference(&current_pods) {
+            self.enqueue(Event::Deleted(KubePod {
+                metadata: ObjectMeta {
+                    name: Some(pk.name()),
+                    namespace: Some(pk.namespace()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }))
+            .await?
+        }
+
+        // Now that we've sent off deletes, queue an apply event for all pods
+        for pod in pods.into_iter() {
+            self.enqueue(Event::Applied(pod)).await?
+        }
+        Ok(())
+    }
+}
+
+async fn start_task<P: Provider>(
+    task_client: KubeClient,
+    pod: Pod,
+    mut pod_state: P::PodState,
+    check_pod_deleted: Arc<RwLock<bool>>,
+) {
+    let state: P::InitialState = Default::default();
+    let name = pod.name().to_string();
+
+    let check = async {
+        loop {
+            tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+            if *check_pod_deleted.read().await {
+                break;
+            }
+        }
+    };
+
+    tokio::select! {
+        result = run_to_completion(&task_client, state, &mut pod_state, &pod) => match result {
+            Ok(()) => debug!("Pod {} state machine exited without error", name),
+            Err(e) => {
+                error!("Pod {} state machine exited with error: {:?}", name, e);
+                let api: kube::Api<KubePod> = kube::Api::namespaced(task_client.clone(), pod.namespace());
+                let patch = serde_json::json!(
+                    {
+                        "metadata": {
+                            "resourceVersion": "",
+                        },
+                        "status": {
+                            "phase": Phase::Failed,
+                            "reason": format!("{:?}", e),
+                        }
+                    }
+                );
+                let data = serde_json::to_vec(&patch).unwrap();
+                // FIXME: Add retry to this patch
+                api.patch_status(&pod.name(), &kube::api::PatchParams::default(), data)
+                    .await.unwrap();
+            },
+        },
+        _ = check => {
+            let state: P::TerminatedState = Default::default();
+            debug!("Pod {} terminated. Jumping to state {:?}.", name, state);
+            match run_to_completion(&task_client, state, &mut pod_state, &pod).await {
+                Ok(()) => debug!("Pod {} state machine exited without error", name),
+                Err(e) => error!("Pod {} state machine exited with error: {:?}", name, e),
+            }
+        }
+    }
+
+    debug!("Pod {} waiting for deregistration.", name);
+    loop {
+        tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+        if *check_pod_deleted.read().await {
+            debug!("Pod {} deleted.", name);
+            break;
+        }
+    }
+    pod_state.async_drop().await;
+
+    let pod_client: kube::Api<KubePod> = kube::Api::namespaced(task_client, pod.namespace());
+    let dp = kube::api::DeleteParams {
+        grace_period_seconds: Some(0),
+        ..Default::default()
+    };
+    match pod_client.delete(&pod.name(), &dp).await {
+        Ok(_) => {
+            debug!("Pod {} deregistered.", name);
+        }
+        Err(e) => {
+            // This could happen if Pod was force deleted.
+            warn!("Unable to deregister {} with Kubernetes API: {:?}", name, e);
         }
     }
 }

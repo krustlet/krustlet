@@ -40,7 +40,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use kubelet::backoff::ExponentialBackoffStrategy;
 use kubelet::node::Builder;
-use kubelet::pod::{key_from_pod, pod_key, Handle, Pod};
+use kubelet::pod::{Handle, Pod, PodKey};
 use kubelet::provider::{Provider, ProviderError};
 use kubelet::store::Store;
 use kubelet::volume::Ref;
@@ -66,7 +66,7 @@ pub struct WasiProvider {
 
 #[derive(Clone)]
 struct SharedPodState {
-    handles: Arc<RwLock<HashMap<String, Handle<Runtime, wasi_runtime::HandleFactory>>>>,
+    handles: Arc<RwLock<HashMap<PodKey, Handle<Runtime, wasi_runtime::HandleFactory>>>>,
     store: Arc<dyn Store + Sync + Send>,
     log_path: PathBuf,
     kubeconfig: kube::Config,
@@ -105,7 +105,7 @@ struct ModuleRunContext {
 
 /// State that is shared between pod state handlers.
 pub struct PodState {
-    key: String,
+    key: PodKey,
     run_context: ModuleRunContext,
     errors: usize,
     image_pull_backoff_strategy: ExponentialBackoffStrategy,
@@ -146,7 +146,7 @@ impl Provider for WasiProvider {
             status_sender: tx,
             status_recv: rx,
         };
-        let key = key_from_pod(pod);
+        let key = PodKey::from(pod);
         Ok(PodState {
             key,
             run_context,
@@ -166,7 +166,7 @@ impl Provider for WasiProvider {
     ) -> anyhow::Result<()> {
         let mut handles = self.shared.handles.write().await;
         let handle = handles
-            .get_mut(&pod_key(&namespace, &pod_name))
+            .get_mut(&PodKey::new(&namespace, &pod_name))
             .ok_or_else(|| ProviderError::PodNotFound {
                 pod_name: pod_name.clone(),
             })?;

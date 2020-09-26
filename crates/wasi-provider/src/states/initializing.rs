@@ -7,7 +7,7 @@ use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Api, PatchParams};
 use kubelet::backoff::BackoffStrategy;
 use kubelet::container::{ContainerKey, Status as ContainerStatus};
-use kubelet::pod::{key_from_pod, Handle};
+use kubelet::pod::{Handle, PodKey};
 use kubelet::state::prelude::*;
 
 use super::error::Error;
@@ -119,7 +119,7 @@ impl State<PodState> for Initializing {
                         // If we are in a failed state, insert in the init containers we already ran
                         // into a pod handle so they are available for future log fetching
                         let pod_handle = Handle::new(container_handles, pod.clone(), None).await?;
-                        let pod_key = key_from_pod(&pod);
+                        let pod_key = PodKey::from(pod);
                         {
                             let mut handles = pod_state.shared.handles.write().await;
                             handles.insert(pod_key, pod_handle);

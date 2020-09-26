@@ -1,13 +1,11 @@
-#![allow(deprecated)] // TODO: remove when Informer has been replaced by kube_run::watcher
-
 use std::{convert::TryFrom, env, path::Path, str};
 
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::certificates::v1beta1::CertificateSigningRequest;
-use kube::api::{Api, ListParams, PostParams, WatchEvent};
+use kube::api::{Api, ListParams, PostParams};
 use kube::config::Kubeconfig;
-use kube::runtime::Informer;
 use kube::Config;
+use kube_runtime::watcher::{watcher, Event};
 use log::{debug, info};
 use rcgen::{
     Certificate, CertificateParams, DistinguishedName, DnType, KeyPair, SanType,
@@ -96,42 +94,35 @@ async fn bootstrap_auth<K: AsRef<Path>>(
         csrs.create(&PostParams::default(), &post_data).await?;
 
         // Wait for CSR signing
-        let inf: Informer<CertificateSigningRequest> = Informer::new(csrs)
-            .params(ListParams::default().fields(&format!("metadata.name={}", config.node_name)));
+        let inf = watcher(
+            csrs,
+            ListParams::default().fields(&format!("metadata.name={}", config.node_name)),
+        );
 
-        let mut watcher = inf.poll().await?.boxed();
+        let mut watcher = inf.boxed();
         let mut generated_kubeconfig = Vec::new();
         let mut got_cert = false;
         let start = std::time::Instant::now();
         while let Some(event) = watcher.try_next().await? {
-            match event {
-                WatchEvent::Modified(m) | WatchEvent::Added(m) => {
-                    // Do we have a cert?
-                    let status = m.status.unwrap();
-                    if let Some(cert) = status.certificate {
-                        if let Some(v) = status.conditions {
-                            if v.into_iter().any(|c| c.type_.as_str() == APPROVED_TYPE) {
-                                generated_kubeconfig = gen_kubeconfig(
-                                    ca_data,
-                                    server,
-                                    cert,
-                                    cert_bundle.serialize_private_key_pem(),
-                                )?;
-                                got_cert = true;
-                                break;
-                            } else {
-                                info!("Got modified event, but CSR for authentication certs is not currently approved, {:?} elapsed", start.elapsed());
-                            }
+            if let Event::Applied(m) = event {
+                // Do we have a cert?
+                let status = m.status.unwrap();
+                if let Some(cert) = status.certificate {
+                    if let Some(v) = status.conditions {
+                        if v.into_iter().any(|c| c.type_.as_str() == APPROVED_TYPE) {
+                            generated_kubeconfig = gen_kubeconfig(
+                                ca_data,
+                                server,
+                                cert,
+                                cert_bundle.serialize_private_key_pem(),
+                            )?;
+                            got_cert = true;
+                            break;
+                        } else {
+                            info!("Got modified event, but CSR for authentication certs is not currently approved, {:?} elapsed", start.elapsed());
                         }
                     }
                 }
-                WatchEvent::Error(e) => {
-                    return Err(anyhow::anyhow!(
-                        "Error in event stream while waiting for certificate approval {}",
-                        e
-                    ));
-                }
-                WatchEvent::Deleted(_) | WatchEvent::Bookmark(_) => {}
             }
         }
 
@@ -192,37 +183,30 @@ async fn bootstrap_tls(
     notify(awaiting_user_csr_approval("TLS", &csr_name));
 
     // Wait for CSR signing
-    let inf: Informer<CertificateSigningRequest> = Informer::new(csrs)
-        .params(ListParams::default().fields(&format!("metadata.name={}", csr_name)));
+    let inf = watcher(
+        csrs,
+        ListParams::default().fields(&format!("metadata.name={}", csr_name)),
+    );
 
-    let mut watcher = inf.poll().await?.boxed();
+    let mut watcher = inf.boxed();
     let mut certificate = String::new();
     let mut got_cert = false;
     let start = std::time::Instant::now();
     while let Some(event) = watcher.try_next().await? {
-        match event {
-            WatchEvent::Modified(m) | WatchEvent::Added(m) => {
-                // Do we have a cert?
-                let status = m.status.unwrap();
-                if let Some(cert) = status.certificate {
-                    if let Some(v) = status.conditions {
-                        if v.into_iter().any(|c| c.type_.as_str() == APPROVED_TYPE) {
-                            certificate = std::str::from_utf8(&cert.0)?.to_owned();
-                            got_cert = true;
-                            break;
-                        } else {
-                            info!("Got modified event, but CSR for serving certs is not currently approved, {:?} remaining", start.elapsed());
-                        }
+        if let Event::Applied(m) = event {
+            // Do we have a cert?
+            let status = m.status.unwrap();
+            if let Some(cert) = status.certificate {
+                if let Some(v) = status.conditions {
+                    if v.into_iter().any(|c| c.type_.as_str() == APPROVED_TYPE) {
+                        certificate = std::str::from_utf8(&cert.0)?.to_owned();
+                        got_cert = true;
+                        break;
+                    } else {
+                        info!("Got modified event, but CSR for serving certs is not currently approved, {:?} remaining", start.elapsed());
                     }
                 }
             }
-            WatchEvent::Error(e) => {
-                return Err(anyhow::anyhow!(
-                    "Error in event stream while waiting for certificate approval {}",
-                    e
-                ));
-            }
-            WatchEvent::Deleted(_) | WatchEvent::Bookmark(_) => {}
         }
     }
 

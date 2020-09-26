@@ -7,7 +7,7 @@ use log::{debug, info};
 use tokio::sync::Mutex;
 
 use kubelet::container::{Container, ContainerKey};
-use kubelet::pod::{key_from_pod, Handle};
+use kubelet::pod::{Handle, PodKey};
 use kubelet::provider;
 use kubelet::state::prelude::*;
 use kubelet::volume::Ref;
@@ -119,7 +119,7 @@ impl State<PodState> for Starting {
         }
 
         let pod_handle = Handle::new(container_handles, pod.clone(), None).await?;
-        let pod_key = key_from_pod(&pod);
+        let pod_key = PodKey::from(pod);
         {
             let mut handles = pod_state.shared.handles.write().await;
             handles.insert(pod_key, pod_handle);

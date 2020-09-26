@@ -7,7 +7,7 @@ use log::{debug, error, info};
 use tokio::sync::Mutex;
 
 use kubelet::container::{Container, ContainerKey, Handle as ContainerHandle};
-use kubelet::pod::{key_from_pod, Handle};
+use kubelet::pod::{Handle, PodKey};
 use kubelet::provider::Provider;
 use kubelet::state::prelude::*;
 
@@ -35,10 +35,10 @@ impl std::error::Error for PortAllocationError {
 }
 
 async fn find_available_port(
-    port_map: &Arc<Mutex<BTreeMap<u16, String>>>,
+    port_map: &Arc<Mutex<BTreeMap<u16, PodKey>>>,
     pod: &Pod,
 ) -> Result<u16, PortAllocationError> {
-    let pod_key = key_from_pod(pod);
+    let pod_key = PodKey::from(pod);
     let mut empty_port: BTreeSet<u16> = BTreeSet::new();
     let mut lock = port_map.lock().await;
     while empty_port.len() < 2768 {
@@ -53,7 +53,7 @@ async fn find_available_port(
 }
 
 async fn assign_container_port(
-    port_map: Arc<Mutex<BTreeMap<u16, String>>>,
+    port_map: Arc<Mutex<BTreeMap<u16, PodKey>>>,
     pod: &Pod,
     container: &Container,
 ) -> anyhow::Result<u16> {
@@ -66,7 +66,7 @@ async fn assign_container_port(
                 let mut lock = port_map.lock().await;
                 if !lock.contains_key(&host_port) {
                     port_assigned = host_port;
-                    lock.insert(port_assigned, key_from_pod(pod));
+                    lock.insert(port_assigned, PodKey::from(pod));
                 } else {
                     error!(
                         "Failed to assign hostport {}, because it's taken",
@@ -207,7 +207,7 @@ impl State<PodState> for Starting {
                 return Ok(Transition::next(self, error_state));
             }
         };
-        let pod_key = key_from_pod(&pod);
+        let pod_key = PodKey::from(pod);
         {
             let mut handles = pod_state.shared.handles.write().await;
             handles.insert(pod_key, pod_handle);
