@@ -178,8 +178,8 @@ impl TryFrom<String> for Reference {
         let reference = Reference {
             registry: s[..repo_start].to_string(),
             repository: s[repo_start + 1..repo_end].to_string(),
-            tag: tag,
-            digest: digest,
+            tag,
+            digest,
         };
 
         if reference.repository().len() > NAME_TOTAL_LENGTH_MAX {
@@ -199,7 +199,7 @@ impl TryFrom<&str> for Reference {
 
 impl Into<String> for Reference {
     fn into(self) -> String {
-        self.whole().to_owned()
+        self.whole()
     }
 }
 
