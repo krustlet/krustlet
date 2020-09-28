@@ -209,89 +209,35 @@ mod test {
 
     mod parse {
         use super::*;
+        use rstest::rstest;
 
-        fn must_parse(image: &str) -> Reference {
-            Reference::try_from(image).expect("could not parse reference")
+        #[rstest(input, registry, repository, tag, digest,
+            case("webassembly.azurecr.io/hello:v1@sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9", "webassembly.azurecr.io", "hello", Some("v1"), Some("sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9")),
+            case("webassembly.azurecr.io/hello@sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9", "webassembly.azurecr.io", "hello", None, Some("sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9")),
+            case("webassembly.azurecr.io/hello:v1", "webassembly.azurecr.io", "hello", Some("v1"), None),
+            case("webassembly.azurecr.io/hello", "webassembly.azurecr.io", "hello", None, None),
+            case("webassembly.azurecr.io/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "webassembly.azurecr.io", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", None, None)
+        )]
+        fn parse_good_reference(
+            input: &str,
+            registry: &str,
+            repository: &str,
+            tag: Option<&str>,
+            digest: Option<&str>,
+        ) {
+            let reference = Reference::try_from(input).expect("could not parse reference");
+            assert_eq!(registry, reference.registry());
+            assert_eq!(repository, reference.repository());
+            assert_eq!(tag, reference.tag());
+            assert_eq!(digest, reference.digest());
         }
 
-        fn validate_registry_and_repository(reference: &Reference) {
-            assert_eq!(reference.registry(), "webassembly.azurecr.io");
-            assert_eq!(reference.repository(), "hello");
-        }
-
-        fn validate_tag(reference: &Reference) {
-            assert_eq!(reference.tag(), Some("v1"));
-        }
-
-        fn validate_digest(reference: &Reference) {
-            assert_eq!(
-                reference.digest(),
-                Some("sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9")
-            );
-        }
-
-        #[test]
-        fn name_too_long() {
-            assert_eq!(
-                Reference::try_from(format!(
-                    "webassembly.azurecr.io/{}",
-                    (0..256).map(|_| "a").collect::<String>()
-                ))
-                .err(),
-                Some(ParseError::NameTooLong)
-            );
-        }
-
-        #[test]
-        fn owned_string() {
-            let reference = Reference::from_str("webassembly.azurecr.io/hello:v1")
-                .expect("could not parse reference");
-
-            validate_registry_and_repository(&reference);
-            validate_tag(&reference);
-            assert_eq!(reference.digest(), None);
-        }
-
-        #[test]
-        fn tag_only() {
-            let reference = must_parse("webassembly.azurecr.io/hello:v1");
-
-            validate_registry_and_repository(&reference);
-            validate_tag(&reference);
-            assert_eq!(reference.digest(), None);
-        }
-
-        #[test]
-        fn digest_only() {
-            let reference = must_parse("webassembly.azurecr.io/hello@sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9");
-
-            validate_registry_and_repository(&reference);
-            validate_digest(&reference);
-            assert_eq!(reference.tag(), None);
-        }
-
-        #[test]
-        fn tag_and_digest() {
-            let reference = must_parse("webassembly.azurecr.io/hello:v1@sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9");
-
-            validate_registry_and_repository(&reference);
-            validate_tag(&reference);
-            validate_digest(&reference);
-        }
-
-        #[test]
-        fn no_tag_or_digest() {
-            let reference = must_parse("webassembly.azurecr.io/hello");
-
-            validate_registry_and_repository(&reference);
-            assert_eq!(reference.tag(), None);
-            assert_eq!(reference.digest(), None);
-        }
-
-        #[test]
-        fn missing_slash_char() {
-            Reference::try_from("webassembly.azurecr.io:hello")
-                .expect_err("no slash should produce an error");
+        #[rstest(input, err,
+            case("webassembly.azurecr.io:hello", ParseError::ReferenceInvalidFormat),
+            case("webassembly.azurecr.io/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ParseError::NameTooLong)
+        )]
+        fn parse_bad_reference(input: &str, err: ParseError) {
+            assert_eq!(Reference::try_from(input).unwrap_err(), err)
         }
     }
 }
