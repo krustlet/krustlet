@@ -46,7 +46,7 @@ use log::{debug, info};
 use tempfile::NamedTempFile;
 use tokio::sync::RwLock;
 use wascc_fs::FileSystemProvider;
-use wascc_host::{Actor, NativeCapability, WasccHost};
+use wascc_host::{Actor, Host, NativeCapability};
 use wascc_httpsrv::HttpServerProvider;
 use wascc_logging::{LoggingProvider, LOG_PATH_KEY};
 
@@ -88,7 +88,7 @@ type EnvVars = std::collections::HashMap<String, String>;
 pub struct ActorHandle {
     /// The public key of the wascc Actor that will be stopped
     pub key: String,
-    host: Arc<Mutex<WasccHost>>,
+    host: Arc<Mutex<Host>>,
     volumes: Vec<VolumeBinding>,
 }
 
@@ -135,7 +135,7 @@ struct SharedPodState {
     store: Arc<dyn Store + Sync + Send>,
     volume_path: PathBuf,
     log_path: PathBuf,
-    host: Arc<Mutex<WasccHost>>,
+    host: Arc<Mutex<Host>>,
     port_map: Arc<TokioMutex<BTreeMap<u16, PodKey>>>,
 }
 
@@ -148,7 +148,7 @@ impl WasccProvider {
         kubeconfig: kube::Config,
     ) -> anyhow::Result<Self> {
         let client = kube::Client::new(kubeconfig);
-        let host = Arc::new(Mutex::new(WasccHost::new()));
+        let host = Arc::new(Mutex::new(Host::new()));
         let log_path = config.data_dir.join(LOG_DIR_NAME);
         let volume_path = config.data_dir.join(VOLUME_DIR);
         let port_map = Arc::new(TokioMutex::new(BTreeMap::<u16, PodKey>::new()));
@@ -328,7 +328,7 @@ impl kubelet::log::HandleFactory<tokio::fs::File> for LogHandleFactory {
 /// The provided capabilities will be configured for this actor, but the capabilities
 /// must first be loaded into the host by some other process, such as register_native_capabilities().
 fn wascc_run(
-    host: Arc<Mutex<WasccHost>>,
+    host: Arc<Mutex<Host>>,
     data: Vec<u8>,
     mut env: EnvVars,
     volumes: Vec<VolumeBinding>,
@@ -344,7 +344,8 @@ fn wascc_run(
         log_output.path().to_str().unwrap().to_owned(),
     );
 
-    let load = Actor::from_bytes(data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
+    let load =
+        Actor::from_slice(&data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
     let pk = load.public_key();
 
     let actor_caps = load.capabilities();
@@ -403,7 +404,7 @@ fn wascc_run(
         info!("configuring capability {}", cap.name);
         host.lock()
             .unwrap()
-            .bind_actor(&pk, cap.name, cap.binding.clone(), cap.env.clone())
+            .set_binding(&pk, cap.name, cap.binding.clone(), cap.env.clone())
             .map_err(|e| anyhow::anyhow!("Error configuring capabilities for module: {}", e))
     })?;
 
