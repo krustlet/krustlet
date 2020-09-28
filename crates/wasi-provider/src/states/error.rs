@@ -13,18 +13,14 @@ pub struct Error {
 
 #[async_trait::async_trait]
 impl State<PodState> for Error {
-    async fn next(
-        self: Box<Self>,
-        pod_state: &mut PodState,
-        _pod: &Pod,
-    ) -> anyhow::Result<Transition<PodState>> {
+    async fn next(self: Box<Self>, pod_state: &mut PodState, _pod: &Pod) -> Transition<PodState> {
         pod_state.errors += 1;
         if pod_state.errors > 3 {
             pod_state.errors = 0;
-            Ok(Transition::next(self, CrashLoopBackoff))
+            Transition::next(self, CrashLoopBackoff)
         } else {
             tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
-            Ok(Transition::next(self, Registered))
+            Transition::next(self, Registered)
         }
     }
 

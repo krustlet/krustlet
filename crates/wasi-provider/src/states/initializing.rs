@@ -12,6 +12,7 @@ use kubelet::state::prelude::*;
 
 use super::error::Error;
 use super::starting::{start_container, ContainerHandleMap, Starting};
+use crate::fail_fatal;
 
 async fn patch_init_status(
     client: &Api<KubePod>,
@@ -66,11 +67,7 @@ pub struct Initializing;
 
 #[async_trait::async_trait]
 impl State<PodState> for Initializing {
-    async fn next(
-        self: Box<Self>,
-        pod_state: &mut PodState,
-        pod: &Pod,
-    ) -> anyhow::Result<Transition<PodState>> {
+    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
         let client: Api<KubePod> = Api::namespaced(
             kube::Client::new(pod_state.shared.kubeconfig.clone()),
             pod.namespace(),
@@ -87,7 +84,10 @@ impl State<PodState> for Initializing {
             // Each new init container resets the CrashLoopBackoff timer.
             pod_state.crash_loop_backoff_strategy.reset();
 
-            let handle = start_container(pod_state, pod, &init_container).await?;
+            let handle = match start_container(pod_state, pod, &init_container).await {
+                Ok(h) => h,
+                Err(e) => fail_fatal!(e),
+            };
 
             container_handles.insert(
                 ContainerKey::Init(init_container.name().to_string()),
@@ -118,20 +118,25 @@ impl State<PodState> for Initializing {
 
                         // If we are in a failed state, insert in the init containers we already ran
                         // into a pod handle so they are available for future log fetching
-                        let pod_handle = Handle::new(container_handles, pod.clone(), None).await?;
+                        let pod_handle = Handle::new(container_handles, pod.clone(), None);
                         let pod_key = PodKey::from(pod);
                         {
                             let mut handles = pod_state.shared.handles.write().await;
                             handles.insert(pod_key, pod_handle);
                         }
-                        client
-                            .patch_status(
-                                pod.name(),
-                                &PatchParams::default(),
-                                serde_json::to_vec(&s)?,
-                            )
-                            .await?;
-                        return Ok(Transition::next(self, Error { message }));
+
+                        let status_json = match serde_json::to_vec(&s) {
+                            Ok(json) => json,
+                            Err(e) => fail_fatal!(e),
+                        };
+
+                        match client
+                            .patch_status(pod.name(), &PatchParams::default(), status_json)
+                            .await
+                        {
+                            Ok(_) => return Transition::next(self, Error { message }),
+                            Err(e) => fail_fatal!(e),
+                        };
                     } else {
                         break;
                     }
@@ -140,7 +145,7 @@ impl State<PodState> for Initializing {
         }
         info!("Finished init containers for pod {:?}", pod.name());
         pod_state.crash_loop_backoff_strategy.reset();
-        Ok(Transition::next(self, Starting::new(container_handles)))
+        Transition::next(self, Starting::new(container_handles))
     }
 
     async fn json_status(
