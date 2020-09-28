@@ -12,7 +12,7 @@ impl State<PodState> for Terminated {
         if let Some(handle) = lock.get_mut(&pod_state.key) {
             let stop_result = handle.stop().await;
             if let Err(e) = stop_result {
-                return Transition::Fatal(e);
+                return Transition::Complete(Err(e));
             }
         }
         Transition::Complete(Ok(()))

@@ -30,6 +30,6 @@ macro_rules! fail_fatal {
     ($err:ident) => {{
         let aerr = anyhow::Error::from($err);
         log::error!("{:?}", aerr);
-        return Transition::Fatal(aerr);
+        return Transition::Complete(Err(aerr));
     }};
 }

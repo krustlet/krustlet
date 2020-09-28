@@ -1,5 +1,5 @@
 //! Used to define a state machine of Pod states.
-use log::{debug, error};
+use log::debug;
 
 pub mod prelude;
 
@@ -30,10 +30,6 @@ pub enum Transition<PodState> {
     Next(StateHolder<PodState>),
     /// Stop executing the state machine and report the result of the execution.
     Complete(anyhow::Result<()>),
-    /// Stop executing the state machine and report that the state machine
-    /// failed.
-    // TODO: is this really any different from Complete(Err(...))?
-    Fatal(anyhow::Error),
 }
 
 /// Mark an edge exists between two states.
@@ -266,10 +262,6 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
                     result
                 );
                 break result;
-            }
-            Transition::Fatal(err) => {
-                error!("Pod {} execution fatal error {:?}", pod.name(), err);
-                break Err(err);
             }
         };
     }
