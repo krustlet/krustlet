@@ -8,7 +8,8 @@ use super::image_pull_backoff::ImagePullBackoff;
 use super::volume_mount::VolumeMount;
 
 /// Kubelet is pulling container images.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, TransitionTo)]
+#[transition_to(VolumeMount, ImagePullBackoff)]
 pub struct ImagePull;
 
 #[async_trait::async_trait]
@@ -40,6 +41,3 @@ impl State<PodState> for ImagePull {
         make_status(Phase::Pending, "ImagePull")
     }
 }
-
-impl TransitionTo<ImagePullBackoff> for ImagePull {}
-impl TransitionTo<VolumeMount> for ImagePull {}

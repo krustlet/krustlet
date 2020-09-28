@@ -7,7 +7,8 @@ use super::starting::Starting;
 use crate::transition_to_error;
 
 /// Kubelet is pulling container images.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, TransitionTo)]
+#[transition_to(Starting, Error)]
 pub struct VolumeMount;
 
 #[async_trait::async_trait]
@@ -34,6 +35,3 @@ impl State<PodState> for VolumeMount {
         make_status(Phase::Pending, "VolumeMount")
     }
 }
-
-impl TransitionTo<Starting> for VolumeMount {}
-impl TransitionTo<Error> for VolumeMount {}

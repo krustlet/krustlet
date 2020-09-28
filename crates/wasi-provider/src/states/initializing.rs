@@ -62,7 +62,8 @@ async fn patch_init_status(
     Ok(())
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug, TransitionTo)]
+#[transition_to(Starting, Error)]
 pub struct Initializing;
 
 #[async_trait::async_trait]
@@ -156,6 +157,3 @@ impl State<PodState> for Initializing {
         make_status(Phase::Running, "Initializing")
     }
 }
-
-impl TransitionTo<Error> for Initializing {}
-impl TransitionTo<Starting> for Initializing {}

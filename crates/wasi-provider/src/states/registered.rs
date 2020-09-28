@@ -24,7 +24,8 @@ fn validate_not_kube_proxy(container: &Container) -> anyhow::Result<()> {
 }
 
 /// The Kubelet is aware of the Pod.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, TransitionTo)]
+#[transition_to(ImagePull, Error)]
 pub struct Registered;
 
 #[async_trait::async_trait]
@@ -46,6 +47,3 @@ impl State<PodState> for Registered {
         make_status(Phase::Pending, "Registered")
     }
 }
-
-impl TransitionTo<ImagePull> for Registered {}
-impl TransitionTo<Error> for Registered {}

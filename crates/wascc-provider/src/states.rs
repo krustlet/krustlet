@@ -1,6 +1,5 @@
 pub(crate) mod crash_loop_backoff;
 pub(crate) mod error;
-pub(crate) mod finished;
 pub(crate) mod image_pull;
 pub(crate) mod image_pull_backoff;
 pub(crate) mod registered;

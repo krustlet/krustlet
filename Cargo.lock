@@ -1837,6 +1837,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "kube-runtime",
+ "kubelet-derive",
  "lazy_static",
  "log",
  "native-tls",
@@ -1853,6 +1854,14 @@ dependencies = [
  "url 2.1.1",
  "uuid",
  "warp",
+]
+
+[[package]]
+name = "kubelet-derive"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]

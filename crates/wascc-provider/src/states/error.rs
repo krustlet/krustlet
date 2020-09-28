@@ -4,7 +4,8 @@ use super::crash_loop_backoff::CrashLoopBackoff;
 use super::registered::Registered;
 use crate::PodState;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, TransitionTo)]
+#[transition_to(Registered, CrashLoopBackoff)]
 /// The Pod failed to run.
 // If we manually implement, we can allow for arguments.
 pub struct Error {
@@ -32,6 +33,3 @@ impl State<PodState> for Error {
         make_status(Phase::Pending, &self.message)
     }
 }
-
-impl TransitionTo<CrashLoopBackoff> for Error {}
-impl TransitionTo<Registered> for Error {}

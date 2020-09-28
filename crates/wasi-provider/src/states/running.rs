@@ -57,7 +57,8 @@ async fn patch_container_status(
 }
 
 /// The Kubelet is running the Pod.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, TransitionTo)]
+#[transition_to(Completed, Error)]
 pub struct Running;
 
 #[async_trait::async_trait]
@@ -102,6 +103,3 @@ impl State<PodState> for Running {
         make_status(Phase::Running, "Running")
     }
 }
-
-impl TransitionTo<Completed> for Running {}
-impl TransitionTo<Error> for Running {}

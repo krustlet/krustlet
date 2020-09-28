@@ -5,7 +5,8 @@ use kubelet::state::prelude::*;
 use super::registered::Registered;
 
 /// Pod has failed multiple times.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, TransitionTo)]
+#[transition_to(Registered)]
 pub struct CrashLoopBackoff;
 
 #[async_trait::async_trait]
@@ -23,5 +24,3 @@ impl State<PodState> for CrashLoopBackoff {
         make_status(Phase::Pending, "CrashLoopBackoff")
     }
 }
-
-impl TransitionTo<Registered> for CrashLoopBackoff {}

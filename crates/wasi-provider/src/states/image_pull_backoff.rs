@@ -4,7 +4,8 @@ use kubelet::backoff::BackoffStrategy;
 use kubelet::state::prelude::*;
 
 /// Kubelet encountered an error when pulling container image.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, TransitionTo)]
+#[transition_to(ImagePull)]
 pub struct ImagePullBackoff;
 
 #[async_trait::async_trait]
@@ -22,5 +23,3 @@ impl State<PodState> for ImagePullBackoff {
         make_status(Phase::Pending, "ImagePullBackoff")
     }
 }
-
-impl TransitionTo<ImagePull> for ImagePullBackoff {}

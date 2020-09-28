@@ -80,7 +80,8 @@ members = [
     "crates/oci-distribution",
     "crates/wascc-logging",
     "crates/wascc-provider",
-    "crates/wasi-provider"
+    "crates/wasi-provider",
+    "crates/kubelet-derive"
 ]
 
 
