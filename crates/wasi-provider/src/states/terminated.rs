@@ -7,16 +7,15 @@ pub struct Terminated;
 
 #[async_trait::async_trait]
 impl State<PodState> for Terminated {
-    async fn next(
-        self: Box<Self>,
-        pod_state: &mut PodState,
-        _pod: &Pod,
-    ) -> anyhow::Result<Transition<PodState>> {
+    async fn next(self: Box<Self>, pod_state: &mut PodState, _pod: &Pod) -> Transition<PodState> {
         let mut lock = pod_state.shared.handles.write().await;
         if let Some(handle) = lock.get_mut(&pod_state.key) {
-            handle.stop().await?;
+            let stop_result = handle.stop().await;
+            if let Err(e) = stop_result {
+                return Transition::Complete(Err(e));
+            }
         }
-        Ok(Transition::Complete(Ok(())))
+        Transition::Complete(Ok(()))
     }
 
     async fn json_status(

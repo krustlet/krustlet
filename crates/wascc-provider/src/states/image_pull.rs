@@ -13,11 +13,7 @@ pub struct ImagePull;
 
 #[async_trait::async_trait]
 impl State<PodState> for ImagePull {
-    async fn next(
-        self: Box<Self>,
-        pod_state: &mut PodState,
-        pod: &Pod,
-    ) -> anyhow::Result<Transition<PodState>> {
+    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
         let auth_resolver =
             kubelet::secret::RegistryAuthResolver::new(pod_state.shared.client.clone(), &pod);
         pod_state.run_context.modules = match pod_state
@@ -29,11 +25,11 @@ impl State<PodState> for ImagePull {
             Ok(modules) => modules,
             Err(e) => {
                 error!("{:?}", e);
-                return Ok(Transition::next(self, ImagePullBackoff));
+                return Transition::next(self, ImagePullBackoff);
             }
         };
         pod_state.image_pull_backoff_strategy.reset();
-        Ok(Transition::next(self, VolumeMount))
+        Transition::next(self, VolumeMount)
     }
 
     async fn json_status(

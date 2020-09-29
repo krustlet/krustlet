@@ -15,7 +15,9 @@ use kubelet::volume::Ref;
 use crate::wasi_runtime::{self, HandleFactory, Runtime, WasiRuntime};
 use crate::PodState;
 
+use super::error::Error;
 use super::running::Running;
+use crate::fail_fatal;
 
 fn volume_path_map(
     container: &Container,
@@ -97,11 +99,7 @@ impl Starting {
 
 #[async_trait::async_trait]
 impl State<PodState> for Starting {
-    async fn next(
-        self: Box<Self>,
-        pod_state: &mut PodState,
-        pod: &Pod,
-    ) -> anyhow::Result<Transition<PodState>> {
+    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
         let mut container_handles: ContainerHandleMap = HashMap::new();
 
         {
@@ -111,14 +109,17 @@ impl State<PodState> for Starting {
 
         info!("Starting containers for pod {:?}", pod.name());
         for container in pod.containers() {
-            let container_handle = start_container(pod_state, &pod, &container).await?;
+            let container_handle = match start_container(pod_state, &pod, &container).await {
+                Ok(h) => h,
+                Err(e) => fail_fatal!(e),
+            };
             container_handles.insert(
                 ContainerKey::App(container.name().to_string()),
                 container_handle,
             );
         }
 
-        let pod_handle = Handle::new(container_handles, pod.clone(), None).await?;
+        let pod_handle = Handle::new(container_handles, pod.clone(), None);
         let pod_key = PodKey::from(pod);
         {
             let mut handles = pod_state.shared.handles.write().await;
@@ -126,7 +127,7 @@ impl State<PodState> for Starting {
         }
         info!("All containers started for pod {:?}.", pod.name());
 
-        Ok(Transition::next(self, Running))
+        Transition::next(self, Running)
     }
 
     async fn json_status(
@@ -139,3 +140,4 @@ impl State<PodState> for Starting {
 }
 
 impl TransitionTo<Running> for Starting {}
+impl TransitionTo<Error> for Starting {}

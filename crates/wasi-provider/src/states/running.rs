@@ -62,11 +62,7 @@ pub struct Running;
 
 #[async_trait::async_trait]
 impl State<PodState> for Running {
-    async fn next(
-        self: Box<Self>,
-        pod_state: &mut PodState,
-        pod: &Pod,
-    ) -> anyhow::Result<Transition<PodState>> {
+    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
         let client: Api<KubePod> = Api::namespaced(
             kube::Client::new(pod_state.shared.kubeconfig.clone()),
             pod.namespace(),
@@ -86,16 +82,16 @@ impl State<PodState> for Running {
             } = status
             {
                 if failed {
-                    return Ok(Transition::next(self, Error { message }));
+                    return Transition::next(self, Error { message });
                 } else {
                     completed += 1;
                     if completed == total_containers {
-                        return Ok(Transition::next(self, Completed));
+                        return Transition::next(self, Completed);
                     }
                 }
             }
         }
-        Ok(Transition::next(self, Completed))
+        Transition::next(self, Completed)
     }
 
     async fn json_status(

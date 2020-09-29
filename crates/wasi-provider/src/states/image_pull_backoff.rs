@@ -9,13 +9,9 @@ pub struct ImagePullBackoff;
 
 #[async_trait::async_trait]
 impl State<PodState> for ImagePullBackoff {
-    async fn next(
-        self: Box<Self>,
-        pod_state: &mut PodState,
-        _pod: &Pod,
-    ) -> anyhow::Result<Transition<PodState>> {
+    async fn next(self: Box<Self>, pod_state: &mut PodState, _pod: &Pod) -> Transition<PodState> {
         pod_state.image_pull_backoff_strategy.wait().await;
-        Ok(Transition::next(self, ImagePull))
+        Transition::next(self, ImagePull)
     }
 
     async fn json_status(

@@ -1,7 +1,8 @@
-use log::{error, info};
+use log::info;
 
 use super::error::Error;
 use super::image_pull::ImagePull;
+use crate::transition_to_error;
 use crate::PodState;
 use kubelet::container::Container;
 use kubelet::state::prelude::*;
@@ -28,21 +29,13 @@ pub struct Registered;
 
 #[async_trait::async_trait]
 impl State<PodState> for Registered {
-    async fn next(
-        self: Box<Self>,
-        _pod_state: &mut PodState,
-        pod: &Pod,
-    ) -> anyhow::Result<Transition<PodState>> {
+    async fn next(self: Box<Self>, _pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
         match validate_pod_runnable(&pod) {
             Ok(_) => (),
-            Err(e) => {
-                let message = format!("{:?}", e);
-                error!("{}", message);
-                return Ok(Transition::next(self, Error { message }));
-            }
+            Err(e) => transition_to_error!(self, e),
         }
         info!("Pod added: {}.", pod.name());
-        Ok(Transition::next(self, ImagePull))
+        Transition::next(self, ImagePull)
     }
 
     async fn json_status(
