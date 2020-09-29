@@ -80,3 +80,6 @@ jobs:
           KRUSTLET_TEST_ENV: "ci"
           KRUSTLET_E2E_IMAGE_PULL_SECRET: ${{ secrets.KRUSTLET_E2E_IMAGE_PULL_SECRET }}
         run: just test-e2e-standalone
+      - name: Output krustlet logs (on error)
+        if: ${{ failure() }}
+        run: cat *.txt

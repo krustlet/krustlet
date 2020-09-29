@@ -75,3 +75,6 @@ jobs:
           pathInArchive: just
       - name: Run e2e tests
         run: just test-e2e-standalone
+      - name: Output krustlet logs (on error)
+        if: ${{ failure() }}
+        run: cat *.txt
