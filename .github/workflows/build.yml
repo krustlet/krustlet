@@ -85,6 +85,7 @@ jobs:
           until kubectl certificate approve $(hostname)-tls 
           do 
               echo "Certificate not present, retrying..."
+              kubectl get csr -A
               sleep 1
           done
           sleep 2
@@ -93,6 +94,7 @@ jobs:
           until kubectl certificate approve $(hostname)-tls 
           do 
               echo "Certificate not present, retrying..."
+              kubectl get csr -A
               sleep 1
           done
           sleep 2
