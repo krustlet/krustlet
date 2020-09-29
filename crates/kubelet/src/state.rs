@@ -269,9 +269,7 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
         }
 
         debug!("Pod {} executing state handler {:?}", pod.name(), state);
-        let transition = {
-            state.next(pod_state, &pod).await
-        };
+        let transition = { state.next(pod_state, &pod).await };
 
         state = match transition {
             Transition::Next(s) => {
