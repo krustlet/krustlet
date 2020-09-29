@@ -66,36 +66,15 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: engineerd/setup-kind@v0.4.0
+        with:
+          version: "v0.9.0"
       - uses: engineerd/configurator@v0.0.1
         with:
           name: just
           url: https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-unknown-linux-musl.tar.gz
           pathInArchive: just
       - name: Run e2e tests
-        env:
-          KRUSTLET_NODE_IP: "172.17.0.1"
-          # The default location for the cert is not accessible on build hosts, so do it in the current dir
-          CONFIG_DIR: "./config"
-        run: |
-          set -x
-          just bootstrap
-          just build
-          RUST_LOG=kubelet::bootstrapping=debug KUBECONFIG=${CONFIG_DIR}/kubeconfig-wascc ./target/debug/krustlet-wascc --node-name krustlet-wascc --port 3000 --bootstrap-file ${CONFIG_DIR}/bootstrap.conf --cert-file ./config/krustlet-wascc.crt --private-key-file ./config/krustlet-wascc.key &
-          # Wait for things to start before approving certs and then delete so we don't overlap with the same hostname
-          until kubectl certificate approve krustlet-wascc 
-          do 
-              echo "Certificate not present, retrying..."
-              sleep 1
-          done
-          sleep 2
-          kubectl delete csr krustlet-wascc || true
-          sleep 2
-          RUST_LOG=kubelet::bootstrapping=debug KUBECONFIG=${CONFIG_DIR}/kubeconfig-wasi ./target/debug/krustlet-wasi --node-name krustlet-wasi --port 3001 --bootstrap-file ${CONFIG_DIR}/bootstrap.conf --cert-file ./config/krustlet-wasi.crt --private-key-file ./config/krustlet-wasi.key &
-          until kubectl certificate approve krustlet-wasi 
-          do 
-              echo "Certificate not present, retrying..."
-              sleep 1
-          done
-          sleep 2
-          kubectl delete csr krustlet-wasi || true
-          just test-e2e
+        run: just test-e2e-standalone
+      - name: Output krustlet logs (on error)
+        if: ${{ failure() }}
+        run: cat *.txt

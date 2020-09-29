@@ -104,26 +104,38 @@ async fn bootstrap_auth<K: AsRef<Path>>(
         let mut got_cert = false;
         let start = std::time::Instant::now();
         while let Some(event) = watcher.try_next().await? {
-            if let Event::Applied(m) = event {
-                // Do we have a cert?
-                let status = m.status.unwrap();
-                if let Some(cert) = status.certificate {
-                    if let Some(v) = status.conditions {
-                        if v.into_iter().any(|c| c.type_.as_str() == APPROVED_TYPE) {
-                            generated_kubeconfig = gen_kubeconfig(
-                                ca_data,
-                                server,
-                                cert,
-                                cert_bundle.serialize_private_key_pem(),
-                            )?;
-                            got_cert = true;
-                            break;
-                        } else {
-                            info!("Got modified event, but CSR for authentication certs is not currently approved, {:?} elapsed", start.elapsed());
-                        }
+            let status = match event {
+                Event::Applied(m) => m.status.unwrap(),
+                Event::Restarted(mut certs) => {
+                    // We should only ever get one cert for this node, so error in any circumstance we don't
+                    if certs.len() > 1 {
+                        return Err(anyhow::anyhow!("On watch restart, got more than 1 authentication CSR. This means something is in an incorrect state"));
+                    }
+                    certs.remove(0).status.unwrap()
+                }
+                Event::Deleted(_) => {
+                    return Err(anyhow::anyhow!(
+                        "Authentication CSR was deleted before it was approved"
+                    ))
+                }
+            };
+
+            if let Some(cert) = status.certificate {
+                if let Some(v) = status.conditions {
+                    if v.into_iter().any(|c| c.type_.as_str() == APPROVED_TYPE) {
+                        generated_kubeconfig = gen_kubeconfig(
+                            ca_data,
+                            server,
+                            cert,
+                            cert_bundle.serialize_private_key_pem(),
+                        )?;
+                        got_cert = true;
+                        break;
                     }
                 }
             }
+
+            info!("Got modified event, but CSR for authentication certs is not currently approved, {:?} elapsed", start.elapsed());
         }
 
         if !got_cert {
@@ -193,21 +205,32 @@ async fn bootstrap_tls(
     let mut got_cert = false;
     let start = std::time::Instant::now();
     while let Some(event) = watcher.try_next().await? {
-        if let Event::Applied(m) = event {
-            // Do we have a cert?
-            let status = m.status.unwrap();
-            if let Some(cert) = status.certificate {
-                if let Some(v) = status.conditions {
-                    if v.into_iter().any(|c| c.type_.as_str() == APPROVED_TYPE) {
-                        certificate = std::str::from_utf8(&cert.0)?.to_owned();
-                        got_cert = true;
-                        break;
-                    } else {
-                        info!("Got modified event, but CSR for serving certs is not currently approved, {:?} remaining", start.elapsed());
-                    }
+        let status = match event {
+            Event::Applied(m) => m.status.unwrap(),
+            Event::Restarted(mut certs) => {
+                // We should only ever get one cert for this node, so error in any circumstance we don't
+                if certs.len() > 1 {
+                    return Err(anyhow::anyhow!("On watch restart, got more than 1 serving CSR. This means something is in an incorrect state"));
+                }
+                certs.remove(0).status.unwrap()
+            }
+            Event::Deleted(_) => {
+                return Err(anyhow::anyhow!(
+                    "Serving CSR was deleted before it was approved"
+                ))
+            }
+        };
+
+        if let Some(cert) = status.certificate {
+            if let Some(v) = status.conditions {
+                if v.into_iter().any(|c| c.type_.as_str() == APPROVED_TYPE) {
+                    certificate = std::str::from_utf8(&cert.0)?.to_owned();
+                    got_cert = true;
+                    break;
                 }
             }
         }
+        info!("Got modified event, but CSR for serving certs is not currently approved, {:?} remaining", start.elapsed());
     }
 
     if !got_cert {

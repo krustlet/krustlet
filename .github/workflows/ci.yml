@@ -77,19 +77,9 @@ jobs:
           pathInArchive: just
       - name: Run e2e tests
         env:
-          KRUSTLET_NODE_IP: "172.17.0.1"
-          # The default location for the cert is not accessible on build hosts, so do it in the current dir
-          CONFIG_DIR: "./config"
           KRUSTLET_TEST_ENV: "ci"
           KRUSTLET_E2E_IMAGE_PULL_SECRET: ${{ secrets.KRUSTLET_E2E_IMAGE_PULL_SECRET }}
-        run: |
-          just bootstrap
-          just build
-          KUBECONFIG=${CONFIG_DIR}/kubeconfig-wascc ./target/debug/krustlet-wascc --node-name krustlet-wascc --port 3000 --bootstrap-file ${CONFIG_DIR}/bootstrap.conf --cert-file ./config/krustlet-wascc.crt --private-key-file ./config/krustlet-wascc.key &
-          # Wait for things to start before approving certs and then delete so we don't overlap with the same hostname
-          sleep 5 && kubectl certificate approve $(hostname)-tls
-          sleep 2 && kubectl delete csr $(hostname)-tls && sleep 2
-          KUBECONFIG=${CONFIG_DIR}/kubeconfig-wasi ./target/debug/krustlet-wasi --node-name krustlet-wasi --port 3001 --bootstrap-file ${CONFIG_DIR}/bootstrap.conf --cert-file ./config/krustlet-wasi.crt --private-key-file ./config/krustlet-wasi.key &
-          sleep 5 && kubectl certificate approve $(hostname)-tls
-          sleep 2 && kubectl delete csr $(hostname)-tls
-          just test-e2e
+        run: just test-e2e-standalone
+      - name: Output krustlet logs (on error)
+        if: ${{ failure() }}
+        run: cat *.txt
