@@ -1,9 +1,9 @@
 //! Used to define a state machine of Pod states.
-use log::debug;
+use log::{debug, error, warn};
 
 pub mod prelude;
 
-use crate::pod::Pod;
+use crate::pod::{Phase, Pod};
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Api, PatchParams};
 
@@ -227,13 +227,30 @@ pub trait State<PodState>: Sync + Send + 'static + std::fmt::Debug {
     ) -> anyhow::Result<serde_json::Value>;
 }
 
+async fn patch_status(api: &Api<KubePod>, name: &str, patch: serde_json::Value) {
+    match serde_json::to_vec(&patch) {
+        Ok(data) => match api.patch_status(&name, &PatchParams::default(), data).await {
+            Ok(_) => (),
+            Err(e) => {
+                warn!("Pod {} error patching status: {:?}", name, e);
+            }
+        },
+        Err(e) => {
+            warn!(
+                "Pod {} error serializing status patch {:?}: {:?}",
+                name, &patch, e
+            );
+        }
+    }
+}
+
 /// Iteratively evaluate state machine until it returns Complete.
 pub async fn run_to_completion<PodState: Send + Sync + 'static>(
     client: &kube::Client,
     state: impl State<PodState>,
     pod_state: &mut PodState,
     pod: &Pod,
-) -> anyhow::Result<()> {
+) {
     let api: Api<KubePod> = Api::namespaced(client.clone(), pod.namespace());
 
     let mut state: Box<dyn State<PodState>> = Box::new(state);
@@ -241,13 +258,17 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
     loop {
         debug!("Pod {} entering state {:?}", pod.name(), state);
 
-        let patch = state.json_status(pod_state, &pod).await?;
-        debug!("Pod {} status patch: {:?}", pod.name(), &patch);
-        let data = serde_json::to_vec(&patch)?;
-        api.patch_status(&pod.name(), &PatchParams::default(), data)
-            .await?;
-        debug!("Pod {} executing state handler {:?}", pod.name(), state);
+        match state.json_status(pod_state, &pod).await {
+            Ok(patch) => {
+                debug!("Pod {} status patch: {:?}", pod.name(), &patch);
+                patch_status(&api, pod.name(), patch).await;
+            }
+            Err(e) => {
+                warn!("Pod {} status patch returned error: {:?}", pod.name(), e);
+            }
+        }
 
+        debug!("Pod {} executing state handler {:?}", pod.name(), state);
         let transition = { state.next(pod_state, &pod).await };
 
         state = match transition {
@@ -255,14 +276,32 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
                 debug!("Pod {} transitioning to {:?}.", pod.name(), s.state);
                 s.state
             }
-            Transition::Complete(result) => {
-                debug!(
-                    "Pod {} execution complete with result {:?}.",
-                    pod.name(),
-                    result
-                );
-                break result;
-            }
+            Transition::Complete(result) => match result {
+                Ok(()) => {
+                    debug!("Pod {} state machine exited without error", pod.name());
+                    break;
+                }
+                Err(e) => {
+                    error!(
+                        "Pod {} state machine exited with error: {:?}",
+                        pod.name(),
+                        e
+                    );
+                    let patch = serde_json::json!(
+                        {
+                            "metadata": {
+                                "resourceVersion": "",
+                            },
+                            "status": {
+                                "phase": Phase::Failed,
+                                "reason": format!("{:?}", e),
+                            }
+                        }
+                    );
+                    patch_status(&api, pod.name(), patch).await;
+                    break;
+                }
+            },
         };
     }
 }
