@@ -80,15 +80,21 @@ jobs:
           set -x
           just bootstrap
           just build
-          KUBECONFIG=${CONFIG_DIR}/kubeconfig-wascc ./target/debug/krustlet-wascc --node-name krustlet-wascc --port 3000 --bootstrap-file ${CONFIG_DIR}/bootstrap.conf --cert-file ./config/krustlet-wascc.crt --private-key-file ./config/krustlet-wascc.key &
+          RUST_LOG=kubelet=debug KUBECONFIG=${CONFIG_DIR}/kubeconfig-wascc ./target/debug/krustlet-wascc --node-name krustlet-wascc --port 3000 --bootstrap-file ${CONFIG_DIR}/bootstrap.conf --cert-file ./config/krustlet-wascc.crt --private-key-file ./config/krustlet-wascc.key &
           # Wait for things to start before approving certs and then delete so we don't overlap with the same hostname
-          sleep 5
-          kubectl certificate approve $(hostname)-tls
+          until kubectl certificate approve $(hostname)-tls 
+          do 
+              echo "Certificate not present, retrying..."
+              sleep 1
+          done
           sleep 2
-          kubectl delete csr $(hostname)-tls 
+          kubectl delete csr $(hostname)-tls || true
           RUST_LOG=kubelet=debug KUBECONFIG=${CONFIG_DIR}/kubeconfig-wasi ./target/debug/krustlet-wasi --node-name krustlet-wasi --port 3001 --bootstrap-file ${CONFIG_DIR}/bootstrap.conf --cert-file ./config/krustlet-wasi.crt --private-key-file ./config/krustlet-wasi.key &
-          sleep 5
-          kubectl certificate approve $(hostname)-tls || true
+          until kubectl certificate approve $(hostname)-tls 
+          do 
+              echo "Certificate not present, retrying..."
+              sleep 1
+          done
           sleep 2
           kubectl delete csr $(hostname)-tls || true
           just test-e2e
