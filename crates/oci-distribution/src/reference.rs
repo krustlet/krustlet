@@ -4,15 +4,18 @@ use std::fmt;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use crate::regexp;
+
 /// NAME_TOTAL_LENGTH_MAX is the maximum total number of characters in a repository name.
 const NAME_TOTAL_LENGTH_MAX: usize = 255;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ParseError {
     DigestInvalidFormat,
+    DigestInvalidLength,
+    DigestUnsupported,
     NameContainsUppercase,
     NameEmpty,
-    NameNotCanonical,
     NameTooLong,
     ReferenceInvalidFormat,
     TagInvalidFormat,
@@ -21,10 +24,11 @@ pub enum ParseError {
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ParseError::DigestInvalidFormat => write!(f, "invalid digest format"),
+            ParseError::DigestInvalidFormat => write!(f, "invalid checksum digest format"),
+            ParseError::DigestInvalidLength => write!(f, "invalid checksum digest length"),
+            ParseError::DigestUnsupported => write!(f, "unsupported digest algorithm"),
             ParseError::NameContainsUppercase => write!(f, "repository name must be lowercase"),
             ParseError::NameEmpty => write!(f, "repository name must have at least one component"),
-            ParseError::NameNotCanonical => write!(f, "repository name must be canonical"),
             ParseError::NameTooLong => write!(
                 f,
                 "repository name must not be more than {} characters",
@@ -135,58 +139,64 @@ impl TryFrom<String> for Reference {
     type Error = ParseError;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
-        let repo_start = s
-            .find('/')
-            .ok_or_else(|| ParseError::ReferenceInvalidFormat)?;
-        let first_colon = s[repo_start + 1..].find(':').map(|i| repo_start + i);
-        let digest_start = s[repo_start + 1..].find('@').map(|i| repo_start + i + 1);
-        let tag_start = match (digest_start, first_colon) {
-            // Check if a colon comes before a digest delimeter, indicating
-            // that image ref is in the form registry/repo:tag@digest
-            (Some(ds), Some(fc)) => {
-                if fc < ds {
-                    Some(fc)
-                } else {
-                    None
-                }
-            }
-            // No digest delimeter was found but a colon is present, so ref
-            // must be in the form registry/repo:tag
-            (None, Some(fc)) => Some(fc),
-            // No tag delimeter was found
-            _ => None,
+        if s.is_empty() {
+            return Err(ParseError::NameEmpty);
         }
-        .map(|i| i + 1);
-        let repo_end = match (digest_start, tag_start) {
-            (Some(_), Some(ts)) => ts,
-            (None, Some(ts)) => ts,
-            (Some(ds), None) => ds,
-            (None, None) => s.len(),
+        lazy_static! {
+            static ref RE: regex::Regex = regexp::must_compile(regexp::REFERENCE_REGEXP);
         };
-
-        let tag: Option<String> = match (digest_start, tag_start) {
-            (Some(d), Some(t)) => Some(s[t + 1..d].to_string()),
-            (None, Some(t)) => Some(s[t + 1..].to_string()),
-            _ => None,
-        };
-
-        let digest: Option<String> = match digest_start {
-            Some(c) => Some(s[c + 1..].to_string()),
-            None => None,
-        };
-
+        let captures;
+        match RE.captures(&s) {
+            Some(caps) => captures = caps,
+            None => {
+                return Err(ParseError::ReferenceInvalidFormat);
+            }
+        }
+        let name = &captures[1];
+        let tag = captures.get(2).map(|m| m.as_str().to_owned());
+        let digest = captures.get(3).map(|m| m.as_str().to_owned());
+        let (registry, repository) = split_domain(name);
         let reference = Reference {
-            registry: s[..repo_start].to_string(),
-            repository: s[repo_start + 1..repo_end].to_string(),
+            registry,
+            repository,
             tag,
             digest,
         };
-
         if reference.repository().len() > NAME_TOTAL_LENGTH_MAX {
             return Err(ParseError::NameTooLong);
         }
-
-        Ok(reference)
+        // Digests much always be hex-encoded, ensuring that their hex portion will always be
+        // size*2
+        if reference.digest().is_some() {
+            let d = reference.digest().unwrap();
+            // FIXME: we should actually separate the algorithm from the digest
+            // using regular expressions. This won't hold up if we support an
+            // algorithm more or less than 6 characters like sha1024.
+            if d.len() < 8 {
+                return Err(ParseError::DigestInvalidFormat);
+            }
+            let algo = &d[0..6];
+            let digest = &d[7..];
+            match algo {
+                "sha256" => {
+                    if digest.len() != 64 {
+                        return Err(ParseError::DigestInvalidLength);
+                    }
+                }
+                "sha384" => {
+                    if digest.len() != 96 {
+                        return Err(ParseError::DigestInvalidLength);
+                    }
+                }
+                "sha512" => {
+                    if digest.len() != 128 {
+                        return Err(ParseError::DigestInvalidLength);
+                    }
+                }
+                _ => return Err(ParseError::DigestUnsupported),
+            }
+        }
+        return Ok(reference);
     }
 }
 
@@ -203,6 +213,26 @@ impl Into<String> for Reference {
     }
 }
 
+fn split_domain(name: &str) -> (String, String) {
+    lazy_static! {
+        static ref RE: regex::Regex = regexp::must_compile(regexp::ANCHORED_NAME_REGEXP);
+    };
+    let captures;
+    match RE.captures(name) {
+        Some(caps) => captures = caps,
+        None => {
+            return ("".to_owned(), name.to_owned());
+        }
+    }
+    if let Some(repository) = captures.get(2).map(|m| m.as_str().to_owned()) {
+        let registry = captures
+            .get(1)
+            .map_or("".to_owned(), |m| m.as_str().to_owned());
+        return (registry, repository);
+    }
+    ("".to_owned(), name.to_owned())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -212,11 +242,24 @@ mod test {
         use rstest::rstest;
 
         #[rstest(input, registry, repository, tag, digest,
-            case("webassembly.azurecr.io/hello:v1@sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9", "webassembly.azurecr.io", "hello", Some("v1"), Some("sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9")),
-            case("webassembly.azurecr.io/hello@sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9", "webassembly.azurecr.io", "hello", None, Some("sha256:f29dba55022eec8c0ce1cbfaaed45f2352ab3fbbb1cdcd5ea30ca3513deb70c9")),
-            case("webassembly.azurecr.io/hello:v1", "webassembly.azurecr.io", "hello", Some("v1"), None),
-            case("webassembly.azurecr.io/hello", "webassembly.azurecr.io", "hello", None, None),
-            case("webassembly.azurecr.io/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "webassembly.azurecr.io", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", None, None)
+            case("test_com", "", "test_com", None, None),
+            case("test.com:tag", "", "test.com", Some("tag"), None),
+            case("test.com:5000", "", "test.com", Some("5000"), None),
+            case("test.com/repo:tag", "test.com", "repo", Some("tag"), None),
+            case("test:5000/repo", "test:5000", "repo", None, None),
+            case("test:5000/repo:tag", "test:5000", "repo", Some("tag"), None),
+            case("test:5000/repo@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "test:5000", "repo", None, Some("sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")),
+            case("test:5000/repo:tag@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "test:5000", "repo", Some("tag"), Some("sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")),
+            case("lowercase:Uppercase", "", "lowercase", Some("Uppercase"), None),
+            case("sub-dom1.foo.com/bar/baz/quux", "sub-dom1.foo.com", "bar/baz/quux", None, None),
+            case("sub-dom1.foo.com/bar/baz/quux:some-long-tag", "sub-dom1.foo.com", "bar/baz/quux", Some("some-long-tag"), None),
+            case("b.gcr.io/test.example.com/my-app:test.example.com", "b.gcr.io", "test.example.com/my-app", Some("test.example.com"), None),
+            // ☃.com in punycode
+            case("xn--n3h.com/myimage:xn--n3h.com", "xn--n3h.com", "myimage", Some("xn--n3h.com"), None),
+            // 🐳.com in punycode
+            case("xn--7o8h.com/myimage:xn--7o8h.com@sha512:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "xn--7o8h.com", "myimage", Some("xn--7o8h.com"), Some("sha512:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")),
+            case("foo_bar.com:8080", "", "foo_bar.com", Some("8080"), None),
+            case("foo/foo_bar.com:8080", "foo", "foo_bar.com", Some("8080"), None),
         )]
         fn parse_good_reference(
             input: &str,
@@ -233,8 +276,20 @@ mod test {
         }
 
         #[rstest(input, err,
-            case("webassembly.azurecr.io:hello", ParseError::ReferenceInvalidFormat),
-            case("webassembly.azurecr.io/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ParseError::NameTooLong)
+            case("", ParseError::NameEmpty),
+            case(":justtag", ParseError::ReferenceInvalidFormat),
+            case("@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", ParseError::ReferenceInvalidFormat),
+            case("repo@sha256:ffffffffffffffffffffffffffffffffff", ParseError::DigestInvalidLength),
+            case("validname@invaliddigest:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", ParseError::DigestUnsupported),
+            // FIXME: should really pass a ParseError::NameContainsUppercase, but "invalid format" is good enough for now.
+            case("Uppercase:tag", ParseError::ReferenceInvalidFormat),
+            // FIXME: "Uppercase" is incorrectly handled as a domain-name here, and therefore passes.
+            // https://github.com/docker/distribution/blob/master/reference/reference_test.go#L104-L109
+            // case("Uppercase/lowercase:tag", ParseError::NameContainsUppercase),
+            // FIXME: should really pass a ParseError::NameContainsUppercase, but "invalid format" is good enough for now.
+            case("test:5000/Uppercase/lowercase:tag", ParseError::ReferenceInvalidFormat),
+            case("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ParseError::NameTooLong),
+            case("aa/asdf$$^/aa", ParseError::ReferenceInvalidFormat)
         )]
         fn parse_bad_reference(input: &str, err: ParseError) {
             assert_eq!(Reference::try_from(input).unwrap_err(), err)

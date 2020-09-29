@@ -508,10 +508,10 @@ mod test {
         let c = Client::new(ClientConfig {
             protocol: ClientProtocol::Http,
         });
-        let reference = Reference::try_from("webassembly.azurecr.io/hello@sha256:1234".to_owned())
+        let reference = Reference::try_from("webassembly.azurecr.io/hello@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_owned())
             .expect("Could not parse reference");
         assert_eq!(
-            "http://webassembly.azurecr.io/v2/hello/blobs/sha256:1234",
+            "http://webassembly.azurecr.io/v2/hello/blobs/sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             c.to_v2_blob_url(
                 &reference.registry(),
                 reference.repository(),
@@ -551,10 +551,10 @@ mod test {
         let insecure_registries = vec!["localhost".to_owned(), "oci.registry.local".to_owned()];
         let protocol = ClientProtocol::HttpsExcept(insecure_registries);
         let c = Client::new(ClientConfig { protocol });
-        let reference = Reference::try_from("webassembly.azurecr.io/hello@sha256:1234".to_owned())
+        let reference = Reference::try_from("webassembly.azurecr.io/hello@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_owned())
             .expect("Could not parse reference");
         assert_eq!(
-            "https://webassembly.azurecr.io/v2/hello/blobs/sha256:1234",
+            "https://webassembly.azurecr.io/v2/hello/blobs/sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             c.to_v2_blob_url(
                 &reference.registry(),
                 reference.repository(),
@@ -568,10 +568,10 @@ mod test {
         let insecure_registries = vec!["localhost".to_owned(), "oci.registry.local".to_owned()];
         let protocol = ClientProtocol::HttpsExcept(insecure_registries);
         let c = Client::new(ClientConfig { protocol });
-        let reference = Reference::try_from("oci.registry.local/hello@sha256:1234".to_owned())
+        let reference = Reference::try_from("oci.registry.local/hello@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_owned())
             .expect("Could not parse reference");
         assert_eq!(
-            "http://oci.registry.local/v2/hello/blobs/sha256:1234",
+            "http://oci.registry.local/v2/hello/blobs/sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             c.to_v2_blob_url(
                 &reference.registry(),
                 reference.repository(),
