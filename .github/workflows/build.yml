@@ -86,7 +86,8 @@ jobs:
           kubectl certificate approve $(hostname)-tls
           sleep 2
           kubectl delete csr $(hostname)-tls 
-          KUBECONFIG=${CONFIG_DIR}/kubeconfig-wasi ./target/debug/krustlet-wasi --node-name krustlet-wasi --port 3001 --bootstrap-file ${CONFIG_DIR}/bootstrap.conf --cert-file ./config/krustlet-wasi.crt --private-key-file ./config/krustlet-wasi.key &
+          ls -l "${CONFIG_DIR}/kubeconfig-wasi"
+          RUST_LOG=kubelet=debug KUBECONFIG=${CONFIG_DIR}/kubeconfig-wasi ./target/debug/krustlet-wasi --node-name krustlet-wasi --port 3001 --bootstrap-file ${CONFIG_DIR}/bootstrap.conf --cert-file ./config/krustlet-wasi.crt --private-key-file ./config/krustlet-wasi.key &
           sleep 5
           kubectl certificate approve $(hostname)-tls
           sleep 2
