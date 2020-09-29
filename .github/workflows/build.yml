@@ -85,19 +85,17 @@ jobs:
           until kubectl certificate approve krustlet-wascc 
           do 
               echo "Certificate not present, retrying..."
-              kubectl get csr -A -owide
               sleep 1
           done
           sleep 2
-          kubectl delete csr $(hostname)-tls || true
+          kubectl delete csr krustlet-wascc || true
           sleep 2
           RUST_LOG=kubelet::bootstrapping=debug KUBECONFIG=${CONFIG_DIR}/kubeconfig-wasi ./target/debug/krustlet-wasi --node-name krustlet-wasi --port 3001 --bootstrap-file ${CONFIG_DIR}/bootstrap.conf --cert-file ./config/krustlet-wasi.crt --private-key-file ./config/krustlet-wasi.key &
           until kubectl certificate approve krustlet-wasi 
           do 
               echo "Certificate not present, retrying..."
-              kubectl get csr -A -owide
               sleep 1
           done
           sleep 2
-          kubectl delete csr $(hostname)-tls || true
+          kubectl delete csr krustlet-wasi || true
           just test-e2e
