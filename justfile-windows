@@ -22,6 +22,9 @@ test +FLAGS='--no-default-features --features rustls-tls':
 test-e2e +FLAGS='--no-default-features --features rustls-tls':
     cargo test --test integration_tests {{FLAGS}}
 
+test-e2e-standalone +FLAGS='--no-default-features --features rustls-tls':
+    cargo run --bin oneclick {{FLAGS}}
+
 run-wascc +FLAGS='--no-default-features --features rustls-tls': bootstrap
     $env:KUBECONFIG = "$(Invoke-Expression "echo $env:CONFIG_DIR")\kubeconfig-wascc"; cargo run --bin krustlet-wascc {{FLAGS}} -- --node-name krustlet-wascc --port 3000 --bootstrap-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\bootstrap.conf" --cert-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wascc.crt" --private-key-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wascc.key"
 

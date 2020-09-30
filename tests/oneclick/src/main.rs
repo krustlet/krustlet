@@ -80,8 +80,14 @@ fn config_file_path_str(file_name: impl AsRef<std::path::Path>) -> String {
 }
 
 fn build_workspace() -> anyhow::Result<()> {
+    #[cfg(target_family = "unix")]
     let build_result = std::process::Command::new("cargo")
         .args(&["build"])
+        .output()?;
+
+    #[cfg(target_family = "windows")]
+    let build_result = std::process::Command::new("cargo")
+        .args(&["build", "--no-default-features", "--features", "rustls-tls"])
         .output()?;
 
     if build_result.status.success() {

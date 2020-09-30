@@ -64,8 +64,34 @@ jobs:
           just --justfile justfile-windows test
   # TODO: Figure out how to get kind or minikube running on a windows test host and see how we can
   # get things working with rustls
-  # windows-e2e:
-  #   runs-on: windows-latest
+  windows-e2e:
+    runs-on: windows-latest
+    defaults:
+      run:
+        # For some reason, running with the default powershell doesn't work with the `Build` step,
+        # but bash does!
+        shell: bash
+    steps:
+      - uses: actions/checkout@v2
+      - uses: engineerd/configurator@v0.0.2
+        with:
+          name: just
+          url: "https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-pc-windows-msvc.zip"
+          pathInArchive: just.exe
+      - name: Setup kind cluster
+        run: kind create cluster --wait 60s
+      - name: Run e2e tests (full)
+        if: ${{ github.event_name == 'push' }}
+        env:
+          KRUSTLET_TEST_ENV: "ci"
+          KRUSTLET_E2E_IMAGE_PULL_SECRET: ${{ secrets.KRUSTLET_E2E_IMAGE_PULL_SECRET }}
+        run: just --justfile justfile-windows test-e2e-standalone
+      - name: Run e2e tests (PR)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: just --justfile justfile-windows test-e2e-standalone
+      - name: Output krustlet logs (on error)
+        if: ${{ failure() }}
+        run: cat *.txt
   e2e:
     runs-on: ubuntu-latest
     steps:
@@ -73,7 +99,7 @@ jobs:
       - uses: engineerd/setup-kind@v0.4.0
         with:
           version: "v0.9.0"
-      - uses: engineerd/configurator@v0.0.1
+      - uses: engineerd/configurator@v0.0.2
         with:
           name: just
           url: https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-unknown-linux-musl.tar.gz
