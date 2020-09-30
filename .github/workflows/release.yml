@@ -107,6 +107,12 @@ jobs:
         continue-on-error: true
       - name: wait for oci-distribution to be published
         run: sleep 60
+      - name: publish kubelet-derive crate to crates.io
+        working-directory: ./crates/kubelet-derive
+        run: cargo publish --token ${{ secrets.CargoToken }}
+        continue-on-error: true
+      - name: wait for kubelet-derive to be published
+        run: sleep 60
       - name: publish kubelet to crates.io
         working-directory: ./crates/kubelet
         run: cargo publish --token ${{ secrets.CargoToken }}

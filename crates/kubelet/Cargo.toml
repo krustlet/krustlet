@@ -31,7 +31,7 @@ default = ["kube-native-tls"]
 kube-native-tls = ["kube/native-tls", "kube-runtime/native-tls", "oci-distribution/native-tls", "reqwest/native-tls"]
 rustls-tls = ["kube/rustls-tls", "kube-runtime/rustls-tls","oci-distribution/rustls-tls", "reqwest/rustls-tls"]
 cli = ["structopt"]
-docs = ["cli"]
+docs = ["cli", "derive"]
 derive = ["kubelet-derive"]
 
 [dependencies]

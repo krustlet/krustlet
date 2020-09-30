@@ -9,6 +9,7 @@ authors = [
     "Brian Ketelsen <Brian.Ketelsen@microsoft.com>",
     "Brian Hardock <Brian.Hardock@microsoft.com>",
     "Ryan Levick <rylevick@microsoft.com>",
+    "Kevin Flansburg <kevin.flansburg@gmail.com>",
 ]
 edition = "2018"
 license-file = "../../LICENSE"
@@ -28,6 +29,10 @@ proc-macro = true
 [dependencies]
 syn = "1.0"
 quote = "1.0"
+
+[dev-dependencies]
+# For docs builds
+kubelet = { path = "../kubelet", version = "0.5", default-features = false }
 
 [package.metadata.docs.rs]
 features = ["docs"]

@@ -1860,6 +1860,7 @@ dependencies = [
 name = "kubelet-derive"
 version = "0.1.0"
 dependencies = [
+ "kubelet",
  "quote",
  "syn",
 ]

@@ -1,4 +1,19 @@
-// TODO: Docs
+//! A crate for deriving state machine traits in Kubelet. Right now this crate only consists of a
+//! derive macro for the `TransitionTo` trait. In addition to the `derive` attribute, this macro
+//! also requires the use of a custom attribute called `transition_to` that specifies the types that
+//! can be transitioned to. Not specifying this attribute will result in a compile time error. A
+//! simple example of this is below:
+//!
+//! ```rust,no_run
+//! use kubelet_derive::TransitionTo;
+//!
+//! pub struct VolumeMount;
+//! pub struct ImagePullBackoff;
+//!
+//! #[derive(Default, Debug, TransitionTo)]
+//! #[transition_to(VolumeMount, ImagePullBackoff)]
+//! pub struct ImagePull;
+//!```
 
 extern crate proc_macro;
 
