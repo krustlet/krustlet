@@ -2198,8 +2198,11 @@ dependencies = [
  "anyhow",
  "futures-util",
  "hyperx",
+ "lazy_static",
  "log",
+ "regex",
  "reqwest",
+ "rstest",
  "serde",
  "serde_json",
  "tokio",
@@ -2781,6 +2784,19 @@ dependencies = [
  "byteorder",
  "rmp",
  "serde",
+]
+
+[[package]]
+name = "rstest"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dec448bc157977efdc0a71369cf923915b0c4806b1b2449c3fb011071d6f7c38"
+dependencies = [
+ "cfg-if",
+ "proc-macro2",
+ "quote",
+ "rustc_version",
+ "syn",
 ]
 
 [[package]]
