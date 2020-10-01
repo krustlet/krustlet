@@ -1,7 +1,6 @@
 //! Container statuses
 
-use k8s_openapi::api::core::v1::Pod;
-use kube::{api::PatchParams, Api};
+use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 
 use crate::container::{ContainerMap, Status as ContainerStatus};
 
@@ -15,6 +14,26 @@ pub fn make_status(phase: Phase, reason: &str) -> anyhow::Result<serde_json::Val
            "status": {
                "phase": phase,
                "reason": reason,
+           }
+       }
+    ))
+}
+
+/// Create basic Pod status patch.
+pub fn make_status_with_containers(
+    phase: Phase,
+    reason: &str,
+    container_statuses: Vec<KubeContainerStatus>,
+) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::json!(
+       {
+           "metadata": {
+               "resourceVersion": "",
+           },
+           "status": {
+               "phase": phase,
+               "reason": reason,
+               "containerStatuses": container_statuses,
            }
        }
     ))
@@ -68,23 +87,4 @@ impl Default for Phase {
     fn default() -> Self {
         Self::Unknown
     }
-}
-
-/// A helper for updating pod status. The given data should be a pod status object and be
-/// serializable by serde
-pub async fn update_status<T: serde::Serialize>(
-    client: kube::Client,
-    ns: &str,
-    pod_name: &str,
-    data: &T,
-) -> anyhow::Result<()> {
-    let data = serde_json::to_vec(data)?;
-    let pod_client: Api<Pod> = Api::namespaced(client, ns);
-    if let Err(e) = pod_client
-        .patch_status(pod_name, &PatchParams::default(), data)
-        .await
-    {
-        return Err(e.into());
-    }
-    Ok(())
 }

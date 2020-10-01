@@ -6,7 +6,7 @@ mod status;
 #[allow(deprecated)]
 pub use handle::{key_from_pod, pod_key, Handle};
 pub(crate) use queue::Queue;
-pub use status::{make_status, update_status, Phase, Status, StatusMessage};
+pub use status::{make_status, make_status_with_containers, Phase, Status, StatusMessage};
 
 use crate::container::{Container, ContainerKey};
 use chrono::{DateTime, Utc};
