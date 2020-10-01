@@ -29,6 +29,10 @@ spec:
       operator: "Equal"
       value: "wasm32-wasi"
       effect: "NoExecute"
+    - key: "kubernetes.io/arch"
+      operator: "Equal"
+      value: "wasm32-wasi"
+      effect: "NoSchedule"
 ```
 
 Let's break this file down:

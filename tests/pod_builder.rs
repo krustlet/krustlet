@@ -186,6 +186,12 @@ pub fn wasmerciser_pod(
                     "operator": "Equal",
                     "value": architecture,
                 },
+                {
+                    "effect": "NoSchedule",
+                    "key": "kubernetes.io/arch",
+                    "operator": "Equal",
+                    "value": architecture,
+                },
             ],
             "nodeSelector": {
                 "kubernetes.io/arch": architecture
