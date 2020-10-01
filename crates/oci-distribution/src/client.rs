@@ -4,7 +4,7 @@
 //! OCI distribution client in the future.
 
 use crate::errors::*;
-use crate::manifest::OciManifest;
+use crate::manifest::{OciManifest, Versioned, IMAGE_MANIFEST_MEDIA_TYPE};
 use crate::secrets::RegistryAuth;
 use crate::secrets::*;
 use crate::Reference;
@@ -88,6 +88,10 @@ impl Client {
         }
 
         let (manifest, digest) = self.pull_manifest(image).await?;
+
+        if manifest.layers.is_empty() {
+            return Err(anyhow::anyhow!("no layers to pull"));
+        }
 
         let layers = manifest.layers.into_iter().map(|layer| {
             // This avoids moving `self` which is &mut Self
@@ -233,8 +237,26 @@ impl Client {
             reqwest::StatusCode::OK => {
                 let digest = digest_header_value(&res)?;
                 let text = res.text().await?;
+                debug!("validating response: {}", text);
+                let versioned: Versioned = serde_json::from_str(&text).with_context(|| {
+                    format!(
+                        "Failed to parse response from pulling manifest for '{:?}' as a Versioned object",
+                        image
+                    )
+                })?;
+                if versioned.schema_version != 2 {
+                    return Err(anyhow::anyhow!(
+                        "unsupported schema version: {}",
+                        versioned.schema_version
+                    ));
+                }
+                if let Some(media_type) = versioned.media_type {
+                    if media_type != IMAGE_MANIFEST_MEDIA_TYPE {
+                        return Err(anyhow::anyhow!("unsupported media type: {}", media_type));
+                    }
+                }
                 debug!("Parsing response as OciManifest: {}", text);
-                let manifest = serde_json::from_str(&text).with_context(|| {
+                let manifest: OciManifest = serde_json::from_str(&text).with_context(|| {
                     format!(
                         "Failed to parse response from pulling manifest for '{:?}' as an OciManifest",
                         image
