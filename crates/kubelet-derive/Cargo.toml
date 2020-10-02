@@ -1,0 +1,39 @@
+[package]
+name = "kubelet-derive"
+version = "0.1.0"
+authors = [
+    "Matt Butcher <matt.butcher@microsoft.com>",
+    "Matthew Fisher <matt.fisher@microsoft.com>",
+    "Radu Matei <radu.matei@microsoft.com>",
+    "Taylor Thomas <taylor.thomas@microsoft.com>",
+    "Brian Ketelsen <Brian.Ketelsen@microsoft.com>",
+    "Brian Hardock <Brian.Hardock@microsoft.com>",
+    "Ryan Levick <rylevick@microsoft.com>",
+    "Kevin Flansburg <kevin.flansburg@gmail.com>",
+]
+edition = "2018"
+license-file = "../../LICENSE"
+description = "Derive macros for the Kubelet crate"
+repository = "https://github.com/deislabs/krustlet"
+readme = "README.md"
+keywords = [
+    "wasm",
+    "wasi",
+    "webassembly",
+    "kubernetes",
+]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = "1.0"
+quote = "1.0"
+
+[dev-dependencies]
+# For docs builds
+kubelet = { path = "../kubelet", version = "0.5", default-features = false }
+
+[package.metadata.docs.rs]
+features = ["docs"]
+rustdoc-args = ["--cfg", "feature=\"docs\""]

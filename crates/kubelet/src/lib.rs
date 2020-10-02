@@ -79,3 +79,9 @@ pub mod volume;
 
 pub use self::kubelet::Kubelet;
 pub use bootstrapping::bootstrap;
+
+#[cfg(feature = "derive")]
+#[allow(unused_imports)]
+#[macro_use]
+// Note that this crate is re-exported within `state` for now as it only has to do with that
+extern crate kubelet_derive;

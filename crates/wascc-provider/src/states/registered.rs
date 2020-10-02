@@ -45,7 +45,8 @@ fn has_args(container: &Container) -> bool {
 }
 
 /// The Kubelet is aware of the Pod.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, TransitionTo)]
+#[transition_to(ImagePull, Error)]
 pub struct Registered;
 
 #[async_trait::async_trait]
@@ -67,9 +68,6 @@ impl State<PodState> for Registered {
         make_status(Phase::Pending, "Registered")
     }
 }
-
-impl TransitionTo<Error> for Registered {}
-impl TransitionTo<ImagePull> for Registered {}
 
 #[cfg(test)]
 mod test {

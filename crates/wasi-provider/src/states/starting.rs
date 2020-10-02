@@ -15,7 +15,6 @@ use kubelet::volume::Ref;
 use crate::wasi_runtime::{self, HandleFactory, Runtime, WasiRuntime};
 use crate::PodState;
 
-use super::error::Error;
 use super::running::Running;
 use crate::fail_fatal;
 
@@ -83,7 +82,8 @@ pub(crate) async fn start_container(
 pub(crate) type ContainerHandleMap =
     HashMap<ContainerKey, kubelet::container::Handle<Runtime, HandleFactory>>;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, TransitionTo)]
+#[transition_to(Running)]
 /// The Kubelet is starting the Pod containers
 pub(crate) struct Starting {
     init_handles: Arc<Mutex<ContainerHandleMap>>,
@@ -138,6 +138,3 @@ impl State<PodState> for Starting {
         make_status(Phase::Pending, "Starting")
     }
 }
-
-impl TransitionTo<Running> for Starting {}
-impl TransitionTo<Error> for Starting {}

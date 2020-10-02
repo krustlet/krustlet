@@ -138,7 +138,8 @@ async fn start_container(
 }
 
 /// The Kubelet is starting the Pod.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, TransitionTo)]
+#[transition_to(Running, Error)]
 pub struct Starting;
 
 #[async_trait::async_trait]
@@ -195,6 +196,3 @@ impl State<PodState> for Starting {
         make_status(Phase::Pending, "Starting")
     }
 }
-
-impl TransitionTo<Running> for Starting {}
-impl TransitionTo<Error> for Starting {}

@@ -7,6 +7,10 @@ use crate::pod::{Phase, Pod};
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Api, PatchParams};
 
+#[cfg(feature = "derive")]
+#[doc(hidden)]
+pub use kubelet_derive::*;
+
 /// Holds arbitrary State objects in Box, and prevents manual construction of Transition::Next
 ///
 /// ```compile_fail
@@ -37,18 +41,21 @@ pub trait TransitionTo<S> {}
 
 impl<PodState> Transition<PodState> {
     // This prevents user from having to box everything AND allows us to enforce edge constraint.
-    /// Construct Transition::Next from old state and new state.
-    /// Both states must be State<PodState> with matching PodState.
-    /// Input state must implement TransitionTo<OutputState>.
+    /// Construct Transition::Next from old state and new state. Both states must be State<PodState>
+    /// with matching PodState. Input state must implement TransitionTo<OutputState>, which can be
+    /// done manually or with the `TransitionTo` derive macro (requires the `derive` feature to be
+    /// enabled)
     ///
     /// ```
     /// use kubelet::state::{Transition, State, TransitionTo};
     /// use kubelet::pod::Pod;
     ///
-    /// #[derive(Debug)]
+    /// #[derive(Debug, TransitionTo)]
+    /// #[transition_to(TestState)]
     /// struct TestState;
     ///
-    /// impl TransitionTo<TestState> for TestState {}
+    /// // Example of manual trait implementation
+    /// // impl TransitionTo<TestState> for TestState {}
     ///
     /// struct PodState;
     ///
@@ -72,20 +79,19 @@ impl<PodState> Transition<PodState> {
     /// }
     /// ```
     ///
-    /// The next state must also be State<PodState>, if it is not State, if fails to compile::
+    /// The next state must also be State<PodState>, if it is not State, it fails to compile:
     /// ```compile_fail
     /// use kubelet::state::{Transition, State, TransitionTo};
     /// use kubelet::pod::Pod;
     ///
-    /// #[derive(Debug)]
+    /// #[derive(Debug, TransitionTo)]
+    /// #[transition_to(NotState)]
     /// struct TestState;
     ///
     /// struct PodState;
     ///
     /// #[derive(Debug)]
     /// struct NotState;
-    ///
-    /// impl TransitionTo<NotState> for TestState {}
     ///
     /// #[async_trait::async_trait]
     /// impl State<PodState> for TestState {
@@ -146,7 +152,8 @@ impl<PodState> Transition<PodState> {
     /// use kubelet::state::{Transition, State, TransitionTo};
     /// use kubelet::pod::Pod;
     ///
-    /// #[derive(Debug)]
+    /// #[derive(Debug, TransitionTo)]
+    /// #[transition_to(OtherState)]
     /// struct TestState;
     ///
     /// struct PodState;
@@ -155,8 +162,6 @@ impl<PodState> Transition<PodState> {
     /// struct OtherState;
     ///
     /// struct OtherPodState;
-    ///
-    /// impl TransitionTo<OtherState> for TestState {}
     ///
     /// #[async_trait::async_trait]
     /// impl State<PodState> for TestState {
