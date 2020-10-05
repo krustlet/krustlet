@@ -63,6 +63,14 @@ mod kubelet;
 
 pub(crate) mod kubeconfig;
 pub(crate) mod webserver;
+pub(crate) mod plugin_registration_api {
+    pub(crate) mod v1 {
+        pub const API_VERSION: &str = "v1";
+
+        tonic::include_proto!("pluginregistration.v1");
+    }
+}
+pub(crate) mod plugin_watcher;
 
 pub mod backoff;
 pub mod config;
