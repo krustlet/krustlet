@@ -1,6 +1,7 @@
 //! Client for fetching container modules from OCI
 use async_trait::async_trait;
 use oci_distribution::client::ImageData;
+use oci_distribution::manifest;
 use oci_distribution::secrets::RegistryAuth;
 
 use oci_distribution::Reference;
@@ -58,7 +59,8 @@ pub trait Client {
 #[async_trait]
 impl Client for oci_distribution::Client {
     async fn pull(&mut self, image: &Reference, auth: &RegistryAuth) -> anyhow::Result<ImageData> {
-        self.pull_image(image, auth).await
+        self.pull(image, auth, vec![manifest::WASM_LAYER_MEDIA_TYPE])
+            .await
     }
 
     async fn fetch_digest(
