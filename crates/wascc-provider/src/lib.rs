@@ -258,6 +258,7 @@ impl Provider for WasccProvider {
 
     async fn node(&self, builder: &mut Builder) -> anyhow::Result<()> {
         builder.set_architecture("wasm-wasi");
+        builder.add_taint("NoSchedule", "kubernetes.io/arch", Self::ARCH);
         builder.add_taint("NoExecute", "kubernetes.io/arch", Self::ARCH);
         Ok(())
     }

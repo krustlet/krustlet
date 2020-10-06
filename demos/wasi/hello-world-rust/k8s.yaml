@@ -50,3 +50,7 @@ spec:
     - key: "node.kubernetes.io/network-unavailable"
       operator: "Exists"
       effect: "NoSchedule"
+    - key: "kubernetes.io/arch"
+      operator: "Equal"
+      value: "wasm32-wasi"
+      effect: "NoSchedule"

@@ -31,3 +31,7 @@ spec:
       operator: "Equal"
       value: "wasm32-wascc"
       effect: "NoExecute"
+    - key: "kubernetes.io/arch"
+      operator: "Equal"
+      value: "wasm32-wascc"
+      effect: "NoSchedule"

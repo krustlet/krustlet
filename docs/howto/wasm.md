@@ -15,9 +15,9 @@ nodes, you should use the Kubernetes tolerations system; in some cases you
 will also need to use node affinity.
 
 The `krustlet-wasi` and `krustlet-wascc` 'virtual nodes' both have
-`NoExecute` taints with the key `kubernetes.io/arch` and a provider-defined
-value (`wasm32-wasi` or `wasm32-wascc` respectively).  WASM pods must
-therefore specify a toleration for this taint.  For example:
+`NoExecute` and `NoSchedule` taints with the key `kubernetes.io/arch` and 
+a provider-defined value (`wasm32-wasi` or `wasm32-wascc` respectively).  
+WASM pods must therefore specify a toleration for this taint.  For example:
 
 ```yaml
 apiVersion: v1
@@ -30,6 +30,10 @@ spec:
     image: webassembly.azurecr.io/hello-wasm:v1
   tolerations:
   - effect: NoExecute
+    key: kubernetes.io/arch
+    operator: Equal
+    value: wasm32-wasi   # or wasm32-wascc according to module target arch
+  - effect: NoSchedule
     key: kubernetes.io/arch
     operator: Equal
     value: wasm32-wasi   # or wasm32-wascc according to module target arch
