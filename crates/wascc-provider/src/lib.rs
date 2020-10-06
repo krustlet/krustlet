@@ -90,6 +90,7 @@ pub struct ActorHandle {
     pub key: String,
     host: Arc<Mutex<Host>>,
     volumes: Vec<VolumeBinding>,
+    capabilities: Vec<String>,
 }
 
 #[async_trait::async_trait]
@@ -99,13 +100,23 @@ impl StopHandler for ActorHandle {
         let host = self.host.clone();
         let key = self.key.clone();
         let volumes: Vec<VolumeBinding> = self.volumes.drain(0..).collect();
+        let capabilities = self.capabilities.clone();
         tokio::task::spawn_blocking(move || {
             let lock = host.lock().unwrap();
             lock.remove_actor(&key)
                 .map_err(|e| anyhow::anyhow!("unable to remove actor: {:?}", e))?;
-            for volume in volumes.into_iter() {
-                lock.remove_native_capability(FS_CAPABILITY, Some(volume.name))
-                    .map_err(|e| anyhow::anyhow!("unable to remove volume capability: {:?}", e))?;
+
+            if capabilities.contains(&FS_CAPABILITY.to_owned()) {
+                for volume in volumes.into_iter() {
+                    lock.remove_native_capability(FS_CAPABILITY, Some(volume.name.clone()))
+                        .map_err(|e| {
+                            anyhow::anyhow!(
+                                "unable to remove volume {:?} capability: {:?}",
+                                volume.name,
+                                e
+                            )
+                        })?;
+                }
             }
             Ok(())
         })
@@ -417,6 +428,7 @@ fn wascc_run(
             host,
             key: pk,
             volumes,
+            capabilities: actor_caps,
         },
         log_handle_factory,
     ))
