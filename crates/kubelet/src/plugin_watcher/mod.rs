@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 
+// TODO: Figure out the default for Windows
 const DEFAULT_PLUGIN_PATH: &str = "/var/lib/kubelet/plugins_registry/";
 const SOCKET_EXTENSION: &str = "sock";
 
@@ -250,10 +251,6 @@ impl PluginRegistrar {
     /// Registers the plugin in our HashMap
     async fn register(&self, info: &PluginInfo, discovered_path: &PathBuf) {
         let mut lock = self.plugins.write().await;
-        let plugin_path = match info.endpoint.is_empty() {
-            true => discovered_path.to_owned(),
-            false => PathBuf::from(&info.endpoint),
-        };
         lock.insert(
             info.name.clone(),
             PluginEntry {
@@ -319,4 +316,108 @@ async fn inform_plugin(path: &PathBuf, error: Option<String>) -> anyhow::Result<
                 status.message()
             )
         })
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::plugin_registration_api::v1::{
+        registration_server::{Registration, RegistrationServer}, InfoRequest, PluginInfo, RegistrationStatusResponse, RegistrationStatusResponse,
+        API_VERSION,
+    };
+    use tonic::{transport::Server, Request, Response, Status, Code};
+    use tokio::sync::mpsc::{self, Sender};
+
+    #[derive(Debug, Default)]
+    struct PluginConfig {
+        get_info_error: Option<String>,
+        registration_notify_error: Option<String>
+    }
+
+    #[derive(Debug, Default)]
+    struct TestPlugin {
+        conf: PluginConfig,
+        plugin_type: String,
+        name: String,
+        endpoint: Option<String>,
+        supported_versions: Vec<String>,
+        // A channel to send out the response it gets from registering
+        registration_response: Sender<RegistrationStatus>,
+    }
+
+    #[tonic::async_trait]
+    impl Registration for TestPlugin {
+        async fn get_info(&self, req: Request<InfoRequest>) -> Result<Response<PluginInfo>, Status> {
+            if let Some(e) = self.conf.get_info_error.as_ref() {
+                return Err(Status::new(Code::Unavailable, e))
+            }
+            Ok(Response::new(PluginInfo {
+                r#type: self.plugin_type.clone(),
+                name: self.name.clone(),
+                endpoint: self.endpoint.clone().unwrap_or_default(),
+                supported_versions: self.supported_versions.clone()
+            }))
+        }
+
+        async fn notify_registration_status(&self, req: Request<RegistrationStatus>) -> Result<Response<RegistrationStatusResponse>, Status> {
+            if let Some(e) = self.conf.registration_notify_error.as_ref() {
+                return Err(Status::new(Code::Unavailable, e))
+            }
+
+            self.registration_response.send(req.into_inner()).expect("should be able to send registration status on channel");
+
+            Ok(Response::new(RegistrationStatusResponse{}))
+        }
+    }
+
+    /// Setup the test, returning the temporary directory (as we need it around to keep it from
+    /// dropping) and a PluginRegistrar configured with the path
+    fn setup() -> (tempfile::TempDir, PluginRegistrar) {
+        let tempdir = tempfile::tempdir().expect("should be able to create tempdir");
+
+        let registrar = PluginRegistrar::new(&tempdir);
+
+        (tempdir, registrar)
+    }
+
+    #[tokio::test]
+    async fn test_successful_registration() {
+        let (tempdir, registrar) = setup();
+
+        let (tx, rx) = mpsc::channel(1);
+
+        let plugin = TestPlugin {
+            plugin_type: "CSIPlugin",
+            name: "foo",
+            endpoint: Some("/tmp/foo.sock"),
+            supported_versions: vec![API_VERSION.to_string()],
+            registration_response: tx,
+            ..Default::default()
+        };
+
+        let mut sock_path = tempdir.path().to_path_buf();
+        sock_path.push("foo.sock");
+
+        let addr = sock_path.to_str().unwrap_or("").parse().expect("expected socket path to parse");
+
+        tokio::spawn(Server::builder().add_service(RegistrationServer::new(plugin)).serve(addr));
+
+        let registration_status = rx.recv().await.expect("Should have received a valid response in the channel");
+
+        assert!(registration_status.plugin_registered, "Plugin did not receive successful registration request");
+
+        assert!(registration_status.error.is_empty(), "Error message should be empty");
+    }
+
+    #[tokio::test]
+    async fn test_unsuccessful_registration() {}
+
+    #[tokio::test]
+    async fn test_validation() {}
+
+    #[tokio::test]
+    async fn test_existing_socket() {}
+
+    #[tokio::test]
+    async fn test_unregister() {}
 }
