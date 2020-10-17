@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use log::{debug, info};
+use log::{debug, error, info};
 use tokio::sync::Mutex;
 
 use kubelet::container::{Container, ContainerKey};
@@ -16,7 +16,6 @@ use crate::wasi_runtime::{self, HandleFactory, Runtime, WasiRuntime};
 use crate::PodState;
 
 use super::running::Running;
-use crate::fail_fatal;
 
 fn volume_path_map(
     container: &Container,
@@ -109,14 +108,14 @@ impl State<PodState> for Starting {
 
         info!("Starting containers for pod {:?}", pod.name());
         for container in pod.containers() {
-            let container_handle = match start_container(pod_state, &pod, &container).await {
-                Ok(h) => h,
-                Err(e) => fail_fatal!(e),
-            };
-            container_handles.insert(
-                ContainerKey::App(container.name().to_string()),
-                container_handle,
-            );
+            match start_container(pod_state, &pod, &container).await {
+                Ok(h) => {
+                    container_handles.insert(ContainerKey::App(container.name().to_string()), h);
+                }
+                // We should log, transition to running, and properly handle container failure.
+                // Exiting here causes channel to be dropped messages to be lost from already running wasm runtimes.
+                Err(e) => error!("Error spawning wasmtime: {:?}", e),
+            }
         }
 
         let pod_handle = Handle::new(container_handles, pod.clone(), None);

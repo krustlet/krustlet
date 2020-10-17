@@ -215,12 +215,12 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
                     "status": {
                         "phase": Phase::Succeeded,
                         "reason": "Pod terminated on node shutdown.",
-                        "containerStatuses": pod.all_containers().iter().map(|key| {
+                        "containerStatuses": pod.all_containers().iter().map(|container| {
                             ContainerStatus::Terminated {
                                 timestamp: Utc::now(),
                                 message: "Evicted on node shutdown".to_string(),
                                 failed: false
-                            }.to_kubernetes(key.name())
+                            }.to_kubernetes(container.name())
                         }).collect::<Vec<KubeContainerStatus>>()
                     }
                 }

@@ -9,7 +9,7 @@ mod handle;
 mod status;
 
 pub use handle::{Handle, HandleMap};
-pub use status::Status;
+pub use status::{make_initial_container_status, patch_container_status, Status};
 
 /// Specifies how the store should check for module updates
 #[derive(PartialEq, Debug, Clone, Copy)]

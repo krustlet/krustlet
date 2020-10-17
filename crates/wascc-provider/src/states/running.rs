@@ -43,6 +43,6 @@ impl State<PodState> for Running {
                 status
             })
             .collect();
-        make_status_with_containers(Phase::Running, "Running", container_statuses)
+        make_status_with_containers(Phase::Running, "Running", container_statuses, vec![])
     }
 }

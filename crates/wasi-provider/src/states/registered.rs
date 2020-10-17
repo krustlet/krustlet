@@ -42,8 +42,8 @@ impl State<PodState> for Registered {
     async fn json_status(
         &self,
         _pod_state: &mut PodState,
-        _pod: &Pod,
+        pod: &Pod,
     ) -> anyhow::Result<serde_json::Value> {
-        make_status(Phase::Pending, "Registered")
+        make_registered_status(pod)
     }
 }

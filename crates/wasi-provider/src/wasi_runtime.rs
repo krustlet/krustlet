@@ -299,9 +299,20 @@ impl WasiRuntime {
             let func = match export {
                 wasmtime::Extern::Func(f) => f,
                 _ => {
-                    return Err(anyhow::anyhow!(
-                    "_start import was not a function. This is likely a problem with the module"
-                ))
+                    let message = "_start import was not a function. This is likely a problem with the module";
+                    error!("{}", message);
+                    send(
+                        status_sender.clone(),
+                        name.clone(),
+                        Status::Terminated {
+                            failed: true,
+                            message: message.into(),
+                            timestamp: chrono::Utc::now(),
+                        },
+                        &mut cx,
+                    );
+
+                    return Err(anyhow::anyhow!(message));
                 }
             };
             match func.call(&[]) {

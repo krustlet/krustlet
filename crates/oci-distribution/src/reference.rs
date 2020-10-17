@@ -89,7 +89,7 @@ impl Reference {
     }
 
     /// full_name returns the full repository name and path.
-    fn full_name(&self) -> String {
+    pub fn full_name(&self) -> String {
         let mut path = PathBuf::new();
         path.push(self.registry());
         path.push(self.repository());

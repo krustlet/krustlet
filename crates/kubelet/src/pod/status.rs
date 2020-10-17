@@ -1,8 +1,28 @@
 //! Container statuses
 
+use super::Pod;
+use crate::container::{make_initial_container_status, ContainerMap, Status as ContainerStatus};
 use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 
-use crate::container::{ContainerMap, Status as ContainerStatus};
+/// Initialize Pod status.
+pub fn make_registered_status(pod: &Pod) -> anyhow::Result<serde_json::Value> {
+    let init_container_statuses: Vec<KubeContainerStatus> = pod
+        .init_containers()
+        .iter()
+        .map(make_initial_container_status)
+        .collect();
+    let container_statuses: Vec<KubeContainerStatus> = pod
+        .containers()
+        .iter()
+        .map(make_initial_container_status)
+        .collect();
+    make_status_with_containers(
+        Phase::Pending,
+        "Registered",
+        container_statuses,
+        init_container_statuses,
+    )
+}
 
 /// Create basic Pod status patch.
 pub fn make_status(phase: Phase, reason: &str) -> anyhow::Result<serde_json::Value> {
@@ -24,6 +44,7 @@ pub fn make_status_with_containers(
     phase: Phase,
     reason: &str,
     container_statuses: Vec<KubeContainerStatus>,
+    init_container_statuses: Vec<KubeContainerStatus>,
 ) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::json!(
        {
@@ -34,6 +55,7 @@ pub fn make_status_with_containers(
                "phase": phase,
                "reason": reason,
                "containerStatuses": container_statuses,
+               "initContainerStatuses": init_container_statuses,
            }
        }
     ))

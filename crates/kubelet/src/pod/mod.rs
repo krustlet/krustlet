@@ -6,9 +6,11 @@ mod status;
 #[allow(deprecated)]
 pub use handle::{key_from_pod, pod_key, Handle};
 pub(crate) use queue::Queue;
-pub use status::{make_status, make_status_with_containers, Phase, Status, StatusMessage};
+pub use status::{
+    make_registered_status, make_status, make_status_with_containers, Phase, Status, StatusMessage,
+};
 
-use crate::container::{Container, ContainerKey};
+use crate::container::Container;
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::{
     Container as KubeContainer, Pod as KubePod, Volume as KubeVolume,
@@ -164,16 +166,11 @@ impl Pod {
     }
 
     /// Gets all of a pod's containers (init and application)
-    pub fn all_containers(&self) -> Vec<ContainerKey> {
-        let app_containers = self.containers();
-        let app_container_keys = app_containers
-            .iter()
-            .map(|c| ContainerKey::App(c.name().to_owned()));
+    pub fn all_containers(&self) -> Vec<Container> {
+        let mut app_containers = self.containers();
         let init_containers = self.init_containers();
-        let init_container_keys = init_containers
-            .iter()
-            .map(|c| ContainerKey::Init(c.name().to_owned()));
-        app_container_keys.chain(init_container_keys).collect()
+        app_containers.extend(init_containers);
+        app_containers
     }
 
     /// Turn the Pod into the Kubernetes API version of a Pod
