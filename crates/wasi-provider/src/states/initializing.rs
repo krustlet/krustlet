@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use log::{error, info, warn};
+use log::{error, info};
 
 use crate::PodState;
 use k8s_openapi::api::core::v1::Pod as KubePod;
@@ -46,7 +46,6 @@ impl State<PodState> for Initializing {
             }
 
             while let Some((name, status)) = pod_state.run_context.status_recv.recv().await {
-                warn!("Container Status Update: {}, {:?}", name, status);
                 if let Err(e) = patch_container_status(&client, &pod, &name, &status, true).await {
                     error!("Unable to patch status, will retry on next update: {:?}", e);
                 }

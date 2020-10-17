@@ -6,7 +6,7 @@ use k8s_openapi::api::core::v1::{
     ContainerStatus as KubeContainerStatus, Pod as KubePod,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
-use log::{info, warn};
+use log::warn;
 
 /// Status is a simplified version of the Kubernetes container status
 /// for use in providers. It allows for simple creation of the current status of
@@ -106,12 +106,6 @@ pub async fn patch_container_status(
     {
         Some((container_index, container)) => {
             let mut patches: Vec<json_patch::PatchOperation> = Vec::with_capacity(3);
-            // patches.push(json_patch::PatchOperation::Replace(
-            //     json_patch::ReplaceOperation {
-            //         path: "/metadata/resourceVersion".to_string(),
-            //         value: serde_json::Value::String("".to_string()),
-            //     },
-            // ));
             let kube_status = status.to_kubernetes(container.name());
             let path_prefix = if init {
                 format!("/status/initContainerStatuses/{}", container_index)
@@ -146,7 +140,6 @@ pub async fn patch_container_status(
             ));
 
             let patch = json_patch::Patch(patches);
-            info!("{}", serde_json::to_string(&patch).unwrap());
             let mut params = kube::api::PatchParams::default();
             params.patch_strategy = kube::api::PatchStrategy::JSON;
             client
