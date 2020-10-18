@@ -16,7 +16,7 @@ impl State<PodState> for Running {
         // Wascc has no notion of exiting so we just sleep.
         // I _think_ that periodically awaiting will allow the task to be interrupted.
         loop {
-            tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         }
     }
 

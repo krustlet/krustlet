@@ -21,7 +21,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "log",
- "tokio",
+ "tokio 0.2.22",
  "tokio-util 0.2.0",
 ]
 
@@ -37,7 +37,7 @@ dependencies = [
  "futures-sink",
  "log",
  "pin-project",
- "tokio",
+ "tokio 0.2.22",
  "tokio-util 0.3.1",
 ]
 
@@ -161,7 +161,7 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "smallvec",
- "tokio",
+ "tokio 0.2.22",
 ]
 
 [[package]]
@@ -177,7 +177,7 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "log",
- "mio",
+ "mio 0.6.22",
  "mio-uds",
  "num_cpus",
  "slab",
@@ -1454,7 +1454,7 @@ dependencies = [
  "http 0.2.1",
  "indexmap",
  "slab",
- "tokio",
+ "tokio 0.2.22",
  "tokio-util 0.3.1",
  "tracing",
 ]
@@ -1590,7 +1590,7 @@ dependencies = [
  "itoa",
  "pin-project",
  "socket2",
- "tokio",
+ "tokio 0.2.22",
  "tower-service",
  "tracing",
  "want",
@@ -1607,7 +1607,7 @@ dependencies = [
  "hyper",
  "log",
  "rustls",
- "tokio",
+ "tokio 0.2.22",
  "tokio-rustls",
  "webpki",
 ]
@@ -1621,7 +1621,7 @@ dependencies = [
  "bytes 0.5.6",
  "hyper",
  "native-tls",
- "tokio",
+ "tokio 0.2.22",
  "tokio-tls",
 ]
 
@@ -1801,7 +1801,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tempfile",
- "tokio",
+ "tokio 0.3.0",
  "wascc-provider",
  "wasi-provider",
 ]
@@ -1833,7 +1833,7 @@ dependencies = [
  "static_assertions",
  "thiserror",
  "time 0.2.22",
- "tokio",
+ "tokio 0.2.22",
  "url 2.1.1",
 ]
 
@@ -1852,7 +1852,7 @@ dependencies = [
  "serde",
  "smallvec",
  "snafu",
- "tokio",
+ "tokio 0.2.22",
 ]
 
 [[package]]
@@ -1883,7 +1883,7 @@ dependencies = [
  "serde_yaml",
  "structopt",
  "thiserror",
- "tokio",
+ "tokio 0.3.0",
  "tokio-tls",
  "url 2.1.1",
  "uuid",
@@ -2048,10 +2048,23 @@ dependencies = [
  "kernel32-sys",
  "libc",
  "log",
- "miow",
+ "miow 0.2.1",
  "net2",
  "slab",
  "winapi 0.2.8",
+]
+
+[[package]]
+name = "mio"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e53a6ea5f38c0a48ca42159868c6d8e1bd56c0451238856cc08d58563643bdc3"
+dependencies = [
+ "libc",
+ "log",
+ "miow 0.3.5",
+ "ntapi",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -2062,7 +2075,7 @@ checksum = "afcb699eb26d4332647cc848492bbc15eafb26f08d0304550d5aa1f612e066f0"
 dependencies = [
  "iovec",
  "libc",
- "mio",
+ "mio 0.6.22",
 ]
 
 [[package]]
@@ -2075,6 +2088,16 @@ dependencies = [
  "net2",
  "winapi 0.2.8",
  "ws2_32-sys",
+]
+
+[[package]]
+name = "miow"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07b88fb9795d4d36d62a012dfbf49a8f5cf12751f36d31a9dbe66d528e58979e"
+dependencies = [
+ "socket2",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -2143,6 +2166,15 @@ dependencies = [
  "rand 0.7.3",
  "signatory",
  "signatory-dalek",
+]
+
+[[package]]
+name = "ntapi"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a31937dea023539c72ddae0e3571deadc1414b300483fa7aaec176168cfa9d2"
+dependencies = [
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -2215,7 +2247,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
- "tokio",
+ "tokio 0.3.0",
  "www-authenticate",
 ]
 
@@ -2739,7 +2771,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "tokio",
+ "tokio 0.2.22",
  "tokio-rustls",
  "tokio-tls",
  "url 2.1.1",
@@ -3475,8 +3507,27 @@ dependencies = [
  "lazy_static",
  "libc",
  "memchr",
- "mio",
+ "mio 0.6.22",
  "mio-uds",
+ "pin-project-lite",
+ "signal-hook-registry",
+ "slab",
+ "winapi 0.3.9",
+]
+
+[[package]]
+name = "tokio"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7137dbb0abee577362ccdc7df21605cfcbb949243aeab47dac9ea6ef7d830e21"
+dependencies = [
+ "bytes 0.5.6",
+ "fnv",
+ "futures-core",
+ "lazy_static",
+ "libc",
+ "memchr",
+ "mio 0.7.3",
  "num_cpus",
  "pin-project-lite",
  "signal-hook-registry",
@@ -3487,9 +3538,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "0.2.5"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0c3acc6aa564495a0f2e1d59fab677cd7f81a19994cfc7f3ad0e64301560389"
+checksum = "d48caa7b66c7a6ec943edf78d21a594fbeb24e536c781da67d5c32edec54103f"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3504,7 +3555,7 @@ checksum = "e12831b255bcfa39dc0436b01e19fea231a37db570686c06ee72c423479f889a"
 dependencies = [
  "futures-core",
  "rustls",
- "tokio",
+ "tokio 0.2.22",
  "webpki",
 ]
 
@@ -3515,7 +3566,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a70f4fcd7b3b24fb194f837560168208f669ca8cb70d0c4b862944452396343"
 dependencies = [
  "native-tls",
- "tokio",
+ "tokio 0.2.22",
 ]
 
 [[package]]
@@ -3527,7 +3578,7 @@ dependencies = [
  "futures-util",
  "log",
  "pin-project",
- "tokio",
+ "tokio 0.2.22",
  "tungstenite",
 ]
 
@@ -3542,7 +3593,7 @@ dependencies = [
  "futures-sink",
  "log",
  "pin-project-lite",
- "tokio",
+ "tokio 0.2.22",
 ]
 
 [[package]]
@@ -3556,7 +3607,7 @@ dependencies = [
  "futures-sink",
  "log",
  "pin-project-lite",
- "tokio",
+ "tokio 0.2.22",
 ]
 
 [[package]]
@@ -3633,7 +3684,7 @@ dependencies = [
  "rand 0.7.3",
  "smallvec",
  "socket2",
- "tokio",
+ "tokio 0.2.22",
  "url 2.1.1",
 ]
 
@@ -3652,7 +3703,7 @@ dependencies = [
  "lru-cache",
  "resolv-conf",
  "smallvec",
- "tokio",
+ "tokio 0.2.22",
  "trust-dns-proto",
 ]
 
@@ -3883,7 +3934,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "tokio",
+ "tokio 0.2.22",
  "tokio-rustls",
  "tokio-tungstenite",
  "tower-service",
@@ -4006,7 +4057,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tempfile",
- "tokio",
+ "tokio 0.3.0",
  "wascc-codec",
  "wascc-fs",
  "wascc-host",
@@ -4066,7 +4117,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tempfile",
- "tokio",
+ "tokio 0.3.0",
  "wasi-common",
  "wasmtime",
  "wasmtime-wasi",

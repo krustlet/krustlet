@@ -33,7 +33,7 @@ macro_rules! retry {
                     if $on_err(e, n) {
                         break result;
                     };
-                    tokio::time::delay_for(duration).await;
+                    tokio::time::sleep(duration).await;
                     duration *= (n + 1) as u32;
                     if n == $num_times {
                         break result;

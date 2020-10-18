@@ -20,7 +20,7 @@ impl State<PodState> for Error {
             pod_state.errors = 0;
             Transition::next(self, CrashLoopBackoff)
         } else {
-            tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             Transition::next(self, Registered)
         }
     }

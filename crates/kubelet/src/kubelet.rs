@@ -196,7 +196,7 @@ async fn start_node_updater(client: kube::Client, node_name: String) -> anyhow::
     let sleep_interval = std::time::Duration::from_secs(10);
     loop {
         node::update(&client, &node_name).await;
-        tokio::time::delay_for(sleep_interval).await;
+        tokio::time::sleep(sleep_interval).await;
     }
 }
 
@@ -213,7 +213,7 @@ async fn start_signal_handler(
             node::drain(&client, &node_name).await?;
             break Ok(());
         }
-        tokio::time::delay_for(duration).await;
+        tokio::time::sleep(duration).await;
     }
 }
 

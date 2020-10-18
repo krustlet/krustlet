@@ -1,11 +1,11 @@
 use anyhow::bail;
 use futures::task;
-use log::{debug, error, info, trace};
+use log::{debug, error, info};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::task::Context;
 
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc::Sender;
@@ -344,20 +344,8 @@ impl WasiRuntime {
     }
 }
 
-fn send(mut sender: Sender<(String, Status)>, name: String, status: Status, cx: &mut Context<'_>) {
-    loop {
-        if let Poll::Ready(r) = sender.poll_ready(cx) {
-            if r.is_ok() {
-                sender
-                    .try_send((name, status))
-                    .expect("Possible deadlock, exiting");
-                return;
-            }
-            trace!("Receiver for status showing as closed: {:?}", r);
-        }
-        trace!(
-            "Channel for container {} not ready for send. Attempting again",
-            name
-        );
-    }
+fn send(sender: Sender<(String, Status)>, name: String, status: Status, _cx: &mut Context<'_>) {
+    sender
+        .blocking_send((name, status))
+        .expect("Could not send container status update.");
 }

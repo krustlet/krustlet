@@ -5,7 +5,7 @@ use kube::api::{Api, DeleteParams, ListParams};
 
 const E2E_NS_PREFIXES: &[&str] = &["wascc-e2e", "wasi-e2e"];
 
-#[tokio::main(threaded_scheduler)]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
     let result = smite_all_integration_test_pods().await;
 

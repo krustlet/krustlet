@@ -69,7 +69,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
 
                         // TODO, detect other changes we want to support, or should this just forward the new pod def to state machine?
                         if let Some(_timestamp) = pod.deletion_timestamp() {
-                            pod_deleted.notify();
+                            pod_deleted.notify_one();
                         }
                     }
                     Event::Deleted(pod) => {
@@ -78,7 +78,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                         // There is the case where someone force deletes, but we want to go through
                         // our normal terminate and deregister flow anyway.
                         debug!("Pod {} deleted.", Pod::from(pod).name());
-                        pod_deleted.notify();
+                        pod_deleted.notify_one();
                         break;
                     }
                     _ => warn!("Pod got unexpected event, ignoring: {:?}", &event),
@@ -123,7 +123,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
             }
             Event::Deleted(pod) => {
                 let key = PodKey::from(pod);
-                if let Some(mut sender) = self.handlers.remove(&key) {
+                if let Some(sender) = self.handlers.remove(&key) {
                     sender.send(event).await?;
                 }
                 Ok(())
