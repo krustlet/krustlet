@@ -196,7 +196,7 @@ impl TryFrom<String> for Reference {
                 _ => return Err(ParseError::DigestUnsupported),
             }
         }
-        return Ok(reference);
+        Ok(reference)
     }
 }
 
