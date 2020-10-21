@@ -22,8 +22,8 @@ use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate
 /// The data for an image or module.
 #[derive(Clone)]
 pub struct ImageData {
-    /// The content of the image or module.
-    pub content: Vec<u8>,
+    /// The layers of the image or module.
+    pub layers: Vec<Vec<u8>>,
     /// The digest of the image or module.
     pub digest: Option<String>,
 }
@@ -103,14 +103,9 @@ impl Client {
         });
 
         let layers = future::try_join_all(layers).await?;
-        let mut result = Vec::new();
-        for layer in layers {
-            // TODO: this simply overwrites previous layers with the latest one
-            result = layer;
-        }
 
         Ok(ImageData {
-            content: result,
+            layers,
             digest: Some(digest),
         })
     }
@@ -689,7 +684,7 @@ mod test {
                 .await
                 .expect("failed to pull manifest");
 
-            assert!(!image_data.content.is_empty());
+            assert!(!image_data.layers.is_empty());
             assert!(image_data.digest.is_some());
         }
     }
