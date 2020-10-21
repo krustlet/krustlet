@@ -9,6 +9,7 @@ jobs:
   build:
     name: build release assets
     runs-on: ${{ matrix.config.os }}
+    env: ${{ matrix.config.env }}
     strategy:
       matrix:
         config:
@@ -17,18 +18,30 @@ jobs:
               arch: "amd64",
               args: "--release",
               extension: "",
+              env: {},
+            }
+          - {
+              os: "ubuntu-latest",
+              arch: "aarch64",
+              args: "--release --target aarch64-unknown-linux-gnu",
+              extension: "",
+              env: {
+                OPENSSL_DIR: "/usr/local/openssl-aarch64",
+              },
             }
           - {
               os: "macos-latest",
               arch: "amd64",
               args: "--release",
               extension: "",
+              env: {},
             }
           - {
               os: "windows-latest",
               arch: "amd64",
               args: "--release --no-default-features --features rustls-tls",
               extension: ".exe",
+              env: {},
             }
     steps:
       - uses: actions/checkout@v2
@@ -56,6 +69,20 @@ jobs:
           rustup component add rustfmt --toolchain stable-x86_64-apple-darwin
           rustup component add clippy --toolchain stable-x86_64-apple-darwin
           rustup update stable
+
+      - name: setup for cross-compile builds
+        if: matrix.config.arch == 'aarch64'
+        run: |
+          sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          cd /tmp
+          git clone https://github.com/openssl/openssl
+          cd openssl
+          git checkout OpenSSL_1_1_1h
+          sudo mkdir -p $OPENSSL_DIR
+          ./Configure linux-aarch64 --prefix=$OPENSSL_DIR --openssldir=$OPENSSL_DIR shared
+          make CC=aarch64-linux-gnu-gcc
+          sudo make install
+          rustup target add aarch64-unknown-linux-gnu
 
       - name: build release
         uses: actions-rs/cargo@v1
