@@ -63,13 +63,17 @@ impl<P: 'static + Provider + Sync + Send> Kubelet<P> {
 
         // Flag to indicate graceful shutdown has started.
         let signal = Arc::new(AtomicBool::new(false));
-        let signal_task = start_signal_task(Arc::clone(&signal)).fuse();
+        let signal_task = start_signal_task(Arc::clone(&signal)).fuse().boxed();
 
         // Start the webserver
-        let webserver = start_webserver(self.provider.clone(), &self.config.server_config).fuse();
+        let webserver = start_webserver(self.provider.clone(), &self.config.server_config)
+            .fuse()
+            .boxed();
 
         // Start updating the node lease and status periodically
-        let node_updater = start_node_updater(client.clone(), self.config.node_name.clone()).fuse();
+        let node_updater = start_node_updater(client.clone(), self.config.node_name.clone())
+            .fuse()
+            .boxed();
 
         // If any of these tasks fail, we can initiate graceful shutdown.
         let services = Box::pin(async {
@@ -93,7 +97,8 @@ impl<P: 'static + Provider + Sync + Send> Kubelet<P> {
             client.clone(),
             self.config.node_name.clone(),
         )
-        .fuse();
+        .fuse()
+        .boxed();
 
         // Create a queue that locks on events per pod
         let queue = Queue::new(self.provider.clone(), client.clone());
@@ -103,7 +108,8 @@ impl<P: 'static + Provider + Sync + Send> Kubelet<P> {
             queue,
             Arc::clone(&signal),
         )
-        .fuse();
+        .fuse()
+        .boxed();
 
         // These must all be running for graceful shutdown. An error here exits ungracefully.
         let core = Box::pin(async {
