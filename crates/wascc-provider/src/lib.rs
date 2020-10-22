@@ -342,19 +342,14 @@ impl kubelet::log::HandleFactory<tokio::fs::File> for LogHandleFactory {
 fn wascc_run(
     host: Arc<Mutex<Host>>,
     data: Vec<u8>,
-    mut env: EnvVars,
+    env: EnvVars,
     volumes: Vec<VolumeBinding>,
     log_path: &Path,
     port_assigned: u16,
 ) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
     let mut capabilities: Vec<Capability> = Vec::new();
     info!("sending actor to wascc host");
-    let log_output = NamedTempFile::new_in(log_path)?;
-    let mut logenv: HashMap<String, String> = HashMap::new();
-    logenv.insert(
-        LOG_PATH_KEY.to_string(),
-        log_output.path().to_str().unwrap().to_owned(),
-    );
+    let log_output = NamedTempFile::new_in(&log_path)?;
 
     let load =
         Actor::from_slice(&data).map_err(|e| anyhow::anyhow!("Error loading WASM: {}", e))?;
@@ -363,6 +358,11 @@ fn wascc_run(
     let actor_caps = load.capabilities();
 
     if actor_caps.contains(&LOG_CAPABILITY.to_owned()) {
+        let mut logenv = env.clone();
+        logenv.insert(
+            LOG_PATH_KEY.to_string(),
+            log_output.path().to_str().unwrap().to_owned(),
+        );
         capabilities.push(Capability {
             name: LOG_CAPABILITY,
             binding: None,
@@ -371,11 +371,12 @@ fn wascc_run(
     }
 
     if actor_caps.contains(&HTTP_CAPABILITY.to_owned()) {
-        env.insert("PORT".to_string(), port_assigned.to_string());
+        let mut httpenv = env.clone();
+        httpenv.insert("PORT".to_string(), port_assigned.to_string());
         capabilities.push(Capability {
             name: HTTP_CAPABILITY,
             binding: None,
-            env,
+            env: httpenv,
         });
     }
 
@@ -386,7 +387,7 @@ fn wascc_run(
                 vol.name,
                 vol.host_path.display()
             );
-            let mut fsenv: HashMap<String, String> = HashMap::new();
+            let mut fsenv = env.clone();
             fsenv.insert(
                 FS_CONFIG_ROOTDIR.to_owned(),
                 vol.host_path.as_path().to_str().unwrap().to_owned(),
