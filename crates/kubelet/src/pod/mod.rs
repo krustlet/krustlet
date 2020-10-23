@@ -10,7 +10,7 @@ pub use status::{
     make_registered_status, make_status, make_status_with_containers, Phase, Status, StatusMessage,
 };
 
-use crate::container::Container;
+use crate::container::{Container, ContainerKey};
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::{
     Container as KubeContainer, Pod as KubePod, Volume as KubeVolume,
@@ -139,6 +139,19 @@ impl Pod {
             .deletion_timestamp
             .as_ref()
             .map(|t| &t.0)
+    }
+
+    /// Find container by `ContainerKey` and return it and its index in the Pod's container list.
+    pub fn find_container(&self, key: &ContainerKey) -> Option<(usize, Container)> {
+        let containers: Vec<Container> = if key.is_init() {
+            self.init_containers()
+        } else {
+            self.containers()
+        };
+        containers
+            .into_iter()
+            .enumerate()
+            .find(|(_, container)| container.name() == key.name())
     }
 
     /// Get a pod's containers

@@ -5,6 +5,8 @@ use crate::container::{make_initial_container_status, ContainerMap, Status as Co
 use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 
 /// Initialize Pod status.
+/// This initializes Pod status to include containers in the correct order as expected by
+/// `patch_container_status`.
 pub fn make_registered_status(pod: &Pod) -> anyhow::Result<serde_json::Value> {
     let init_container_statuses: Vec<KubeContainerStatus> = pod
         .init_containers()

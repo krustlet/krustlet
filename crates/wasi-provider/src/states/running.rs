@@ -1,7 +1,7 @@
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::Api;
 use kubelet::container::patch_container_status;
-use kubelet::container::Status;
+use kubelet::container::{ContainerKey, Status};
 use kubelet::state::prelude::*;
 use log::error;
 
@@ -28,7 +28,10 @@ impl State<PodState> for Running {
         while let Some((name, status)) = pod_state.run_context.status_recv.recv().await {
             // TODO: implement a container state machine such that it will self-update the Kubernetes API as it transitions through these stages.
 
-            if let Err(e) = patch_container_status(&client, &pod, &name, &status, false).await {
+            if let Err(e) =
+                patch_container_status(&client, &pod, ContainerKey::App(name.clone()), &status)
+                    .await
+            {
                 error!("Unable to patch status, will retry on next update: {:?}", e);
             }
 

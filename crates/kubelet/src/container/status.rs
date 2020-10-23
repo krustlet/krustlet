@@ -1,4 +1,4 @@
-use crate::container::Container;
+use crate::container::{Container, ContainerKey};
 use crate::pod::Pod;
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::{
@@ -90,58 +90,38 @@ impl Status {
 pub async fn patch_container_status(
     client: &kube::Api<KubePod>,
     pod: &Pod,
-    container_name: &str,
+    key: ContainerKey,
     status: &Status,
-    init: bool,
 ) -> anyhow::Result<()> {
-    let containers: Vec<Container> = if init {
-        pod.init_containers()
-    } else {
-        pod.containers()
-    };
-    match containers
-        .iter()
-        .enumerate()
-        .find(|(_, container)| container.name() == container_name)
-    {
+    match pod.find_container(&key) {
         Some((container_index, container)) => {
-            let mut patches: Vec<json_patch::PatchOperation> = Vec::with_capacity(3);
             let kube_status = status.to_kubernetes(container.name());
-            let path_prefix = if init {
+            let path_prefix = if key.is_init() {
                 format!("/status/initContainerStatuses/{}", container_index)
             } else {
                 format!("/status/containerStatuses/{}", container_index)
             };
 
-            patches.push(json_patch::PatchOperation::Replace(
-                json_patch::ReplaceOperation {
-                    path: "/metadata/resourceVersion".to_string(),
-                    value: serde_json::json!(""),
-                },
-            ));
-
-            patches.push(json_patch::PatchOperation::Replace(
-                json_patch::ReplaceOperation {
+            let patches = vec![
+                json_patch::PatchOperation::Replace(json_patch::ReplaceOperation {
                     path: format!("{}/state", path_prefix),
                     value: serde_json::json!(kube_status.state.unwrap()),
-                },
-            ));
-            patches.push(json_patch::PatchOperation::Replace(
-                json_patch::ReplaceOperation {
+                }),
+                json_patch::PatchOperation::Replace(json_patch::ReplaceOperation {
                     path: format!("{}/ready", path_prefix),
                     value: serde_json::json!(kube_status.ready),
-                },
-            ));
-            patches.push(json_patch::PatchOperation::Replace(
-                json_patch::ReplaceOperation {
+                }),
+                json_patch::PatchOperation::Replace(json_patch::ReplaceOperation {
                     path: format!("{}/started", path_prefix),
                     value: serde_json::json!(true),
-                },
-            ));
+                }),
+            ];
 
             let patch = json_patch::Patch(patches);
-            let mut params = kube::api::PatchParams::default();
-            params.patch_strategy = kube::api::PatchStrategy::JSON;
+            let params = kube::api::PatchParams {
+                patch_strategy: kube::api::PatchStrategy::JSON,
+                ..Default::default()
+            };
             client
                 .patch_status(pod.name(), &params, serde_json::to_vec(&patch)?)
                 .await?;
@@ -150,7 +130,7 @@ pub async fn patch_container_status(
         None => {
             warn!(
                 "Container status update for unknown container {}.",
-                container_name
+                key.name()
             );
             Ok(())
         }
@@ -159,16 +139,18 @@ pub async fn patch_container_status(
 
 /// Create inital container status for registering pod.
 pub fn make_initial_container_status(container: &Container) -> KubeContainerStatus {
-    // Create empty patch and update only the fields we want to change.
-    let mut status: KubeContainerStatus = Default::default();
-    let mut state: ContainerState = Default::default();
-    status.name = container.name().to_string();
-    status.ready = false;
-    status.started = Some(false);
-    state.waiting = Some(ContainerStateWaiting {
-        message: Some("Registered".to_string()),
-        reason: Some("Registered".to_string()),
-    });
-    status.state = Some(state);
-    status
+    let state = ContainerState {
+        waiting: Some(ContainerStateWaiting {
+            message: Some("Registered".to_string()),
+            reason: Some("Registered".to_string()),
+        }),
+        ..Default::default()
+    };
+    KubeContainerStatus {
+        name: container.name().to_string(),
+        ready: false,
+        started: Some(false),
+        state: Some(state),
+        ..Default::default()
+    }
 }
