@@ -7,7 +7,7 @@ use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 /// Initialize Pod status.
 /// This initializes Pod status to include containers in the correct order as expected by
 /// `patch_container_status`.
-pub fn make_registered_status(pod: &Pod) -> anyhow::Result<serde_json::Value> {
+pub fn make_registered_status(pod: &Pod) -> serde_json::Value {
     let init_container_statuses: Vec<KubeContainerStatus> = pod
         .init_containers()
         .iter()
@@ -47,8 +47,8 @@ pub fn make_status_with_containers(
     reason: &str,
     container_statuses: Vec<KubeContainerStatus>,
     init_container_statuses: Vec<KubeContainerStatus>,
-) -> anyhow::Result<serde_json::Value> {
-    Ok(serde_json::json!(
+) -> serde_json::Value {
+    serde_json::json!(
        {
            "metadata": {
                "resourceVersion": "",
@@ -60,7 +60,7 @@ pub fn make_status_with_containers(
                "initContainerStatuses": init_container_statuses,
            }
        }
-    ))
+    )
 }
 
 /// Describe the status of a workload.
