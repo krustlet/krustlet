@@ -84,8 +84,12 @@ impl Storer for FileStorer {
         if digest_path.exists() {
             tokio::fs::remove_file(&digest_path).await?;
         }
+        // FIXME: we need to determine the proper file path for each layer rather than assuming it's a single-layer image.
         let module_path = self.pull_file_path(image_ref);
-        tokio::fs::write(&module_path, image_data.content).await?;
+        if image_data.layers.is_empty() {
+            return Err(anyhow::anyhow!("No module layer present in image data"));
+        }
+        tokio::fs::write(&module_path, &image_data.layers[0]).await?;
         if let Some(d) = image_data.digest {
             tokio::fs::write(&digest_path, d).await?;
         }
@@ -172,7 +176,7 @@ mod test {
                 images.insert(
                     name.to_owned(),
                     ImageData {
-                        content,
+                        layers: vec![content],
                         digest: Some(digest.to_owned()),
                     },
                 );
@@ -188,7 +192,7 @@ mod test {
             images.insert(
                 key.to_owned(),
                 ImageData {
-                    content,
+                    layers: vec![content],
                     digest: Some(digest.to_owned()),
                 },
             );
