@@ -14,11 +14,12 @@ use kubelet::state::prelude::*;
 use crate::rand::Rng;
 use crate::PodState;
 use crate::VolumeBinding;
-use crate::{wascc_run, ActorHandle, LogHandleFactory, WasccProvider};
+use crate::{
+    fail_fatal, transition_to_error, wascc_run, ActorHandle, LogHandleFactory, WasccProvider,
+};
 
 use super::error::Error;
 use super::running::Running;
-use crate::{fail_fatal, transition_to_error};
 
 #[derive(Debug)]
 struct PortAllocationError;
