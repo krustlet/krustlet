@@ -17,6 +17,7 @@ jobs:
               os: "ubuntu-latest",
               arch: "amd64",
               args: "--release",
+              targetDir: "target/release",
               extension: "",
               env: {},
             }
@@ -24,6 +25,7 @@ jobs:
               os: "ubuntu-latest",
               arch: "aarch64",
               args: "--release --target aarch64-unknown-linux-gnu",
+              targetDir: "target/aarch64-unknown-linux-gnu/release",
               extension: "",
               env: {
                 OPENSSL_DIR: "/usr/local/openssl-aarch64",
@@ -33,6 +35,7 @@ jobs:
               os: "macos-latest",
               arch: "amd64",
               args: "--release",
+              targetDir: "target/release",
               extension: "",
               env: {},
             }
@@ -40,6 +43,7 @@ jobs:
               os: "windows-latest",
               arch: "amd64",
               args: "--release --no-default-features --features rustls-tls",
+              targetDir: "target/release",
               extension: ".exe",
               env: {},
             }
@@ -94,7 +98,7 @@ jobs:
         shell: bash
         run: |
           mkdir _dist
-          cp README.md LICENSE target/release/krustlet-wasi${{ matrix.config.extension }} target/release/krustlet-wascc${{ matrix.config.extension }} _dist/
+          cp README.md LICENSE ${{ matrix.config.targetDir }}/krustlet-wasi${{ matrix.config.extension }} ${{ matrix.config.targetDir }}/krustlet-wascc${{ matrix.config.extension }} _dist/
           cd _dist
           tar czf krustlet-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz README.md LICENSE krustlet-wasi${{ matrix.config.extension }} krustlet-wascc${{ matrix.config.extension }}
 
