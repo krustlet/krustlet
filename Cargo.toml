@@ -41,6 +41,7 @@ native-tls = [
     "kube-runtime/native-tls",
     "kubelet/kube-native-tls",
     "wascc-provider/native-tls",
+    "wasi-provider/native-tls",
     "oci-distribution/native-tls"
 ]
 rustls-tls = [
@@ -48,6 +49,7 @@ rustls-tls = [
     "kube-runtime/rustls-tls",
     "kubelet/rustls-tls",
     "wascc-provider/rustls-tls",
+    "wasi-provider/rustls-tls",
     "oci-distribution/rustls-tls"
 ]
 
