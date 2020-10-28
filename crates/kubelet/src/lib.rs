@@ -70,8 +70,9 @@ pub(crate) mod plugin_registration_api {
         tonic::include_proto!("pluginregistration.v1");
     }
 }
-pub(crate) mod plugin_watcher;
+pub(crate) mod fs_watch;
 pub(crate) mod grpc_sock;
+pub(crate) mod plugin_watcher;
 
 pub mod backoff;
 pub mod config;

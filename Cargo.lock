@@ -2055,6 +2055,7 @@ dependencies = [
  "kubelet-derive",
  "lazy_static",
  "log",
+ "mio-uds-windows",
  "native-tls",
  "notify",
  "oci-distribution",
@@ -2073,7 +2074,6 @@ dependencies = [
  "tonic",
  "tonic-build",
  "tower",
- "uds_windows",
  "url 2.2.0",
  "uuid",
  "warp",
@@ -2270,6 +2270,21 @@ dependencies = [
  "iovec",
  "libc",
  "mio",
+]
+
+[[package]]
+name = "mio-uds-windows"
+version = "0.1.0"
+source = "git+https://github.com/Azure/mio-uds-windows#87a4a9970e668fdbe9205f4039967e175182c70e"
+dependencies = [
+ "iovec",
+ "kernel32-sys",
+ "lazycell",
+ "log",
+ "mio",
+ "miow",
+ "winapi 0.2.8",
+ "ws2_32-sys",
 ]
 
 [[package]]
@@ -2755,19 +2770,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa563d17ecb180e500da1cfd2b028310ac758de548efdd203e18f283af693f37"
 dependencies = [
  "proc-macro2",
-]
-
-[[package]]
-name = "rand"
-version = "0.4.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "552840b97013b1a26992c11eac34bdd778e464601a4c2054b5f0bff7c6761293"
-dependencies = [
- "fuchsia-cprng",
- "libc",
- "rand_core 0.3.1",
- "rdrand",
- "winapi 0.3.9",
 ]
 
 [[package]]
@@ -3674,16 +3676,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab0e7238dcc7b40a7be719a25365910f6807bd864f4cce6b2e6b873658e2b19d"
 
 [[package]]
-name = "tempdir"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15f2b5fb00ccdf689e0149d1b1b3c03fead81c2b37735d812fa8bddbbf41b6d8"
-dependencies = [
- "rand 0.4.6",
- "remove_dir_all",
-]
-
-[[package]]
 name = "tempfile"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4286,18 +4278,6 @@ name = "typenum"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "373c8a200f9e67a0c95e62a4f52fbf80c23b4381c05a17845531982fa99e6b33"
-
-[[package]]
-name = "uds_windows"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f0497369defbdcde081067715cc9bf9313b695cb9157f45fee823977d4fbb55"
-dependencies = [
- "kernel32-sys",
- "tempdir",
- "winapi 0.2.8",
- "ws2_32-sys",
-]
 
 [[package]]
 name = "unchecked-index"

@@ -72,7 +72,10 @@ prost-types = "0.6"
 notify = "5.0.0-pre.3"
 async-stream = "0.3"
 tower = "0.3"
-uds_windows = "0.1"
+
+# https://github.com/Azure/mio-uds-windows.git
+[target.'cfg(target_family = "windows")'.dependencies]
+mio-uds-windows = { git = "https://github.com/Azure/mio-uds-windows", version = "0.1"}
 
 [dev-dependencies]
 reqwest = { version = "0.10", default-features = false }

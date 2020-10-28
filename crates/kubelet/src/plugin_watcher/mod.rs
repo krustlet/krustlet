@@ -1,3 +1,5 @@
+use crate::fs_watch::FileSystemWatcher;
+use crate::grpc_sock;
 use crate::plugin_registration_api::v1::{
     registration_client::RegistrationClient, InfoRequest, PluginInfo, RegistrationStatus,
     API_VERSION,
@@ -5,10 +7,10 @@ use crate::plugin_registration_api::v1::{
 
 use anyhow::Context;
 use log::{debug, error, trace, warn};
-use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher};
+use notify::Event;
 use tokio::fs::{create_dir_all, read_dir};
 use tokio::stream::StreamExt;
-use tokio::sync::{mpsc::unbounded_channel, RwLock};
+use tokio::sync::RwLock;
 use tonic::Request;
 
 use std::collections::HashMap;
@@ -42,6 +44,7 @@ impl TryFrom<&str> for PluginType {
 }
 
 /// Internal storage structure for a plugin
+#[derive(Debug)]
 struct PluginEntry {
     plugin_path: PathBuf,
     endpoint: Option<PathBuf>,
@@ -59,7 +62,7 @@ impl Default for PluginRegistrar {
     fn default() -> Self {
         PluginRegistrar {
             plugin_dir: PathBuf::from(DEFAULT_PLUGIN_PATH),
-            ..Default::default()
+            plugins: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -82,14 +85,6 @@ impl PluginRegistrar {
 
     /// Starts the plugin registrar and runs all automatic plugin discovery and registration loops
     pub async fn run(&self) -> anyhow::Result<()> {
-        let (stream_tx, mut stream_rx) = unbounded_channel::<NotifyResult<Event>>();
-        let mut watcher: RecommendedWatcher = Watcher::new_immediate(move |res| {
-            if let Err(e) = stream_tx.send(res) {
-                error!("Unable to send inotify event into stream: {:?}", e)
-            }
-        })?;
-        watcher.configure(Config::PreciseEvents(true))?;
-
         // Create plugin directory if it doesn't exist
         create_dir_all(&self.plugin_dir).await?;
 
@@ -100,16 +95,16 @@ impl PluginRegistrar {
             .collect::<Result<Vec<PathBuf>, _>>()
             .await?;
 
-        // Manually assemble an event and call handle_event
+        // Manually assemble an event and call handle_event to reconfigure sockets properly on restart
         self.handle_create(Event {
             paths: dir_entries,
             ..Default::default()
         })
         .await?;
 
-        watcher.watch(&self.plugin_dir, RecursiveMode::NonRecursive)?;
+        let mut event_stream = FileSystemWatcher::new(&self.plugin_dir)?;
 
-        while let Some(res) = stream_rx.recv().await {
+        while let Some(res) = event_stream.next().await {
             match res {
                 Ok(event) if event.kind.is_create() => {
                     if let Err(e) = self.handle_create(event).await {
@@ -126,11 +121,13 @@ impl PluginRegistrar {
     }
 
     async fn handle_create(&self, event: Event) -> anyhow::Result<()> {
-        // Filter paths, checking if it is a socket and file
+        // Filter paths, checking if it is a socket and not a directory. Why not check if it is a
+        // file? Because it isn't technically a regular file and so the `is_file` check returns
+        // false
         for discovered_path in event
             .paths
             .into_iter()
-            .filter(|p| p.is_file() && p.extension().unwrap_or_default() == SOCKET_EXTENSION)
+            .filter(|p| !p.is_dir() && p.extension().unwrap_or_default() == SOCKET_EXTENSION)
         {
             debug!(
                 "Beginning plugin registration for plugin discovered at {}",
@@ -177,7 +174,7 @@ impl PluginRegistrar {
         for deleted_plugin in event
             .paths
             .into_iter()
-            .filter(|p| p.is_file() && p.extension().unwrap_or_default() == SOCKET_EXTENSION)
+            .filter(|p| !p.is_dir() && p.extension().unwrap_or_default() == SOCKET_EXTENSION)
         {
             let key = match lock.iter().find(|(_, v)| *v.plugin_path == deleted_plugin) {
                 // Take ownership of the key to avoid an immutable borrow
@@ -266,13 +263,13 @@ impl PluginRegistrar {
 
 /// Attempts a `GetInfo` gRPC call to the endpoint to the path given
 async fn get_plugin_info(path: &PathBuf) -> anyhow::Result<PluginInfo> {
-    let connection_str = format!("unix://{}", path.display());
-    trace!("Connecting to plugin at {} for GetInfo", connection_str);
-    let mut client = RegistrationClient::connect(connection_str.clone()).await?;
+    trace!("Connecting to plugin at {:?} for GetInfo", path);
+    let chan = grpc_sock::client::socket_channel(path).await?;
+    let mut client = RegistrationClient::new(chan);
 
     let req = Request::new(InfoRequest {});
 
-    trace!("Calling GetInfo at {}", connection_str);
+    trace!("Calling GetInfo at {:?}", path);
     client
         .get_info(req)
         .await
@@ -291,19 +288,19 @@ async fn get_plugin_info(path: &PathBuf) -> anyhow::Result<PluginInfo> {
 /// `None`, it will report as successful, otherwise the error message contained in the `Option` will
 /// be sent to the plugin and it will be marked as failed
 async fn inform_plugin(path: &PathBuf, error: Option<String>) -> anyhow::Result<()> {
-    let connection_str = format!("unix://{}", path.display());
     trace!(
-        "Connecting to plugin at {} for NotifyRegistrationStatus",
-        connection_str
+        "Connecting to plugin at {:?} for NotifyRegistrationStatus",
+        path
     );
-    let mut client = RegistrationClient::connect(connection_str.clone()).await?;
+    let chan = grpc_sock::client::socket_channel(path).await?;
+    let mut client = RegistrationClient::new(chan);
 
     let req = Request::new(RegistrationStatus {
         plugin_registered: error.is_none(),
         error: error.unwrap_or_else(String::new),
     });
 
-    trace!("Calling NotifyRegistrationStatus at {}", connection_str);
+    trace!("Calling NotifyRegistrationStatus at {:?}", path);
     client
         .notify_registration_status(req)
         .await
@@ -322,63 +319,146 @@ async fn inform_plugin(path: &PathBuf, error: Option<String>) -> anyhow::Result<
 mod test {
     use super::*;
     use crate::plugin_registration_api::v1::{
-        registration_server::{Registration, RegistrationServer}, InfoRequest, PluginInfo, RegistrationStatusResponse, RegistrationStatusResponse,
-        API_VERSION,
+        registration_server::{Registration, RegistrationServer},
+        InfoRequest, PluginInfo, RegistrationStatusResponse, API_VERSION,
     };
-    use tonic::{transport::Server, Request, Response, Status, Code};
-    use tokio::sync::mpsc::{self, Sender};
 
-    #[derive(Debug, Default)]
-    struct PluginConfig {
-        get_info_error: Option<String>,
-        registration_notify_error: Option<String>
-    }
+    use std::sync::Arc;
+    use std::time::Duration;
 
-    #[derive(Debug, Default)]
-    struct TestPlugin {
-        conf: PluginConfig,
-        plugin_type: String,
+    use tokio::sync::mpsc::{self, Receiver, Sender};
+    use tokio::sync::Mutex;
+    use tokio::time::timeout;
+    use tonic::{transport::Server, Request, Response, Status};
+
+    const FAKE_ENDPOINT: &str = "/tmp/foo.sock";
+
+    ////////////////////////////////////////////////////////////////////////
+    //////////////////////// BEGIN test scaffolding ////////////////////////
+    ////////////////////////////////////////////////////////////////////////
+
+    #[derive(Debug)]
+    struct TestCSIPlugin {
         name: String,
-        endpoint: Option<String>,
-        supported_versions: Vec<String>,
-        // A channel to send out the response it gets from registering
-        registration_response: Sender<RegistrationStatus>,
+        registration_response: Mutex<Sender<RegistrationStatus>>,
     }
 
     #[tonic::async_trait]
-    impl Registration for TestPlugin {
-        async fn get_info(&self, req: Request<InfoRequest>) -> Result<Response<PluginInfo>, Status> {
-            if let Some(e) = self.conf.get_info_error.as_ref() {
-                return Err(Status::new(Code::Unavailable, e))
-            }
+    impl Registration for TestCSIPlugin {
+        async fn get_info(
+            &self,
+            _req: Request<InfoRequest>,
+        ) -> Result<Response<PluginInfo>, Status> {
             Ok(Response::new(PluginInfo {
-                r#type: self.plugin_type.clone(),
+                r#type: "CSIPlugin".to_string(),
                 name: self.name.clone(),
-                endpoint: self.endpoint.clone().unwrap_or_default(),
-                supported_versions: self.supported_versions.clone()
+                endpoint: FAKE_ENDPOINT.to_string(),
+                supported_versions: vec![API_VERSION.to_string()],
             }))
         }
 
-        async fn notify_registration_status(&self, req: Request<RegistrationStatus>) -> Result<Response<RegistrationStatusResponse>, Status> {
-            if let Some(e) = self.conf.registration_notify_error.as_ref() {
-                return Err(Status::new(Code::Unavailable, e))
-            }
+        async fn notify_registration_status(
+            &self,
+            req: Request<RegistrationStatus>,
+        ) -> Result<Response<RegistrationStatusResponse>, Status> {
+            self.registration_response
+                .lock()
+                .await
+                .send(req.into_inner())
+                .await
+                .expect("should be able to send registration status on channel");
 
-            self.registration_response.send(req.into_inner()).expect("should be able to send registration status on channel");
+            Ok(Response::new(RegistrationStatusResponse {}))
+        }
+    }
 
-            Ok(Response::new(RegistrationStatusResponse{}))
+    #[derive(Debug)]
+    // A plugin that always fails GetInfo
+    struct InvalidCSIPlugin {
+        name: String,
+        registration_response: Mutex<Sender<RegistrationStatus>>,
+    }
+
+    #[tonic::async_trait]
+    impl Registration for InvalidCSIPlugin {
+        async fn get_info(
+            &self,
+            _req: Request<InfoRequest>,
+        ) -> Result<Response<PluginInfo>, Status> {
+            Ok(Response::new(PluginInfo {
+                r#type: "CSIPlugin".to_string(),
+                name: self.name.clone(),
+                endpoint: FAKE_ENDPOINT.to_string(),
+                supported_versions: vec!["nope".to_string()],
+            }))
+        }
+
+        async fn notify_registration_status(
+            &self,
+            req: Request<RegistrationStatus>,
+        ) -> Result<Response<RegistrationStatusResponse>, Status> {
+            self.registration_response
+                .lock()
+                .await
+                .send(req.into_inner())
+                .await
+                .expect("should be able to send registration status on channel");
+
+            Ok(Response::new(RegistrationStatusResponse {}))
         }
     }
 
     /// Setup the test, returning the temporary directory (as we need it around to keep it from
-    /// dropping) and a PluginRegistrar configured with the path
-    fn setup() -> (tempfile::TempDir, PluginRegistrar) {
+    /// dropping) and a PluginRegistrar configured with the path. The PluginRegistrar is wrapped in
+    /// an Arc to facilitate easy moving to a task using tokio::spawn
+    fn setup() -> (tempfile::TempDir, Arc<PluginRegistrar>) {
         let tempdir = tempfile::tempdir().expect("should be able to create tempdir");
 
         let registrar = PluginRegistrar::new(&tempdir);
 
-        (tempdir, registrar)
+        (tempdir, Arc::new(registrar))
     }
+
+    fn setup_server(plugin: impl Registration, path: impl AsRef<Path>) {
+        let socket = grpc_sock::server::Socket::new(&path)
+            .expect("unable to setup server listening on socket");
+
+        tokio::spawn(async move {
+            Server::builder()
+                .add_service(RegistrationServer::new(plugin))
+                .serve_with_incoming(socket)
+                .await
+                .expect("Unable to serve test plugin");
+            // Print this out in case of failure for ease of debugging
+            println!("server exited");
+        });
+    }
+
+    // Starts the registrar and waits for a little bit of time for it to start running
+    async fn start_registrar(registrar: Arc<PluginRegistrar>) {
+        tokio::spawn(async move {
+            registrar
+                .run()
+                .await
+                .expect("registrar didn't run successfully");
+            // Print this out in case of failure for ease of debugging
+            println!("registrar exited");
+        });
+
+        tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    }
+
+    // Waits with a timeout on getting a RegistrationStatus. Will unwrap all errors
+    async fn get_registration_response(mut rx: Receiver<RegistrationStatus>) -> RegistrationStatus {
+        timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("timed out while waiting for registration status response")
+            .expect("Should have received a valid response in the channel")
+    }
+
+    ////////////////////////////////////////////////////////////////////////
+    /////////////////////// END test scaffolding ///////////////////////////
+    ////////////////////////////////////////////////////////////////////////
 
     #[tokio::test]
     async fn test_successful_registration() {
@@ -386,38 +466,276 @@ mod test {
 
         let (tx, rx) = mpsc::channel(1);
 
-        let plugin = TestPlugin {
-            plugin_type: "CSIPlugin",
-            name: "foo",
-            endpoint: Some("/tmp/foo.sock"),
-            supported_versions: vec![API_VERSION.to_string()],
-            registration_response: tx,
-            ..Default::default()
+        let plugin = TestCSIPlugin {
+            name: "foo".to_string(),
+            registration_response: Mutex::new(tx),
         };
 
-        let mut sock_path = tempdir.path().to_path_buf();
-        sock_path.push("foo.sock");
+        start_registrar(registrar.clone()).await;
 
-        let addr = sock_path.to_str().unwrap_or("").parse().expect("expected socket path to parse");
+        setup_server(plugin, tempdir.path().join("foo.sock"));
 
-        tokio::spawn(Server::builder().add_service(RegistrationServer::new(plugin)).serve(addr));
+        let registration_status = get_registration_response(rx).await;
 
-        let registration_status = rx.recv().await.expect("Should have received a valid response in the channel");
+        assert!(
+            registration_status.plugin_registered,
+            "Plugin did not receive successful registration request"
+        );
 
-        assert!(registration_status.plugin_registered, "Plugin did not receive successful registration request");
+        assert!(
+            registration_status.error.is_empty(),
+            "Error message should be empty"
+        );
 
-        assert!(registration_status.error.is_empty(), "Error message should be empty");
+        let plugin_endpoint = registrar
+            .get("foo")
+            .await
+            .expect("Should be able to get plugin info");
+        assert_eq!(
+            plugin_endpoint,
+            PathBuf::from(FAKE_ENDPOINT),
+            "Incorrect endpoint configured"
+        );
     }
 
     #[tokio::test]
-    async fn test_unsuccessful_registration() {}
+    async fn test_unsuccessful_registration() {
+        let (tempdir, registrar) = setup();
+
+        let (tx, rx) = mpsc::channel(1);
+
+        let plugin = InvalidCSIPlugin {
+            name: "foo".to_string(),
+            registration_response: Mutex::new(tx),
+        };
+
+        start_registrar(registrar.clone()).await;
+
+        setup_server(plugin, tempdir.path().join("foo.sock"));
+
+        let registration_status = get_registration_response(rx).await;
+
+        assert!(
+            !registration_status.plugin_registered,
+            "Plugin should not have been registered"
+        );
+
+        assert!(
+            !registration_status.error.is_empty(),
+            "Error message should be set"
+        );
+
+        assert!(
+            registrar.get("foo").await.is_none(),
+            "Plugin shouldn't be registered in memory"
+        );
+    }
 
     #[tokio::test]
-    async fn test_validation() {}
+    async fn test_existing_socket() {
+        let (tempdir, registrar) = setup();
+
+        let (tx, rx) = mpsc::channel(1);
+
+        let plugin = TestCSIPlugin {
+            name: "foo".to_string(),
+            registration_response: Mutex::new(tx),
+        };
+
+        // Make sure the plugin is running first so we can test that the registrar picks it up
+        setup_server(plugin, tempdir.path().join("foo.sock"));
+
+        // Delay to give it time to start
+        tokio::time::delay_for(Duration::from_secs(1)).await;
+
+        start_registrar(registrar.clone()).await;
+
+        let registration_status = get_registration_response(rx).await;
+
+        assert!(
+            registration_status.plugin_registered,
+            "Plugin did not receive successful registration request"
+        );
+
+        assert!(
+            registration_status.error.is_empty(),
+            "Error message should be empty"
+        );
+
+        let plugin_endpoint = registrar
+            .get("foo")
+            .await
+            .expect("Should be able to get plugin info");
+        assert_eq!(
+            plugin_endpoint,
+            PathBuf::from(FAKE_ENDPOINT),
+            "Incorrect endpoint configured"
+        );
+    }
 
     #[tokio::test]
-    async fn test_existing_socket() {}
+    async fn test_unregister() {
+        let (tempdir, registrar) = setup();
+
+        let (tx, rx) = mpsc::channel(1);
+
+        let plugin = TestCSIPlugin {
+            name: "foo".to_string(),
+            registration_response: Mutex::new(tx),
+        };
+
+        // Manual server setup so we can kill the server
+        let sock_path = tempdir.path().join("foo.sock");
+        let socket = grpc_sock::server::Socket::new(&sock_path)
+            .expect("unable to setup server listening on socket");
+
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+
+        tokio::spawn(async move {
+            let server = Server::builder()
+                .add_service(RegistrationServer::new(plugin))
+                .serve_with_incoming(socket);
+            tokio::select! {
+                res = server => {
+                    res.expect("Unable to serve test plugin");
+                    println!("server exited");
+                }
+                _ = stop_rx => {}
+            }
+        });
+
+        // Delay to give it time to start
+        tokio::time::delay_for(Duration::from_secs(1)).await;
+
+        start_registrar(registrar.clone()).await;
+
+        let registration_status = get_registration_response(rx).await;
+
+        assert!(
+            registration_status.plugin_registered,
+            "Plugin did not receive successful registration request"
+        );
+
+        // Now we can stop the plugin and delete the socket
+        stop_tx.send(()).expect("Unable to send stop signal");
+
+        tokio::fs::remove_file(sock_path)
+            .await
+            .expect("Unable to remove socket");
+
+        // Delay to give it time to remove (needs to be a little longer for MacOS' sake)
+        tokio::time::delay_for(Duration::from_secs(3)).await;
+
+        assert!(
+            registrar.get("foo").await.is_none(),
+            "Plugin shouldn't be registered in memory"
+        );
+    }
+
+    // This next section is all testing the validate function
+
+    fn valid_info() -> PluginInfo {
+        PluginInfo {
+            r#type: "CSIPlugin".to_string(),
+            name: "test".to_string(),
+            endpoint: FAKE_ENDPOINT.to_string(),
+            supported_versions: vec![API_VERSION.to_string()],
+        }
+    }
 
     #[tokio::test]
-    async fn test_unregister() {}
+    async fn test_invalid_type() {
+        // This path doesn't matter here
+        let registrar = PluginRegistrar::new("/tmp/foo");
+        let mut info = valid_info();
+        info.r#type = "DevicePlugin".to_string();
+
+        assert!(
+            registrar
+                .validate(&info, &PathBuf::from("/fake"))
+                .await
+                .is_err(),
+            "DevicePlugin type should error"
+        );
+
+        info.r#type = "NonExistent".to_string();
+        assert!(
+            registrar
+                .validate(&info, &PathBuf::from("/fake"))
+                .await
+                .is_err(),
+            "Invalid type should error"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_invalid_plugin_version() {
+        // This path doesn't matter here
+        let registrar = PluginRegistrar::new("/tmp/foo");
+        let mut info = valid_info();
+        info.supported_versions = vec!["v1beta1".to_string()];
+
+        assert!(
+            registrar
+                .validate(&info, &PathBuf::from("/fake"))
+                .await
+                .is_err(),
+            "Unsupported version should error"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_invalid_name_with_different_endpoint() {
+        // This path doesn't matter here
+        let registrar = PluginRegistrar::new("/tmp/foo");
+        let mut info = valid_info();
+
+        // Insert a valid registration
+        let discovered_path = PathBuf::from("/tmp/foo/bar.sock");
+        registrar.register(&info, &discovered_path).await;
+
+        info.endpoint = "/another/path.sock".to_string();
+
+        assert!(
+            registrar.validate(&info, &discovered_path).await.is_err(),
+            "Different endpoint with same name should error"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_invalid_name_with_different_discovered_path() {
+        // This path doesn't matter here
+        let registrar = PluginRegistrar::new("/tmp/foo");
+        let mut info = valid_info();
+        info.endpoint = String::new();
+
+        // Insert a valid registration
+        registrar
+            .register(&info, &PathBuf::from("/tmp/foo/bar.sock"))
+            .await;
+
+        assert!(
+            registrar
+                .validate(&info, &PathBuf::from("/tmp/foo/another.sock"))
+                .await
+                .is_err(),
+            "Different discovered path with same name should error"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_reregistration() {
+        // This path doesn't matter here
+        let registrar = PluginRegistrar::new("/tmp/foo");
+        let info = valid_info();
+
+        // Insert a valid registration
+        let discovered_path = PathBuf::from("/tmp/foo/bar.sock");
+        registrar.register(&info, &discovered_path).await;
+
+        assert!(
+            registrar.validate(&info, &discovered_path).await.is_ok(),
+            "Exact same plugin info shouldn't fail"
+        );
+    }
 }

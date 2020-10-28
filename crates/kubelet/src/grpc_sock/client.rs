@@ -2,11 +2,11 @@
 
 use std::path::Path;
 
+#[cfg(target_family = "windows")]
+use mio_uds_windows::UnixStream;
 #[cfg(target_family = "unix")]
 use tokio::net::UnixStream;
-#[cfg(target_family = "windows")]
-use uds_windows::UnixStream;
-use tonic::transport::{Endpoint, Uri, Channel};
+use tonic::transport::{Channel, Endpoint, Uri};
 use tower::service_fn;
 
 /// Returns a new UNIX socket channel suitable for use with tonic generated gRPC clients. Instead of

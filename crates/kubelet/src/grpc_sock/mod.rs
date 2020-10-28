@@ -7,7 +7,7 @@
 // crate, we should remove this attribute
 #[cfg_attr(target_family = "unix", path = "unix/mod.rs")]
 #[cfg_attr(target_family = "windows", path = "windows/mod.rs")]
-#[cfg(test)]
+// #[cfg(test)]
 pub mod server;
 
 // TODO: Figure out what to export
