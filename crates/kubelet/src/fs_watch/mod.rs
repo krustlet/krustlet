@@ -14,15 +14,19 @@ use log::error;
 #[cfg(not(target_os = "macos"))]
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use notify::{Event, Result as NotifyResult};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
-pub struct FileSystemWatcher(UnboundedReceiver<NotifyResult<Event>>);
+pub struct FileSystemWatcher {
+    recv: UnboundedReceiver<NotifyResult<Event>>,
+    #[cfg(not(target_os = "macos"))]
+    _watcher: RecommendedWatcher, // holds on to the watcher so it doesn't get dropped
+}
 
 impl Stream for FileSystemWatcher {
     type Item = NotifyResult<Event>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.0).poll_next(cx)
+        Pin::new(&mut self.recv).poll_next(cx)
     }
 }
 
@@ -40,12 +44,17 @@ impl FileSystemWatcher {
 
         watcher.watch(path, RecursiveMode::NonRecursive)?;
 
-        Ok(FileSystemWatcher(stream_rx))
+        Ok(FileSystemWatcher {
+            recv: stream_rx,
+            _watcher: watcher,
+        })
     }
 
     #[cfg(target_os = "macos")]
     pub fn new<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        Ok(FileSystemWatcher(mac::dir_watcher(path)))
+        Ok(FileSystemWatcher {
+            recv: mac::dir_watcher(path),
+        })
     }
 }
 
@@ -59,6 +68,7 @@ mod mac {
     use notify::Error as NotifyError;
     use tokio::fs::DirEntry;
     use tokio::stream::StreamExt;
+    use tokio::sync::mpsc::UnboundedSender;
     use tokio::time::{self, Duration};
 
     const WAIT_TIME: u64 = 2;

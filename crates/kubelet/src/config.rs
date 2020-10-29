@@ -60,6 +60,8 @@ pub struct Config {
     /// Registries that should be accessed using HTTP instead of
     /// HTTPS.
     pub insecure_registries: Option<Vec<String>>,
+    /// The directory kubelet should watch for new plugin sockets
+    pub plugins_dir: PathBuf,
 }
 /// The configuration for the Kubelet server.
 #[derive(Clone, Debug)]
@@ -117,6 +119,8 @@ struct ConfigBuilder {
     pub allow_local_modules: Option<bool>,
     #[serde(default, rename = "insecureRegistries")]
     pub insecure_registries: Option<Vec<String>>,
+    #[serde(default, rename = "pluginsDir")]
+    pub plugins_dir: Option<PathBuf>,
 }
 
 struct ConfigBuilderFallbacks {
@@ -125,6 +129,7 @@ struct ConfigBuilderFallbacks {
     bootstrap_file: fn() -> PathBuf,
     cert_path: fn(data_dir: &PathBuf) -> PathBuf,
     key_path: fn(data_dir: &PathBuf) -> PathBuf,
+    plugins_dir: fn(data_dir: &PathBuf) -> PathBuf,
     node_ip: fn(hostname: &mut String, preferred_ip_family: &IpAddr) -> IpAddr,
 }
 
@@ -139,6 +144,7 @@ impl Config {
         let data_dir = default_data_dir()?;
         let cert_file = default_cert_path(&data_dir);
         let private_key_file = default_key_path(&data_dir);
+        let plugins_dir = default_plugins_path(&data_dir);
         Ok(Config {
             node_ip: default_node_ip(&mut hostname.clone(), preferred_ip_family)?,
             node_name: sanitize_hostname(&hostname),
@@ -149,6 +155,7 @@ impl Config {
             bootstrap_file: PathBuf::from(BOOTSTRAP_FILE),
             allow_local_modules: false,
             insecure_registries: None,
+            plugins_dir,
             server_config: ServerConfig {
                 addr: match preferred_ip_family {
                     IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -167,6 +174,7 @@ impl Config {
             data_dir: || default_data_dir().expect("unable to get default data directory"),
             cert_path: default_cert_path,
             key_path: default_key_path,
+            plugins_dir: default_plugins_path,
             node_ip: |hn, ip| default_node_ip(hn, ip).expect("unable to get default node IP"),
             bootstrap_file: || PathBuf::from(BOOTSTRAP_FILE),
         };
@@ -269,6 +277,7 @@ impl ConfigBuilder {
             max_pods: ok_result_of(opts.max_pods),
             allow_local_modules: opts.allow_local_modules,
             insecure_registries: opts.insecure_registries.map(parse_comma_separated),
+            plugins_dir: opts.plugins_dir,
             server_addr: ok_result_of(opts.addr),
             server_port: ok_result_of(opts.port),
             server_tls_cert_file: opts.cert_file,
@@ -306,6 +315,7 @@ impl ConfigBuilder {
             bootstrap_file: other.bootstrap_file.or(self.bootstrap_file),
             allow_local_modules: other.allow_local_modules.or(self.allow_local_modules),
             insecure_registries: other.insecure_registries.or(self.insecure_registries),
+            plugins_dir: other.plugins_dir.or(self.plugins_dir),
             server_tls_private_key_file: other
                 .server_tls_private_key_file
                 .or(self.server_tls_private_key_file),
@@ -318,6 +328,9 @@ impl ConfigBuilder {
         let hostname = self.hostname.unwrap_or_else(fallbacks.hostname);
         let data_dir = self.data_dir.unwrap_or_else(fallbacks.data_dir);
         let bootstrap_file = self.bootstrap_file.unwrap_or_else(fallbacks.bootstrap_file);
+        let plugins_dir = self
+            .plugins_dir
+            .unwrap_or_else(|| (fallbacks.plugins_dir)(&data_dir));
         let server_addr = self
             .server_addr
             .unwrap_or(Ok(empty_ip_addr))
@@ -354,6 +367,7 @@ impl ConfigBuilder {
             bootstrap_file,
             allow_local_modules: self.allow_local_modules.unwrap_or(false),
             insecure_registries: self.insecure_registries,
+            plugins_dir,
             server_config: ServerConfig {
                 cert_file: server_tls_cert_file,
                 private_key_file: server_tls_private_key_file,
@@ -483,6 +497,13 @@ pub struct Opts {
     bootstrap_file: PathBuf,
 
     #[structopt(
+        long = "plugins-dir",
+        env = "KRUSTLET_PLUGINS_DIR",
+        help = "The path to the directory to watch for new plugins. Defaults to $KRUSTLET_DATA_DIR/plugins"
+    )]
+    plugins_dir: Option<PathBuf>,
+
+    #[structopt(
         long = "x-allow-local-modules",
         env = "KRUSTLET_ALLOW_LOCAL_MODULES",
         help = "(Experimental) Whether to allow loading modules directly from the filesystem"
@@ -553,6 +574,10 @@ fn default_cert_path(data_dir: &PathBuf) -> PathBuf {
     data_dir.join("config/krustlet.crt")
 }
 
+fn default_plugins_path(data_dir: &PathBuf) -> PathBuf {
+    data_dir.join("plugins")
+}
+
 #[cfg(any(feature = "cli", feature = "docs"))]
 fn default_config_file_path() -> PathBuf {
     dirs::home_dir()
@@ -604,6 +629,7 @@ mod test {
             data_dir: || PathBuf::from("/fallback/data/dir"),
             cert_path: |_| PathBuf::from("/fallback/cert/path"),
             key_path: |_| PathBuf::from("/fallback/key/path"),
+            plugins_dir: |_| PathBuf::from("/fallback/plugins/dir"),
             bootstrap_file: || PathBuf::from("/fallback/bootstrap_file.txt"),
         }
     }
@@ -630,7 +656,8 @@ mod test {
             "insecureRegistries": [
                 "local",
                 "dev"
-            ]
+            ],
+            "pluginsDir": "/some/plugins"
         }"#,
         );
         let config = config_builder.unwrap().build(fallbacks()).unwrap();
@@ -659,6 +686,7 @@ mod test {
         assert_eq!(config.insecure_registries.clone().unwrap().len(), 2);
         assert_eq!(&config.insecure_registries.clone().unwrap()[0], "local");
         assert_eq!(&config.insecure_registries.unwrap()[1], "dev");
+        assert_eq!(&config.plugins_dir.to_string_lossy(), "/some/plugins");
     }
 
     #[test]
@@ -689,6 +717,10 @@ mod test {
         assert_eq!(config.data_dir.to_string_lossy(), "/fallback/data/dir");
         assert_eq!(format!("{}", config.node_ip), "4.4.4.4");
         assert_eq!(config.node_labels.get("label"), Some(&("val".to_owned())));
+        assert_eq!(
+            &config.plugins_dir.to_string_lossy(),
+            "/fallback/plugins/dir"
+        );
     }
 
     #[test]
@@ -716,6 +748,10 @@ mod test {
         assert_eq!(config.allow_local_modules, false);
         assert_eq!(config.insecure_registries, None);
         assert_eq!(config.node_labels.len(), 0);
+        assert_eq!(
+            &config.plugins_dir.to_string_lossy(),
+            "/fallback/plugins/dir"
+        );
     }
 
     #[test]
@@ -747,6 +783,7 @@ mod test {
             "nodeName": "krusty-node",
             "allowLocalModules": true,
             "insecureRegistries": ["local1", "local2"],
+            "pluginsDir": "/some/plugins",
             "tlsCertificateFile": "/my/secure/cert.pfx",
             "tlsPrivateKeyFile": "/the/key"
         }"#,
@@ -766,6 +803,7 @@ mod test {
             "nodeName": "krusty-node-2",
             "allowLocalModules": false,
             "insecureRegistries": ["local"],
+            "pluginsDir": "/other/plugins",
             "tlsCertificateFile": "/my/secure/cert-2.pfx",
             "tlsPrivateKeyFile": "/the/2nd/key"
         }"#,
@@ -795,6 +833,7 @@ mod test {
             config.node_labels.get("label21"),
             Some(&("val21".to_owned()))
         );
+        assert_eq!(&config.plugins_dir.to_string_lossy(), "/other/plugins");
     }
 
     #[test]
@@ -813,6 +852,7 @@ mod test {
             "nodeName": "krusty-node",
             "allowLocalModules": true,
             "insecureRegistries": ["local"],
+            "pluginsDir": "/some/plugins",
             "tlsCertificateFile": "/my/secure/cert.pfx",
             "tlsPrivateKeyFile": "/the/key"
         }"#,
@@ -845,6 +885,7 @@ mod test {
         assert_eq!(&config.insecure_registries.clone().unwrap()[0], "local");
         assert_eq!(config.node_labels.len(), 2);
         assert_eq!(config.node_labels.get("label1"), Some(&("val1".to_owned())));
+        assert_eq!(&config.plugins_dir.to_string_lossy(), "/some/plugins");
     }
 
     #[test]

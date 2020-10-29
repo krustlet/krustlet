@@ -6,8 +6,8 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::stream::TryStreamExt;
 use futures::Stream;
+use mio::Ready;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tonic::transport::server::Connected;
 
@@ -17,19 +17,23 @@ pub struct UnixStream {
 }
 
 impl UnixStream {
-    pub fn new(stream: mio_uds_windows::UnixStream) -> Self {
-        return UnixStream { inner: stream };
+    pub fn new(stream: mio_uds_windows::UnixStream) -> Result<UnixStream, std::io::Error> {
+        Ok(UnixStream {
+            inner: tokio::io::PollEvented::new(stream)?,
+        })
     }
 }
 
 pub struct Socket {
-    listener: mio_uds_windows::UnixListener,
+    listener: tokio::io::PollEvented<mio_uds_windows::UnixListener>,
 }
 
 impl Socket {
     pub fn new<P: AsRef<Path>>(path: &P) -> anyhow::Result<Self> {
         let listener = mio_uds_windows::UnixListener::bind(path)?;
-        Ok(Socket { listener })
+        Ok(Socket {
+            listener: tokio::io::PollEvented::new(listener)?,
+        })
     }
 }
 
@@ -37,8 +41,22 @@ impl Stream for Socket {
     type Item = Result<UnixStream, std::io::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut stream = self.listener.incoming().map_ok(UnixStream::new);
-        Pin::new(&mut stream).poll_next(cx)
+        futures::ready!(self.listener.poll_read_ready(cx, Ready::readable()))?;
+
+        let stream = match self.listener.get_ref().accept() {
+            Ok(None) => {
+                self.listener.clear_read_ready(cx, Ready::readable())?;
+                return Poll::Pending;
+            }
+            Ok(Some((stream, _))) => stream,
+            // Not much error handling we can do here, so just return Pending so
+            // it'll try again
+            Err(_) => {
+                self.listener.clear_read_ready(cx, Ready::readable())?;
+                return Poll::Pending;
+            }
+        };
+        return Poll::Ready(Some(UnixStream::new(stream)));
     }
 }
 

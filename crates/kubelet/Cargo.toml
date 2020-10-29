@@ -53,8 +53,6 @@ k8s-openapi = { version = "0.9", default-features = false, features = ["v1_18"] 
 chrono = { version = "0.4", features = ["serde"] }
 structopt = { version = "0.3", features = ["wrap_help"], optional = true }
 hostname = "0.3"
-native-tls = "0.2"
-tokio-tls = "0.3"
 thiserror = "1.0"
 lazy_static = "1.4"
 oci-distribution = { path = "../oci-distribution", version = "0.4", default-features = false }
@@ -65,7 +63,7 @@ rcgen = "0.8"
 uuid = { version = "0.8.1", features = ["v4"] }
 kubelet-derive = { version = "0.1", path = "../kubelet-derive", optional = true }
 json-patch = "0.2"
-tonic = { version = "0.3", features = ['tls'] }
+tonic = "0.3"
 # prost is needed for the files built by the protobuf
 prost = "0.6"
 prost-types = "0.6"
@@ -76,6 +74,7 @@ tower = "0.3"
 # https://github.com/Azure/mio-uds-windows.git
 [target.'cfg(target_family = "windows")'.dependencies]
 mio-uds-windows = { git = "https://github.com/Azure/mio-uds-windows", version = "0.1"}
+mio = "0.6"
 
 [dev-dependencies]
 reqwest = { version = "0.10", default-features = false }

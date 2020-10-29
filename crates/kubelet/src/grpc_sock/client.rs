@@ -17,10 +17,28 @@ pub async fn socket_channel<P: AsRef<Path>>(path: P) -> Result<Channel, tonic::t
 
     // This is a dummy http endpoint needed for the Endpoint constructors, it is ignored by the
     // connector
-    Endpoint::from_static("http://[::]:50051")
+    #[cfg(target_family = "unix")]
+    let res = Endpoint::from_static("http://[::]:50051")
         .connect_with_connector(service_fn(move |_: Uri| {
             // Connect to a Uds socket
             UnixStream::connect(p.clone())
         }))
-        .await
+        .await;
+
+    #[cfg(target_family = "windows")]
+    let res = Endpoint::from_static("http://[::]:50051")
+        .connect_with_connector(service_fn(move |_: Uri| {
+            // Need to copy the path here again so this can be FnMut
+            let path_copy = p.to_owned();
+            // Connect to a Uds socket
+            async move {
+                let stream =
+                    tokio::task::spawn_blocking(move || UnixStream::connect(path_copy.clone()))
+                        .await??;
+                tokio::io::PollEvented::new(stream)
+            }
+        }))
+        .await;
+
+    res
 }

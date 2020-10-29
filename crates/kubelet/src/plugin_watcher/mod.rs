@@ -17,8 +17,11 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 
-// TODO: Figure out the default for Windows
+#[cfg(target_family = "unix")]
 const DEFAULT_PLUGIN_PATH: &str = "/var/lib/kubelet/plugins_registry/";
+#[cfg(target_family = "windows")]
+const DEFAULT_PLUGIN_PATH: &str = "c:\\ProgramFiles\\kubelet\\plugins_registry";
+
 const SOCKET_EXTENSION: &str = "sock";
 
 /// An enum for capturing possible plugin types. This is purely for clarity and capturing this
