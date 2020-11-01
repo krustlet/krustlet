@@ -55,6 +55,9 @@ use tokio::sync::RwLock;
 use wasi_runtime::Runtime;
 
 mod states;
+use kubelet::state::prelude::ResourceState;
+use states::registered::Registered;
+use states::terminated::Terminated;
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 const LOG_DIR_NAME: &str = "wasi-logs";
@@ -136,6 +139,10 @@ pub struct PodState {
     errors: usize,
     image_pull_backoff_strategy: ExponentialBackoffStrategy,
     crash_loop_backoff_strategy: ExponentialBackoffStrategy,
+}
+
+impl ResourceState for PodState {
+    type Manifest = Pod;
 }
 
 // No cleanup state needed, we clean up when dropping PodState.

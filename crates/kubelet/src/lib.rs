@@ -10,7 +10,9 @@
 //! use kubelet::config::Config;
 //! use kubelet::pod::Pod;
 //! use kubelet::provider::Provider;
-//! use kubelet::state::{SharedState, Stub, AsyncDrop};
+//! use kubelet::state::{SharedState, AsyncDrop};
+//! use kubelet::state::prelude::*;
+//! use kubelet::pod::state::Stub;
 //!
 //! // Create some type that will act as your provider
 //! struct MyProvider;
@@ -19,6 +21,10 @@
 //! struct ProviderState;
 //! // Track pod state amongst pod state handlers.
 //! struct PodState;
+//!
+//! impl ResourceState for PodState {
+//!     type Manifest = Pod;
+//! }
 //!
 //! #[async_trait::async_trait]
 //! impl AsyncDrop for PodState {

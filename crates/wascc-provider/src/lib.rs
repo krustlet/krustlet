@@ -47,6 +47,7 @@ use kubelet::state::common::{
 use kubelet::state::prelude::SharedState;
 use kubelet::store::Store;
 
+use kubelet::state::prelude::ResourceState;
 use kubelet::volume::Ref;
 use log::{debug, info};
 use tempfile::NamedTempFile;
@@ -289,6 +290,10 @@ impl GenericPodState for PodState {
             ThresholdTrigger::Untriggered
         }
     }
+}
+
+impl ResourceState for PodState {
+    type Manifest = Pod;
 }
 
 // No cleanup state needed, we clean up when dropping PodState.

@@ -1,6 +1,7 @@
 //! `pod` is a collection of utilities surrounding the Kubernetes pod API.
 mod handle;
 mod queue;
+pub mod state;
 mod status;
 // Ignore deprecated here as this is just a reexport
 #[allow(deprecated)]

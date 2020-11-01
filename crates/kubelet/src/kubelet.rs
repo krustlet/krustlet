@@ -236,7 +236,7 @@ mod test {
     use super::*;
     use crate::container::Container;
     use crate::pod::Pod;
-    use crate::state::AsyncDrop;
+    use crate::state::{AsyncDrop, ResourceState};
     use k8s_openapi::api::core::v1::{
         Container as KubeContainer, EnvVar, EnvVarSource, ObjectFieldSelector, PodSpec, PodStatus,
     };
@@ -254,6 +254,10 @@ mod test {
     struct ProviderState;
     struct PodState;
 
+    impl ResourceState for PodState {
+        type Manifest = Pod;
+    }
+
     #[async_trait::async_trait]
     impl AsyncDrop for PodState {
         type ProviderState = ProviderState;
@@ -262,8 +266,8 @@ mod test {
 
     #[async_trait::async_trait]
     impl Provider for MockProvider {
-        type InitialState = crate::state::Stub;
-        type TerminatedState = crate::state::Stub;
+        type InitialState = crate::pod::state::Stub;
+        type TerminatedState = crate::pod::state::Stub;
         type ProviderState = ProviderState;
         type PodState = PodState;
 
