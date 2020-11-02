@@ -72,6 +72,9 @@ pub(crate) mod plugin_registration_api {
 }
 pub(crate) mod fs_watch;
 pub(crate) mod grpc_sock;
+#[cfg(target_family = "windows")]
+#[allow(dead_code)]
+pub(crate) mod mio_uds_windows;
 pub(crate) mod plugin_watcher;
 
 pub mod backoff;

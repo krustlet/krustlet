@@ -3,7 +3,7 @@
 use std::path::Path;
 
 #[cfg(target_family = "windows")]
-use mio_uds_windows::UnixStream;
+use crate::mio_uds_windows::UnixStream;
 #[cfg(target_family = "unix")]
 use tokio::net::UnixStream;
 use tonic::transport::{Channel, Endpoint, Uri};

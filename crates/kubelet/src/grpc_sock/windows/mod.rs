@@ -13,11 +13,11 @@ use tonic::transport::server::Connected;
 
 #[derive(Debug)]
 pub struct UnixStream {
-    inner: tokio::io::PollEvented<mio_uds_windows::UnixStream>,
+    inner: tokio::io::PollEvented<crate::mio_uds_windows::UnixStream>,
 }
 
 impl UnixStream {
-    pub fn new(stream: mio_uds_windows::UnixStream) -> Result<UnixStream, std::io::Error> {
+    pub fn new(stream: crate::mio_uds_windows::UnixStream) -> Result<UnixStream, std::io::Error> {
         Ok(UnixStream {
             inner: tokio::io::PollEvented::new(stream)?,
         })
@@ -25,12 +25,12 @@ impl UnixStream {
 }
 
 pub struct Socket {
-    listener: tokio::io::PollEvented<mio_uds_windows::UnixListener>,
+    listener: tokio::io::PollEvented<crate::mio_uds_windows::UnixListener>,
 }
 
 impl Socket {
     pub fn new<P: AsRef<Path>>(path: &P) -> anyhow::Result<Self> {
-        let listener = mio_uds_windows::UnixListener::bind(path)?;
+        let listener = crate::mio_uds_windows::UnixListener::bind(path)?;
         Ok(Socket {
             listener: tokio::io::PollEvented::new(listener)?,
         })
