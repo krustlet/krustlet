@@ -2,7 +2,7 @@
 ///! Kubelet with a specific handler (called a `Provider`)
 use crate::config::Config;
 use crate::node;
-use crate::plugin_watcher::PluginRegistrar;
+use crate::plugin_watcher::PluginRegistry;
 use crate::pod::Queue;
 use crate::provider::Provider;
 use crate::webserver::start as start_webserver;
@@ -66,7 +66,7 @@ impl<P: 'static + Provider + Sync + Send> Kubelet<P> {
         let signal = Arc::new(AtomicBool::new(false));
         let signal_task = start_signal_task(Arc::clone(&signal)).fuse().boxed();
 
-        let plugin_registrar = PluginRegistrar::new(&self.config.plugins_dir);
+        let plugin_registrar = PluginRegistry::new(&self.config.plugins_dir);
 
         let registrar = plugin_registrar.run().fuse().boxed();
 

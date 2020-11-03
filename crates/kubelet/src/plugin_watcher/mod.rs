@@ -10,7 +10,7 @@ use log::{debug, error, trace, warn};
 use notify::Event;
 use tokio::fs::{create_dir_all, read_dir};
 use tokio::stream::StreamExt;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, RwLockWriteGuard};
 use tonic::Request;
 
 use std::collections::HashMap;
@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 #[cfg(target_family = "unix")]
 const DEFAULT_PLUGIN_PATH: &str = "/var/lib/kubelet/plugins_registry/";
 #[cfg(target_family = "windows")]
-const DEFAULT_PLUGIN_PATH: &str = "c:\\ProgramFiles\\kubelet\\plugins_registry";
+const DEFAULT_PLUGIN_PATH: &str = "c:\\Program Files\\kubelet\\plugins_registry";
 
 const SOCKET_EXTENSION: &str = "sock";
 
@@ -56,42 +56,46 @@ struct PluginEntry {
 /// An internal storage plugin registry that implements most the same functionality as the [plugin
 /// manager](https://github.com/kubernetes/kubernetes/tree/fd74333a971e2048b5fb2b692a9e043483d63fba/pkg/kubelet/pluginmanager)
 /// in kubelet
-pub struct PluginRegistrar {
+pub struct PluginRegistry {
     plugins: RwLock<HashMap<String, PluginEntry>>,
     plugin_dir: PathBuf,
 }
 
-impl Default for PluginRegistrar {
+impl Default for PluginRegistry {
     fn default() -> Self {
-        PluginRegistrar {
+        PluginRegistry {
             plugin_dir: PathBuf::from(DEFAULT_PLUGIN_PATH),
             plugins: RwLock::new(HashMap::new()),
         }
     }
 }
 
-impl PluginRegistrar {
+impl PluginRegistry {
     /// Returns a new plugin registrar configured with the given plugin directory path
     pub fn new<P: AsRef<Path>>(plugin_dir: P) -> Self {
-        PluginRegistrar {
+        PluginRegistry {
             plugin_dir: PathBuf::from(plugin_dir.as_ref()),
             ..Default::default()
         }
     }
 
     /// Gets the endpoint for the given plugin name, returning `None` if it doesn't exist
-    pub async fn get(&self, plugin_name: &str) -> Option<PathBuf> {
-        let lock = self.plugins.read().await;
-        lock.get(plugin_name)
+    pub async fn get_endpoint(&self, plugin_name: &str) -> Option<PathBuf> {
+        let plugins = self.plugins.read().await;
+        plugins
+            .get(plugin_name)
             .map(|v| v.endpoint.as_ref().unwrap_or(&v.plugin_path).to_owned())
     }
 
-    /// Starts the plugin registrar and runs all automatic plugin discovery and registration loops
+    /// Starts the plugin registrar and runs all automatic plugin discovery and registration loops.
+    /// This will block indefinitely or until the underlying watch stops. To stop watching the
+    /// filesystem, simply stop polling the future. Underneath the hood this is creating a watch on
+    /// a directory using OS native APIs and then watching that event stream
     pub async fn run(&self) -> anyhow::Result<()> {
         // Create plugin directory if it doesn't exist
         create_dir_all(&self.plugin_dir).await?;
 
-        // Walk the plugin dir before hand and process any currently existing sockets
+        // Walk the plugin dir beforehand and process any currently existing files
         let dir_entries: Vec<PathBuf> = read_dir(&self.plugin_dir)
             .await?
             .map(|res| res.map(|entry| entry.path()))
@@ -127,11 +131,7 @@ impl PluginRegistrar {
         // Filter paths, checking if it is a socket and not a directory. Why not check if it is a
         // file? Because it isn't technically a regular file and so the `is_file` check returns
         // false
-        for discovered_path in event
-            .paths
-            .into_iter()
-            .filter(|p| !p.is_dir() && p.extension().unwrap_or_default() == SOCKET_EXTENSION)
-        {
+        for discovered_path in plugin_paths(event.paths) {
             debug!(
                 "Beginning plugin registration for plugin discovered at {}",
                 discovered_path.display()
@@ -173,20 +173,25 @@ impl PluginRegistrar {
     }
 
     async fn handle_delete(&self, event: Event) {
-        let mut lock = self.plugins.write().await;
-        for deleted_plugin in event
-            .paths
-            .into_iter()
-            .filter(|p| !p.is_dir() && p.extension().unwrap_or_default() == SOCKET_EXTENSION)
-        {
-            let key = match lock.iter().find(|(_, v)| *v.plugin_path == deleted_plugin) {
-                // Take ownership of the key to avoid an immutable borrow
-                Some((key, _)) => key.to_owned(),
-                // If for some reason it is already gone, no need to error
-                None => continue,
-            };
-            lock.remove(&key);
+        let mut plugins = self.plugins.write().await;
+        for deleted_plugin in plugin_paths(event.paths) {
+            remove_plugin(&mut plugins, deleted_plugin);
         }
+    }
+
+    /// Registers the plugin in our HashMap
+    async fn register(&self, info: &PluginInfo, discovered_path: &PathBuf) {
+        let mut lock = self.plugins.write().await;
+        lock.insert(
+            info.name.clone(),
+            PluginEntry {
+                plugin_path: discovered_path.to_owned(),
+                endpoint: match info.endpoint.is_empty() {
+                    true => None,
+                    false => Some(PathBuf::from(&info.endpoint)),
+                },
+            },
+        );
     }
 
     /// Validates the given plugin info gathered from a discovered plugin, returning an error with
@@ -203,29 +208,54 @@ impl PluginRegistrar {
             info,
             discovered_path.display()
         );
-        // Step 1: Check for valid type and if it is a CSIPlugin
-        let plugin_type = PluginType::try_from(info.r#type.as_str())?;
+
+        self.validate_plugin_type(info.r#type.as_str())?;
         trace!("Type validation complete for plugin {:?}", info);
+
+        trace!("Checking supported versions for plugin {:?}", info);
+        self.validate_plugin_version(&info.supported_versions)?;
+        trace!("Supported version check complete for plugin {:?}", info);
+
+        trace!("Checking for naming collisions for plugin {:?}", info);
+        self.validate_is_unique(info, discovered_path).await?;
+        trace!("Naming collision check complete for plugin {:?}", info);
+
+        Ok(())
+    }
+
+    // Individual validation steps
+
+    /// Check for valid type and if it is a CSIPlugin
+    fn validate_plugin_type(&self, plugin_type: &str) -> anyhow::Result<()> {
+        let plugin_type = PluginType::try_from(plugin_type)?;
         if matches!(plugin_type, PluginType::DevicePlugin) {
             warn!("DevicePlugins are not currently supported");
             return Err(anyhow::anyhow!("DevicePlugins are not currently supported"));
         }
+        Ok(())
+    }
 
-        // Step 2: Check if we support this version
-        trace!("Checking supported versions for plugin {:?}", info);
-        if !info.supported_versions.iter().any(|s| s == API_VERSION) {
+    /// Check if we support one of the plugin's requested versions
+    fn validate_plugin_version(&self, supported_versions: &Vec<String>) -> anyhow::Result<()> {
+        if !supported_versions.iter().any(|s| s == API_VERSION) {
             return Err(anyhow::anyhow!(
                 "Plugin doesn't support version {}",
                 API_VERSION
             ));
         }
-        trace!("Supported version check complete for plugin {:?}", info);
+        Ok(())
+    }
 
-        // Step 3: Check if it exists and if the path is different
-        trace!("Checking for naming collisions for plugin {:?}", info);
-        let lock = self.plugins.read().await;
+    /// Validates if the plugin is unique (meaning it doesn't exist in the store) or, if it is the
+    /// same, is the exact same endpoint configuration
+    async fn validate_is_unique(
+        &self,
+        info: &PluginInfo,
+        discovered_path: &PathBuf,
+    ) -> anyhow::Result<()> {
+        let plugins = self.plugins.read().await;
 
-        if let Some(current_path) = lock.get(&info.name) {
+        if let Some(current_path) = plugins.get(&info.name) {
             // If there is an endpoint set, use that to check, otherwise, use the discovered path
             if !info.endpoint.is_empty()
                 && Some(PathBuf::from(&info.endpoint)) != current_path.endpoint
@@ -243,25 +273,27 @@ impl PluginRegistrar {
                 ));
             }
         }
-        trace!("Naming collision check complete for plugin {:?}", info);
 
         Ok(())
     }
+}
 
-    /// Registers the plugin in our HashMap
-    async fn register(&self, info: &PluginInfo, discovered_path: &PathBuf) {
-        let mut lock = self.plugins.write().await;
-        lock.insert(
-            info.name.clone(),
-            PluginEntry {
-                plugin_path: discovered_path.to_owned(),
-                endpoint: match info.endpoint.is_empty() {
-                    true => None,
-                    false => Some(PathBuf::from(&info.endpoint)),
-                },
-            },
-        );
-    }
+/// A helper function to clarify code intent when removing a plugin. This puts all the iterating and
+/// stuff into a well-named place
+fn remove_plugin(
+    plugins: &mut RwLockWriteGuard<HashMap<String, PluginEntry>>,
+    deleted_plugin: PathBuf,
+) {
+    let key = match plugins
+        .iter()
+        .find(|(_, v)| *v.plugin_path == deleted_plugin)
+    {
+        // Take ownership of the key to avoid an immutable borrow
+        Some((key, _)) => key.to_owned(),
+        // If for some reason it is already gone, no need to error
+        None => return,
+    };
+    plugins.remove(&key);
 }
 
 /// Attempts a `GetInfo` gRPC call to the endpoint to the path given
@@ -307,7 +339,6 @@ async fn inform_plugin(path: &PathBuf, error: Option<String>) -> anyhow::Result<
     client
         .notify_registration_status(req)
         .await
-        .map(|_| ())
         .map_err(|status| {
             anyhow::anyhow!(
                 "NotifyRegistrationStatus call to {} failed with error code {} and message {}",
@@ -315,7 +346,14 @@ async fn inform_plugin(path: &PathBuf, error: Option<String>) -> anyhow::Result<
                 status.code(),
                 status.message()
             )
-        })
+        })?;
+    Ok(())
+}
+
+fn plugin_paths(paths: Vec<PathBuf>) -> impl Iterator<Item = PathBuf> {
+    paths
+        .into_iter()
+        .filter(|p| !p.is_dir() && p.extension().unwrap_or_default() == SOCKET_EXTENSION)
 }
 
 #[cfg(test)]
@@ -412,12 +450,12 @@ mod test {
     }
 
     /// Setup the test, returning the temporary directory (as we need it around to keep it from
-    /// dropping) and a PluginRegistrar configured with the path. The PluginRegistrar is wrapped in
+    /// dropping) and a PluginRegistry configured with the path. The PluginRegistry is wrapped in
     /// an Arc to facilitate easy moving to a task using tokio::spawn
-    fn setup() -> (tempfile::TempDir, Arc<PluginRegistrar>) {
+    fn setup() -> (tempfile::TempDir, Arc<PluginRegistry>) {
         let tempdir = tempfile::tempdir().expect("should be able to create tempdir");
 
-        let registrar = PluginRegistrar::new(&tempdir);
+        let registrar = PluginRegistry::new(&tempdir);
 
         (tempdir, Arc::new(registrar))
     }
@@ -438,7 +476,7 @@ mod test {
     }
 
     // Starts the registrar and waits for a little bit of time for it to start running
-    async fn start_registrar(registrar: Arc<PluginRegistrar>) {
+    async fn start_registrar(registrar: Arc<PluginRegistry>) {
         tokio::spawn(async move {
             registrar
                 .run()
@@ -491,7 +529,7 @@ mod test {
         );
 
         let plugin_endpoint = registrar
-            .get("foo")
+            .get_endpoint("foo")
             .await
             .expect("Should be able to get plugin info");
         assert_eq!(
@@ -529,7 +567,7 @@ mod test {
         );
 
         assert!(
-            registrar.get("foo").await.is_none(),
+            registrar.get_endpoint("foo").await.is_none(),
             "Plugin shouldn't be registered in memory"
         );
     }
@@ -566,7 +604,7 @@ mod test {
         );
 
         let plugin_endpoint = registrar
-            .get("foo")
+            .get_endpoint("foo")
             .await
             .expect("Should be able to get plugin info");
         assert_eq!(
@@ -630,7 +668,7 @@ mod test {
         tokio::time::delay_for(Duration::from_secs(3)).await;
 
         assert!(
-            registrar.get("foo").await.is_none(),
+            registrar.get_endpoint("foo").await.is_none(),
             "Plugin shouldn't be registered in memory"
         );
     }
@@ -649,7 +687,7 @@ mod test {
     #[tokio::test]
     async fn test_invalid_type() {
         // This path doesn't matter here
-        let registrar = PluginRegistrar::new("/tmp/foo");
+        let registrar = PluginRegistry::new("/tmp/foo");
         let mut info = valid_info();
         info.r#type = "DevicePlugin".to_string();
 
@@ -674,7 +712,7 @@ mod test {
     #[tokio::test]
     async fn test_invalid_plugin_version() {
         // This path doesn't matter here
-        let registrar = PluginRegistrar::new("/tmp/foo");
+        let registrar = PluginRegistry::new("/tmp/foo");
         let mut info = valid_info();
         info.supported_versions = vec!["v1beta1".to_string()];
 
@@ -690,7 +728,7 @@ mod test {
     #[tokio::test]
     async fn test_invalid_name_with_different_endpoint() {
         // This path doesn't matter here
-        let registrar = PluginRegistrar::new("/tmp/foo");
+        let registrar = PluginRegistry::new("/tmp/foo");
         let mut info = valid_info();
 
         // Insert a valid registration
@@ -708,7 +746,7 @@ mod test {
     #[tokio::test]
     async fn test_invalid_name_with_different_discovered_path() {
         // This path doesn't matter here
-        let registrar = PluginRegistrar::new("/tmp/foo");
+        let registrar = PluginRegistry::new("/tmp/foo");
         let mut info = valid_info();
         info.endpoint = String::new();
 
@@ -729,7 +767,7 @@ mod test {
     #[tokio::test]
     async fn test_reregistration() {
         // This path doesn't matter here
-        let registrar = PluginRegistrar::new("/tmp/foo");
+        let registrar = PluginRegistry::new("/tmp/foo");
         let info = valid_info();
 
         // Insert a valid registration

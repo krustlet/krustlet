@@ -106,10 +106,10 @@ mod mac {
                 };
 
                 // Do a difference between cached and current paths (current - cached) to detect set of creates
-                handle_creates(tx.clone(), current_paths.difference(&path_cache).cloned());
+                send_creates(tx.clone(), current_paths.difference(&path_cache).cloned());
 
                 // Do a difference between cached and current paths (cached - current) to detect set of deletes
-                handle_deletes(tx.clone(), path_cache.difference(&current_paths).cloned());
+                send_deletes(tx.clone(), path_cache.difference(&current_paths).cloned());
 
                 // Now we can set current to cached
                 path_cache = current_paths;
@@ -138,33 +138,24 @@ mod mac {
             })
     }
 
-    fn handle_creates(
+    fn send_creates(
         tx: UnboundedSender<NotifyResult<Event>>,
         items: impl Iterator<Item = PathBuf>,
     ) {
-        let paths: Vec<PathBuf> = items.collect();
-        // If there were no paths, it means there weren't any new files, so return
-        if paths.is_empty() {
-            return;
-        }
-        let event = Event {
-            kind: EventKind::Create(CreateKind::Any),
-            paths,
-            ..Default::default()
-        };
-        if let Err(e) = tx.send(Ok(event)) {
-            // At this point there isn't much we can do as the channel is closed. So just log an
-            // error
-            error!(
-                "Unable to send event {:?} due to the channel being closed",
-                e.0
-            );
-        }
+        send_event_with_kind(tx, items, EventKind::Create(CreateKind::Any))
     }
 
-    fn handle_deletes(
+    fn send_deletes(
         tx: UnboundedSender<NotifyResult<Event>>,
         items: impl Iterator<Item = PathBuf>,
+    ) {
+        send_event_with_kind(tx, items, EventKind::Remove(RemoveKind::Any))
+    }
+
+    fn send_event_with_kind(
+        tx: UnboundedSender<NotifyResult<Event>>,
+        items: impl Iterator<Item = PathBuf>,
+        kind: EventKind,
     ) {
         let paths: Vec<PathBuf> = items.collect();
         // If there were no paths, it means there weren't any files deleted, so return
@@ -172,7 +163,7 @@ mod mac {
             return;
         }
         let event = Event {
-            kind: EventKind::Remove(RemoveKind::Any),
+            kind,
             paths,
             ..Default::default()
         };
@@ -191,12 +182,12 @@ mod mac {
         use super::*;
 
         #[tokio::test]
-        async fn test_handle_deletes() {
+        async fn test_send_deletes() {
             let (tx, mut rx) = unbounded_channel();
             let file1 = PathBuf::from("/foo/bar");
             let file2 = PathBuf::from("/bar/foo");
 
-            handle_deletes(tx, vec![file1.clone(), file2.clone()].into_iter());
+            send_deletes(tx, vec![file1.clone(), file2.clone()].into_iter());
             let event = rx
                 .recv()
                 .await
@@ -210,12 +201,12 @@ mod mac {
         }
 
         #[tokio::test]
-        async fn test_handle_creates() {
+        async fn test_send_creates() {
             let (tx, mut rx) = unbounded_channel();
             let file1 = PathBuf::from("/foo/bar");
             let file2 = PathBuf::from("/bar/foo");
 
-            handle_creates(tx, vec![file1.clone(), file2.clone()].into_iter());
+            send_creates(tx, vec![file1.clone(), file2.clone()].into_iter());
             let event = rx
                 .recv()
                 .await
