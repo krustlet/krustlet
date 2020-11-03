@@ -94,28 +94,45 @@ pub async fn patch_container_status(
     status: &Status,
 ) -> anyhow::Result<()> {
     match pod.find_container(&key) {
-        Some((container_index, container)) => {
+        Some(container) => {
             let kube_status = status.to_kubernetes(container.name());
-            let path_prefix = if key.is_init() {
-                format!("/status/initContainerStatuses/{}", container_index)
-            } else {
-                format!("/status/containerStatuses/{}", container_index)
-            };
 
-            let patches = vec![
-                json_patch::PatchOperation::Replace(json_patch::ReplaceOperation {
-                    path: format!("{}/state", path_prefix),
-                    value: serde_json::json!(kube_status.state.unwrap()),
-                }),
-                json_patch::PatchOperation::Replace(json_patch::ReplaceOperation {
-                    path: format!("{}/ready", path_prefix),
-                    value: serde_json::json!(kube_status.ready),
-                }),
-                json_patch::PatchOperation::Replace(json_patch::ReplaceOperation {
-                    path: format!("{}/started", path_prefix),
-                    value: serde_json::json!(true),
-                }),
-            ];
+            let patches = match pod.container_status_index(&key) {
+                Some(idx) => {
+                    let path_prefix = if key.is_init() {
+                        format!("/status/initContainerStatuses/{}", idx)
+                    } else {
+                        format!("/status/containerStatuses/{}", idx)
+                    };
+
+                    vec![
+                        json_patch::PatchOperation::Replace(json_patch::ReplaceOperation {
+                            path: format!("{}/state", path_prefix),
+                            value: serde_json::json!(kube_status.state.unwrap()),
+                        }),
+                        json_patch::PatchOperation::Replace(json_patch::ReplaceOperation {
+                            path: format!("{}/ready", path_prefix),
+                            value: serde_json::json!(kube_status.ready),
+                        }),
+                        json_patch::PatchOperation::Replace(json_patch::ReplaceOperation {
+                            path: format!("{}/started", path_prefix),
+                            value: serde_json::json!(true),
+                        }),
+                    ]
+                }
+                None => {
+                    let path = if key.is_init() {
+                        "/status/initContainerStatuses".to_string()
+                    } else {
+                        "/status/containerStatuses".to_string()
+                    };
+
+                    vec![json_patch::PatchOperation::Add(json_patch::AddOperation {
+                        path,
+                        value: serde_json::json!(kube_status),
+                    })]
+                }
+            };
 
             let patch = json_patch::Patch(patches);
             let params = kube::api::PatchParams {

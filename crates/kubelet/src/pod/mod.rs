@@ -141,8 +141,8 @@ impl Pod {
             .map(|t| &t.0)
     }
 
-    /// Find container by `ContainerKey` and return it and its index in the Pod's container list.
-    pub fn find_container(&self, key: &ContainerKey) -> Option<(usize, Container)> {
+    /// Find container by `ContainerKey` and return it.
+    pub fn find_container(&self, key: &ContainerKey) -> Option<Container> {
         let containers: Vec<Container> = if key.is_init() {
             self.init_containers()
         } else {
@@ -150,8 +150,21 @@ impl Pod {
         };
         containers
             .into_iter()
+            .find(|container| container.name() == key.name())
+    }
+
+    /// Finds the index of the container in the Pod's container status.
+    pub fn container_status_index(&self, key: &ContainerKey) -> Option<usize> {
+        let containers: Vec<Container> = if key.is_init() {
+            self.init_containers()
+        } else {
+            self.containers()
+        };
+        containers
+            .iter()
             .enumerate()
             .find(|(_, container)| container.name() == key.name())
+            .map(|(idx, _)| idx)
     }
 
     /// Get a pod's containers

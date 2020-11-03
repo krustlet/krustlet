@@ -3,7 +3,6 @@ use log::{debug, error, warn};
 
 pub mod prelude;
 
-use crate::pod::make_registered_status;
 use crate::pod::{Phase, Pod};
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Api, PatchParams};
@@ -259,14 +258,14 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
     pod_state: &mut PodState,
     pod: Arc<RwLock<Pod>>,
 ) {
-    let initial_pod = { pod.read().await.clone() };
-    let namespace = initial_pod.namespace().to_string();
-    let name = initial_pod.name().to_string();
-    let api: Api<KubePod> = Api::namespaced(client.clone(), &namespace);
+    let (name, namespace) = {
+        let initial_pod = pod.read().await.clone();
+        let namespace = initial_pod.namespace().to_string();
+        let name = initial_pod.name().to_string();
+        (name, namespace)
+    };
 
-    // Initialize Pod Container Statuses
-    patch_status(&api, &name, make_registered_status(&initial_pod)).await;
-    drop(initial_pod);
+    let api: Api<KubePod> = Api::namespaced(client.clone(), &namespace);
 
     let mut state: Box<dyn State<PodState>> = Box::new(state);
 
