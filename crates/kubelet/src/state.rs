@@ -259,6 +259,8 @@ async fn patch_status(api: &Api<KubePod>, name: &str, patch: serde_json::Value) 
     }
 }
 
+const MAX_STATUS_INIT_RETRIES: usize = 5;
+
 /// Iteratively evaluate state machine until it returns Complete.
 pub async fn run_to_completion<PodState: Send + Sync + 'static>(
     client: &kube::Client,
@@ -285,7 +287,23 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
     // I'm not sure if we want to loop forever or handle some sort of failure
     // condition (if Kubernetes refuses to accept and propagate this
     // initialization patch.)
+    let mut retries = 0;
     'main: loop {
+        if retries == MAX_STATUS_INIT_RETRIES {
+            let patch = serde_json::json!(
+                {
+                    "metadata": {
+                        "resourceVersion": "",
+                    },
+                    "status": {
+                        "phase": Phase::Failed,
+                        "reason": "Timed out while initializing container statuses.",
+                    }
+                }
+            );
+            patch_status(&api, &name, patch).await;
+            return;
+        }
         let (num_containers, num_init_containers) = {
             let pod = pod.read().await;
             patch_status(&api, &name, make_registered_status(&pod)).await;
@@ -314,13 +332,14 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
                 .map(|statuses| statuses.len())
                 .unwrap_or(0);
 
-            if (num_statuses == num_containers) & (num_init_statuses == num_init_containers) {
+            if (num_statuses == num_containers) && (num_init_statuses == num_init_containers) {
                 break 'main;
             } else {
                 debug!("Pod {} waiting for status to populate: {:?}", &name, status);
                 tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
             }
         }
+        retries += 1;
     }
 
     let mut state: Box<dyn State<PodState>> = Box::new(state);
