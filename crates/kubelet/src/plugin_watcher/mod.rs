@@ -23,9 +23,11 @@ const DEFAULT_PLUGIN_PATH: &str = "/var/lib/kubelet/plugins_registry/";
 const DEFAULT_PLUGIN_PATH: &str = "c:\\Program Files\\kubelet\\plugins_registry";
 
 const SOCKET_EXTENSION: &str = "sock";
+const ALLOWED_PLUGIN_TYPES: &[PluginType] = &[PluginType::CSIPlugin];
 
 /// An enum for capturing possible plugin types. This is purely for clarity and capturing this
 /// information is a compiled type as the information we get from gRPC is a string
+#[derive(Debug, PartialEq)]
 enum PluginType {
     CSIPlugin,
     DevicePlugin,
@@ -228,7 +230,7 @@ impl PluginRegistry {
     /// Check for valid type and if it is a CSIPlugin
     fn validate_plugin_type(&self, plugin_type: &str) -> anyhow::Result<()> {
         let plugin_type = PluginType::try_from(plugin_type)?;
-        if matches!(plugin_type, PluginType::DevicePlugin) {
+        if !is_allowed_plugin_type(plugin_type) {
             warn!("DevicePlugins are not currently supported");
             return Err(anyhow::anyhow!("DevicePlugins are not currently supported"));
         }
@@ -294,6 +296,11 @@ fn remove_plugin(
         None => return,
     };
     plugins.remove(&key);
+}
+
+// An allow list check for currently supported plugin types
+fn is_allowed_plugin_type(t: PluginType) -> bool {
+    ALLOWED_PLUGIN_TYPES.iter().any(|item| *item == t)
 }
 
 /// Attempts a `GetInfo` gRPC call to the endpoint to the path given
