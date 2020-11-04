@@ -13,7 +13,8 @@ pub use status::{
 use crate::container::{Container, ContainerKey};
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::{
-    Container as KubeContainer, Pod as KubePod, Volume as KubeVolume,
+    Container as KubeContainer, ContainerStatus as KubeContainerStatus, Pod as KubePod,
+    Volume as KubeVolume,
 };
 use kube::api::Meta;
 
@@ -153,17 +154,26 @@ impl Pod {
             .find(|container| container.name() == key.name())
     }
 
-    /// Finds the index of the container in the Pod's container status.
+    /// Finds the index of the container in the Pod's container statuses.
     pub fn container_status_index(&self, key: &ContainerKey) -> Option<usize> {
-        let containers: Vec<Container> = if key.is_init() {
-            self.init_containers()
+        let statuses: Vec<KubeContainerStatus> = if key.is_init() {
+            self.kube_pod
+                .status
+                .clone()
+                .unwrap_or_default()
+                .init_container_statuses
         } else {
-            self.containers()
-        };
-        containers
+            self.kube_pod
+                .status
+                .clone()
+                .unwrap_or_default()
+                .container_statuses
+        }
+        .unwrap_or_default();
+        statuses
             .iter()
             .enumerate()
-            .find(|(_, container)| container.name() == key.name())
+            .find(|(_, status)| status.name == key.name())
             .map(|(idx, _)| idx)
     }
 

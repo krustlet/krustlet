@@ -3,6 +3,7 @@ use log::{debug, error, warn};
 
 pub mod prelude;
 
+use crate::pod::make_registered_status;
 use crate::pod::{Phase, Pod};
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Api, PatchParams};
@@ -236,12 +237,19 @@ pub trait State<PodState>: Sync + Send + 'static + std::fmt::Debug {
 
 async fn patch_status(api: &Api<KubePod>, name: &str, patch: serde_json::Value) {
     match serde_json::to_vec(&patch) {
-        Ok(data) => match api.patch_status(&name, &PatchParams::default(), data).await {
-            Ok(_) => (),
-            Err(e) => {
-                warn!("Pod {} error patching status: {:?}", name, e);
+        Ok(data) => {
+            debug!(
+                "Applying status patch to Pod {}: '{}'",
+                &name,
+                std::str::from_utf8(&data).unwrap()
+            );
+            match api.patch_status(&name, &PatchParams::default(), data).await {
+                Ok(_) => (),
+                Err(e) => {
+                    warn!("Pod {} error patching status: {:?}", name, e);
+                }
             }
-        },
+        }
         Err(e) => {
             warn!(
                 "Pod {} error serializing status patch {:?}: {:?}",
@@ -258,14 +266,62 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
     pod_state: &mut PodState,
     pod: Arc<RwLock<Pod>>,
 ) {
-    let (name, namespace) = {
+    let (name, api) = {
         let initial_pod = pod.read().await.clone();
         let namespace = initial_pod.namespace().to_string();
         let name = initial_pod.name().to_string();
-        (name, namespace)
+        let api: Api<KubePod> = Api::namespaced(client.clone(), &namespace);
+        (name, api)
     };
 
-    let api: Api<KubePod> = Api::namespaced(client.clone(), &namespace);
+    // NOTE: This loop patches the container statuses of the Pod with and then
+    // waits for them to be picked up by the reflector. This is needed for a
+    // few reasons:
+    // * Kubernetes rewrites an empty array to null, preventing us from
+    //   starting with that and appending.
+    // * Pod reflection is not updated within a given state, meaning that
+    //   container status patching cannot be responsible for initializing this
+    //   (this would be a race condition anyway).
+    // I'm not sure if we want to loop forever or handle some sort of failure
+    // condition (if Kubernetes refuses to accept and propagate this
+    // initialization patch.)
+    'main: loop {
+        let (num_containers, num_init_containers) = {
+            let pod = pod.read().await;
+            patch_status(&api, &name, make_registered_status(&pod)).await;
+            let num_containers = pod.containers().len();
+            let num_init_containers = pod.init_containers().len();
+            (num_containers, num_init_containers)
+        };
+        for _ in 0..10 {
+            let status = {
+                pod.read()
+                    .await
+                    .as_kube_pod()
+                    .status
+                    .clone()
+                    .unwrap_or_default()
+            };
+
+            let num_statuses = status
+                .container_statuses
+                .as_ref()
+                .map(|statuses| statuses.len())
+                .unwrap_or(0);
+            let num_init_statuses = status
+                .init_container_statuses
+                .as_ref()
+                .map(|statuses| statuses.len())
+                .unwrap_or(0);
+
+            if (num_statuses == num_containers) & (num_init_statuses == num_init_containers) {
+                break 'main;
+            } else {
+                debug!("Pod {} waiting for status to populate: {:?}", &name, status);
+                tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+            }
+        }
+    }
 
     let mut state: Box<dyn State<PodState>> = Box::new(state);
 
@@ -276,7 +332,6 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
 
         match state.json_status(pod_state, &latest_pod).await {
             Ok(patch) => {
-                debug!("Pod {} status patch: {:?}", &name, &patch);
                 patch_status(&api, &name, patch).await;
             }
             Err(e) => {
