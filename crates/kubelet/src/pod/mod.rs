@@ -6,8 +6,10 @@ mod status;
 #[allow(deprecated)]
 pub use handle::{key_from_pod, pod_key, Handle};
 pub(crate) use queue::Queue;
+pub(crate) use status::initialize_pod_container_statuses;
 pub use status::{
-    make_registered_status, make_status, make_status_with_containers, Phase, Status, StatusMessage,
+    make_registered_status, make_status, make_status_with_containers, patch_status, Phase, Status,
+    StatusMessage,
 };
 
 use crate::container::{Container, ContainerKey};
