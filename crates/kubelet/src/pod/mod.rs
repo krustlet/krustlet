@@ -6,7 +6,11 @@ mod status;
 #[allow(deprecated)]
 pub use handle::{key_from_pod, pod_key, Handle};
 pub(crate) use queue::Queue;
-pub use status::{make_status, make_status_with_containers, Phase, Status, StatusMessage};
+pub(crate) use status::initialize_pod_container_statuses;
+pub use status::{
+    make_registered_status, make_status, make_status_with_containers, patch_status, Phase, Status,
+    StatusMessage,
+};
 
 use crate::container::{Container, ContainerKey};
 use chrono::{DateTime, Utc};
@@ -139,6 +143,39 @@ impl Pod {
             .map(|t| &t.0)
     }
 
+    /// Find container by `ContainerKey` and return it.
+    pub fn find_container(&self, key: &ContainerKey) -> Option<Container> {
+        let containers: Vec<Container> = if key.is_init() {
+            self.init_containers()
+        } else {
+            self.containers()
+        };
+        containers
+            .into_iter()
+            .find(|container| container.name() == key.name())
+    }
+
+    /// Finds the index of the container in the Pod's container statuses.
+    pub fn container_status_index(&self, key: &ContainerKey) -> Option<usize> {
+        match self.kube_pod.status.as_ref() {
+            Some(status) => {
+                match if key.is_init() {
+                    status.init_container_statuses.as_ref()
+                } else {
+                    status.container_statuses.as_ref()
+                } {
+                    Some(statuses) => statuses
+                        .iter()
+                        .enumerate()
+                        .find(|(_, status)| status.name == key.name())
+                        .map(|(idx, _)| idx),
+                    None => None,
+                }
+            }
+            None => None,
+        }
+    }
+
     /// Get a pod's containers
     pub fn containers(&self) -> Vec<Container> {
         self.kube_pod
@@ -164,16 +201,11 @@ impl Pod {
     }
 
     /// Gets all of a pod's containers (init and application)
-    pub fn all_containers(&self) -> Vec<ContainerKey> {
-        let app_containers = self.containers();
-        let app_container_keys = app_containers
-            .iter()
-            .map(|c| ContainerKey::App(c.name().to_owned()));
+    pub fn all_containers(&self) -> Vec<Container> {
+        let mut app_containers = self.containers();
         let init_containers = self.init_containers();
-        let init_container_keys = init_containers
-            .iter()
-            .map(|c| ContainerKey::Init(c.name().to_owned()));
-        app_container_keys.chain(init_container_keys).collect()
+        app_containers.extend(init_containers);
+        app_containers
     }
 
     /// Turn the Pod into the Kubernetes API version of a Pod

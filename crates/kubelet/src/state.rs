@@ -3,9 +3,12 @@ use log::{debug, error, warn};
 
 pub mod prelude;
 
+use crate::pod::{initialize_pod_container_statuses, patch_status};
 use crate::pod::{Phase, Pod};
 use k8s_openapi::api::core::v1::Pod as KubePod;
-use kube::api::{Api, PatchParams};
+use kube::api::Api;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 #[cfg(feature = "derive")]
 #[doc(hidden)]
@@ -232,66 +235,59 @@ pub trait State<PodState>: Sync + Send + 'static + std::fmt::Debug {
     ) -> anyhow::Result<serde_json::Value>;
 }
 
-async fn patch_status(api: &Api<KubePod>, name: &str, patch: serde_json::Value) {
-    match serde_json::to_vec(&patch) {
-        Ok(data) => match api.patch_status(&name, &PatchParams::default(), data).await {
-            Ok(_) => (),
-            Err(e) => {
-                warn!("Pod {} error patching status: {:?}", name, e);
-            }
-        },
-        Err(e) => {
-            warn!(
-                "Pod {} error serializing status patch {:?}: {:?}",
-                name, &patch, e
-            );
-        }
-    }
-}
-
 /// Iteratively evaluate state machine until it returns Complete.
 pub async fn run_to_completion<PodState: Send + Sync + 'static>(
     client: &kube::Client,
     state: impl State<PodState>,
     pod_state: &mut PodState,
-    pod: &Pod,
+    pod: Arc<RwLock<Pod>>,
 ) {
-    let api: Api<KubePod> = Api::namespaced(client.clone(), pod.namespace());
+    let (name, api) = {
+        let initial_pod = pod.read().await.clone();
+        let namespace = initial_pod.namespace().to_string();
+        let name = initial_pod.name().to_string();
+        let api: Api<KubePod> = Api::namespaced(client.clone(), &namespace);
+        (name, api)
+    };
+
+    if initialize_pod_container_statuses(&name, Arc::clone(&pod), &api)
+        .await
+        .is_err()
+    {
+        return;
+    }
 
     let mut state: Box<dyn State<PodState>> = Box::new(state);
 
     loop {
-        debug!("Pod {} entering state {:?}", pod.name(), state);
+        debug!("Pod {} entering state {:?}", &name, state);
 
-        match state.json_status(pod_state, &pod).await {
+        let latest_pod = { pod.read().await.clone() };
+
+        match state.json_status(pod_state, &latest_pod).await {
             Ok(patch) => {
-                debug!("Pod {} status patch: {:?}", pod.name(), &patch);
-                patch_status(&api, pod.name(), patch).await;
+                patch_status(&api, &name, patch).await;
             }
             Err(e) => {
-                warn!("Pod {} status patch returned error: {:?}", pod.name(), e);
+                warn!("Pod {} status patch returned error: {:?}", &name, e);
             }
         }
 
-        debug!("Pod {} executing state handler {:?}", pod.name(), state);
-        let transition = { state.next(pod_state, &pod).await };
+        debug!("Pod {} executing state handler {:?}", &name, state);
+        let transition = { state.next(pod_state, &latest_pod).await };
 
         state = match transition {
             Transition::Next(s) => {
-                debug!("Pod {} transitioning to {:?}.", pod.name(), s.state);
+                debug!("Pod {} transitioning to {:?}.", &name, s.state);
                 s.state
             }
             Transition::Complete(result) => match result {
                 Ok(()) => {
-                    debug!("Pod {} state machine exited without error", pod.name());
+                    debug!("Pod {} state machine exited without error", &name);
                     break;
                 }
                 Err(e) => {
-                    error!(
-                        "Pod {} state machine exited with error: {:?}",
-                        pod.name(),
-                        e
-                    );
+                    error!("Pod {} state machine exited with error: {:?}", &name, e);
                     let patch = serde_json::json!(
                         {
                             "metadata": {
@@ -303,7 +299,7 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
                             }
                         }
                     );
-                    patch_status(&api, pod.name(), patch).await;
+                    patch_status(&api, &name, patch).await;
                     break;
                 }
             },

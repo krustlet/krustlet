@@ -1,9 +1,12 @@
+use crate::container::{Container, ContainerKey};
+use crate::pod::Pod;
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::{
     ContainerState, ContainerStateRunning, ContainerStateTerminated, ContainerStateWaiting,
-    ContainerStatus as KubeContainerStatus,
+    ContainerStatus as KubeContainerStatus, Pod as KubePod,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
+use log::{debug, warn};
 
 /// Status is a simplified version of the Kubernetes container status
 /// for use in providers. It allows for simple creation of the current status of
@@ -37,7 +40,7 @@ pub enum Status {
 
 impl Status {
     /// Convert the container status to a Kubernetes API compatible type
-    pub fn to_kubernetes(&self, container_name: String) -> KubeContainerStatus {
+    pub fn to_kubernetes(&self, container_name: &str) -> KubeContainerStatus {
         let mut state = ContainerState::default();
         match self {
             Self::Waiting { message, .. } => {
@@ -67,7 +70,7 @@ impl Status {
         let ready = state.running.is_some();
         KubeContainerStatus {
             state: Some(state),
-            name: container_name,
+            name: container_name.to_string(),
             // Right now we don't have a way to probe, so just set to ready if
             // in a running state
             ready,
@@ -80,5 +83,96 @@ impl Status {
             // functionality yet
             ..Default::default()
         }
+    }
+}
+
+/// Patch a single container's status
+pub async fn patch_container_status(
+    client: &kube::Api<KubePod>,
+    pod: &Pod,
+    key: ContainerKey,
+    status: &Status,
+) -> anyhow::Result<()> {
+    match pod.find_container(&key) {
+        Some(container) => {
+            let kube_status = status.to_kubernetes(container.name());
+
+            let patches = match pod.container_status_index(&key) {
+                Some(idx) => {
+                    let path_prefix = if key.is_init() {
+                        format!("/status/initContainerStatuses/{}", idx)
+                    } else {
+                        format!("/status/containerStatuses/{}", idx)
+                    };
+
+                    vec![
+                        json_patch::PatchOperation::Replace(json_patch::ReplaceOperation {
+                            path: format!("{}/state", path_prefix),
+                            value: serde_json::json!(kube_status.state.unwrap()),
+                        }),
+                        json_patch::PatchOperation::Replace(json_patch::ReplaceOperation {
+                            path: format!("{}/ready", path_prefix),
+                            value: serde_json::json!(kube_status.ready),
+                        }),
+                        json_patch::PatchOperation::Replace(json_patch::ReplaceOperation {
+                            path: format!("{}/started", path_prefix),
+                            value: serde_json::json!(true),
+                        }),
+                    ]
+                }
+                None => {
+                    let path = if key.is_init() {
+                        "/status/initContainerStatuses/-".to_string()
+                    } else {
+                        "/status/containerStatuses/-".to_string()
+                    };
+
+                    vec![json_patch::PatchOperation::Add(json_patch::AddOperation {
+                        path,
+                        value: serde_json::json!(kube_status),
+                    })]
+                }
+            };
+
+            let patch = json_patch::Patch(patches);
+            let params = kube::api::PatchParams {
+                patch_strategy: kube::api::PatchStrategy::JSON,
+                ..Default::default()
+            };
+            let patch_data = serde_json::to_vec(&patch)?;
+            debug!(
+                "Patching container status {} {}: '{}'",
+                pod.name(),
+                container.name(),
+                std::str::from_utf8(&patch_data).unwrap()
+            );
+            client.patch_status(pod.name(), &params, patch_data).await?;
+            Ok(())
+        }
+        None => {
+            warn!(
+                "Container status update for unknown container {}.",
+                key.name()
+            );
+            Ok(())
+        }
+    }
+}
+
+/// Create inital container status for registering pod.
+pub fn make_initial_container_status(container: &Container) -> KubeContainerStatus {
+    let state = ContainerState {
+        waiting: Some(ContainerStateWaiting {
+            message: Some("Registered".to_string()),
+            reason: Some("Registered".to_string()),
+        }),
+        ..Default::default()
+    };
+    KubeContainerStatus {
+        name: container.name().to_string(),
+        ready: false,
+        started: Some(false),
+        state: Some(state),
+        ..Default::default()
     }
 }

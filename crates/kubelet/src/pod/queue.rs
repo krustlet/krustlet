@@ -12,6 +12,7 @@ use log::{debug, error, warn};
 use crate::pod::{Pod, PodKey};
 use crate::provider::Provider;
 use crate::state::{run_to_completion, AsyncDrop};
+use tokio::sync::RwLock;
 
 /// A per-pod queue that takes incoming Kubernetes events and broadcasts them to the correct queue
 /// for that pod.
@@ -43,19 +44,21 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
 
         let pod_deleted = Arc::new(Notify::new());
 
-        match initial_event {
+        let pod_manifest = match initial_event {
             Event::Applied(pod) => {
                 let pod = Pod::from(pod);
                 let pod_state = self.provider.initialize_pod_state(&pod).await?;
+                let pod_manifest = Arc::new(RwLock::new(pod));
                 tokio::spawn(start_task::<P>(
                     self.client.clone(),
-                    pod,
+                    Arc::clone(&pod_manifest),
                     pod_state,
                     Arc::clone(&pod_deleted),
                 ));
+                pod_manifest
             }
             _ => return Err(anyhow::anyhow!("Got non-apply event when starting pod")),
-        }
+        };
 
         tokio::spawn(async move {
             while let Some(event) = receiver.recv().await {
@@ -63,14 +66,12 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                 // a pod
                 match event {
                     Event::Applied(pod) => {
-                        // Not really using this right now but will be useful for detecting changes.
                         let pod = Pod::from(pod);
                         debug!("Pod {} applied.", pod.name());
-
-                        // TODO, detect other changes we want to support, or should this just forward the new pod def to state machine?
                         if let Some(_timestamp) = pod.deletion_timestamp() {
                             pod_deleted.notify();
                         }
+                        *pod_manifest.write().await = pod;
                     }
                     Event::Deleted(pod) => {
                         // I'm not sure if this matters, we get notified of pod deletion with a
@@ -166,19 +167,22 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
 
 async fn start_task<P: Provider>(
     task_client: KubeClient,
-    pod: Pod,
+    pod: Arc<RwLock<Pod>>,
     mut pod_state: P::PodState,
     pod_deleted: Arc<Notify>,
 ) {
     let state: P::InitialState = Default::default();
-    let name = pod.name().to_string();
+    let (namespace, name) = {
+        let p = pod.read().await;
+        (p.namespace().to_string(), p.name().to_string())
+    };
 
     tokio::select! {
-        _ = run_to_completion(&task_client, state, &mut pod_state, &pod) => (),
+        _ = run_to_completion(&task_client, state, &mut pod_state, Arc::clone(&pod)) => (),
         _ = pod_deleted.notified() => {
             let state: P::TerminatedState = Default::default();
             debug!("Pod {} terminated. Jumping to state {:?}.", name, state);
-            run_to_completion(&task_client, state, &mut pod_state, &pod).await;
+            run_to_completion(&task_client, state, &mut pod_state, Arc::clone(&pod)).await;
         }
     }
 
@@ -186,13 +190,13 @@ async fn start_task<P: Provider>(
     pod_deleted.notified().await;
     pod_state.async_drop().await;
 
-    let pod_client: kube::Api<KubePod> = kube::Api::namespaced(task_client, pod.namespace());
+    let pod_client: kube::Api<KubePod> = kube::Api::namespaced(task_client, &namespace);
     let dp = kube::api::DeleteParams {
         grace_period_seconds: Some(0),
         ..Default::default()
     };
 
-    match pod_client.delete(&pod.name(), &dp).await {
+    match pod_client.delete(&name, &dp).await {
         Ok(_) => {
             debug!("Pod {} deregistered.", name);
         }

@@ -30,19 +30,26 @@ impl State<PodState> for Running {
             .containers()
             .iter()
             .map(|container| {
-                // Create empty patch and update only the fields we want to change.
-                let mut status: KubeContainerStatus = Default::default();
-                let mut state: KubeContainerState = Default::default();
-                status.name = container.name().to_string();
-                status.ready = true;
-                status.started = Some(true);
-                state.running = Some(KubeContainerStateRunning {
-                    started_at: Some(KubeTime(ts)),
-                });
-                status.state = Some(state);
-                status
+                let state = KubeContainerState {
+                    running: Some(KubeContainerStateRunning {
+                        started_at: Some(KubeTime(ts)),
+                    }),
+                    ..Default::default()
+                };
+                KubeContainerStatus {
+                    name: container.name().to_string(),
+                    ready: true,
+                    started: Some(true),
+                    state: Some(state),
+                    ..Default::default()
+                }
             })
             .collect();
-        make_status_with_containers(Phase::Running, "Running", container_statuses)
+        Ok(make_status_with_containers(
+            Phase::Running,
+            "Running",
+            container_statuses,
+            vec![],
+        ))
     }
 }

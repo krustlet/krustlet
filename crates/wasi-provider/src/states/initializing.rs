@@ -6,61 +6,13 @@ use crate::PodState;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Api, PatchParams};
 use kubelet::backoff::BackoffStrategy;
-use kubelet::container::{ContainerKey, Status as ContainerStatus};
+use kubelet::container::{patch_container_status, ContainerKey, Status as ContainerStatus};
 use kubelet::pod::{Handle, PodKey};
 use kubelet::state::prelude::*;
 
 use super::error::Error;
 use super::starting::{start_container, ContainerHandleMap, Starting};
 use crate::fail_fatal;
-
-async fn patch_init_status(
-    client: &Api<KubePod>,
-    pod_name: &str,
-    name: String,
-    status: &ContainerStatus,
-) -> anyhow::Result<()> {
-    // We need to fetch the current status because there is no way to merge with a strategic merge patch here
-    let mut init_container_statuses = match client.get(pod_name).await {
-        Ok(p) => match p.status {
-            Some(s) => s.init_container_statuses.unwrap_or_default(),
-            None => {
-                return Err(anyhow::anyhow!(
-                    "Pod is missing status information. This should not occur"
-                ));
-            }
-        },
-        Err(e) => {
-            error!("Unable to fetch current status of pod {}, aborting status patch (will be retried on next status update): {:?}", pod_name, e);
-            // FIXME: This is kinda...ugly. But we can't just
-            // randomly abort the whole process due to an error
-            // fetching the current status. We should probably have
-            // some sort of retry mechanism, but that is another
-            // task for another day
-            Vec::default()
-        }
-    };
-    match init_container_statuses.iter().position(|s| s.name == name) {
-        Some(i) => {
-            init_container_statuses[i] = status.to_kubernetes(name);
-        }
-        None => {
-            init_container_statuses.push(status.to_kubernetes(name));
-        }
-    };
-    let s = serde_json::json!({
-        "metadata": {
-            "resourceVersion": "",
-        },
-        "status": {
-            "initContainerStatuses": init_container_statuses,
-        }
-    });
-    client
-        .patch_status(pod_name, &PatchParams::default(), serde_json::to_vec(&s)?)
-        .await?;
-    Ok(())
-}
 
 #[derive(Default, Debug, TransitionTo)]
 #[transition_to(Starting, Error)]
@@ -85,21 +37,22 @@ impl State<PodState> for Initializing {
             // Each new init container resets the CrashLoopBackoff timer.
             pod_state.crash_loop_backoff_strategy.reset();
 
-            let handle = match start_container(pod_state, pod, &init_container).await {
-                Ok(h) => h,
+            match start_container(pod_state, pod, &init_container).await {
+                Ok(h) => {
+                    container_handles
+                        .insert(ContainerKey::Init(init_container.name().to_string()), h);
+                }
                 Err(e) => fail_fatal!(e),
-            };
-
-            container_handles.insert(
-                ContainerKey::Init(init_container.name().to_string()),
-                handle,
-            );
+            }
 
             while let Some((name, status)) = pod_state.run_context.status_recv.recv().await {
-                if let Err(e) = patch_init_status(&client, &pod.name(), name.clone(), &status).await
+                if let Err(e) =
+                    patch_container_status(&client, &pod, ContainerKey::Init(name.clone()), &status)
+                        .await
                 {
                     error!("Unable to patch status, will retry on next update: {:?}", e);
                 }
+
                 if let ContainerStatus::Terminated {
                     timestamp: _,
                     message,
