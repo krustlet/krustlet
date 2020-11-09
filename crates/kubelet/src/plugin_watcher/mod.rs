@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 #[cfg(target_family = "unix")]
 const DEFAULT_PLUGIN_PATH: &str = "/var/lib/kubelet/plugins_registry/";
 #[cfg(target_family = "windows")]
-const DEFAULT_PLUGIN_PATH: &str = "c:\\Program Files\\kubelet\\plugins_registry";
+const DEFAULT_PLUGIN_PATH: &str = "c:\\ProgramData\\kubelet\\plugins_registry";
 
 const SOCKET_EXTENSION: &str = "sock";
 const ALLOWED_PLUGIN_TYPES: &[PluginType] = &[PluginType::CSIPlugin];
