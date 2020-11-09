@@ -1,33 +1,29 @@
 //! Functions for running Pod state machines.
-use crate::pod::{initialize_pod_container_statuses, Phase, Pod};
+use crate::pod::{
+    initialize_pod_container_statuses, make_status, status::patch_status, Phase, Pod, Status,
+};
 use crate::state::{ResourceState, State, Transition};
 use k8s_openapi::api::core::v1::Pod as KubePod;
-use kube::api::{Api, PatchParams};
+use kube::api::Api;
 use log::{debug, error, warn};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-async fn patch_status(api: &Api<KubePod>, name: &str, patch: serde_json::Value) {
-    match serde_json::to_vec(&patch) {
-        Ok(data) => match api.patch_status(&name, &PatchParams::default(), data).await {
-            Ok(_) => (),
-            Err(e) => {
-                warn!("Pod {} error patching status: {:?}", name, e);
-            }
-        },
-        Err(e) => {
-            warn!(
-                "Pod {} error serializing status patch {:?}: {:?}",
-                name, &patch, e
-            );
-        }
-    }
+/// Prelude for Pod state machines.
+pub mod prelude {
+    pub use crate::pod::{
+        make_status, make_status_with_containers, Phase, Pod, Status as PodStatus,
+    };
+    pub use crate::state::{AsyncDrop, ResourceState, State, TransitionTo};
+
+    /// Transition type alias for Pods.
+    pub type Transition<PodState> = crate::state::Transition<PodState, PodStatus>;
 }
 
 /// Iteratively evaluate state machine until it returns Complete.
 pub async fn run_to_completion<PodState: ResourceState<Manifest = Pod> + Send + Sync + 'static>(
     client: &kube::Client,
-    state: impl State<PodState>,
+    state: impl State<PodState, Status>,
     pod_state: &mut PodState,
     pod: Arc<RwLock<Pod>>,
 ) {
@@ -46,7 +42,7 @@ pub async fn run_to_completion<PodState: ResourceState<Manifest = Pod> + Send + 
         return;
     }
 
-    let mut state: Box<dyn State<PodState>> = Box::new(state);
+    let mut state: Box<dyn State<PodState, Status>> = Box::new(state);
 
     loop {
         debug!("Pod {} entering state {:?}", &name, state);
@@ -77,18 +73,8 @@ pub async fn run_to_completion<PodState: ResourceState<Manifest = Pod> + Send + 
                 }
                 Err(e) => {
                     error!("Pod {} state machine exited with error: {:?}", &name, e);
-                    let patch = serde_json::json!(
-                        {
-                            "metadata": {
-                                "resourceVersion": "",
-                            },
-                            "status": {
-                                "phase": Phase::Failed,
-                                "reason": format!("{:?}", e),
-                            }
-                        }
-                    );
-                    patch_status(&api, &name, patch).await;
+                    let status = make_status(Phase::Failed, &format!("{:?}", e));
+                    patch_status(&api, &name, status).await;
                     break;
                 }
             },
@@ -101,23 +87,19 @@ pub async fn run_to_completion<PodState: ResourceState<Manifest = Pod> + Send + 
 pub struct Stub;
 
 #[async_trait::async_trait]
-impl<P: 'static + Sync + Send + ResourceState<Manifest = Pod>> State<P> for Stub {
-    async fn next(self: Box<Self>, _state: &mut P, _manifest: &Pod) -> Transition<P> {
+impl<P: 'static + Sync + Send + ResourceState<Manifest = Pod>> State<P, Status> for Stub {
+    async fn next(self: Box<Self>, _state: &mut P, _manifest: &Pod) -> Transition<P, Status> {
         Transition::Complete(Ok(()))
     }
 
-    async fn json_status(
-        &self,
-        _pod_state: &mut P,
-        _pod: &Pod,
-    ) -> anyhow::Result<serde_json::Value> {
-        Ok(serde_json::json!(null))
+    async fn json_status(&self, _pod_state: &mut P, _pod: &Pod) -> anyhow::Result<Status> {
+        Ok(Default::default())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::pod::Pod;
+    use crate::pod::{status::Status as PodStatus, Pod};
     use crate::state::{ResourceState, State, Transition, TransitionTo};
 
     #[derive(Debug)]
@@ -131,12 +113,12 @@ mod test {
     struct ValidState;
 
     #[async_trait::async_trait]
-    impl State<PodState> for ValidState {
+    impl State<PodState, PodStatus> for ValidState {
         async fn next(
             self: Box<Self>,
             _pod_state: &mut PodState,
             _pod: &Pod,
-        ) -> Transition<PodState> {
+        ) -> Transition<PodState, PodStatus> {
             Transition::Complete(Ok(()))
         }
 
@@ -144,8 +126,8 @@ mod test {
             &self,
             _pod_state: &mut PodState,
             _pod: &Pod,
-        ) -> anyhow::Result<serde_json::Value> {
-            Ok(serde_json::json!(null))
+        ) -> anyhow::Result<PodStatus> {
+            Ok(Default::default())
         }
     }
 
@@ -157,12 +139,12 @@ mod test {
         impl TransitionTo<ValidState> for TestState {}
 
         #[async_trait::async_trait]
-        impl State<PodState> for TestState {
+        impl State<PodState, PodStatus> for TestState {
             async fn next(
                 self: Box<Self>,
                 _pod_state: &mut PodState,
                 _pod: &Pod,
-            ) -> Transition<PodState> {
+            ) -> Transition<PodState, PodStatus> {
                 Transition::next(self, ValidState)
             }
 
@@ -170,8 +152,8 @@ mod test {
                 &self,
                 _pod_state: &mut PodState,
                 _pod: &Pod,
-            ) -> anyhow::Result<serde_json::Value> {
-                Ok(serde_json::json!(null))
+            ) -> anyhow::Result<PodStatus> {
+                Ok(Default::default())
             }
         }
     }

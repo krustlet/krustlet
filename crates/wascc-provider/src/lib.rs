@@ -47,7 +47,7 @@ use kubelet::state::common::{
 use kubelet::state::prelude::SharedState;
 use kubelet::store::Store;
 
-use kubelet::state::prelude::ResourceState;
+use kubelet::pod::state::prelude::ResourceState;
 use kubelet::volume::Ref;
 use log::{debug, info};
 use tempfile::NamedTempFile;

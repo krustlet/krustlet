@@ -7,6 +7,7 @@ use log::{debug, error, info};
 use tokio::sync::Mutex;
 
 use kubelet::container::{Container, ContainerKey, Handle as ContainerHandle};
+use kubelet::pod::state::prelude::*;
 use kubelet::pod::{Handle, PodKey};
 use kubelet::provider::Provider;
 use kubelet::state::common::error::Error;
@@ -213,8 +214,8 @@ impl State<ProviderState, PodState> for Starting {
         &self,
         _pod_state: &mut PodState,
         _pod: &Pod,
-    ) -> anyhow::Result<serde_json::Value> {
-        make_status(Phase::Pending, "Starting")
+    ) -> anyhow::Result<PodStatus> {
+        Ok(make_status(Phase::Pending, "Starting"))
     }
 }
 

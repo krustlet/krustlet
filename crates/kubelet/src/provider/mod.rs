@@ -11,6 +11,7 @@ use crate::container::Container;
 use crate::log::Sender;
 use crate::node::Builder;
 use crate::pod::Pod;
+use crate::pod::Status as PodStatus;
 use crate::state::{AsyncDrop, ResourceState, State};
 
 /// A back-end for a Kubelet.
@@ -33,7 +34,7 @@ use crate::state::{AsyncDrop, ResourceState, State};
 /// use kubelet::provider::Provider;
 /// use kubelet::state::{SharedState, AsyncDrop};
 /// use kubelet::pod::state::Stub;
-/// use kubelet::state::prelude::*;
+/// use kubelet::pod::state::prelude::*;
 ///
 /// struct MyProvider;
 ///

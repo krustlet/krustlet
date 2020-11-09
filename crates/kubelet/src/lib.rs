@@ -11,7 +11,7 @@
 //! use kubelet::pod::Pod;
 //! use kubelet::provider::Provider;
 //! use kubelet::state::{SharedState, AsyncDrop};
-//! use kubelet::state::prelude::*;
+//! use kubelet::pod::state::prelude::*;
 //! use kubelet::pod::state::Stub;
 //!
 //! // Create some type that will act as your provider

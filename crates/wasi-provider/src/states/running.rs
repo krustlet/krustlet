@@ -4,7 +4,7 @@ use kubelet::container::patch_container_status;
 use kubelet::container::{ContainerKey, Status};
 use kubelet::state::common::error::Error;
 use kubelet::state::common::GenericProviderState;
-use kubelet::state::prelude::*;
+use kubelet::pod::state::prelude::*;
 use log::error;
 
 use super::completed::Completed;
@@ -33,7 +33,7 @@ impl State<ProviderState, PodState> for Running {
             // TODO: implement a container state machine such that it will self-update the Kubernetes API as it transitions through these stages.
 
             if let Err(e) =
-                patch_container_status(&client, &pod, ContainerKey::App(name.clone()), &status)
+                patch_container_status(&client, &pod, &ContainerKey::App(name.clone()), &status)
                     .await
             {
                 error!("Unable to patch status, will retry on next update: {:?}", e);
@@ -65,8 +65,8 @@ impl State<ProviderState, PodState> for Running {
         &self,
         _pod_state: &mut PodState,
         _pod: &Pod,
-    ) -> anyhow::Result<serde_json::Value> {
-        make_status(Phase::Running, "Running")
+    ) -> anyhow::Result<PodStatus> {
+        Ok(make_status(Phase::Running, "Running"))
     }
 }
 

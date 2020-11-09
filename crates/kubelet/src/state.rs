@@ -2,7 +2,7 @@
 //!
 //! Example Pod state machine:
 //! ```
-//! use kubelet::state::prelude::*;
+//! use kubelet::pod::state::prelude::*;
 //! use kubelet::pod::Pod;
 //!
 //! #[derive(Debug, TransitionTo)]
@@ -19,7 +19,7 @@
 //! }
 //!
 //! #[async_trait::async_trait]
-//! impl State<PodState> for TestState {
+//! impl State<PodState, PodStatus> for TestState {
 //!     async fn next(
 //!         self: Box<Self>,
 //!         _pod_state: &mut PodState,
@@ -32,8 +32,8 @@
 //!         &self,
 //!         _pod_state: &mut PodState,
 //!         _pod: &Pod,
-//!     ) -> anyhow::Result<serde_json::Value> {
-//!         Ok(serde_json::json!(null))
+//!     ) -> anyhow::Result<PodStatus> {
+//!         Ok(Default::default())
 //!     }
 //! }
 //! ```
@@ -290,9 +290,5 @@ pub trait State<ProviderState, S: ResourceState>: Sync + Send + 'static + std::f
     ) -> Transition<ProviderState, S>;
 
     /// Provider supplies JSON status patch to apply when entering this state.
-    async fn json_status(
-        &self,
-        pod_state: &mut S,
-        pod: &S::Manifest,
-    ) -> anyhow::Result<serde_json::Value>;
+    async fn json_status(&self, state: &mut S, manifest: &S::Manifest) -> anyhow::Result<Status>;
 }

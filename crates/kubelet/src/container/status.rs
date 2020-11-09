@@ -90,7 +90,7 @@ impl Status {
 pub async fn patch_container_status(
     client: &kube::Api<KubePod>,
     pod: &Pod,
-    key: ContainerKey,
+    key: &ContainerKey,
     status: &Status,
 ) -> anyhow::Result<()> {
     match pod.find_container(&key) {
