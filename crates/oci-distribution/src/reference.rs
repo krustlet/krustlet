@@ -1,7 +1,6 @@
 use std::convert::{Into, TryFrom};
 use std::error::Error;
 use std::fmt;
-use std::path::PathBuf;
 use std::str::FromStr;
 
 use crate::regexp;
@@ -90,10 +89,11 @@ impl Reference {
 
     /// full_name returns the full repository name and path.
     fn full_name(&self) -> String {
-        let mut path = PathBuf::new();
-        path.push(self.registry());
-        path.push(self.repository());
-        path.to_str().unwrap_or("").to_owned()
+        if self.registry() == "" {
+            format!("{}", self.repository())
+        } else {
+            format!("{}/{}", self.registry(), self.repository())
+        }
     }
 
     /// whole returns the whole reference.
@@ -273,6 +273,7 @@ mod test {
             assert_eq!(repository, reference.repository());
             assert_eq!(tag, reference.tag());
             assert_eq!(digest, reference.digest());
+            assert_eq!(input, reference.whole());
         }
 
         #[rstest(input, err,
