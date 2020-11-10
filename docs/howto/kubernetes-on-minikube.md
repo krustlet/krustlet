@@ -1,6 +1,7 @@
 # Running Kubernetes on Minikube
 
-This tutorial will focus on using a tool called [minikube](https://github.com/kubernetes/minikube).
+This tutorial will focus on using a tool called
+[minikube](https://github.com/kubernetes/minikube).
 
 If you haven't installed them already, go ahead and [install VirtualBox 5.2 or
 higher](https://www.virtualbox.org/), [install
@@ -19,14 +20,15 @@ $ egrep -q 'vmx|svm' /proc/cpuinfo && echo yes || echo no
 
 If the above command outputs “no”:
 
-- If you are running within a VM, your hypervisor does not allow nested virtualization. You will
-  need to use the *None (bare-metal)* driver
-- If you are running on a physical machine, ensure that your BIOS has hardware virtualization
-  enabled
+- If you are running within a VM, your hypervisor does not allow nested
+  virtualization. You will need to use the *None (bare-metal)* driver
+- If you are running on a physical machine, ensure that your BIOS has hardware
+  virtualization enabled
 
 ## Create a cluster
 
-Once VirtualBox, minikube, and kubectl are installed, create a cluster with minikube:
+Once VirtualBox, minikube, and kubectl are installed, create a cluster with
+minikube:
 
 ```console
 $ minikube start --driver=virtualbox

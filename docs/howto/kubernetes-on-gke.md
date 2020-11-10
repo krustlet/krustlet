@@ -1,31 +1,55 @@
 # Running Kubernetes on Google Kubernetes Engine (GKE)
 
-[Google Kubernetes Engine (GKE)](https://cloud.google.com/kubernetes-engine) is a secured and managed Kubernetes service.
+[Google Kubernetes Engine (GKE)](https://cloud.google.com/kubernetes-engine) is
+a secured and managed Kubernetes service.
 
-If you haven't used Google Cloud Platform, you'll need a Google (e.g. Gmail) account. As a new customer, you may benefit from $300 free credit. Google Cloud Platform includes always free products. See [Google Cloud Platform Free Tier](https://cloud.google.com/free)
-
+If you haven't used Google Cloud Platform, you'll need a Google (e.g. Gmail)
+account. As a new customer, you may benefit from $300 free credit. Google Cloud
+Platform includes always free products. See [Google Cloud Platform Free
+Tier](https://cloud.google.com/free)
 
 ## Prerequisites
 
-You should be able to run [Google Cloud SDK ](https://cloud.google.com/sdk) command-line tool `gcloud`. This is used to provision resources in Google Cloud Platform including Kubernetes clusters.
+You should be able to run [Google Cloud SDK](https://cloud.google.com/sdk)
+command-line tool `gcloud`. This is used to provision resources in Google Cloud
+Platform including Kubernetes clusters.
 
-Either install [Google Cloud SDK](https://cloud.google.com/sdk/install) or open a [Cloud Shell](https://console.cloud.google.com/home/dashboard?cloudshell=true).
+Either install [Google Cloud SDK](https://cloud.google.com/sdk/install) or open
+a [Cloud
+Shell](https://console.cloud.google.com/home/dashboard?cloudshell=true).
 
-Google Cloud SDK is available for Linux, Windows and Mac OS. The instructions that follow document using the command-line on Linux. There may be subtle changes for Windows and Mac OS.
+Google Cloud SDK is available for Linux, Windows and Mac OS. The instructions
+that follow document using the command-line on Linux. There may be subtle
+changes for Windows and Mac OS.
 
-Google Cloud Platform provides a browser-based [Console](https://console.cloud.google.com). This is generally functionally equivalent to the command-line tool. The instructions that follow document using the command-line tool but you may perform these steps using the Console too.
+Google Cloud Platform provides a browser-based
+[Console](https://console.cloud.google.com). This is generally functionally
+equivalent to the command-line tool. The instructions that follow document using
+the command-line tool but you may perform these steps using the Console too.
 
-You will also need Kubernetes command-line tool `kubectl`. `kubectl` is used by all Kubernetes distributions. So, if you've created Kubernetes clusters locally or on other cloud platforms, you may already have this tool installed. See [Install and Set Up kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) for instructions.
+You will also need Kubernetes command-line tool `kubectl`. `kubectl` is used by
+all Kubernetes distributions. So, if you've created Kubernetes clusters locally
+or on other cloud platforms, you may already have this tool installed. See
+[Install and Set Up
+kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) for
+instructions.
 
 ## Configure Google Cloud CLI
 
-After installing Google Cloud SDK, you will need to initialize the tool. This also authenticates your account using a Google identity (e.g. Gmail). Do this by typing `gcloud init`. If for any reason, you have already run `gcloud init`, you may reauthenticate using `gcloud auth login` or check authentication with `gcloud auth list`.
+After installing Google Cloud SDK, you will need to initialize the tool. This
+also authenticates your account using a Google identity (e.g. Gmail). Do this by
+typing `gcloud init`. If for any reason, you have already run `gcloud init`, you
+may reauthenticate using `gcloud auth login` or check authentication with
+`gcloud auth list`.
 
 ## Create GKE cluster
 
-Google Cloud Platform resources are aggregated by projects. Projects are assigned to Billing Accounts. GKE uses Compute Engine VMs as nodes and Compute Engine VMs require that assign a Billing Account to our project so that we may pay for the VMs.
+Google Cloud Platform resources are aggregated by projects. Projects are
+assigned to Billing Accounts. GKE uses Compute Engine VMs as nodes and Compute
+Engine VMs require that assign a Billing Account to our project so that we may
+pay for the VMs.
 
-```shell
+```console
 $ PROJECT=[YOUR-PROJECT] # Perhaps $(whoami)-$(date +%y%m%d)-krustlet
 $ BILLING=[YOUR-BILLING] # You may list these using `gcloud beta billing accounts list`
 $ # Create Project and assing Billing Account
@@ -48,11 +72,12 @@ $ gcloud beta container clusters create ${CLUSTER} \
 --num-nodes="1"
 ```
 
-> **NOTE** This creates a cluster with nodes distributed across multiple zones in a region. This
-increases the cluster's availability. If you'd prefer a less available (and cheaper) single zone
-cluster, you may use the following commands instead:
+> **NOTE** This creates a cluster with nodes distributed across multiple zones
+in a region. This increases the cluster's availability. If you'd prefer a less
+available (and cheaper) single zone cluster, you may use the following commands
+instead:
 
-```shell
+```console
 $ ZONE="${REGION}-a" # Or "-b" or "-c"
 $ gcloud beta container clusters create ${CLUSTER} \
 --project=${PROJECT} \
@@ -67,19 +92,18 @@ $ gcloud beta container clusters create ${CLUSTER} \
 
 After a minute, you should see the cluster created:
 
-```shell
+```console
 NAME     LOCATION  MASTER_VERSION  MASTER_IP       MACHINE_TYPE   NODE_VERSION   NUM_NODES  STATUS
 cluster  us-west1  1.17.4-gke.10   xx.xx.xx.xx     n1-standard-1  1.17.4-gke.10  3          RUNNING
 ```
 
 > **NOTE** You may also use Cloud Console to interact with the cluster:
-https://console.cloud.google.com/kubernetes/list?project=${PROJECT}
-
-> **NOTE** `gcloud clusters create` also configures `kubectl` to be able to access the cluster.
+<https://console.cloud.google.com/> **NOTE** `gcloud clusters create` also
+configures `kubectl` to be able to access the cluster.
 
 You may confirm access to the cluster by typing:
 
-```shell
+```console
 $ kubectl get nodes
 NAME                                     STATUS   ROLES    AGE   VERSION
 gke-cluster-default-pool-1a3a5b85-scds   Ready    <none>   10m   v1.17.4-gke.10
@@ -89,7 +113,7 @@ gke-cluster-default-pool-6d70a85d-19r8   Ready    <none>   10m   v1.17.4-gke.10
 
 You may confirm the Kubernetes configuration either by:
 
-```shell
+```console
 $ more ${HOME}/.kube/config
 apiVersion: v1
 clusters:
@@ -119,7 +143,7 @@ users:
 
 Or:
 
-```shell
+```console
 $ kubectl config current-context
 gke_${PROJECT}_${REGION}_${CLUSTER}
 $ kubectl config get-contexts
@@ -131,14 +155,14 @@ CURRENT   NAME                                  CLUSTER                         
 
 When you are finished with the cluster, you may delete it with:
 
-```shell
+```console
 $ gcloud beta container clusters delete ${CLUSTER} --project=${PROJECT} --region=${REGION} --quiet
 ```
 
-If you wish to delete everything in the project, you may delete hte project (including all its
-resources) with:
+If you wish to delete everything in the project, you may delete hte project
+(including all its resources) with:
 
-```shell
+```console
 $ gcloud projects delete ${PROJECT} --quiet
 ```
 

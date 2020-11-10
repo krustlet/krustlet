@@ -1,60 +1,70 @@
 # Bootstrapping Krustlet
 
-As of version 0.3.0, Krustlet supports automatic bootstrapping of its authorization and serving
-certificates. This document describes how the functionality works.
+As of version 0.3.0, Krustlet supports automatic bootstrapping of its
+authorization and serving certificates. This document describes how the
+functionality works.
 
 ## Initialization
+
 Krustlet follows the same [initialization
 flow](https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet-tls-bootstrapping/#initialization-process)
-as Kubelet (with the exception of automatic renewal of certs that are close to expiry).
+as Kubelet (with the exception of automatic renewal of certs that are close to
+expiry).
 
 ## Instructions
 
-In order to join a cluster with the proper permissions, Krustlet requires a valid bootstrap config
-with a valid bootstrap token. This token can be generated with
+In order to join a cluster with the proper permissions, Krustlet requires a
+valid bootstrap config with a valid bootstrap token. This token can be generated
+with
 [`kubeadm`](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/)
-or may already exist depending on your provider. However, in this case, we will be using an easier
-method for creating a join token. Either way, the examples here should be useful for figuring out
-how to do it differently depending on your setup.
+or may already exist depending on your provider. However, in this case, we will
+be using an easier method for creating a join token. Either way, the examples
+here should be useful for figuring out how to do it differently depending on
+your setup.
 
 ### Prerequisites
-You will need `kubectl` [installed](https://kubernetes.io/docs/tasks/tools/install-kubectl/) and a
-kubeconfig that has access to create `Secrets` in the `kube-system` namespace and can approve
-`CertificateSigningRequests`.
+
+You will need `kubectl`
+[installed](https://kubernetes.io/docs/tasks/tools/install-kubectl/) and a
+kubeconfig that has access to create `Secrets` in the `kube-system` namespace
+and can approve `CertificateSigningRequests`.
 
 ### Generating a token and kubeconfig
 
-We have a useful bootstrapping [bash script](./assets/bootstrap.sh) or [Powershell
-script](./assets/bootstrap.sh) that can be used for generating a token and creating a bootstrap
-kubeconfig file. If you have cloned the repo, you can run:
+We have a useful bootstrapping [bash script](./assets/bootstrap.sh) or
+[Powershell script](./assets/bootstrap.sh) that can be used for generating a
+token and creating a bootstrap kubeconfig file. If you have cloned the repo, you
+can run:
 
-```bash
+```console
 $ ./docs/howto/assets/bootstrap.sh
 ```
 
 OR
 
-```powershell
+```console
 $ .\docs\howto\assets\bootstrap.ps1
 ```
 
 If you are the trusting sort, you can pipe it in from the internet:
 
-```bash
+```console
 $ bash <(curl https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/bootstrap.sh)
 ```
 
 OR
 
 ```powershell
-$ (Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/bootstrap.ps1).Content | Invoke-Expression
+(Invoke-WebRequest -UseBasicParsing https://raw.githubusercontent.com/deislabs/krustlet/master/docs/howto/assets/bootstrap.ps1).Content | Invoke-Expression
 ```
 
-This will output a ready-to-use bootstrap config to `$HOME/.krustlet/config/bootstrap.conf`
+This will output a ready-to-use bootstrap config to
+`$HOME/.krustlet/config/bootstrap.conf`
 
 #### Script configuration
-The script also exposes a few configuration options by means of environment variables. These are
-detailed in the table below:
+
+The script also exposes a few configuration options by means of environment
+variables. These are detailed in the table below:
 
 | Name         | Description                                                                                                                                                                                         | Default                  |
 |--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------|
@@ -62,23 +72,29 @@ detailed in the table below:
 | `FILE_NAME`  | The name of the file the bootstrap config should be saved to                                                                                                                                        | `bootstrap.conf`         |
 
 #### Nitty-gritty details
-This section contains an overview of the nitty-gritty details for those who may be constructing
-their own bootstrapping setup. Feel free to skip this section if it doesn't pertain to you.
+
+This section contains an overview of the nitty-gritty details for those who may
+be constructing their own bootstrapping setup. Feel free to skip this section if
+it doesn't pertain to you.
 
 ##### Bootstrap tokens
-A bootstrap token has the format of `[a-z0-9]{6}.[a-z0-9]{16}` where the first part is a randomly
-generated token id and the second part after the `.` needs to be a cryptographically secure random
-string. The token will look something like this: `ke3uxh.vhxb3ttj1nquno5t`. That means you can
-generate a token with a simple bash command like so:
 
-```bash
+A bootstrap token has the format of `[a-z0-9]{6}.[a-z0-9]{16}` where the first
+part is a randomly generated token id and the second part after the `.` needs to
+be a cryptographically secure random string. The token will look something like
+this: `ke3uxh.vhxb3ttj1nquno5t`. That means you can generate a token with a
+simple bash command like so:
+
+```console
 $ echo "$(< /dev/urandom tr -dc a-z0-9 | head -c${1:-6};echo;).$(< /dev/urandom tr -dc a-z0-9 | head -c${1:-16};echo;)"
 ```
 
 ##### Creating the secret
-To actually "create" the bootstrap token, it needs to be placed in a `Secret` in the `kube-system`
-namespace. The name of the secret should be `bootstrap-token-<token_id>`. Specifically, the secret
-should look something like this when you send it to the API:
+
+To actually "create" the bootstrap token, it needs to be placed in a `Secret` in
+the `kube-system` namespace. The name of the secret should be
+`bootstrap-token-<token_id>`. Specifically, the secret should look something
+like this when you send it to the API:
 
 ```yaml
 apiVersion: v1
@@ -96,22 +112,26 @@ stringData:
   usage-bootstrap-signing: "true"
 ```
 
-The main fields you need to set are `token-id`, `token-secret`, and `expiration`.
+The main fields you need to set are `token-id`, `token-secret`, and
+`expiration`.
 
 ##### Generating the Kubeconfig
-Once you have a `Secret` created, you then have to generate the Kubeconfig. To do so, you'll need
-several pieces of information:
 
-- The CA cert for your Kubernetes API. This should be available from the kubeconfig you are
-  currently using
+Once you have a `Secret` created, you then have to generate the Kubeconfig. To
+do so, you'll need several pieces of information:
+
+- The CA cert for your Kubernetes API. This should be available from the
+  kubeconfig you are currently using
 - The server hostname or IP address
 - The generated bootstrap token
 
-You can either assemble a kubeconfig by hand or use similar steps to what is found in the [bootstrap
-script](./assets/bootstrap.sh)
+You can either assemble a kubeconfig by hand or use similar steps to what is
+found in the [bootstrap script](./assets/bootstrap.sh)
 
 ##### An example bootstrap config
-This is an example of a bootstrap config file for reference if creating your own workflow
+
+This is an example of a bootstrap config file for reference if creating your own
+workflow
 
 ```yaml
 apiVersion: v1
@@ -139,31 +159,36 @@ users:
 
 Once you have the bootstrap config in place, you can run Krustlet:
 
-```bash
+```console
 $ KUBECONFIG=~/.krustlet/config/kubeconfig krustlet-wasi --port 3000 --bootstrap-file /path/to/your/bootstrap.conf
 ```
 
-Krustlet will begin the bootstrapping process, and then **await manual certificate approval** (described below) before launching.
+Krustlet will begin the bootstrapping process, and then **await manual
+certificate approval** (described below) before launching.
 
-A couple important notes here. `KUBECONFIG` should almost always be set, especially in
-developer/local machine situations. During the bootstrap process, Krustlet will generate a
-kubeconfig with the credentials it obtains during the bootstrapping process and write it out to the
-specified location in `KUBECONFIG`. If a kubeconfig already exists there, it will be loaded and skip
-the bootstrapping process. A similar process occurs during the bootstrapping of the serving
-certificates, they will be written out to the paths specified by `--cert-file` (default
-`$KRUSTLET_DATA_DIR/config/krustlet.crt`) and `--private-key-file` (default
-`$KRUSTLET_DATA_DIR/config/krustlet.key`). If they already exist, then they will be loaded and
-bootstrapping skipped.
+A couple important notes here. `KUBECONFIG` should almost always be set,
+especially in developer/local machine situations. During the bootstrap process,
+Krustlet will generate a kubeconfig with the credentials it obtains during the
+bootstrapping process and write it out to the specified location in
+`KUBECONFIG`. If a kubeconfig already exists there, it will be loaded and skip
+the bootstrapping process. A similar process occurs during the bootstrapping of
+the serving certificates, they will be written out to the paths specified by
+`--cert-file` (default `$KRUSTLET_DATA_DIR/config/krustlet.crt`) and
+`--private-key-file` (default `$KRUSTLET_DATA_DIR/config/krustlet.key`). If they
+already exist, then they will be loaded and bootstrapping skipped.
 
 ### Approving the serving CSR
-Once you have started Krustlet, there is one more manual step (though this could be automated
-depending on your setup). The client certs Krustlet needs are generally approved automatically by
-the API. However, the serving certs require manual approval. To do this, you'll need the hostname
-you specified for the `--hostname` flag or the output of `hostname` if you didn't specify anything.
+
+Once you have started Krustlet, there is one more manual step (though this could
+be automated depending on your setup). The client certs Krustlet needs are
+generally approved automatically by the API. However, the serving certs require
+manual approval. To do this, you'll need the hostname you specified for the
+`--hostname` flag or the output of `hostname` if you didn't specify anything.
 Then run:
 
-```bash
+```console
 $ kubectl certificate approve <hostname>-tls
 ```
 
-Once you do this, Krustlet will automatically grab the new certs and start running
+Once you do this, Krustlet will automatically grab the new certs and start
+running.
