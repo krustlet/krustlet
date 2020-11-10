@@ -1,0 +1,9 @@
+{
+	"$schema": "https://aka.ms/azure-quickstart-templates-metadata-schema#",
+	"type": "QuickStart",
+	"itemDisplayName": "Boot an AKS cluster with Krustlet on an Ubuntu VM.",
+	"description": "This template deploys and sets up a customized AKS instance with Krustlet running on an Ubuntu Virtual Machine.",
+	"summary": "Install Krustlet on an Ubuntu VM using the Linux Custom Script Extension",
+	"githubUsername": "bacongobbler",
+	"dateUpdated": "2020-11-12"
+}

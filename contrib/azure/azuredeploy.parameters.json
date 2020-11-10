@@ -1,0 +1,36 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"_artifactsLocation": {
+			"value": "https://raw.githubusercontent.com/bacongobbler/krustlet-on-azure/main/"
+		},
+		"_artifactsLocationSasToken": {
+			"value": null
+		},
+		"location": {
+			"value": "[resourceGroup().location]"
+		},
+		"adminUsername": {
+			"value": "krustlet"
+		},
+		"sshPublicKey": {
+			"value": null
+		},
+		"kubernetesVersion": {
+			"value": "1.18.10"
+		},
+		"krustletURL": {
+			"value": "https://krustlet.blob.core.windows.net/releases/krustlet-v0.5.0-linux-amd64.tar.gz"
+		},
+		"servicePrincipalClientId": {
+			"value": null
+		},
+		"servicePrincipalClientSecret": {
+			"value": null
+		},
+		"virtualMachineSize": {
+			"value": "Standard_DS2_v2"
+		}
+	}
+}
