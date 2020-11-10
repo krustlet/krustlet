@@ -238,7 +238,7 @@ impl PluginRegistry {
     }
 
     /// Check if we support one of the plugin's requested versions
-    fn validate_plugin_version(&self, supported_versions: &Vec<String>) -> anyhow::Result<()> {
+    fn validate_plugin_version(&self, supported_versions: &[String]) -> anyhow::Result<()> {
         if !supported_versions.iter().any(|s| s == API_VERSION) {
             return Err(anyhow::anyhow!(
                 "Plugin doesn't support version {}",
