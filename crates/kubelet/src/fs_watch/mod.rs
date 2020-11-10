@@ -1,7 +1,8 @@
 //! A simple abstraction layer over OS specific details on watching a filesystem. Due to a bug in
 //! MacOS with sending an event on socket creation, we need to implement our own hacky watcher. To
 //! keep it as clean as possible, this module abstracts those details away behind a `Stream`
-//! implementation. A bug has been filed with Apple and we can remove this if/when the bug is fixed
+//! implementation. A bug has been filed with Apple and we can remove this if/when the bug is fixed.
+//! The bug ID is FB8830541 and @thomastaylor312 can check the status of it
 
 use std::{
     path::Path,
