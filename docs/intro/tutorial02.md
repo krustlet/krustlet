@@ -107,7 +107,7 @@ field from earlier was `mycontainerregistry007.azurecr.io`, and we want to name 
 
 The pattern for a registry URL is:
 
-```
+```text
 <URL>/<NAME>:<VERSION>
 ```
 
@@ -126,6 +126,5 @@ instead.
 
 When you’re comfortable with publishing your application with wasm-to-oci, read [part 3 of this
 tutorial](tutorial03.md) to install your application.
-
 
 [wasm-to-oci]: https://github.com/engineerd/wasm-to-oci
