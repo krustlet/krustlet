@@ -106,13 +106,13 @@ In order to build it, we first need to install a WASI-enabled Rust toolchain:
 
 ```console
 $ rustup target add wasm32-wasi
-$ cargo build --target wasm32-wasi
+$ cargo build --release --target wasm32-wasi
 ```
 
-We should now have the WebAssembly module created in `target/wasm32-wasi/debug`:
+We should now have the WebAssembly module created in `target/wasm32-wasi/release`:
 
 ```console
-$ file target/wasm32-wasi/debug/demo.wasm
+$ file target/wasm32-wasi/release/demo.wasm
 demo.wasm: WebAssembly (wasm) binary module version 0x1 (MVP)
 ```
 
