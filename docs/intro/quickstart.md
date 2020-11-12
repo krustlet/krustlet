@@ -9,12 +9,6 @@ Get started with Krustlet in three easy steps:
 As Krustlet is under active development, this guide will help you set up a cluster suitable for
 evaluation, development, and testing purposes.
 
-## Video Tutorials
-
-Some of these guides are available to view as a video tutorial:
-
-- [Azure Kubernetes Service (AKS)](https://www.youtube.com/watch?v=epdUIS5FDyQ)
-
 ## Step 1: Boot a Kubernetes Cluster
 
 There are many ways to boot up a Kubernetes cluster. You may choose to get up and running in cloud
@@ -25,7 +19,7 @@ your own Kubernetes cluster.
 
 For production use:
 
-- [Azure Kubernetes Service (AKS)](../howto/kubernetes-on-aks.md)
+- [Azure](../howto/krustlet-on-azure.md)
 - [Amazon Elastic Kubernetes Service (EKS)](../howto/kubernetes-on-eks.md)
 
 For development and evaluation purposes, it may make sense to use a VM-based Kubernetes cluster for
@@ -45,7 +39,6 @@ guides to determine how to set up Krustlet for your own infrastructure.
 For production use, you'll want to boot Krustlet on a device that can start a web server on an IP
 accessible from the Kubernetes control plane.
 
-- [Azure Kubernetes Service (AKS)](../howto/krustlet-on-aks.md)
 - [Amazon Elastic Kubernetes Service (EKS)](../howto/krustlet-on-eks.md)
 
 For testing/development environments:
@@ -63,6 +56,5 @@ manifest that you can `kubectl apply`.
 
 If you'd like to learn how to write your own simple module in Rust and deploy it, [follow through
 the tutorial](tutorial01.md) to deploy your first application.
-
 
 [development guide]: ../community/developers.md
