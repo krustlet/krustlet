@@ -3,7 +3,7 @@
 	"contentVersion": "1.0.0.0",
 	"parameters": {
 		"_artifactsLocation": {
-			"value": "https://raw.githubusercontent.com/bacongobbler/krustlet-on-azure/main/"
+			"value": "https://raw.githubusercontent.com/deislabs/krustlet/master/"
 		},
 		"_artifactsLocationSasToken": {
 			"value": null
