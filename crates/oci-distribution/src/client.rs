@@ -4,7 +4,7 @@
 //! OCI distribution client in the future.
 
 use crate::errors::*;
-use crate::manifest::OciManifest;
+use crate::manifest::{OciManifest, Versioned, IMAGE_MANIFEST_MEDIA_TYPE};
 use crate::secrets::RegistryAuth;
 use crate::secrets::*;
 use crate::Reference;
@@ -76,10 +76,11 @@ impl Client {
     ///
     /// The client will check if it's already been authenticated and if
     /// not will attempt to do.
-    pub async fn pull_image(
+    pub async fn pull(
         &mut self,
         image: &Reference,
         auth: &RegistryAuth,
+        accepted_media_types: Vec<&str>,
     ) -> anyhow::Result<ImageData> {
         debug!("Pulling image: {:?}", image);
 
@@ -88,6 +89,9 @@ impl Client {
         }
 
         let (manifest, digest) = self.pull_manifest(image).await?;
+
+        self.validate_layers(&manifest, accepted_media_types)
+            .await?;
 
         let layers = manifest.layers.into_iter().map(|layer| {
             // This avoids moving `self` which is &mut Self
@@ -215,6 +219,27 @@ impl Client {
         }
     }
 
+    async fn validate_layers(
+        &self,
+        manifest: &OciManifest,
+        accepted_media_types: Vec<&str>,
+    ) -> anyhow::Result<()> {
+        if manifest.layers.is_empty() {
+            return Err(anyhow::anyhow!("no layers to pull"));
+        }
+
+        for layer in &manifest.layers {
+            if !accepted_media_types.iter().any(|i| i.eq(&layer.media_type)) {
+                return Err(anyhow::anyhow!(
+                    "incompatible layer media type: {}",
+                    layer.media_type
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Pull a manifest from the remote OCI Distribution service.
     ///
     /// If the connection has already gone through authentication, this will
@@ -233,8 +258,11 @@ impl Client {
             reqwest::StatusCode::OK => {
                 let digest = digest_header_value(&res)?;
                 let text = res.text().await?;
+
+                self.validate_image_manifest(&text).await?;
+
                 debug!("Parsing response as OciManifest: {}", text);
-                let manifest = serde_json::from_str(&text).with_context(|| {
+                let manifest: OciManifest = serde_json::from_str(&text).with_context(|| {
                     format!(
                         "Failed to parse response from pulling manifest for '{:?}' as an OciManifest",
                         image
@@ -255,6 +283,26 @@ impl Client {
                 res.text().await?
             )),
         }
+    }
+
+    async fn validate_image_manifest(&self, text: &str) -> anyhow::Result<()> {
+        debug!("validating manifest: {}", text);
+        let versioned: Versioned = serde_json::from_str(&text)
+            .with_context(|| "Failed to parse manifest as a Versioned object")?;
+        if versioned.schema_version != 2 {
+            return Err(anyhow::anyhow!(
+                "unsupported schema version: {}",
+                versioned.schema_version
+            ));
+        }
+        if let Some(media_type) = versioned.media_type {
+            // TODO: support manifest lists?
+            if media_type != IMAGE_MANIFEST_MEDIA_TYPE {
+                return Err(anyhow::anyhow!("unsupported media type: {}", media_type));
+            }
+        }
+
+        Ok(())
     }
 
     /// Pull a single layer from an OCI registy.
@@ -440,6 +488,7 @@ fn digest_header_value(response: &reqwest::Response) -> anyhow::Result<String> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::manifest;
     use std::convert::TryFrom;
 
     const HELLO_IMAGE_NO_TAG: &str = "webassembly.azurecr.io/hello-wasm";
@@ -482,7 +531,7 @@ mod test {
             ].iter() {
                 let reference = Reference::try_from(image).expect("failed to parse reference");
                 assert_eq!(c.to_v2_manifest_url(&reference), expected_uri);
-        }
+            }
     }
 
     #[test]
@@ -675,17 +724,45 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_pull_image() {
+    async fn test_pull() {
         for &image in TEST_IMAGES {
             let reference = Reference::try_from(image).expect("failed to parse reference");
 
             let image_data = Client::default()
-                .pull_image(&reference, &RegistryAuth::Anonymous)
+                .pull(
+                    &reference,
+                    &RegistryAuth::Anonymous,
+                    vec![manifest::WASM_LAYER_MEDIA_TYPE],
+                )
                 .await
                 .expect("failed to pull manifest");
 
             assert!(!image_data.layers.is_empty());
             assert!(image_data.digest.is_some());
+        }
+    }
+
+    /// Attempting to pull an image without any layer validation should fail.
+    #[tokio::test]
+    async fn test_pull_without_layer_validation() {
+        for &image in TEST_IMAGES {
+            let reference = Reference::try_from(image).expect("failed to parse reference");
+            assert!(Client::default()
+                .pull(&reference, &RegistryAuth::Anonymous, vec![],)
+                .await
+                .is_err());
+        }
+    }
+
+    /// Attempting to pull an image with the wrong list of layer validations should fail.
+    #[tokio::test]
+    async fn test_pull_wrong_layer_validation() {
+        for &image in TEST_IMAGES {
+            let reference = Reference::try_from(image).expect("failed to parse reference");
+            assert!(Client::default()
+                .pull(&reference, &RegistryAuth::Anonymous, vec!["text/plain"],)
+                .await
+                .is_err());
         }
     }
 }
