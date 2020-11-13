@@ -6,3 +6,4 @@ Introductions to all the key components of Krustlet in more detail:
 - [Providers](providers.md)
 - [Configuration](configuration.md)
 - [Glossary](glossary.md)
+- [Plugin system](plugin_system.md)

@@ -2,6 +2,7 @@
 ///! Kubelet with a specific handler (called a `Provider`)
 use crate::config::Config;
 use crate::node;
+use crate::plugin_watcher::PluginRegistry;
 use crate::pod::Queue;
 use crate::provider::Provider;
 use crate::webserver::start as start_webserver;
@@ -65,6 +66,10 @@ impl<P: 'static + Provider + Sync + Send> Kubelet<P> {
         let signal = Arc::new(AtomicBool::new(false));
         let signal_task = start_signal_task(Arc::clone(&signal)).fuse().boxed();
 
+        let plugin_registrar = PluginRegistry::new(&self.config.plugins_dir);
+
+        let registrar = plugin_registrar.run().fuse().boxed();
+
         // Start the webserver
         let webserver = start_webserver(self.provider.clone(), &self.config.server_config)
             .fuse()
@@ -84,6 +89,9 @@ impl<P: 'static + Provider + Sync + Send> Kubelet<P> {
                 res = webserver => error!("Webserver task completed with result {:?}", &res),
                 res = node_updater => if let Err(e) = res {
                     error!("Node updater task completed with error {:?}", &e);
+                },
+                res = registrar => if let Err(e) = res {
+                    error!("Registrar task completed with error {:?}", &e);
                 }
             };
             // Use relaxed ordering because we just need other tasks to eventually catch the signal.
