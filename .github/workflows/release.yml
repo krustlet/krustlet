@@ -53,18 +53,18 @@ jobs:
       - name: set the release version (tag)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
-        run: echo ::set-env name=RELEASE_VERSION::${GITHUB_REF/refs\/tags\//}
+        run: echo "RELEASE_VERSION=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
 
       - name: set the release version (master)
         if: github.ref == 'refs/heads/master'
         shell: bash
-        run: echo ::set-env name=RELEASE_VERSION::canary
+        run: echo "RELEASE_VERSION=canary" >> $GITHUB_ENV
 
       - name: lowercase the runner OS name
         shell: bash
         run: |
           OS=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
-          echo ::set-env name=RUNNER_OS::$OS
+          echo "RUNNER_OS=${OS}" >> $GITHUB_ENV
 
       # hack(bacongobbler): install rustfmt to work around darwin toolchain issues
       - name: "(macOS) install dev tools"
@@ -100,12 +100,12 @@ jobs:
           mkdir _dist
           cp README.md LICENSE ${{ matrix.config.targetDir }}/krustlet-wasi${{ matrix.config.extension }} ${{ matrix.config.targetDir }}/krustlet-wascc${{ matrix.config.extension }} _dist/
           cd _dist
-          tar czf krustlet-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz README.md LICENSE krustlet-wasi${{ matrix.config.extension }} krustlet-wascc${{ matrix.config.extension }}
+          tar czf krustlet-${RELEASE_VERSION}-${RUNNER_OS}-${{ matrix.config.arch }}.tar.gz README.md LICENSE krustlet-wasi${{ matrix.config.extension }} krustlet-wascc${{ matrix.config.extension }}
 
       - uses: actions/upload-artifact@v1
         with:
           name: krustlet
-          path: _dist/krustlet-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz
+          path: _dist/krustlet-${RELEASE_VERSION}-${RUNNER_OS}-${{ matrix.config.arch }}.tar.gz
   publish:
     name: publish release assets
     runs-on: ubuntu-latest
@@ -113,10 +113,10 @@ jobs:
     steps:
       - name: set the release version
         if: startsWith(github.ref, 'refs/tags/v')
-        run: echo ::set-env name=RELEASE_VERSION::${GITHUB_REF/refs\/tags\//}
+        run: echo "RELEASE_VERSION=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
       - name: set the release version
         if: github.ref == 'refs/heads/master'
-        run: echo ::set-env name=RELEASE_VERSION::canary
+        run: echo "RELEASE_VERSION=canary" >> $GITHUB_ENV
       - name: download release assets
         uses: actions/download-artifact@v1
         with:
@@ -124,7 +124,7 @@ jobs:
       - name: generate checksums
         run: |
           cd krustlet
-          sha256sum * > checksums-${{ env.RELEASE_VERSION }}.txt
+          sha256sum * > checksums-${RELEASE_VERSION}.txt
       - name: upload to azure
         uses: bacongobbler/azure-blob-storage-upload@main
         with:
