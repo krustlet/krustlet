@@ -12,11 +12,11 @@ use kubelet::provider::Provider;
 use kubelet::state::prelude::*;
 
 use crate::rand::Rng;
-use crate::PodState;
 use crate::VolumeBinding;
 use crate::{
     fail_fatal, transition_to_error, wascc_run, ActorHandle, LogHandleFactory, WasccProvider,
 };
+use crate::{PodState, ProviderState};
 
 use super::error::Error;
 use super::running::Running;
@@ -144,8 +144,13 @@ async fn start_container(
 pub struct Starting;
 
 #[async_trait::async_trait]
-impl State<PodState> for Starting {
-    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for Starting {
+    async fn next(
+        self: Box<Self>,
+        _provider_state: SharedState<ProviderState>,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         info!("Starting containers for pod {:?}", pod.name());
 
         let mut container_handles = HashMap::new();

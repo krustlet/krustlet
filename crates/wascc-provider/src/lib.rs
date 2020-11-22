@@ -39,6 +39,7 @@ use kubelet::node::Builder;
 use kubelet::pod::{Handle, Pod, PodKey};
 use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
+use kubelet::state::prelude::SharedState;
 use kubelet::store::Store;
 
 use kubelet::volume::Ref;
@@ -149,6 +150,9 @@ struct SharedPodState {
     host: Arc<Mutex<Host>>,
     port_map: Arc<TokioMutex<BTreeMap<u16, PodKey>>>,
 }
+
+/// Provider-level state shared between all pods
+pub struct ProviderState {}
 
 impl WasccProvider {
     /// Returns a new wasCC provider configured to use the proper data directory
@@ -263,9 +267,14 @@ impl kubelet::state::AsyncDrop for PodState {
 impl Provider for WasccProvider {
     type InitialState = Registered;
     type TerminatedState = Terminated;
+    type ProviderState = ProviderState;
     type PodState = PodState;
 
     const ARCH: &'static str = TARGET_WASM32_WASCC;
+
+    fn provider_state(&self) -> SharedState<ProviderState> {
+        SharedState::new(ProviderState {})
+    }
 
     async fn node(&self, builder: &mut Builder) -> anyhow::Result<()> {
         builder.set_architecture("wasm-wasi");

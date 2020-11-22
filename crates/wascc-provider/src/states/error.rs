@@ -2,7 +2,7 @@ use kubelet::state::prelude::*;
 
 use super::crash_loop_backoff::CrashLoopBackoff;
 use super::registered::Registered;
-use crate::PodState;
+use crate::{PodState, ProviderState};
 
 #[derive(Default, Debug, TransitionTo)]
 #[transition_to(Registered, CrashLoopBackoff)]
@@ -13,8 +13,13 @@ pub struct Error {
 }
 
 #[async_trait::async_trait]
-impl State<PodState> for Error {
-    async fn next(self: Box<Self>, pod_state: &mut PodState, _pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for Error {
+    async fn next(
+        self: Box<Self>,
+        _provider_state: SharedState<ProviderState>,
+        pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         pod_state.errors += 1;
         if pod_state.errors > 3 {
             pod_state.errors = 0;

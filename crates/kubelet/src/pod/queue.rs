@@ -11,7 +11,7 @@ use log::{debug, error, warn};
 
 use crate::pod::{Pod, PodKey};
 use crate::provider::Provider;
-use crate::state::{run_to_completion, AsyncDrop};
+use crate::state::{run_to_completion, AsyncDrop, SharedState};
 use tokio::sync::RwLock;
 
 /// A per-pod queue that takes incoming Kubernetes events and broadcasts them to the correct queue
@@ -52,6 +52,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
                 tokio::spawn(start_task::<P>(
                     self.client.clone(),
                     Arc::clone(&pod_manifest),
+                    self.provider.provider_state(),
                     pod_state,
                     Arc::clone(&pod_deleted),
                 ));
@@ -168,6 +169,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
 async fn start_task<P: Provider>(
     task_client: KubeClient,
     pod: Arc<RwLock<Pod>>,
+    provider_state: SharedState<P::ProviderState>,
     mut pod_state: P::PodState,
     pod_deleted: Arc<Notify>,
 ) {
@@ -178,11 +180,11 @@ async fn start_task<P: Provider>(
     };
 
     tokio::select! {
-        _ = run_to_completion(&task_client, state, &mut pod_state, Arc::clone(&pod)) => (),
+        _ = run_to_completion(&task_client, state, provider_state.clone(), &mut pod_state, Arc::clone(&pod)) => (),
         _ = pod_deleted.notified() => {
             let state: P::TerminatedState = Default::default();
             debug!("Pod {} terminated. Jumping to state {:?}.", name, state);
-            run_to_completion(&task_client, state, &mut pod_state, Arc::clone(&pod)).await;
+            run_to_completion(&task_client, state, provider_state.clone(), &mut pod_state, Arc::clone(&pod)).await;
         }
     }
 

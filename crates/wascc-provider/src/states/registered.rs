@@ -1,6 +1,6 @@
 use log::info;
 
-use crate::PodState;
+use crate::{PodState, ProviderState};
 use kubelet::container::Container;
 use kubelet::state::prelude::*;
 
@@ -50,8 +50,13 @@ fn has_args(container: &Container) -> bool {
 pub struct Registered;
 
 #[async_trait::async_trait]
-impl State<PodState> for Registered {
-    async fn next(self: Box<Self>, _pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for Registered {
+    async fn next(
+        self: Box<Self>,
+        _provider_state: SharedState<ProviderState>,
+        _pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         info!("Pod added: {}.", pod.name());
         match validate_pod_runnable(&pod) {
             Ok(_) => (),

@@ -31,10 +31,11 @@ use crate::state::{AsyncDrop, State};
 /// use async_trait::async_trait;
 /// use kubelet::pod::Pod;
 /// use kubelet::provider::Provider;
-/// use kubelet::state::{Stub, AsyncDrop};
+/// use kubelet::state::{SharedState, Stub, AsyncDrop};
 ///
 /// struct MyProvider;
 ///
+/// struct ProviderState;
 /// struct PodState;
 ///
 /// #[async_trait]
@@ -48,8 +49,13 @@ use crate::state::{AsyncDrop, State};
 ///     type TerminatedState = Stub;
 ///     const ARCH: &'static str = "my-arch";
 ///
+///     type ProviderState = ProviderState;
 ///     type PodState = PodState;
 ///    
+///     fn provider_state(&self) -> SharedState<ProviderState> {
+///         SharedState::new(ProviderState {})
+///     }
+///
 ///     async fn initialize_pod_state(&self, _pod: &Pod) -> anyhow::Result<Self::PodState> {
 ///         Ok(PodState)
 ///     }
@@ -62,14 +68,20 @@ pub trait Provider: Sized {
     /// The state that is passed between Pod state handlers.
     type PodState: 'static + Send + Sync + AsyncDrop;
 
+    /// The state of the provider itself.
+    type ProviderState: 'static + Send + Sync;
+
     /// The initial state for Pod state machine.
-    type InitialState: Default + State<Self::PodState>;
+    type InitialState: Default + State<Self::ProviderState, Self::PodState>;
 
     /// The a state to handle early Pod termination.
-    type TerminatedState: Default + State<Self::PodState>;
+    type TerminatedState: Default + State<Self::ProviderState, Self::PodState>;
 
     /// Arch returns a string specifying what architecture this provider supports
     const ARCH: &'static str;
+
+    /// Gets the provider state.
+    fn provider_state(&self) -> crate::state::SharedState<Self::ProviderState>;
 
     /// Allows provider to populate node information.
     async fn node(&self, _builder: &mut Builder) -> anyhow::Result<()> {

@@ -1,4 +1,4 @@
-use crate::PodState;
+use crate::{PodState, ProviderState};
 use kubelet::backoff::BackoffStrategy;
 use kubelet::state::prelude::*;
 
@@ -9,8 +9,13 @@ use super::registered::Registered;
 pub struct CrashLoopBackoff;
 
 #[async_trait::async_trait]
-impl State<PodState> for CrashLoopBackoff {
-    async fn next(self: Box<Self>, pod_state: &mut PodState, _pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for CrashLoopBackoff {
+    async fn next(
+        self: Box<Self>,
+        _provider_state: SharedState<ProviderState>,
+        pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         pod_state.crash_loop_backoff_strategy.wait().await;
         Transition::next(self, Registered)
     }

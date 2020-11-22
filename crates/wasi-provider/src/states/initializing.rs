@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use log::{error, info};
 
-use crate::PodState;
+use crate::{PodState, ProviderState};
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Api, PatchParams};
 use kubelet::backoff::BackoffStrategy;
@@ -19,8 +19,13 @@ use crate::fail_fatal;
 pub struct Initializing;
 
 #[async_trait::async_trait]
-impl State<PodState> for Initializing {
-    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for Initializing {
+    async fn next(
+        self: Box<Self>,
+        _provider_state: SharedState<ProviderState>,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         let client: Api<KubePod> = Api::namespaced(
             kube::Client::new(pod_state.shared.kubeconfig.clone()),
             pod.namespace(),

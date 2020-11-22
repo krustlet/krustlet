@@ -1,5 +1,5 @@
 use super::image_pull::ImagePull;
-use crate::PodState;
+use crate::{PodState, ProviderState};
 use kubelet::backoff::BackoffStrategy;
 use kubelet::state::prelude::*;
 
@@ -9,8 +9,13 @@ use kubelet::state::prelude::*;
 pub struct ImagePullBackoff;
 
 #[async_trait::async_trait]
-impl State<PodState> for ImagePullBackoff {
-    async fn next(self: Box<Self>, pod_state: &mut PodState, _pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for ImagePullBackoff {
+    async fn next(
+        self: Box<Self>,
+        _provider_state: SharedState<ProviderState>,
+        pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         pod_state.image_pull_backoff_strategy.wait().await;
         Transition::next(self, ImagePull)
     }

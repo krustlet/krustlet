@@ -13,7 +13,7 @@ use kubelet::state::prelude::*;
 use kubelet::volume::Ref;
 
 use crate::wasi_runtime::{self, HandleFactory, Runtime, WasiRuntime};
-use crate::PodState;
+use crate::{PodState, ProviderState};
 
 use super::running::Running;
 
@@ -97,8 +97,13 @@ impl Starting {
 }
 
 #[async_trait::async_trait]
-impl State<PodState> for Starting {
-    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for Starting {
+    async fn next(
+        self: Box<Self>,
+        _provider_state: SharedState<ProviderState>,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         let mut container_handles: ContainerHandleMap = HashMap::new();
 
         {

@@ -2,7 +2,7 @@ use kubelet::backoff::BackoffStrategy;
 use kubelet::state::prelude::*;
 use log::error;
 
-use crate::PodState;
+use crate::{PodState, ProviderState};
 
 use super::image_pull_backoff::ImagePullBackoff;
 use super::volume_mount::VolumeMount;
@@ -12,8 +12,13 @@ use super::volume_mount::VolumeMount;
 pub struct ImagePull;
 
 #[async_trait::async_trait]
-impl State<PodState> for ImagePull {
-    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for ImagePull {
+    async fn next(
+        self: Box<Self>,
+        _provider_state: SharedState<ProviderState>,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         let client = kube::Client::new(pod_state.shared.kubeconfig.clone());
         let auth_resolver = kubelet::secret::RegistryAuthResolver::new(client, &pod);
         pod_state.run_context.modules = match pod_state

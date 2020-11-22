@@ -42,6 +42,7 @@ use kubelet::backoff::ExponentialBackoffStrategy;
 use kubelet::node::Builder;
 use kubelet::pod::{Handle, Pod, PodKey};
 use kubelet::provider::{Provider, ProviderError};
+use kubelet::state::prelude::SharedState;
 use kubelet::store::Store;
 use kubelet::volume::Ref;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -72,6 +73,9 @@ struct SharedPodState {
     kubeconfig: kube::Config,
     volume_path: PathBuf,
 }
+
+/// Provider-level state shared between all pods
+pub struct ProviderState {}
 
 impl WasiProvider {
     /// Create a new wasi provider from a module store and a kubelet config
@@ -128,9 +132,14 @@ impl kubelet::state::AsyncDrop for PodState {
 impl Provider for WasiProvider {
     type InitialState = Registered;
     type TerminatedState = Terminated;
+    type ProviderState = ProviderState;
     type PodState = PodState;
 
     const ARCH: &'static str = TARGET_WASM32_WASI;
+
+    fn provider_state(&self) -> SharedState<ProviderState> {
+        SharedState::new(ProviderState {})
+    }
 
     async fn node(&self, builder: &mut Builder) -> anyhow::Result<()> {
         builder.set_architecture("wasm-wasi");

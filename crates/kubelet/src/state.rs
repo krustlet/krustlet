@@ -26,15 +26,15 @@ pub use kubelet_derive::*;
 ///     state: Box::new(Stub),
 /// });
 /// ```
-pub struct StateHolder<PodState> {
+pub struct StateHolder<ProviderState, PodState> {
     // This is private, preventing manual construction of Transition::Next
-    state: Box<dyn State<PodState>>,
+    state: Box<dyn State<ProviderState, PodState>>,
 }
 
 /// Represents result of state execution and which state to transition to next.
-pub enum Transition<PodState> {
+pub enum Transition<ProviderState, PodState> {
     /// Transition to new state.
-    Next(StateHolder<PodState>),
+    Next(StateHolder<ProviderState, PodState>),
     /// Stop executing the state machine and report the result of the execution.
     Complete(anyhow::Result<()>),
 }
@@ -42,7 +42,7 @@ pub enum Transition<PodState> {
 /// Mark an edge exists between two states.
 pub trait TransitionTo<S> {}
 
-impl<PodState> Transition<PodState> {
+impl<ProviderState, PodState> Transition<ProviderState, PodState> {
     // This prevents user from having to box everything AND allows us to enforce edge constraint.
     /// Construct Transition::Next from old state and new state. Both states must be State<PodState>
     /// with matching PodState. Input state must implement TransitionTo<OutputState>, which can be
@@ -50,7 +50,7 @@ impl<PodState> Transition<PodState> {
     /// enabled)
     ///
     /// ```
-    /// use kubelet::state::{Transition, State, TransitionTo};
+    /// use kubelet::state::{Transition, State, TransitionTo, SharedState};
     /// use kubelet::pod::Pod;
     ///
     /// #[derive(Debug, TransitionTo)]
@@ -60,15 +60,17 @@ impl<PodState> Transition<PodState> {
     /// // Example of manual trait implementation
     /// // impl TransitionTo<TestState> for TestState {}
     ///
+    /// struct ProviderState;
     /// struct PodState;
     ///
     /// #[async_trait::async_trait]
-    /// impl State<PodState> for TestState {
+    /// impl State<ProviderState, PodState> for TestState {
     ///     async fn next(
     ///         self: Box<Self>,
+    ///         _provider_state: SharedState<ProviderState>,
     ///         _pod_state: &mut PodState,
     ///         _pod: &Pod,
-    ///     ) -> Transition<PodState> {
+    ///     ) -> Transition<ProviderState, PodState> {
     ///         Transition::next(self, TestState)
     ///     }
     ///
@@ -91,18 +93,20 @@ impl<PodState> Transition<PodState> {
     /// #[transition_to(NotState)]
     /// struct TestState;
     ///
+    /// struct ProviderState;
     /// struct PodState;
     ///
     /// #[derive(Debug)]
     /// struct NotState;
     ///
     /// #[async_trait::async_trait]
-    /// impl State<PodState> for TestState {
+    /// impl State<ProviderState, PodState> for TestState {
     ///     async fn next(
     ///         self: Box<Self>,
+    ///         _provider_state: SharedState<ProviderState>,
     ///         _pod_state: &mut PodState,
     ///         _pod: &Pod,
-    ///     ) -> anyhow::Result<Transition<PodState>> {
+    ///     ) -> Transition<ProviderState, PodState> {
     ///         // This fails because NotState is not State
     ///         Ok(Transition::next(self, NotState))
     ///     }
@@ -127,15 +131,17 @@ impl<PodState> Transition<PodState> {
     ///
     /// // impl TransitionTo<TestState> for TestState {}
     ///
+    /// struct ProviderState;
     /// struct PodState;
     ///
     /// #[async_trait::async_trait]
-    /// impl State<PodState> for TestState {
+    /// impl State<ProviderState, PodState> for TestState {
     ///     async fn next(
     ///         self: Box<Self>,
+    ///         _provider_state: SharedState<ProviderState>,
     ///         _pod_state: &mut PodState,
     ///         _pod: &Pod,
-    ///     ) -> anyhow::Result<Transition<PodState>> {
+    ///     ) -> Transition<ProviderState, PodState> {
     ///         // This fails because TestState is not TransitionTo<TestState>
     ///         Ok(Transition::next(self, TestState))
     ///     }
@@ -159,6 +165,7 @@ impl<PodState> Transition<PodState> {
     /// #[transition_to(OtherState)]
     /// struct TestState;
     ///
+    /// struct ProviderState;
     /// struct PodState;
     ///
     /// #[derive(Debug)]
@@ -167,12 +174,13 @@ impl<PodState> Transition<PodState> {
     /// struct OtherPodState;
     ///
     /// #[async_trait::async_trait]
-    /// impl State<PodState> for TestState {
+    /// impl State<ProviderState, PodState> for TestState {
     ///     async fn next(
     ///         self: Box<Self>,
+    ///         _provider_state: SharedState<ProviderState>,
     ///         _pod_state: &mut PodState,
     ///         _pod: &Pod,
-    ///     ) -> anyhow::Result<Transition<PodState>> {
+    ///     ) -> Transition<ProviderState, PodState> {
     ///         // This fails because OtherState is State<OtherPodState>
     ///         Ok(Transition::next(self, OtherState))
     ///     }
@@ -190,9 +198,10 @@ impl<PodState> Transition<PodState> {
     /// impl State<OtherPodState> for OtherState {
     ///     async fn next(
     ///         self: Box<Self>,
+    ///         _provider_state: SharedState<ProviderState>,
     ///         _pod_state: &mut OtherPodState,
     ///         _pod: &Pod,
-    ///     ) -> anyhow::Result<Transition<OtherPodState>> {
+    ///     ) -> Transition<ProviderState, OtherPodState> {
     ///         Ok(Transition::Complete(Ok(())))
     ///     }
     ///
@@ -206,7 +215,10 @@ impl<PodState> Transition<PodState> {
     /// }
     /// ```
     #[allow(clippy::boxed_local)]
-    pub fn next<I: State<PodState>, S: State<PodState>>(_i: Box<I>, s: S) -> Transition<PodState>
+    pub fn next<I: State<ProviderState, PodState>, S: State<ProviderState, PodState>>(
+        _i: Box<I>,
+        s: S,
+    ) -> Transition<ProviderState, PodState>
     where
         I: TransitionTo<S>,
     {
@@ -221,11 +233,39 @@ pub trait AsyncDrop: Sized {
     async fn async_drop(self);
 }
 
+/// Provides shared access to provider-level state between multiple pod
+/// state machines running within the provider.
+pub struct SharedState<T> {
+    state: std::sync::Arc<tokio::sync::RwLock<T>>,
+}
+
+impl<T> Clone for SharedState<T> {
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state.clone(),
+        }
+    }
+}
+
+impl<T> SharedState<T> {
+    /// Creates a SharedState to provide shared access to the specified value.
+    pub fn new(value: T) -> Self {
+        Self {
+            state: std::sync::Arc::<_>::new(tokio::sync::RwLock::new(value)),
+        }
+    }
+}
+
 #[async_trait::async_trait]
 /// A trait representing a node in the state graph.
-pub trait State<PodState>: Sync + Send + 'static + std::fmt::Debug {
+pub trait State<ProviderState, PodState>: Sync + Send + 'static + std::fmt::Debug {
     /// Provider supplies method to be executed when in this state.
-    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState>;
+    async fn next(
+        self: Box<Self>,
+        provider_state: SharedState<ProviderState>,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> Transition<ProviderState, PodState>;
 
     /// Provider supplies JSON status patch to apply when entering this state.
     async fn json_status(
@@ -236,9 +276,13 @@ pub trait State<PodState>: Sync + Send + 'static + std::fmt::Debug {
 }
 
 /// Iteratively evaluate state machine until it returns Complete.
-pub async fn run_to_completion<PodState: Send + Sync + 'static>(
+pub async fn run_to_completion<
+    ProviderState: Send + Sync + 'static,
+    PodState: Send + Sync + 'static,
+>(
     client: &kube::Client,
-    state: impl State<PodState>,
+    state: impl State<ProviderState, PodState>,
+    provider_state: SharedState<ProviderState>,
     pod_state: &mut PodState,
     pod: Arc<RwLock<Pod>>,
 ) {
@@ -257,7 +301,7 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
         return;
     }
 
-    let mut state: Box<dyn State<PodState>> = Box::new(state);
+    let mut state: Box<dyn State<ProviderState, PodState>> = Box::new(state);
 
     loop {
         debug!("Pod {} entering state {:?}", &name, state);
@@ -274,7 +318,11 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
         }
 
         debug!("Pod {} executing state handler {:?}", &name, state);
-        let transition = { state.next(pod_state, &latest_pod).await };
+        let transition = {
+            state
+                .next(provider_state.clone(), pod_state, &latest_pod)
+                .await
+        };
 
         state = match transition {
             Transition::Next(s) => {
@@ -312,8 +360,13 @@ pub async fn run_to_completion<PodState: Send + Sync + 'static>(
 pub struct Stub;
 
 #[async_trait::async_trait]
-impl<P: 'static + Sync + Send> State<P> for Stub {
-    async fn next(self: Box<Self>, _pod_state: &mut P, _pod: &Pod) -> Transition<P> {
+impl<Pr: 'static + Sync + Send, P: 'static + Sync + Send> State<Pr, P> for Stub {
+    async fn next(
+        self: Box<Self>,
+        _provider_state: SharedState<Pr>,
+        _pod_state: &mut P,
+        _pod: &Pod,
+    ) -> Transition<Pr, P> {
         Transition::Complete(Ok(()))
     }
 
@@ -329,7 +382,10 @@ impl<P: 'static + Sync + Send> State<P> for Stub {
 #[cfg(test)]
 mod test {
     use crate::pod::Pod;
-    use crate::state::{State, Transition, TransitionTo};
+    use crate::state::{SharedState, State, Transition, TransitionTo};
+
+    #[derive(Debug)]
+    struct ProviderState;
 
     #[derive(Debug)]
     struct PodState;
@@ -338,12 +394,13 @@ mod test {
     struct ValidState;
 
     #[async_trait::async_trait]
-    impl State<PodState> for ValidState {
+    impl State<ProviderState, PodState> for ValidState {
         async fn next(
             self: Box<Self>,
+            _provider_state: SharedState<ProviderState>,
             _pod_state: &mut PodState,
             _pod: &Pod,
-        ) -> Transition<PodState> {
+        ) -> Transition<ProviderState, PodState> {
             Transition::Complete(Ok(()))
         }
 
@@ -364,12 +421,13 @@ mod test {
         impl TransitionTo<ValidState> for TestState {}
 
         #[async_trait::async_trait]
-        impl State<PodState> for TestState {
+        impl State<ProviderState, PodState> for TestState {
             async fn next(
                 self: Box<Self>,
+                _provider_state: SharedState<ProviderState>,
                 _pod_state: &mut PodState,
                 _pod: &Pod,
-            ) -> Transition<PodState> {
+            ) -> Transition<ProviderState, PodState> {
                 Transition::next(self, ValidState)
             }
 

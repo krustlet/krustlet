@@ -1,4 +1,4 @@
-use crate::PodState;
+use crate::{PodState, ProviderState};
 use chrono::Utc;
 use k8s_openapi::api::core::v1::ContainerState as KubeContainerState;
 use k8s_openapi::api::core::v1::ContainerStateRunning as KubeContainerStateRunning;
@@ -11,8 +11,13 @@ use kubelet::state::prelude::*;
 pub struct Running;
 
 #[async_trait::async_trait]
-impl State<PodState> for Running {
-    async fn next(self: Box<Self>, _pod_state: &mut PodState, _pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for Running {
+    async fn next(
+        self: Box<Self>,
+        _provider_state: SharedState<ProviderState>,
+        _pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         // Wascc has no notion of exiting so we just sleep.
         // I _think_ that periodically awaiting will allow the task to be interrupted.
         loop {

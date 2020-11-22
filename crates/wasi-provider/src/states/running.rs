@@ -8,7 +8,7 @@ use log::error;
 use super::completed::Completed;
 use super::error::Error;
 use crate::fail_fatal;
-use crate::PodState;
+use crate::{PodState, ProviderState};
 
 /// The Kubelet is running the Pod.
 #[derive(Default, Debug, TransitionTo)]
@@ -16,8 +16,13 @@ use crate::PodState;
 pub struct Running;
 
 #[async_trait::async_trait]
-impl State<PodState> for Running {
-    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for Running {
+    async fn next(
+        self: Box<Self>,
+        _provider_state: SharedState<ProviderState>,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         let client: Api<KubePod> = Api::namespaced(
             kube::Client::new(pod_state.shared.kubeconfig.clone()),
             pod.namespace(),

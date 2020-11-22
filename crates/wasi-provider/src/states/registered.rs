@@ -3,7 +3,7 @@ use log::info;
 use super::error::Error;
 use super::image_pull::ImagePull;
 use crate::transition_to_error;
-use crate::PodState;
+use crate::{PodState, ProviderState};
 use kubelet::container::Container;
 use kubelet::state::prelude::*;
 
@@ -29,8 +29,13 @@ fn validate_not_kube_proxy(container: &Container) -> anyhow::Result<()> {
 pub struct Registered;
 
 #[async_trait::async_trait]
-impl State<PodState> for Registered {
-    async fn next(self: Box<Self>, _pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for Registered {
+    async fn next(
+        self: Box<Self>,
+        _provider_state: SharedState<ProviderState>,
+        _pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         match validate_pod_runnable(&pod) {
             Ok(_) => (),
             Err(e) => transition_to_error!(self, e),

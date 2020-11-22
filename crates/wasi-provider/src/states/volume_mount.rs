@@ -1,4 +1,4 @@
-use crate::PodState;
+use crate::{PodState, ProviderState};
 use kubelet::state::prelude::*;
 use kubelet::volume::Ref;
 
@@ -12,8 +12,13 @@ use crate::transition_to_error;
 pub struct VolumeMount;
 
 #[async_trait::async_trait]
-impl State<PodState> for VolumeMount {
-    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for VolumeMount {
+    async fn next(
+        self: Box<Self>,
+        _provider_state: SharedState<ProviderState>,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         let client = kube::Client::new(pod_state.shared.kubeconfig.clone());
         pod_state.run_context.volumes =
             match Ref::volumes_from_pod(&pod_state.shared.volume_path, &pod, &client).await {
