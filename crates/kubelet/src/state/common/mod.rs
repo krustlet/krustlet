@@ -12,6 +12,7 @@ pub mod error;
 pub mod image_pull;
 pub mod image_pull_backoff;
 pub mod registered;
+pub mod volume_mount;
 
 /// Types of error condition whose backoff should be tracked independently.
 pub enum BackoffSequence {
@@ -75,8 +76,7 @@ pub trait GenericProvider: 'static + Send + Sync {
     /// The state to which pods should transition after they have completed
     /// all generic states. Typically this is the state which first runs
     /// any pod binary (for example, the state which runs init containers).
-    // TODO: naming and usage to evolve towards the above spec
-    type VolumeMountState: Default + State<Self::ProviderState, Self::PodState>;
+    type RunState: Default + State<Self::ProviderState, Self::PodState>;
 
     /// Validates that the pod specification is compatible with the provider.
     /// If not, implementations should return an Err value with

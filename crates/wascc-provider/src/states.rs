@@ -1,7 +1,6 @@
 pub(crate) mod running;
 pub(crate) mod starting;
 pub(crate) mod terminated;
-pub(crate) mod volume_mount;
 
 /// When called in a state's `next` function, exits the current state
 /// and transitions to the Error state.

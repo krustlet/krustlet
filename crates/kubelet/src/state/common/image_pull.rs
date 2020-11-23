@@ -3,6 +3,7 @@
 use crate::state::prelude::*;
 
 use super::image_pull_backoff::ImagePullBackoff;
+use super::volume_mount::VolumeMount;
 use super::{BackoffSequence, GenericPodState, GenericProvider, GenericProviderState};
 
 use log::error;
@@ -49,7 +50,7 @@ impl<P: GenericProvider> State<P::ProviderState, P::PodState> for ImagePull<P> {
         };
         pod_state.set_modules(modules);
         pod_state.reset_backoff(BackoffSequence::ImagePull);
-        Transition::next_unchecked(self, P::VolumeMountState::default())
+        Transition::next(self, VolumeMount::<P>::default())
     }
 
     async fn json_status(
@@ -62,3 +63,4 @@ impl<P: GenericProvider> State<P::ProviderState, P::PodState> for ImagePull<P> {
 }
 
 impl<P: GenericProvider> TransitionTo<ImagePullBackoff<P>> for ImagePull<P> {}
+impl<P: GenericProvider> TransitionTo<VolumeMount<P>> for ImagePull<P> {}

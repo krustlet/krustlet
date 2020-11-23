@@ -375,7 +375,7 @@ impl Provider for WasccProvider {
 impl GenericProvider for WasccProvider {
     type ProviderState = ProviderState;
     type PodState = PodState;
-    type VolumeMountState = crate::states::volume_mount::VolumeMount;
+    type RunState = crate::states::starting::Starting;
 
     fn validate_pod_runnable(pod: &Pod) -> anyhow::Result<()> {
         if !pod.init_containers().is_empty() {
