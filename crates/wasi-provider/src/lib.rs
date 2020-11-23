@@ -243,7 +243,7 @@ impl Provider for WasiProvider {
 impl GenericProvider for WasiProvider {
     type ProviderState = ProviderState;
     type PodState = PodState;
-    type ImagePullState = crate::states::image_pull::ImagePull;
+    type VolumeMountState = crate::states::volume_mount::VolumeMount;
 
     fn validate_pod_runnable(_pod: &Pod) -> anyhow::Result<()> {
         Ok(())

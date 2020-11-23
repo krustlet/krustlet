@@ -5,6 +5,7 @@ use crate::state::prelude::*;
 use log::{debug, error, info};
 
 use super::error::Error;
+use super::image_pull::ImagePull;
 use super::GenericProvider;
 
 /// The Kubelet is aware of the Pod.
@@ -44,8 +45,8 @@ impl<P: GenericProvider> State<P::ProviderState, P::PodState> for Registered<P> 
             }
         }
         info!("Pod registered: {}", pod.name());
-        let next = P::ImagePullState::default();
-        Transition::next_unchecked(self, next)
+        let next = ImagePull::<P>::default();
+        Transition::next(self, next)
     }
 
     async fn json_status(
@@ -58,3 +59,4 @@ impl<P: GenericProvider> State<P::ProviderState, P::PodState> for Registered<P> 
 }
 
 impl<P: GenericProvider> TransitionTo<Error<P>> for Registered<P> {}
+impl<P: GenericProvider> TransitionTo<ImagePull<P>> for Registered<P> {}

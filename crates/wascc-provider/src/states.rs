@@ -1,5 +1,3 @@
-pub(crate) mod image_pull;
-pub(crate) mod image_pull_backoff;
 pub(crate) mod running;
 pub(crate) mod starting;
 pub(crate) mod terminated;

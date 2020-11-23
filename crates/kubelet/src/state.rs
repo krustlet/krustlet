@@ -267,6 +267,16 @@ impl<T> SharedState<T> {
             state: std::sync::Arc::<_>::new(tokio::sync::RwLock::new(value)),
         }
     }
+
+    /// Acquires a read lock for the shared state.
+    pub async fn read(&self) -> tokio::sync::RwLockReadGuard<'_, T> {
+        self.state.read().await
+    }
+
+    /// Acquires a write lock for the shared state.
+    pub async fn write(&mut self) -> tokio::sync::RwLockWriteGuard<'_, T> {
+        self.state.write().await
+    }
 }
 
 #[async_trait::async_trait]

@@ -9,6 +9,8 @@ use std::collections::HashMap;
 
 pub mod crash_loop_backoff;
 pub mod error;
+pub mod image_pull;
+pub mod image_pull_backoff;
 pub mod registered;
 
 /// Types of error condition whose backoff should be tracked independently.
@@ -74,7 +76,7 @@ pub trait GenericProvider: 'static + Send + Sync {
     /// all generic states. Typically this is the state which first runs
     /// any pod binary (for example, the state which runs init containers).
     // TODO: naming and usage to evolve towards the above spec
-    type ImagePullState: Default + State<Self::ProviderState, Self::PodState>;
+    type VolumeMountState: Default + State<Self::ProviderState, Self::PodState>;
 
     /// Validates that the pod specification is compatible with the provider.
     /// If not, implementations should return an Err value with

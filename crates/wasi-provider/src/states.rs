@@ -1,6 +1,4 @@
 pub(crate) mod completed;
-pub(crate) mod image_pull;
-pub(crate) mod image_pull_backoff;
 pub(crate) mod initializing;
 pub(crate) mod running;
 pub(crate) mod starting;

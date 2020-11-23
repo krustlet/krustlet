@@ -1,0 +1,64 @@
+//! Kubelet is pulling container images.
+
+use crate::state::prelude::*;
+
+use super::image_pull_backoff::ImagePullBackoff;
+use super::{BackoffSequence, GenericPodState, GenericProvider, GenericProviderState};
+
+use log::error;
+
+/// Kubelet is pulling container images.
+pub struct ImagePull<P: GenericProvider> {
+    phantom: std::marker::PhantomData<P>,
+}
+
+impl<P: GenericProvider> std::fmt::Debug for ImagePull<P> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        "ImagePull".fmt(formatter)
+    }
+}
+
+impl<P: GenericProvider> Default for ImagePull<P> {
+    fn default() -> Self {
+        Self {
+            phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<P: GenericProvider> State<P::ProviderState, P::PodState> for ImagePull<P> {
+    async fn next(
+        self: Box<Self>,
+        provider_state: SharedState<P::ProviderState>,
+        pod_state: &mut P::PodState,
+        pod: &Pod,
+    ) -> Transition<P::ProviderState, P::PodState> {
+        let (client, store) = {
+            // Minimise the amount of time we hold any locks
+            let state_reader = provider_state.read().await;
+            (state_reader.client(), state_reader.store())
+        };
+        let auth_resolver = crate::secret::RegistryAuthResolver::new(client, &pod);
+        let modules = match store.fetch_pod_modules(&pod, &auth_resolver).await {
+            Ok(m) => m,
+            Err(e) => {
+                error!("{:?}", e);
+                return Transition::next(self, ImagePullBackoff::<P>::default());
+            }
+        };
+        pod_state.set_modules(modules);
+        pod_state.reset_backoff(BackoffSequence::ImagePull);
+        Transition::next_unchecked(self, P::VolumeMountState::default())
+    }
+
+    async fn json_status(
+        &self,
+        _pod_state: &mut P::PodState,
+        _pod: &Pod,
+    ) -> anyhow::Result<serde_json::Value> {
+        make_status(Phase::Pending, "ImagePull")
+    }
+}
+
+impl<P: GenericProvider> TransitionTo<ImagePullBackoff<P>> for ImagePull<P> {}
