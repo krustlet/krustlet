@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 use kubelet::container::{Container, ContainerKey, Handle as ContainerHandle};
 use kubelet::pod::{Handle, PodKey};
 use kubelet::provider::Provider;
+use kubelet::state::common::error::Error;
 use kubelet::state::prelude::*;
 
 use crate::rand::Rng;
@@ -18,7 +19,6 @@ use crate::{
 };
 use crate::{PodState, ProviderState};
 
-use super::error::Error;
 use super::running::Running;
 
 #[derive(Debug)]
@@ -140,7 +140,7 @@ async fn start_container(
 
 /// The Kubelet is starting the Pod.
 #[derive(Default, Debug, TransitionTo)]
-#[transition_to(Running, Error)]
+#[transition_to(Running)]
 pub struct Starting;
 
 #[async_trait::async_trait]
@@ -202,3 +202,5 @@ impl State<ProviderState, PodState> for Starting {
         make_status(Phase::Pending, "Starting")
     }
 }
+
+impl TransitionTo<Error<crate::WasccProvider>> for Starting {}

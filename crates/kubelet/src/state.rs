@@ -1,6 +1,7 @@
 //! Used to define a state machine of Pod states.
 use log::{debug, error, warn};
 
+pub mod common;
 pub mod prelude;
 
 use crate::pod::{initialize_pod_container_statuses, patch_status};
@@ -222,6 +223,18 @@ impl<ProviderState, PodState> Transition<ProviderState, PodState> {
     where
         I: TransitionTo<S>,
     {
+        Transition::Next(StateHolder { state: Box::new(s) })
+    }
+
+    /// Represents a transition to a new state that is not checked against the
+    /// set of permissible transitions. This is intended only for use by generic
+    /// states which cannot declare an exit transition to an associated state
+    /// without encountering a "conflicting implementations" compiler error.
+    #[allow(clippy::boxed_local)]
+    pub fn next_unchecked<I: State<ProviderState, PodState>, S: State<ProviderState, PodState>>(
+        _i: Box<I>,
+        s: S,
+    ) -> Transition<ProviderState, PodState> {
         Transition::Next(StateHolder { state: Box::new(s) })
     }
 }

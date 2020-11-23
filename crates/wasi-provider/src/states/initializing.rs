@@ -8,14 +8,14 @@ use kube::api::{Api, PatchParams};
 use kubelet::backoff::BackoffStrategy;
 use kubelet::container::{patch_container_status, ContainerKey, Status as ContainerStatus};
 use kubelet::pod::{Handle, PodKey};
+use kubelet::state::common::error::Error;
 use kubelet::state::prelude::*;
 
-use super::error::Error;
 use super::starting::{start_container, ContainerHandleMap, Starting};
 use crate::fail_fatal;
 
 #[derive(Default, Debug, TransitionTo)]
-#[transition_to(Starting, Error)]
+#[transition_to(Starting)]
 pub struct Initializing;
 
 #[async_trait::async_trait]
@@ -93,7 +93,7 @@ impl State<ProviderState, PodState> for Initializing {
                             .patch_status(pod.name(), &PatchParams::default(), status_json)
                             .await
                         {
-                            Ok(_) => return Transition::next(self, Error { message }),
+                            Ok(_) => return Transition::next(self, Error::<_>::new(message)),
                             Err(e) => fail_fatal!(e),
                         };
                     } else {
@@ -115,3 +115,5 @@ impl State<ProviderState, PodState> for Initializing {
         make_status(Phase::Running, "Initializing")
     }
 }
+
+impl TransitionTo<Error<crate::WasiProvider>> for Initializing {}

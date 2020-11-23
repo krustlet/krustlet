@@ -32,13 +32,17 @@
 #![deny(missing_docs)]
 
 use async_trait::async_trait;
-use kubelet::backoff::ExponentialBackoffStrategy;
+use kubelet::backoff::{BackoffStrategy, ExponentialBackoffStrategy};
 use kubelet::container::Handle as ContainerHandle;
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
 use kubelet::pod::{Handle, Pod, PodKey};
 use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
+use kubelet::state::common::registered::Registered;
+use kubelet::state::common::{
+    BackoffSequence, GenericPodState, GenericProvider, GenericProviderState, ThresholdTrigger,
+};
 use kubelet::state::prelude::SharedState;
 use kubelet::store::Store;
 
@@ -58,7 +62,6 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Mutex as TokioMutex;
 
 mod states;
-use states::registered::Registered;
 use states::terminated::Terminated;
 
 /// The architecture that the pod targets.
@@ -137,11 +140,12 @@ impl StopHandler for ActorHandle {
 /// from Kubernetes.
 #[derive(Clone)]
 pub struct WasccProvider {
-    shared: SharedPodState,
+    shared: ProviderState,
 }
 
+/// Provider-level state shared between all pods
 #[derive(Clone)]
-struct SharedPodState {
+pub struct ProviderState {
     client: kube::Client,
     handles: Arc<RwLock<BTreeMap<PodKey, Handle<ActorHandle, LogHandleFactory>>>>,
     store: Arc<dyn Store + Sync + Send>,
@@ -151,8 +155,27 @@ struct SharedPodState {
     port_map: Arc<TokioMutex<BTreeMap<u16, PodKey>>>,
 }
 
-/// Provider-level state shared between all pods
-pub struct ProviderState {}
+#[async_trait::async_trait]
+impl GenericProviderState for ProviderState {
+    fn client(&self) -> kube::client::Client {
+        self.client.clone()
+    }
+    fn store(&self) -> std::sync::Arc<(dyn Store + Send + Sync + 'static)> {
+        self.store.clone()
+    }
+    fn volume_path(&self) -> PathBuf {
+        self.volume_path.clone()
+    }
+    async fn stop(&self, pod: &Pod) -> anyhow::Result<()> {
+        let key = PodKey::from(pod);
+        let mut handle_writer = self.handles.write().await;
+        if let Some(handle) = handle_writer.get_mut(&key) {
+            handle.stop().await
+        } else {
+            Ok(())
+        }
+    }
+}
 
 impl WasccProvider {
     /// Returns a new wasCC provider configured to use the proper data directory
@@ -208,7 +231,7 @@ impl WasccProvider {
         })
         .await??;
         Ok(Self {
-            shared: SharedPodState {
+            shared: ProviderState {
                 client,
                 handles: Default::default(),
                 store,
@@ -233,7 +256,40 @@ pub struct PodState {
     errors: usize,
     image_pull_backoff_strategy: ExponentialBackoffStrategy,
     crash_loop_backoff_strategy: ExponentialBackoffStrategy,
-    shared: SharedPodState,
+    shared: ProviderState,
+}
+
+#[async_trait::async_trait]
+impl GenericPodState for PodState {
+    fn set_modules(&mut self, modules: HashMap<String, Vec<u8>>) {
+        self.run_context.modules = modules;
+    }
+    fn set_volumes(&mut self, volumes: HashMap<String, kubelet::volume::Ref>) {
+        self.run_context.volumes = volumes;
+    }
+    async fn backoff(&mut self, sequence: BackoffSequence) {
+        let backoff_strategy = match sequence {
+            BackoffSequence::ImagePull => &mut self.image_pull_backoff_strategy,
+            BackoffSequence::CrashLoop => &mut self.crash_loop_backoff_strategy,
+        };
+        backoff_strategy.wait().await;
+    }
+    fn reset_backoff(&mut self, sequence: BackoffSequence) {
+        let backoff_strategy = match sequence {
+            BackoffSequence::ImagePull => &mut self.image_pull_backoff_strategy,
+            BackoffSequence::CrashLoop => &mut self.crash_loop_backoff_strategy,
+        };
+        backoff_strategy.reset();
+    }
+    fn record_error(&mut self) -> ThresholdTrigger {
+        self.errors += 1;
+        if self.errors > 3 {
+            self.errors = 0;
+            ThresholdTrigger::Triggered
+        } else {
+            ThresholdTrigger::Untriggered
+        }
+    }
 }
 
 // No cleanup state needed, we clean up when dropping PodState.
@@ -265,7 +321,7 @@ impl kubelet::state::AsyncDrop for PodState {
 
 #[async_trait]
 impl Provider for WasccProvider {
-    type InitialState = Registered;
+    type InitialState = Registered<Self>;
     type TerminatedState = Terminated;
     type ProviderState = ProviderState;
     type PodState = PodState;
@@ -273,7 +329,7 @@ impl Provider for WasccProvider {
     const ARCH: &'static str = TARGET_WASM32_WASCC;
 
     fn provider_state(&self) -> SharedState<ProviderState> {
-        SharedState::new(ProviderState {})
+        SharedState::new(self.shared.clone())
     }
 
     async fn node(&self, builder: &mut Builder) -> anyhow::Result<()> {
@@ -313,6 +369,47 @@ impl Provider for WasccProvider {
                 pod_name: pod_name.clone(),
             })?;
         handle.output(&container_name, sender).await
+    }
+}
+
+impl GenericProvider for WasccProvider {
+    type ProviderState = ProviderState;
+    type PodState = PodState;
+    type ImagePullState = crate::states::image_pull::ImagePull;
+
+    fn validate_pod_runnable(pod: &Pod) -> anyhow::Result<()> {
+        if !pod.init_containers().is_empty() {
+            return Err(anyhow::anyhow!(
+                "Cannot run {}: spec specifies init containers which are not supported on wasCC",
+                pod.name()
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_container_runnable(
+        container: &kubelet::container::Container,
+    ) -> anyhow::Result<()> {
+        if has_args(container) {
+            return Err(anyhow::anyhow!(
+                "Cannot run {}: spec specifies container args which are not supported on wasCC",
+                container.name()
+            ));
+        }
+        if let Some(image) = container.image()? {
+            if image.whole().starts_with("k8s.gcr.io/kube-proxy") {
+                return Err(anyhow::anyhow!("Cannot run kube-proxy"));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn has_args(container: &kubelet::container::Container) -> bool {
+    match &container.args() {
+        None => false,
+        Some(vec) => !vec.is_empty(),
     }
 }
 

@@ -1,14 +1,14 @@
 use crate::{PodState, ProviderState};
+use kubelet::state::common::error::Error;
 use kubelet::state::prelude::*;
 use kubelet::volume::Ref;
 
-use super::error::Error;
 use super::starting::Starting;
 use crate::transition_to_error;
 
 /// Kubelet is pulling container images.
 #[derive(Default, Debug, TransitionTo)]
-#[transition_to(Starting, Error)]
+#[transition_to(Starting)]
 pub struct VolumeMount;
 
 #[async_trait::async_trait]
@@ -40,3 +40,5 @@ impl State<ProviderState, PodState> for VolumeMount {
         make_status(Phase::Pending, "VolumeMount")
     }
 }
+
+impl TransitionTo<Error<crate::WasccProvider>> for VolumeMount {}

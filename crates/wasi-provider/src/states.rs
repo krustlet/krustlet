@@ -1,10 +1,7 @@
 pub(crate) mod completed;
-pub(crate) mod crash_loop_backoff;
-pub(crate) mod error;
 pub(crate) mod image_pull;
 pub(crate) mod image_pull_backoff;
 pub(crate) mod initializing;
-pub(crate) mod registered;
 pub(crate) mod running;
 pub(crate) mod starting;
 pub(crate) mod terminated;
@@ -17,9 +14,8 @@ macro_rules! transition_to_error {
     ($slf:ident, $err:ident) => {{
         let aerr = anyhow::Error::from($err);
         log::error!("{:?}", aerr);
-        let error_state = super::error::Error {
-            message: aerr.to_string(),
-        };
+        let error_state =
+            kubelet::state::common::error::Error::<crate::WasiProvider>::new(aerr.to_string());
         return Transition::next($slf, error_state);
     }};
 }
