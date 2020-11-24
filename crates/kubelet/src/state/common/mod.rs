@@ -12,6 +12,7 @@ pub mod error;
 pub mod image_pull;
 pub mod image_pull_backoff;
 pub mod registered;
+pub mod terminated;
 pub mod volume_mount;
 
 /// Types of error condition whose backoff should be tracked independently.

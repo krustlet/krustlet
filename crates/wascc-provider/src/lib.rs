@@ -40,6 +40,7 @@ use kubelet::pod::{Handle, Pod, PodKey};
 use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
 use kubelet::state::common::registered::Registered;
+use kubelet::state::common::terminated::Terminated;
 use kubelet::state::common::{
     BackoffSequence, GenericPodState, GenericProvider, GenericProviderState, ThresholdTrigger,
 };
@@ -62,7 +63,6 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Mutex as TokioMutex;
 
 mod states;
-use states::terminated::Terminated;
 
 /// The architecture that the pod targets.
 const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
@@ -322,7 +322,7 @@ impl kubelet::state::AsyncDrop for PodState {
 #[async_trait]
 impl Provider for WasccProvider {
     type InitialState = Registered<Self>;
-    type TerminatedState = Terminated;
+    type TerminatedState = Terminated<Self>;
     type ProviderState = ProviderState;
     type PodState = PodState;
 

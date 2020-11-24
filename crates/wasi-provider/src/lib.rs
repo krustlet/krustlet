@@ -43,6 +43,7 @@ use kubelet::node::Builder;
 use kubelet::pod::{Handle, Pod, PodKey};
 use kubelet::provider::{Provider, ProviderError};
 use kubelet::state::common::registered::Registered;
+use kubelet::state::common::terminated::Terminated;
 use kubelet::state::common::{
     BackoffSequence, GenericPodState, GenericProvider, GenericProviderState, ThresholdTrigger,
 };
@@ -54,8 +55,6 @@ use tokio::sync::RwLock;
 use wasi_runtime::Runtime;
 
 mod states;
-
-use states::terminated::Terminated;
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 const LOG_DIR_NAME: &str = "wasi-logs";
@@ -187,7 +186,7 @@ impl GenericPodState for PodState {
 #[async_trait::async_trait]
 impl Provider for WasiProvider {
     type InitialState = Registered<Self>;
-    type TerminatedState = Terminated;
+    type TerminatedState = Terminated<Self>;
     type ProviderState = ProviderState;
     type PodState = PodState;
 

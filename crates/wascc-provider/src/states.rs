@@ -1,6 +1,5 @@
 pub(crate) mod running;
 pub(crate) mod starting;
-pub(crate) mod terminated;
 
 /// When called in a state's `next` function, exits the current state
 /// and transitions to the Error state.
