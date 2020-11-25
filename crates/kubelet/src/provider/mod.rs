@@ -40,7 +40,8 @@ use crate::state::{AsyncDrop, State};
 ///
 /// #[async_trait]
 /// impl AsyncDrop for PodState {
-///     async fn async_drop(self) { }
+///     type ProviderState = ProviderState;
+///     async fn async_drop(self, _provider_state: &mut ProviderState) { }
 /// }
 ///
 /// #[async_trait]
@@ -69,7 +70,7 @@ pub trait Provider: Sized {
     type ProviderState: 'static + Send + Sync;
 
     /// The state that is passed between Pod state handlers.
-    type PodState: 'static + Send + Sync + AsyncDrop;
+    type PodState: 'static + Send + Sync + AsyncDrop<ProviderState = Self::ProviderState>;
 
     /// The initial state for Pod state machine.
     type InitialState: Default + State<Self::ProviderState, Self::PodState>;

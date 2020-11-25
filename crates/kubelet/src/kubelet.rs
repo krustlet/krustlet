@@ -256,7 +256,8 @@ mod test {
 
     #[async_trait::async_trait]
     impl AsyncDrop for PodState {
-        async fn async_drop(self) {}
+        type ProviderState = ProviderState;
+        async fn async_drop(self, _provider_state: &mut ProviderState) {}
     }
 
     #[async_trait::async_trait]

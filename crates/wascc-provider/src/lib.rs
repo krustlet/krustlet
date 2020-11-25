@@ -256,7 +256,6 @@ pub struct PodState {
     errors: usize,
     image_pull_backoff_strategy: ExponentialBackoffStrategy,
     crash_loop_backoff_strategy: ExponentialBackoffStrategy,
-    shared: ProviderState,
 }
 
 #[async_trait::async_trait]
@@ -295,9 +294,10 @@ impl GenericPodState for PodState {
 // No cleanup state needed, we clean up when dropping PodState.
 #[async_trait]
 impl kubelet::state::AsyncDrop for PodState {
-    async fn async_drop(self) {
+    type ProviderState = ProviderState;
+    async fn async_drop(self, provider_state: &mut ProviderState) {
         {
-            let mut lock = self.shared.port_map.lock().await;
+            let mut lock = provider_state.port_map.lock().await;
             let ports_to_remove: Vec<u16> = lock
                 .iter()
                 .filter_map(|(k, v)| if v == &self.key { Some(*k) } else { None })
@@ -313,7 +313,7 @@ impl kubelet::state::AsyncDrop for PodState {
             }
         }
         {
-            let mut handles = self.shared.handles.write().await;
+            let mut handles = provider_state.handles.write().await;
             handles.remove(&self.key);
         }
     }
@@ -351,7 +351,6 @@ impl Provider for WasccProvider {
             errors: 0,
             image_pull_backoff_strategy: ExponentialBackoffStrategy::default(),
             crash_loop_backoff_strategy: ExponentialBackoffStrategy::default(),
-            shared: self.shared.clone(),
         })
     }
 

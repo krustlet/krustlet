@@ -190,7 +190,10 @@ async fn start_task<P: Provider>(
 
     debug!("Pod {} waiting for deregistration.", name);
     pod_deleted.notified().await;
-    pod_state.async_drop().await;
+    {
+        let mut state_writer = provider_state.write().await;
+        pod_state.async_drop(&mut state_writer).await;
+    }
 
     let pod_client: kube::Api<KubePod> = kube::Api::namespaced(task_client, &namespace);
     let dp = kube::api::DeleteParams {

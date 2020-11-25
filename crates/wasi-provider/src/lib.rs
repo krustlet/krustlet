@@ -136,15 +136,15 @@ pub struct PodState {
     errors: usize,
     image_pull_backoff_strategy: ExponentialBackoffStrategy,
     crash_loop_backoff_strategy: ExponentialBackoffStrategy,
-    shared: ProviderState,
 }
 
 // No cleanup state needed, we clean up when dropping PodState.
 #[async_trait]
 impl kubelet::state::AsyncDrop for PodState {
-    async fn async_drop(self) {
+    type ProviderState = ProviderState;
+    async fn async_drop(self, provider_state: &mut ProviderState) {
         {
-            let mut handles = self.shared.handles.write().await;
+            let mut handles = provider_state.handles.write().await;
             handles.remove(&self.key);
         }
     }
@@ -218,7 +218,6 @@ impl Provider for WasiProvider {
             errors: 0,
             image_pull_backoff_strategy: ExponentialBackoffStrategy::default(),
             crash_loop_backoff_strategy: ExponentialBackoffStrategy::default(),
-            shared: self.shared.clone(),
         })
     }
 

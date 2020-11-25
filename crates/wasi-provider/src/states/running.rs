@@ -3,6 +3,7 @@ use kube::api::Api;
 use kubelet::container::patch_container_status;
 use kubelet::container::{ContainerKey, Status};
 use kubelet::state::common::error::Error;
+use kubelet::state::common::GenericProviderState;
 use kubelet::state::prelude::*;
 use log::error;
 
@@ -19,14 +20,12 @@ pub struct Running;
 impl State<ProviderState, PodState> for Running {
     async fn next(
         self: Box<Self>,
-        _provider_state: SharedState<ProviderState>,
+        provider_state: SharedState<ProviderState>,
         pod_state: &mut PodState,
         pod: &Pod,
     ) -> Transition<ProviderState, PodState> {
-        let client: Api<KubePod> = Api::namespaced(
-            kube::Client::new(pod_state.shared.kubeconfig.clone()),
-            pod.namespace(),
-        );
+        let client: Api<KubePod> =
+            Api::namespaced(provider_state.read().await.client(), pod.namespace());
         let mut completed = 0;
         let total_containers = pod.containers().len();
 

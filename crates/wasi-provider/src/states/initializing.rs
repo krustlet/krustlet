@@ -9,6 +9,7 @@ use kubelet::backoff::BackoffStrategy;
 use kubelet::container::{patch_container_status, ContainerKey, Status as ContainerStatus};
 use kubelet::pod::{Handle, PodKey};
 use kubelet::state::common::error::Error;
+use kubelet::state::common::GenericProviderState;
 use kubelet::state::prelude::*;
 
 use super::starting::{start_container, ContainerHandleMap, Starting};
@@ -22,14 +23,12 @@ pub struct Initializing;
 impl State<ProviderState, PodState> for Initializing {
     async fn next(
         self: Box<Self>,
-        _provider_state: SharedState<ProviderState>,
+        provider_state: SharedState<ProviderState>,
         pod_state: &mut PodState,
         pod: &Pod,
     ) -> Transition<ProviderState, PodState> {
-        let client: Api<KubePod> = Api::namespaced(
-            kube::Client::new(pod_state.shared.kubeconfig.clone()),
-            pod.namespace(),
-        );
+        let client: Api<KubePod> =
+            Api::namespaced(provider_state.read().await.client(), pod.namespace());
         let mut container_handles: ContainerHandleMap = HashMap::new();
 
         for init_container in pod.init_containers() {
@@ -42,7 +41,7 @@ impl State<ProviderState, PodState> for Initializing {
             // Each new init container resets the CrashLoopBackoff timer.
             pod_state.crash_loop_backoff_strategy.reset();
 
-            match start_container(pod_state, pod, &init_container).await {
+            match start_container(&provider_state, pod_state, pod, &init_container).await {
                 Ok(h) => {
                     container_handles
                         .insert(ContainerKey::Init(init_container.name().to_string()), h);
@@ -80,7 +79,8 @@ impl State<ProviderState, PodState> for Initializing {
                         let pod_handle = Handle::new(container_handles, pod.clone(), None);
                         let pod_key = PodKey::from(pod);
                         {
-                            let mut handles = pod_state.shared.handles.write().await;
+                            let state_writer = provider_state.write().await;
+                            let mut handles = state_writer.handles.write().await;
                             handles.insert(pod_key, pod_handle);
                         }
 

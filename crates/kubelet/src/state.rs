@@ -239,11 +239,15 @@ impl<ProviderState, PodState> Transition<ProviderState, PodState> {
     }
 }
 
+// TODO: consider moving this to the ProviderState
 #[async_trait::async_trait]
 /// Allow for asynchronous cleanup up of PodState.
 pub trait AsyncDrop: Sized {
+    /// The type of any provider-level state from which the pod
+    /// needs to be cleaned up.
+    type ProviderState;
     /// Clean up PodState.
-    async fn async_drop(self);
+    async fn async_drop(self, provider_state: &mut Self::ProviderState);
 }
 
 /// Provides shared access to provider-level state between multiple pod
@@ -274,7 +278,7 @@ impl<T> SharedState<T> {
     }
 
     /// Acquires a write lock for the shared state.
-    pub async fn write(&mut self) -> tokio::sync::RwLockWriteGuard<'_, T> {
+    pub async fn write(&self) -> tokio::sync::RwLockWriteGuard<'_, T> {
         self.state.write().await
     }
 }
