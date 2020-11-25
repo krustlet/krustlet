@@ -105,7 +105,7 @@ jobs:
       - uses: actions/upload-artifact@v1
         with:
           name: krustlet
-          path: _dist/krustlet-${RELEASE_VERSION}-${RUNNER_OS}-${{ matrix.config.arch }}.tar.gz
+          path: _dist/krustlet-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz
   publish:
     name: publish release assets
     runs-on: ubuntu-latest
