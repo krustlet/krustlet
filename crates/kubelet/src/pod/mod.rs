@@ -80,11 +80,7 @@ impl Pod {
 
     /// Get an iterator over the pod's labels
     pub fn labels(&self) -> &std::collections::BTreeMap<String, String> {
-        self.kube_pod
-            .meta()
-            .labels
-            .as_ref()
-            .unwrap_or(&EMPTY_MAP)
+        self.kube_pod.meta().labels.as_ref().unwrap_or(&EMPTY_MAP)
     }
 
     ///  Get the pod's annotations
