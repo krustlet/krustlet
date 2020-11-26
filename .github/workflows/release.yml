@@ -100,7 +100,7 @@ jobs:
           mkdir _dist
           cp README.md LICENSE ${{ matrix.config.targetDir }}/krustlet-wasi${{ matrix.config.extension }} ${{ matrix.config.targetDir }}/krustlet-wascc${{ matrix.config.extension }} _dist/
           cd _dist
-          tar czf krustlet-${RELEASE_VERSION}-${RUNNER_OS}-${{ matrix.config.arch }}.tar.gz README.md LICENSE krustlet-wasi${{ matrix.config.extension }} krustlet-wascc${{ matrix.config.extension }}
+          tar czf krustlet-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz README.md LICENSE krustlet-wasi${{ matrix.config.extension }} krustlet-wascc${{ matrix.config.extension }}
 
       - uses: actions/upload-artifact@v1
         with:
@@ -124,7 +124,7 @@ jobs:
       - name: generate checksums
         run: |
           cd krustlet
-          sha256sum * > checksums-${RELEASE_VERSION}.txt
+          sha256sum * > checksums-${{ env.RELEASE_VERSION }}.txt
       - name: upload to azure
         uses: bacongobbler/azure-blob-storage-upload@main
         with:
