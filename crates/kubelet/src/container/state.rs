@@ -36,8 +36,7 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container> + Send + S
         let latest_pod = { pod.read().await.clone() };
         let latest_container = latest_pod.find_container(&container_name).unwrap();
 
-        // TODO Make json_status -> status
-        match state.json_status(container_state, &latest_container).await {
+        match state.status(container_state, &latest_container).await {
             Ok(status) => patch_container_status(&api, &latest_pod, &container_name, &status)
                 .await
                 .unwrap(),

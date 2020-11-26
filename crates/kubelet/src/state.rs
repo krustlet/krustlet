@@ -290,5 +290,5 @@ pub trait State<ProviderState, S: ResourceState>: Sync + Send + 'static + std::f
     ) -> Transition<ProviderState, S>;
 
     /// Provider supplies JSON status patch to apply when entering this state.
-    async fn json_status(&self, state: &mut S, manifest: &S::Manifest) -> anyhow::Result<Status>;
+    async fn status(&self, state: &mut S, manifest: &S::Manifest) -> anyhow::Result<Status>;
 }

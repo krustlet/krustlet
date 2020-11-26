@@ -21,7 +21,7 @@ impl State<ProviderState, PodState> for Completed {
         Transition::Complete(Ok(()))
     }
 
-    async fn json_status(
+    async fn status(
         &self,
         _pod_state: &mut PodState,
         _pod: &Pod,

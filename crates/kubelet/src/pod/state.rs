@@ -49,7 +49,7 @@ pub async fn run_to_completion<PodState: ResourceState<Manifest = Pod> + Send + 
 
         let latest_pod = { pod.read().await.clone() };
 
-        match state.json_status(pod_state, &latest_pod).await {
+        match state.status(pod_state, &latest_pod).await {
             Ok(patch) => {
                 patch_status(&api, &name, patch).await;
             }
@@ -92,7 +92,7 @@ impl<P: 'static + Sync + Send + ResourceState<Manifest = Pod>> State<P, Status> 
         Transition::Complete(Ok(()))
     }
 
-    async fn json_status(&self, _pod_state: &mut P, _pod: &Pod) -> anyhow::Result<Status> {
+    async fn status(&self, _pod_state: &mut P, _pod: &Pod) -> anyhow::Result<Status> {
         Ok(Default::default())
     }
 }
