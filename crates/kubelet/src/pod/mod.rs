@@ -84,7 +84,7 @@ impl Pod {
             .meta()
             .labels
             .as_ref()
-            .unwrap_or_else(|| &EMPTY_MAP)
+            .unwrap_or(&EMPTY_MAP)
     }
 
     ///  Get the pod's annotations
@@ -93,7 +93,7 @@ impl Pod {
             .meta()
             .annotations
             .as_ref()
-            .unwrap_or_else(|| &EMPTY_MAP)
+            .unwrap_or(&EMPTY_MAP)
     }
 
     /// Get the names of the pod's image pull secrets

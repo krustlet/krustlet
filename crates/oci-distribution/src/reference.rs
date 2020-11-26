@@ -90,7 +90,7 @@ impl Reference {
     /// full_name returns the full repository name and path.
     fn full_name(&self) -> String {
         if self.registry() == "" {
-            format!("{}", self.repository())
+            self.repository().to_string()
         } else {
             format!("{}/{}", self.registry(), self.repository())
         }
@@ -101,13 +101,13 @@ impl Reference {
         let mut s = self.full_name();
         if let Some(t) = self.tag() {
             if s != "" {
-                s.push_str(":");
+                s.push(':');
             }
             s.push_str(t);
         }
         if let Some(d) = self.digest() {
             if s != "" {
-                s.push_str("@");
+                s.push('@');
             }
             s.push_str(d);
         }
