@@ -50,8 +50,6 @@ $ KUBECONFIG=~/.krustlet/config \
 ./krustlet-wasi \
 --node-ip=127.0.0.1 \
 --node-name=krustlet \
---cert-file=~/.krustlet/config/krustlet.crt \
---private-key-file=~/.krustlet/config/krustlet.key \
 --bootstrap-file=~/.krustlet/config/bootstrap.conf
 ```
 

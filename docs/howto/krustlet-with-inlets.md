@@ -77,7 +77,7 @@ and start krustlet:
 # Since you are running locally, this step is important. Otherwise krustlet will pick up on your
 # local config and not be able to update the node status properly
 export KUBECONFIG=~/.krustlet/config/kubeconfig
-krustlet-wasi --node-ip $NODE_IP --cert-file=~/.krustlet/config/krustlet.crt --private-key-file=~/.krustlet/config/krustlet.key --bootstrap-file=~/.krustlet/config/bootstrap.conf
+krustlet-wasi --node-ip $NODE_IP --bootstrap-file=~/.krustlet/config/bootstrap.conf
 ```
 
 Then open another terminal for the next steps.
