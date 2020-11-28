@@ -81,7 +81,8 @@ impl State<ProviderState, PodState> for Initializing {
 
                         // If we are in a failed state, insert in the init containers we already ran
                         // into a pod handle so they are available for future log fetching
-                        let pod_handle = Handle::new(container_handles, pod.clone(), None);
+                        let pod_handle =
+                            Arc::new(Handle::new(container_handles, pod.clone(), None));
                         let pod_key = PodKey::from(pod);
                         {
                             let state_writer = provider_state.write().await;

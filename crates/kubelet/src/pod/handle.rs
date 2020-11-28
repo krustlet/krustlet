@@ -4,7 +4,9 @@ use log::{debug, error, info};
 use tokio::io::{AsyncRead, AsyncSeek};
 use tokio::sync::RwLock;
 
-use crate::container::{ContainerMapByName, HandleMap as ContainerHandleMap};
+use crate::container::{
+    ContainerKey, ContainerMapByName, Handle as ContainerHandle, HandleMap as ContainerHandleMap,
+};
 use crate::handle::StopHandler;
 use crate::log::{HandleFactory, Sender};
 use crate::pod::Pod;
@@ -49,9 +51,15 @@ impl<H: StopHandler, F> Handle<H, F> {
         }
     }
 
+    /// Insert container `Handle` by `ContainerKey`.
+    pub async fn insert_container_handle(self, key: ContainerKey, value: ContainerHandle<H, F>) {
+        let mut map = self.container_handles.write().await;
+        map.insert(key, value);
+    }
+
     /// Streams output from the specified container into the given sender.
     /// Optionally tails the output and/or continues to watch the file and stream changes.
-    pub async fn output<R>(&mut self, container_name: &str, sender: Sender) -> anyhow::Result<()>
+    pub async fn output<R>(&self, container_name: &str, sender: Sender) -> anyhow::Result<()>
     where
         R: AsyncRead + AsyncSeek + Unpin + Send + 'static,
         F: HandleFactory<R>,
@@ -69,7 +77,7 @@ impl<H: StopHandler, F> Handle<H, F> {
     /// Signal the pod and all its running containers to stop and wait for them
     /// to complete. As of right now, there is not a way to do this in wasmtime,
     /// so this does nothing
-    pub async fn stop(&mut self) -> anyhow::Result<()> {
+    pub async fn stop(&self) -> anyhow::Result<()> {
         {
             let mut handles = self.container_handles.write().await;
             for (key, handle) in handles.iter_mut() {

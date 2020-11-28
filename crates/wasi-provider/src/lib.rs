@@ -70,10 +70,12 @@ pub struct WasiProvider {
     shared: ProviderState,
 }
 
+type PodHandleMap = Arc<RwLock<HashMap<PodKey, Arc<Handle<Runtime, wasi_runtime::HandleFactory>>>>>;
+
 /// Provider-level state shared between all pods
 #[derive(Clone)]
 pub struct ProviderState {
-    handles: Arc<RwLock<HashMap<PodKey, Handle<Runtime, wasi_runtime::HandleFactory>>>>,
+    handles: PodHandleMap,
     store: Arc<dyn Store + Sync + Send>,
     log_path: PathBuf,
     kubeconfig: kube::Config,

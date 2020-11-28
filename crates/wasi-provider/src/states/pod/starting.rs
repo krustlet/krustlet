@@ -18,6 +18,7 @@ use crate::wasi_runtime::{self, HandleFactory, Runtime, WasiRuntime};
 use crate::{PodState, ProviderState};
 
 use super::running::Running;
+use crate::states::container::ContainerHandle;
 
 fn volume_path_map(
     container: &Container,
@@ -54,13 +55,13 @@ pub(crate) async fn start_container(
     pod_state: &mut PodState,
     pod: &Pod,
     container: &Container,
-) -> anyhow::Result<kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>>
-{
+) -> anyhow::Result<ContainerHandle> {
     let (client, log_path) = {
         // Limit the time we hold the lock
         let state_reader = provider_state.read().await;
         (state_reader.client(), state_reader.log_path.clone())
     };
+
     let module_data = pod_state
         .run_context
         .modules
@@ -130,7 +131,7 @@ impl State<ProviderState, PodState> for Starting {
             }
         }
 
-        let pod_handle = Handle::new(container_handles, pod.clone(), None);
+        let pod_handle = Arc::new(Handle::new(container_handles, pod.clone(), None));
         let pod_key = PodKey::from(pod);
         {
             let state_reader = provider_state.read().await;

@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 
 /// Prelude for Pod state machines.
 pub mod prelude {
-    pub use crate::container::{Container, Status};
+    pub use crate::container::{Container, Handle, Status};
     pub use crate::state::{AsyncDrop, ResourceState, State, TransitionTo};
 
     /// Transition type alias for Containers.
