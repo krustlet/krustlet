@@ -39,6 +39,30 @@ pub enum Status {
 }
 
 impl Status {
+    /// Create `Status::Waiting` from message.
+    pub fn waiting(message: &str) -> Self {
+        Status::Waiting {
+            timestamp: Utc::now(),
+            message: message.to_string(),
+        }
+    }
+
+    /// Create `Status::Running`.
+    pub fn running() -> Self {
+        Status::Running {
+            timestamp: Utc::now(),
+        }
+    }
+
+    /// Create `Status::Terminated` from message and failed `bool`.
+    pub fn terminated(message: &str, failed: bool) -> Self {
+        Status::Terminated {
+            timestamp: Utc::now(),
+            message: message.to_string(),
+            failed,
+        }
+    }
+
     /// Convert the container status to a Kubernetes API compatible type
     pub fn to_kubernetes(&self, container_name: &str) -> KubeContainerStatus {
         let mut state = ContainerState::default();
