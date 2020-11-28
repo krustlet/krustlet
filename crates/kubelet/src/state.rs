@@ -22,15 +22,15 @@
 //! impl State<PodState, PodStatus> for TestState {
 //!     async fn next(
 //!         self: Box<Self>,
-//!         _pod_state: &mut PodState,
+//!         _state: &mut PodState,
 //!         _pod: &Pod,
 //!     ) -> Transition<PodState> {
 //!         Transition::next(self, TestState)
 //!     }
 //!
-//!     async fn json_status(
+//!     async fn status(
 //!         &self,
-//!         _pod_state: &mut PodState,
+//!         _state: &mut PodState,
 //!         _pod: &Pod,
 //!     ) -> anyhow::Result<PodStatus> {
 //!         Ok(Default::default())
@@ -40,7 +40,7 @@
 //!
 //! The next state must also be State<PodState>, if it is not State, it fails to compile:
 //! ```compile_fail
-//! use kubelet::state::{Transition, State, TransitionTo};
+//! use kubelet::pod::state::prelude::*;
 //! use kubelet::pod::Pod;
 //!
 //! #[derive(Debug, TransitionTo)]
@@ -49,33 +49,38 @@
 //!
 //! struct PodState;
 //!
+//! impl ResourceState for PodState {
+//!     type Manifest = Pod;
+//! }
+//!
 //! #[derive(Debug)]
 //! struct NotState;
 //!
 //! #[async_trait::async_trait]
-//! impl State<PodState> for TestState {
+//! impl State<PodState, PodStatus> for TestState {
 //!     async fn next(
 //!         self: Box<Self>,
-//!         _pod_state: &mut PodState,
+//!         _state: &mut PodState,
 //!         _pod: &Pod,
-//!     ) -> anyhow::Result<Transition<PodState>> {
+//!     ) -> Transition<PodState> {
 //!         // This fails because NotState is not State
-//!         Ok(Transition::next(self, NotState))
+//!         Transition::next(self, NotState)
 //!     }
 //!
-//!     async fn json_status(
+//!     async fn status(
 //!         &self,
-//!         _pod_state: &mut PodState,
+//!         _state: &mut PodState,
 //!         _pod: &Pod,
-//!     ) -> anyhow::Result<serde_json::Value> {
-//!         Ok(serde_json::json!(null))
+//!     ) -> anyhow::Result<PodStatus> {
+//!         Ok(Default::default())
 //!     }
 //! }
 //! ```
 //!
 //! Edges must be defined, even for self-transition, with edge removed, compilation fails:
+//!
 //! ```compile_fail
-//! use kubelet::state::{Transition, State};
+//! use kubelet::pod::state::prelude::*;
 //! use kubelet::pod::Pod;
 //!
 //! #[derive(Debug)]
@@ -85,31 +90,36 @@
 //!
 //! struct PodState;
 //!
+//! impl ResourceState for PodState {
+//!     type Manifest = Pod;
+//! }
+//!
 //! #[async_trait::async_trait]
-//! impl State<PodState> for TestState {
+//! impl State<PodState, PodStatus> for TestState {
 //!     async fn next(
 //!         self: Box<Self>,
-//!         _pod_state: &mut PodState,
+//!         _state: &mut PodState,
 //!         _pod: &Pod,
-//!     ) -> anyhow::Result<Transition<PodState>> {
+//!     ) -> Transition<PodState> {
 //!         // This fails because TestState is not TransitionTo<TestState>
-//!         Ok(Transition::next(self, TestState))
+//!         Transition::next(self, TestState)
 //!     }
 //!
-//!     async fn json_status(
+//!     async fn status(
 //!         &self,
-//!         _pod_state: &mut PodState,
+//!         _state: &mut PodState,
 //!         _pod: &Pod,
-//!     ) -> anyhow::Result<serde_json::Value> {
-//!         Ok(serde_json::json!(null))
+//!     ) -> anyhow::Result<PodStatus> {
+//!         Ok(Default::default())
 //!     }
 //! }
 //! ```
 //!
 //! The next state must have the same PodState type, otherwise compilation will fail:
+//!
 //! ```compile_fail
-//! use kubelet::state::{Transition, State, TransitionTo};
 //! use kubelet::pod::Pod;
+//! use kubelet::pod::state::prelude::*;
 //!
 //! #[derive(Debug, TransitionTo)]
 //! #[transition_to(OtherState)]
@@ -117,47 +127,55 @@
 //!
 //! struct PodState;
 //!
+//! impl ResourceState for PodState {
+//!     type Manifest = Pod;
+//! }
+//!
 //! #[derive(Debug)]
 //! struct OtherState;
 //!
 //! struct OtherPodState;
 //!
+//! impl ResourceState for OtherPodState {
+//!     type Manifest = Pod;
+//! }
+//!
 //! #[async_trait::async_trait]
-//! impl State<PodState> for TestState {
+//! impl State<PodState, PodStatus> for TestState {
 //!     async fn next(
 //!         self: Box<Self>,
-//!         _pod_state: &mut PodState,
+//!         _state: &mut PodState,
 //!         _pod: &Pod,
-//!     ) -> anyhow::Result<Transition<PodState>> {
-//!         // This fails because OtherState is State<OtherPodState>
-//!         Ok(Transition::next(self, OtherState))
+//!     ) -> Transition<PodState> {
+//!         // This fails because `OtherState` is `State<OtherPodState, PodStatus>`
+//!         Transition::next(self, OtherState)
 //!     }
 //!
-//!     async fn json_status(
+//!     async fn status(
 //!         &self,
-//!         _pod_state: &mut PodState,
+//!         _state: &mut PodState,
 //!         _pod: &Pod,
-//!     ) -> anyhow::Result<serde_json::Value> {
-//!         Ok(serde_json::json!(null))
+//!     ) -> anyhow::Result<PodStatus> {
+//!         Ok(Default::default())
 //!     }
 //! }
 //!
 //! #[async_trait::async_trait]
-//! impl State<OtherPodState> for OtherState {
+//! impl State<OtherPodState, PodStatus> for OtherState {
 //!     async fn next(
 //!         self: Box<Self>,
-//!         _pod_state: &mut OtherPodState,
+//!         _state: &mut OtherPodState,
 //!         _pod: &Pod,
-//!     ) -> anyhow::Result<Transition<OtherPodState>> {
-//!         Ok(Transition::Complete(Ok(())))
+//!     ) -> Transition<OtherPodState> {
+//!         Transition::Complete(Ok(()))
 //!     }
 //!
-//!     async fn json_status(
+//!     async fn status(
 //!         &self,
-//!         _pod_state: &mut OtherPodState,
+//!         _state: &mut OtherPodState,
 //!         _pod: &Pod,
-//!     ) -> anyhow::Result<serde_json::Value> {
-//!         Ok(serde_json::json!(null))
+//!     ) -> anyhow::Result<PodStatus> {
+//!         Ok(Default::default())
 //!     }
 //! }
 //! ```

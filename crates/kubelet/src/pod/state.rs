@@ -116,17 +116,13 @@ mod test {
     impl State<PodState, PodStatus> for ValidState {
         async fn next(
             self: Box<Self>,
-            _pod_state: &mut PodState,
+            _state: &mut PodState,
             _pod: &Pod,
         ) -> Transition<PodState, PodStatus> {
             Transition::Complete(Ok(()))
         }
 
-        async fn json_status(
-            &self,
-            _pod_state: &mut PodState,
-            _pod: &Pod,
-        ) -> anyhow::Result<PodStatus> {
+        async fn status(&self, _state: &mut PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
             Ok(Default::default())
         }
     }
@@ -142,17 +138,13 @@ mod test {
         impl State<PodState, PodStatus> for TestState {
             async fn next(
                 self: Box<Self>,
-                _pod_state: &mut PodState,
+                _state: &mut PodState,
                 _pod: &Pod,
             ) -> Transition<PodState, PodStatus> {
                 Transition::next(self, ValidState)
             }
 
-            async fn json_status(
-                &self,
-                _pod_state: &mut PodState,
-                _pod: &Pod,
-            ) -> anyhow::Result<PodStatus> {
+            async fn status(&self, _state: &mut PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
                 Ok(Default::default())
             }
         }
