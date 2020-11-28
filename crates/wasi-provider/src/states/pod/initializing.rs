@@ -112,11 +112,7 @@ impl State<ProviderState, PodState> for Initializing {
         Transition::next(self, Starting::new(container_handles))
     }
 
-    async fn status(
-        &self,
-        _pod_state: &mut PodState,
-        _pmeod: &Pod,
-    ) -> anyhow::Result<PodStatus> {
+    async fn status(&self, _pod_state: &mut PodState, _pmeod: &Pod) -> anyhow::Result<PodStatus> {
         Ok(make_status(Phase::Running, "Initializing"))
     }
 }

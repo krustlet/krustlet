@@ -21,11 +21,7 @@ impl State<ProviderState, PodState> for Completed {
         Transition::Complete(Ok(()))
     }
 
-    async fn status(
-        &self,
-        _pod_state: &mut PodState,
-        _pod: &Pod,
-    ) -> anyhow::Result<PodStatus> {
+    async fn status(&self, _pod_state: &mut PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
         Ok(make_status(Phase::Succeeded, "Completed"))
     }
 }

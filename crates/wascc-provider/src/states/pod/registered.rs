@@ -60,11 +60,7 @@ impl State<PodState, PodStatus> for Registered {
         Transition::next(self, ImagePull)
     }
 
-    async fn status(
-        &self,
-        _pod_state: &mut PodState,
-        _pod: &Pod,
-    ) -> anyhow::Result<PodStatus> {
+    async fn status(&self, _pod_state: &mut PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
         Ok(make_status(Phase::Pending, "Registered"))
     }
 }

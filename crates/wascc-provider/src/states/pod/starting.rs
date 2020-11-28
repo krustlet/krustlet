@@ -210,11 +210,7 @@ impl State<ProviderState, PodState> for Starting {
         Transition::next(self, Running)
     }
 
-    async fn status(
-        &self,
-        _pod_state: &mut PodState,
-        _pod: &Pod,
-    ) -> anyhow::Result<PodStatus> {
+    async fn status(&self, _pod_state: &mut PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
         Ok(make_status(Phase::Pending, "Starting"))
     }
 }

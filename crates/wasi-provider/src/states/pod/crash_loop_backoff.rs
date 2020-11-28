@@ -4,7 +4,6 @@ use kubelet::pod::state::prelude::*;
 
 use super::registered::Registered;
 
-/// Pod has failed multiple times.
 #[derive(Default, Debug, TransitionTo)]
 #[transition_to(Registered)]
 pub struct CrashLoopBackoff;

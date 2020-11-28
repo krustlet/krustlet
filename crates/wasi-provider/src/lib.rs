@@ -56,8 +56,8 @@ use wasi_runtime::Runtime;
 
 mod states;
 use kubelet::pod::state::prelude::ResourceState;
-use states::registered::Registered;
-use states::terminated::Terminated;
+use states::pod::registered::Registered;
+use states::pod::terminated::Terminated;
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 const LOG_DIR_NAME: &str = "wasi-logs";
