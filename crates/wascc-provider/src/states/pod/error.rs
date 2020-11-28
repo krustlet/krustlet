@@ -1,0 +1,35 @@
+use kubelet::pod::state::prelude::*;
+
+use super::crash_loop_backoff::CrashLoopBackoff;
+use super::registered::Registered;
+use crate::PodState;
+
+#[derive(Default, Debug, TransitionTo)]
+#[transition_to(Registered, CrashLoopBackoff)]
+/// The Pod failed to run.
+// If we manually implement, we can allow for arguments.
+pub struct Error {
+    pub message: String,
+}
+
+#[async_trait::async_trait]
+impl State<PodState, PodStatus> for Error {
+    async fn next(self: Box<Self>, pod_state: &mut PodState, _pod: &Pod) -> Transition<PodState> {
+        pod_state.errors += 1;
+        if pod_state.errors > 3 {
+            pod_state.errors = 0;
+            Transition::next(self, CrashLoopBackoff)
+        } else {
+            tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
+            Transition::next(self, Registered)
+        }
+    }
+
+    async fn status(
+        &self,
+        _pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> anyhow::Result<PodStatus> {
+        Ok(make_status(Phase::Pending, &self.message))
+    }
+}
