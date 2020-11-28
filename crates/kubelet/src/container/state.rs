@@ -3,11 +3,21 @@ use crate::container::{patch_container_status, Status};
 use crate::container::{Container, ContainerKey};
 use crate::pod::Pod;
 use crate::state::{ResourceState, State, Transition};
+use chrono::Utc;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::Api;
 use log::{debug, error, warn};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+/// Prelude for Pod state machines.
+pub mod prelude {
+    pub use crate::container::{Container, Status};
+    pub use crate::state::{AsyncDrop, ResourceState, State, TransitionTo};
+
+    /// Transition type alias for Containers.
+    pub type Transition<S> = crate::state::Transition<S, Status>;
+}
 
 /// Iteratively evaluate state machine until it returns Complete.
 pub async fn run_to_completion<S: ResourceState<Manifest = Container> + Send + Sync + 'static>(
@@ -68,7 +78,14 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container> + Send + S
                         "Pod {} container {} state machine exited without error",
                         &pod_name, container_name
                     );
-                    // TODO Patch container success.
+                    let status = Status::Terminated {
+                        timestamp: Utc::now(),
+                        message: "Container exited successfully.".to_string(),
+                        failed: false,
+                    };
+                    patch_container_status(&api, &latest_pod, &container_name, &status)
+                        .await
+                        .unwrap();
                     break;
                 }
                 Err(e) => {
@@ -76,6 +93,15 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container> + Send + S
                         "Pod {} container {} state machine exited with error: {:?}",
                         &pod_name, container_name, e
                     );
+                    let status = Status::Terminated {
+                        timestamp: Utc::now(),
+                        message: format!("Container exited with error: {:?}.", e),
+                        failed: true,
+                    };
+                    patch_container_status(&api, &latest_pod, &container_name, &status)
+                        .await
+                        .unwrap();
+
                     // TODO Patch container failure.
                     break;
                 }

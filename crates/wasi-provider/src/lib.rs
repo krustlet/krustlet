@@ -50,14 +50,14 @@ use kubelet::state::common::{
 use kubelet::state::prelude::SharedState;
 use kubelet::store::Store;
 use kubelet::volume::Ref;
-use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::RwLock;
 use wasi_runtime::Runtime;
 
 mod states;
-use kubelet::pod::state::prelude::ResourceState;
 use states::pod::registered::Registered;
 use states::pod::terminated::Terminated;
+use states::pod::PodState;
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 const LOG_DIR_NAME: &str = "wasi-logs";
@@ -132,64 +132,6 @@ struct ModuleRunContext {
     status_recv: Receiver<(String, kubelet::container::Status)>,
 }
 
-/// State that is shared between pod state handlers.
-pub struct PodState {
-    key: PodKey,
-    run_context: ModuleRunContext,
-    errors: usize,
-    image_pull_backoff_strategy: ExponentialBackoffStrategy,
-    crash_loop_backoff_strategy: ExponentialBackoffStrategy,
-}
-
-impl ResourceState for PodState {
-    type Manifest = Pod;
-}
-
-// No cleanup state needed, we clean up when dropping PodState.
-#[async_trait]
-impl kubelet::state::AsyncDrop for PodState {
-    type ProviderState = ProviderState;
-    async fn async_drop(self, provider_state: &mut ProviderState) {
-        {
-            let mut handles = provider_state.handles.write().await;
-            handles.remove(&self.key);
-        }
-    }
-}
-
-#[async_trait]
-impl GenericPodState for PodState {
-    fn set_modules(&mut self, modules: HashMap<String, Vec<u8>>) {
-        self.run_context.modules = modules;
-    }
-    fn set_volumes(&mut self, volumes: HashMap<String, kubelet::volume::Ref>) {
-        self.run_context.volumes = volumes;
-    }
-    async fn backoff(&mut self, sequence: BackoffSequence) {
-        let backoff_strategy = match sequence {
-            BackoffSequence::ImagePull => &mut self.image_pull_backoff_strategy,
-            BackoffSequence::CrashLoop => &mut self.crash_loop_backoff_strategy,
-        };
-        backoff_strategy.wait().await;
-    }
-    fn reset_backoff(&mut self, sequence: BackoffSequence) {
-        let backoff_strategy = match sequence {
-            BackoffSequence::ImagePull => &mut self.image_pull_backoff_strategy,
-            BackoffSequence::CrashLoop => &mut self.crash_loop_backoff_strategy,
-        };
-        backoff_strategy.reset();
-    }
-    fn record_error(&mut self) -> ThresholdTrigger {
-        self.errors += 1;
-        if self.errors > 3 {
-            self.errors = 0;
-            ThresholdTrigger::Triggered
-        } else {
-            ThresholdTrigger::Untriggered
-        }
-    }
-}
-
 #[async_trait::async_trait]
 impl Provider for WasiProvider {
     type InitialState = Registered<Self>;
@@ -211,21 +153,7 @@ impl Provider for WasiProvider {
     }
 
     async fn initialize_pod_state(&self, pod: &Pod) -> anyhow::Result<Self::PodState> {
-        let (tx, rx) = mpsc::channel(pod.all_containers().len());
-        let run_context = ModuleRunContext {
-            modules: Default::default(),
-            volumes: Default::default(),
-            status_sender: tx,
-            status_recv: rx,
-        };
-        let key = PodKey::from(pod);
-        Ok(PodState {
-            key,
-            run_context,
-            errors: 0,
-            image_pull_backoff_strategy: ExponentialBackoffStrategy::default(),
-            crash_loop_backoff_strategy: ExponentialBackoffStrategy::default(),
-        })
+        Ok(PodState::new(pod, &self.shared))
     }
 
     async fn logs(
