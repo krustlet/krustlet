@@ -7,12 +7,13 @@ use crate::plugin_watcher::PluginRegistry;
 use crate::provider::Provider;
 use crate::webserver::start as start_webserver;
 
-use futures::future::FutureExt;
+use futures::future::{FutureExt, TryFutureExt};
 use kube::api::ListParams;
 use log::{error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::signal::ctrl_c;
+use tokio::task;
 
 use krator::OperatorRuntime;
 
@@ -65,9 +66,9 @@ impl<P: Provider> Kubelet<P> {
         let signal = Arc::new(AtomicBool::new(false));
         let signal_task = start_signal_task(Arc::clone(&signal)).fuse().boxed();
 
-        let plugin_registrar = PluginRegistry::new(&self.config.plugins_dir);
-
-        let registrar = plugin_registrar.run().fuse().boxed();
+        let plugin_registrar = start_plugin_registry(self.provider.plugin_registry())
+            .fuse()
+            .boxed();
 
         // Start the webserver
         let webserver = start_webserver(self.provider.clone(), &self.config.server_config)
@@ -89,8 +90,8 @@ impl<P: Provider> Kubelet<P> {
                 res = node_updater => if let Err(e) = res {
                     error!("Node updater task completed with error {:?}", &e);
                 },
-                res = registrar => if let Err(e) = res {
-                    error!("Registrar task completed with error {:?}", &e);
+                res = plugin_registrar => if let Err(e) = res {
+                    error!("Plugin registrar task completed with error {:?}", &e);
                 }
             };
             // Use relaxed ordering because we just need other tasks to eventually catch the signal.
@@ -158,6 +159,18 @@ async fn start_signal_task(signal: Arc<AtomicBool>) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn start_plugin_registry(registrar: Option<Arc<PluginRegistry>>) -> anyhow::Result<()> {
+    match registrar {
+        Some(r) => r.run().await,
+        // Do nothing; just poll forever and "pretend" that a plugin watcher is running
+        None => {
+            task::spawn(async { loop {} })
+                .map_err(anyhow::Error::from)
+                .await
+        }
+    }
+}
+
 /// Periodically renew node lease and status. Exits if signal is caught.
 async fn start_node_updater(client: kube::Client, node_name: String) -> anyhow::Result<()> {
     let sleep_interval = std::time::Duration::from_secs(10);
@@ -188,6 +201,7 @@ async fn start_signal_handler(
 mod test {
     use super::*;
     use crate::container::Container;
+    use crate::plugin_watcher::PluginRegistry;
     use crate::pod::{Pod, Status};
     use k8s_openapi::api::core::v1::{
         Container as KubeContainer, EnvVar, EnvVarSource, ObjectFieldSelector, Pod as KubePod,
@@ -232,6 +246,10 @@ mod test {
 
         fn provider_state(&self) -> krator::SharedState<ProviderState> {
             Arc::new(RwLock::new(ProviderState {}))
+        }
+
+        fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
+            Some(Arc::new(PluginRegistry::default()))
         }
 
         async fn logs(

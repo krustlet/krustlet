@@ -1,4 +1,5 @@
 use kubelet::config::Config;
+use kubelet::plugin_watcher::PluginRegistry;
 use kubelet::store::composite::ComposableStore;
 use kubelet::store::oci::FileStore;
 use kubelet::Kubelet;
@@ -17,8 +18,9 @@ async fn main() -> anyhow::Result<()> {
     let kubeconfig = kubelet::bootstrap(&config, &config.bootstrap_file, notify_bootstrap).await?;
 
     let store = make_store(&config);
+    let plugin_registry = Arc::new(PluginRegistry::new(&config.plugins_dir));
 
-    let provider = WasiProvider::new(store, &config, kubeconfig.clone()).await?;
+    let provider = WasiProvider::new(store, &config, kubeconfig.clone(), plugin_registry).await?;
     let kubelet = Kubelet::new(provider, kubeconfig, config).await?;
     kubelet.start().await
 }

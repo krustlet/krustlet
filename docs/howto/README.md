@@ -20,3 +20,4 @@ quickly accomplish common tasks.
 - [Running Kubernetes on Minikube](kubernetes-on-minikube.md)
 
 - [Running Web Assembly (WASM) workloads in Kubernetes](wasm.md)
+- [Registering a CSI driver](csi.md)

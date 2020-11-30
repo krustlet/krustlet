@@ -38,8 +38,8 @@ registering plugins:
 
 ### Additional information
 
-In normal Kubernetes land, most CSI plugins register themselves with the
-Kubelet using the
-[Node Driver Registrar](https://github.com/kubernetes-csi/node-driver-registrar)
-sidecar container that runs with the actual CSI driver. It has the
-responsibilty for creating the socket that Kubelet discovers.
+In normal Kubernetes land, most CSI plugins register themselves with the Kubelet
+using the [Node Driver
+Registrar](https://github.com/kubernetes-csi/node-driver-registrar) sidecar
+container that runs with the actual CSI driver. It has the responsibilty for
+creating the socket that Kubelet discovers.

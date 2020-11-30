@@ -50,6 +50,7 @@ tokio  = { version = "0.2", features = ["fs", "stream", "macros", "signal", "uds
 kube = { version = "0.42", default-features = false }
 kube-runtime = { version= "0.42", default-features = false }
 k8s-openapi = { version = "0.9", default-features = false, features = ["v1_18"] }
+k8s-csi = "0.2"
 chrono = { version = "0.4", features = ["serde"] }
 structopt = { version = "0.3", features = ["wrap_help"], optional = true }
 hostname = "0.3"
@@ -63,6 +64,7 @@ rcgen = "0.8"
 uuid = { version = "0.8.1", features = ["v4"] }
 krator = { path = "../krator", version = "0.1", default-features = false }
 json-patch = "0.2"
+tempdir = "0.3"
 tonic = "0.3"
 # prost is needed for the files built by the protobuf
 prost = "0.6"
@@ -84,7 +86,6 @@ ws2_32-sys = "0.2.1"
 bytes = "0.3"
 env_logger = { version = "0.4", default-features = false }
 slab = "0.4"
-tempdir = "0.3"
 version-sync = "0.5"
 
 [dev-dependencies]

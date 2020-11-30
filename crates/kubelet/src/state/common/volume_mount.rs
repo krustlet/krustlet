@@ -36,18 +36,23 @@ impl<P: GenericProvider> State<P::PodState> for VolumeMount<P> {
     ) -> Transition<P::PodState> {
         let pod = pod.latest();
 
-        let (client, volume_path) = {
+        let (client, volume_path, plugin_registry) = {
             let state_reader = provider_state.read().await;
-            (state_reader.client(), state_reader.volume_path())
+            (
+                state_reader.client(),
+                state_reader.volume_path(),
+                state_reader.plugin_registry(),
+            )
         };
-        let volumes = match Ref::volumes_from_pod(&volume_path, &pod, &client).await {
-            Ok(v) => v,
-            Err(e) => {
-                error!("{:?}", e);
-                let next = Error::<P>::new(e.to_string());
-                return Transition::next(self, next);
-            }
-        };
+        let volumes =
+            match Ref::volumes_from_pod(&volume_path, &pod, &client, plugin_registry).await {
+                Ok(v) => v,
+                Err(e) => {
+                    error!("{:?}", e);
+                    let next = Error::<P>::new(e.to_string());
+                    return Transition::next(self, next);
+                }
+            };
         pod_state.set_volumes(volumes).await;
         Transition::next_unchecked(self, P::RunState::default())
     }
