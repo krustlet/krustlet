@@ -3,7 +3,7 @@
 //! Example Pod state machine:
 //! ```
 //! use kubelet::pod::state::prelude::*;
-//! use kubelet::pod::Pod;
+//! use kubelet::pod::{Pod, Status};
 //!
 //! #[derive(Debug, TransitionTo)]
 //! #[transition_to(TestState)]
@@ -16,10 +16,11 @@
 //!
 //! impl ResourceState for PodState {
 //!     type Manifest = Pod;
+//!     type Status = Status;
 //! }
 //!
 //! #[async_trait::async_trait]
-//! impl State<PodState, PodStatus> for TestState {
+//! impl State<PodState> for TestState {
 //!     async fn next(
 //!         self: Box<Self>,
 //!         _state: &mut PodState,
@@ -51,13 +52,14 @@
 //!
 //! impl ResourceState for PodState {
 //!     type Manifest = Pod;
+//!     type Status = PodStatus;
 //! }
 //!
 //! #[derive(Debug)]
 //! struct NotState;
 //!
 //! #[async_trait::async_trait]
-//! impl State<PodState, PodStatus> for TestState {
+//! impl State<PodState> for TestState {
 //!     async fn next(
 //!         self: Box<Self>,
 //!         _state: &mut PodState,
@@ -92,10 +94,11 @@
 //!
 //! impl ResourceState for PodState {
 //!     type Manifest = Pod;
+//!     type Status = PodStatus;
 //! }
 //!
 //! #[async_trait::async_trait]
-//! impl State<PodState, PodStatus> for TestState {
+//! impl State<PodState> for TestState {
 //!     async fn next(
 //!         self: Box<Self>,
 //!         _state: &mut PodState,
@@ -129,6 +132,7 @@
 //!
 //! impl ResourceState for PodState {
 //!     type Manifest = Pod;
+//!     type Status = PodStatus;
 //! }
 //!
 //! #[derive(Debug)]
@@ -138,10 +142,11 @@
 //!
 //! impl ResourceState for OtherPodState {
 //!     type Manifest = Pod;
+//!     type Status = PodStatus;
 //! }
 //!
 //! #[async_trait::async_trait]
-//! impl State<PodState, PodStatus> for TestState {
+//! impl State<PodState> for TestState {
 //!     async fn next(
 //!         self: Box<Self>,
 //!         _state: &mut PodState,
@@ -161,7 +166,7 @@
 //! }
 //!
 //! #[async_trait::async_trait]
-//! impl State<OtherPodState, PodStatus> for OtherState {
+//! impl State<OtherPodState> for OtherState {
 //!     async fn next(
 //!         self: Box<Self>,
 //!         _state: &mut OtherPodState,
@@ -190,9 +195,15 @@ pub use kubelet_derive::*;
 /// Holds arbitrary State objects in Box, and prevents manual construction of Transition::Next
 ///
 /// ```compile_fail
-/// use kubelet::state::{Transition, StateHolder, Stub};
+/// use kubelet::state::{Transition, StateHolder, ResourceState};
+/// use kubelet::pod::{Pod, Status, state::Stub};
 ///
 /// struct PodState;
+///
+/// impl ResourceState for PodState {
+///     type Manifest = Pod;
+///     type Status = Status;
+/// }
 ///
 /// // This fails because `state` is a private field. Use Transition::next classmethod instead.
 /// let _transition = Transition::<PodState>::Next(StateHolder {
@@ -294,6 +305,8 @@ impl<T> SharedState<T> {
 pub trait ResourceState {
     /// The manifest / definition of the resource. Pod, Container, etc.
     type Manifest;
+    /// The status type of the state machine.
+    type Status;
 }
 
 #[async_trait::async_trait]
@@ -308,5 +321,5 @@ pub trait State<ProviderState, S: ResourceState>: Sync + Send + 'static + std::f
     ) -> Transition<ProviderState, S>;
 
     /// Provider supplies JSON status patch to apply when entering this state.
-    async fn status(&self, state: &mut S, manifest: &S::Manifest) -> anyhow::Result<Status>;
+    async fn status(&self, state: &mut S, manifest: &S::Manifest) -> anyhow::Result<S::Status>;
 }

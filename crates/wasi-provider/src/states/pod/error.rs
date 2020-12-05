@@ -13,7 +13,7 @@ pub struct Error {
 }
 
 #[async_trait::async_trait]
-impl State<PodState, PodStatus> for Error {
+impl State<PodState> for Error {
     async fn next(self: Box<Self>, pod_state: &mut PodState, _pod: &Pod) -> Transition<PodState> {
         pod_state.errors += 1;
         if pod_state.errors > 3 {

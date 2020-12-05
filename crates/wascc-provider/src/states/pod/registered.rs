@@ -50,7 +50,7 @@ fn has_args(container: &Container) -> bool {
 pub struct Registered;
 
 #[async_trait::async_trait]
-impl State<PodState, PodStatus> for Registered {
+impl State<PodState> for Registered {
     async fn next(self: Box<Self>, _pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
         info!("Pod added: {}.", pod.name());
         match validate_pod_runnable(&pod) {

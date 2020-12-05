@@ -12,7 +12,7 @@ use crate::transition_to_error;
 pub struct VolumeMount;
 
 #[async_trait::async_trait]
-impl State<PodState, PodStatus> for VolumeMount {
+impl State<PodState> for VolumeMount {
     async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
         pod_state.run_context.volumes = match Ref::volumes_from_pod(
             &pod_state.shared.volume_path,

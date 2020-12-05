@@ -235,7 +235,7 @@ async fn start_signal_handler(
 mod test {
     use super::*;
     use crate::container::Container;
-    use crate::pod::Pod;
+    use crate::pod::{Pod, Status};
     use crate::state::{AsyncDrop, ResourceState};
     use k8s_openapi::api::core::v1::{
         Container as KubeContainer, EnvVar, EnvVarSource, ObjectFieldSelector, PodSpec, PodStatus,
@@ -256,6 +256,7 @@ mod test {
 
     impl ResourceState for PodState {
         type Manifest = Pod;
+        type Status = Status;
     }
 
     #[async_trait::async_trait]

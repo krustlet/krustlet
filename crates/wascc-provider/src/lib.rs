@@ -36,7 +36,7 @@ use kubelet::backoff::{BackoffStrategy, ExponentialBackoffStrategy};
 use kubelet::container::Handle as ContainerHandle;
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
-use kubelet::pod::{Handle, Pod, PodKey};
+use kubelet::pod::{Handle, Pod, PodKey, Status as PodStatus};
 use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
 use kubelet::state::common::registered::Registered;
@@ -296,6 +296,7 @@ impl GenericPodState for PodState {
 
 impl ResourceState for PodState {
     type Manifest = Pod;
+    type Status = PodStatus;
 }
 
 // No cleanup state needed, we clean up when dropping PodState.

@@ -34,7 +34,7 @@ fn validate_is_kube_proxy(container: &Container) -> anyhow::Result<bool> {
 pub struct Registered;
 
 #[async_trait::async_trait]
-impl State<PodState, PodStatus> for Registered {
+impl State<PodState> for Registered {
     async fn next(self: Box<Self>, _state: &mut PodState, pod: &Pod) -> Transition<PodState> {
         match validate_pod_runnable(&pod) {
             Ok(x) if x => {

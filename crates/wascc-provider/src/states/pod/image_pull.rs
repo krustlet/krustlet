@@ -13,7 +13,7 @@ use super::volume_mount::VolumeMount;
 pub struct ImagePull;
 
 #[async_trait::async_trait]
-impl State<PodState, PodStatus> for ImagePull {
+impl State<PodState> for ImagePull {
     async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
         let auth_resolver =
             kubelet::secret::RegistryAuthResolver::new(pod_state.shared.client.clone(), &pod);

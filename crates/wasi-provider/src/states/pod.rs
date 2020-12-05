@@ -3,6 +3,7 @@ use crate::SharedPodState;
 use kubelet::backoff::ExponentialBackoffStrategy;
 use kubelet::pod::Pod;
 use kubelet::pod::PodKey;
+use kubelet::pod::Status;
 use kubelet::state::ResourceState;
 use tokio::sync::mpsc;
 
@@ -28,11 +29,10 @@ pub struct PodState {
     image_pull_backoff_strategy: ExponentialBackoffStrategy,
     crash_loop_backoff_strategy: ExponentialBackoffStrategy,
 }
-
 impl ResourceState for PodState {
     type Manifest = Pod;
+    type Status = Status;
 }
-
 // No cleanup state needed, we clean up when dropping PodState.
 #[async_trait]
 impl kubelet::state::AsyncDrop for PodState {

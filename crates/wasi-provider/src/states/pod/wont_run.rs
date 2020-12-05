@@ -6,7 +6,7 @@ use kubelet::pod::state::prelude::*;
 pub struct WontRun;
 
 #[async_trait::async_trait]
-impl State<PodState, PodStatus> for WontRun {
+impl State<PodState> for WontRun {
     async fn next(self: Box<Self>, _state: &mut PodState, _pod: &Pod) -> Transition<PodState> {
         loop {
             tokio::time::delay_for(std::time::Duration::from_secs(60)).await;

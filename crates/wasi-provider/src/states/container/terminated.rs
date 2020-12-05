@@ -9,7 +9,7 @@ pub struct Terminated {
 }
 
 #[async_trait::async_trait]
-impl State<ContainerState, Status> for Terminated {
+impl State<ContainerState> for Terminated {
     async fn next(
         self: Box<Self>,
         _state: &mut ContainerState,

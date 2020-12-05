@@ -17,13 +17,15 @@ pub mod prelude {
     pub use crate::state::{AsyncDrop, ResourceState, State, TransitionTo};
 
     /// Transition type alias for Pods.
-    pub type Transition<PodState> = crate::state::Transition<PodState, PodStatus>;
+    pub type Transition<PodState> = crate::state::Transition<PodState>;
 }
 
 /// Iteratively evaluate state machine until it returns Complete.
-pub async fn run_to_completion<PodState: ResourceState<Manifest = Pod> + Send + Sync + 'static>(
+pub async fn run_to_completion<
+    PodState: ResourceState<Manifest = Pod, Status = Status> + Send + Sync + 'static,
+>(
     client: &kube::Client,
-    state: impl State<PodState, Status>,
+    state: impl State<PodState>,
     pod_state: &mut PodState,
     pod: Arc<RwLock<Pod>>,
 ) {
@@ -42,7 +44,7 @@ pub async fn run_to_completion<PodState: ResourceState<Manifest = Pod> + Send + 
         return;
     }
 
-    let mut state: Box<dyn State<PodState, Status>> = Box::new(state);
+    let mut state: Box<dyn State<PodState>> = Box::new(state);
 
     loop {
         debug!("Pod {} entering state {:?}", &name, state);
@@ -87,12 +89,12 @@ pub async fn run_to_completion<PodState: ResourceState<Manifest = Pod> + Send + 
 pub struct Stub;
 
 #[async_trait::async_trait]
-impl<P: 'static + Sync + Send + ResourceState<Manifest = Pod>> State<P, Status> for Stub {
-    async fn next(self: Box<Self>, _state: &mut P, _manifest: &Pod) -> Transition<P, Status> {
+impl<P: 'static + Sync + Send + ResourceState<Manifest = Pod, Status = Status>> State<P> for Stub {
+    async fn next(self: Box<Self>, _state: &mut P, _manifest: &Pod) -> Transition<P> {
         Transition::Complete(Ok(()))
     }
 
-    async fn status(&self, _pod_state: &mut P, _pod: &Pod) -> anyhow::Result<Status> {
+    async fn status(&self, _pod_state: &mut P, _pod: &Pod) -> anyhow::Result<P::Status> {
         Ok(Default::default())
     }
 }
@@ -107,18 +109,15 @@ mod test {
 
     impl ResourceState for PodState {
         type Manifest = Pod;
+        type Status = PodStatus;
     }
 
     #[derive(Debug)]
     struct ValidState;
 
     #[async_trait::async_trait]
-    impl State<PodState, PodStatus> for ValidState {
-        async fn next(
-            self: Box<Self>,
-            _state: &mut PodState,
-            _pod: &Pod,
-        ) -> Transition<PodState, PodStatus> {
+    impl State<PodState> for ValidState {
+        async fn next(self: Box<Self>, _state: &mut PodState, _pod: &Pod) -> Transition<PodState> {
             Transition::Complete(Ok(()))
         }
 
@@ -135,12 +134,12 @@ mod test {
         impl TransitionTo<ValidState> for TestState {}
 
         #[async_trait::async_trait]
-        impl State<PodState, PodStatus> for TestState {
+        impl State<PodState> for TestState {
             async fn next(
                 self: Box<Self>,
                 _state: &mut PodState,
                 _pod: &Pod,
-            ) -> Transition<PodState, PodStatus> {
+            ) -> Transition<PodState> {
                 Transition::next(self, ValidState)
             }
 

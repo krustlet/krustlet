@@ -24,6 +24,7 @@
 //!
 //! impl ResourceState for PodState {
 //!     type Manifest = Pod;
+//!     type Status = PodStatus;
 //! }
 //!
 //! #[async_trait::async_trait]

@@ -9,7 +9,7 @@ use kubelet::pod::state::prelude::*;
 pub struct ImagePullBackoff;
 
 #[async_trait::async_trait]
-impl State<PodState, PodStatus> for ImagePullBackoff {
+impl State<PodState> for ImagePullBackoff {
     async fn next(self: Box<Self>, pod_state: &mut PodState, _pod: &Pod) -> Transition<PodState> {
         pod_state.image_pull_backoff_strategy.wait().await;
         Transition::next(self, ImagePull)

@@ -8,7 +8,7 @@ use kubelet::container::state::prelude::*;
 pub struct Running;
 
 #[async_trait::async_trait]
-impl State<ContainerState, Status> for Running {
+impl State<ContainerState> for Running {
     async fn next(
         self: Box<Self>,
         _state: &mut ContainerState,

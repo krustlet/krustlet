@@ -1,5 +1,5 @@
 use crate::wasi_runtime::{HandleFactory, Runtime};
-use kubelet::container::{Container, Handle};
+use kubelet::container::{Container, Handle, Status};
 use kubelet::state::ResourceState;
 
 pub(crate) mod running;
@@ -12,4 +12,5 @@ struct ContainerState;
 
 impl ResourceState for ContainerState {
     type Manifest = Container;
+    type Status = Status;
 }

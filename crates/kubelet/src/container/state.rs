@@ -16,13 +16,15 @@ pub mod prelude {
     pub use crate::state::{AsyncDrop, ResourceState, State, TransitionTo};
 
     /// Transition type alias for Containers.
-    pub type Transition<S> = crate::state::Transition<S, Status>;
+    pub type Transition<S> = crate::state::Transition<S>;
 }
 
 /// Iteratively evaluate state machine until it returns Complete.
-pub async fn run_to_completion<S: ResourceState<Manifest = Container> + Send + Sync + 'static>(
+pub async fn run_to_completion<
+    S: ResourceState<Manifest = Container, Status = Status> + Send + Sync + 'static,
+>(
     client: &kube::Client,
-    initial_state: impl State<S, Status>,
+    initial_state: impl State<S>,
     container_state: &mut S,
     pod: Arc<RwLock<Pod>>,
     container_name: ContainerKey,
@@ -35,7 +37,7 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container> + Send + S
         (name, api)
     };
 
-    let mut state: Box<dyn State<S, Status>> = Box::new(initial_state);
+    let mut state: Box<dyn State<S>> = Box::new(initial_state);
 
     loop {
         debug!(
