@@ -1,10 +1,5 @@
-<<<<<<< HEAD
 use crate::{PodState, ProviderState};
-use kubelet::state::prelude::*;
-=======
-use crate::PodState;
 use kubelet::pod::state::prelude::*;
->>>>>>> Refactor status API and begin container state run method
 
 /// Pod was deleted.
 #[derive(Default, Debug)]
@@ -21,7 +16,11 @@ impl State<ProviderState, PodState> for Completed {
         Transition::Complete(Ok(()))
     }
 
-    async fn status(&self, _pod_state: &mut PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
+    async fn status(
+        &self,
+        _pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> anyhow::Result<PodStatus> {
         Ok(make_status(Phase::Succeeded, "Completed"))
     }
 }

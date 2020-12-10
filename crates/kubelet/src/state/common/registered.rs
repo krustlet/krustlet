@@ -1,8 +1,7 @@
 //! The Kubelet is aware of the Pod.
 
-use crate::state::prelude::*;
-
 use log::{debug, error, info};
+use crate::pod::state::prelude::*;
 
 use super::error::Error;
 use super::image_pull::ImagePull;
@@ -49,12 +48,12 @@ impl<P: GenericProvider> State<P::ProviderState, P::PodState> for Registered<P> 
         Transition::next(self, next)
     }
 
-    async fn json_status(
+    async fn status(
         &self,
         _pod_state: &mut P::PodState,
         _pod: &Pod,
-    ) -> anyhow::Result<serde_json::Value> {
-        make_status(Phase::Pending, "Registered")
+    ) -> anyhow::Result<<P::PodState as ResourceState>::Status> {
+        Ok(make_status(Phase::Pending, "Registered"))
     }
 }
 

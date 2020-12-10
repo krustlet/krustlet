@@ -1,7 +1,6 @@
 //! The Pod failed to run.
 
-use crate::state::prelude::*;
-
+use crate::pod::state::prelude::*;
 use super::crash_loop_backoff::CrashLoopBackoff;
 use super::registered::Registered;
 use super::{GenericPodState, GenericProvider, ThresholdTrigger};
@@ -50,12 +49,12 @@ impl<P: GenericProvider> State<P::ProviderState, P::PodState> for Error<P> {
         }
     }
 
-    async fn json_status(
+    async fn status(
         &self,
         _pod_state: &mut P::PodState,
         _pod: &Pod,
-    ) -> anyhow::Result<serde_json::Value> {
-        make_status(Phase::Pending, &self.message)
+    ) -> anyhow::Result<<P::PodState as ResourceState>::Status> {
+        Ok(make_status(Phase::Pending, &self.message))
     }
 }
 

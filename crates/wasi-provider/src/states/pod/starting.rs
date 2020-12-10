@@ -5,20 +5,17 @@ use std::sync::Arc;
 
 use log::{debug, error, info};
 use tokio::sync::Mutex;
-
+use kubelet::state::common::GenericProviderState;
 use kubelet::container::{Container, ContainerKey};
-use kubelet::pod::state::prelude::*;
 use kubelet::pod::{Handle, PodKey};
 use kubelet::provider;
-use kubelet::state::common::GenericProviderState;
-use kubelet::state::prelude::*;
+use kubelet::pod::state::prelude::*;
 use kubelet::volume::Ref;
 
 use crate::wasi_runtime::{self, HandleFactory, Runtime, WasiRuntime};
 use crate::{PodState, ProviderState};
 
 use super::running::Running;
-use crate::states::container::ContainerHandle;
 
 fn volume_path_map(
     container: &Container,
@@ -51,17 +48,17 @@ fn volume_path_map(
 }
 
 pub(crate) async fn start_container(
-    provider_state: &kubelet::state::prelude::SharedState<ProviderState>,
+    provider_state: &SharedState<ProviderState>,
     pod_state: &mut PodState,
     pod: &Pod,
     container: &Container,
-) -> anyhow::Result<ContainerHandle> {
+) -> anyhow::Result<kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>>
+{
     let (client, log_path) = {
         // Limit the time we hold the lock
         let state_reader = provider_state.read().await;
         (state_reader.client(), state_reader.log_path.clone())
     };
-
     let module_data = pod_state
         .run_context
         .modules
@@ -131,19 +128,23 @@ impl State<ProviderState, PodState> for Starting {
             }
         }
 
-        let pod_handle = Arc::new(Handle::new(container_handles, pod.clone(), None));
+        let pod_handle = Handle::new(container_handles, pod.clone(), None);
         let pod_key = PodKey::from(pod);
         {
             let state_reader = provider_state.read().await;
             let mut handles_writer = state_reader.handles.write().await;
-            handles_writer.insert(pod_key, pod_handle);
+            handles_writer.insert(pod_key, Arc::new(pod_handle));
         }
         info!("All containers started for pod {:?}.", pod.name());
 
         Transition::next(self, Running)
     }
 
-    async fn status(&self, _pod_state: &mut PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
+    async fn status(
+        &self,
+        _pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> anyhow::Result<PodStatus> {
         Ok(make_status(Phase::Pending, "Starting"))
     }
 }

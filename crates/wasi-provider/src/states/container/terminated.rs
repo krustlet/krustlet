@@ -1,4 +1,4 @@
-use super::ContainerState;
+use super::{SharedContainerState, ContainerState};
 use kubelet::container::state::prelude::*;
 
 /// The container is starting.
@@ -9,12 +9,13 @@ pub struct Terminated {
 }
 
 #[async_trait::async_trait]
-impl State<ContainerState> for Terminated {
+impl State<SharedContainerState, ContainerState> for Terminated {
     async fn next(
         self: Box<Self>,
+        _provider_state: SharedState<SharedContainerState>,
         _state: &mut ContainerState,
         _container: &Container,
-    ) -> Transition<ContainerState> {
+    ) -> Transition<SharedContainerState, ContainerState> {
         todo!()
     }
 

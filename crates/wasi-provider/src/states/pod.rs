@@ -1,23 +1,22 @@
 use crate::ModuleRunContext;
-use crate::SharedPodState;
 use kubelet::backoff::ExponentialBackoffStrategy;
 use kubelet::pod::Pod;
 use kubelet::pod::PodKey;
 use kubelet::pod::Status;
 use kubelet::state::ResourceState;
 use tokio::sync::mpsc;
+use kubelet::state::common::{
+    BackoffSequence, GenericPodState, ThresholdTrigger,
+};
+use kubelet::backoff::{BackoffStrategy};
+use std::collections::HashMap;
+use crate::ProviderState;
+use async_trait::async_trait;
 
 pub(crate) mod completed;
-pub(crate) mod crash_loop_backoff;
-pub(crate) mod error;
-pub(crate) mod image_pull;
-pub(crate) mod image_pull_backoff;
 pub(crate) mod initializing;
-pub(crate) mod registered;
 pub(crate) mod running;
 pub(crate) mod starting;
-pub(crate) mod terminated;
-pub(crate) mod volume_mount;
 pub(crate) mod wont_run;
 
 
@@ -46,7 +45,7 @@ impl kubelet::state::AsyncDrop for PodState {
 }
 
 impl PodState {
-    fn new() -> Self {
+    pub fn new(pod: &Pod) -> Self {
         let (tx, rx) = mpsc::channel(pod.all_containers().len());
         let run_context = ModuleRunContext {
             modules: Default::default(),

@@ -186,7 +186,6 @@
 //! ```
 
 pub mod common;
-pub mod prelude;
 
 #[cfg(feature = "derive")]
 #[doc(hidden)]
@@ -212,7 +211,7 @@ pub use kubelet_derive::*;
 /// ```
 pub struct StateHolder<ProviderState, S: ResourceState> {
     // This is private, preventing manual construction of Transition::Next
-    state: Box<dyn State<ProviderState, S>>,
+    pub (crate) state: Box<dyn State<ProviderState, S>>,
 }
 
 /// Represents result of state execution and which state to transition to next.
@@ -233,7 +232,7 @@ impl<ProviderState, S: ResourceState> Transition<ProviderState, S> {
     /// done manually or with the `TransitionTo` derive macro (requires the `derive` feature to be
     /// enabled)
     #[allow(clippy::boxed_local)]
-    pub fn next<I: State<ProviderState, S: ResourceState>, O: State<ProviderState, S>>(
+    pub fn next<I: State<ProviderState, S>, O: State<ProviderState, S>>(
         _i: Box<I>,
         o: O,
     ) -> Transition<ProviderState, S>
@@ -248,11 +247,11 @@ impl<ProviderState, S: ResourceState> Transition<ProviderState, S> {
     /// states which cannot declare an exit transition to an associated state
     /// without encountering a "conflicting implementations" compiler error.
     #[allow(clippy::boxed_local)]
-    pub fn next_unchecked<I: State<ProviderState, PodState>, S: State<ProviderState, PodState>>(
+    pub fn next_unchecked<I: State<ProviderState, S>, O: State<ProviderState, S>>(
         _i: Box<I>,
-        s: S,
-    ) -> Transition<ProviderState, PodState> {
-        Transition::Next(StateHolder { state: Box::new(s) })
+        o: O,
+    ) -> Transition<ProviderState, S> {
+        Transition::Next(StateHolder { state: Box::new(o) })
     }
 }
 
@@ -316,8 +315,8 @@ pub trait State<ProviderState, S: ResourceState>: Sync + Send + 'static + std::f
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<ProviderState>,
-        pod_state: &mut S,
-        pod: &Pod,
+        state: &mut S,
+        manifest: &S::Manifest,
     ) -> Transition<ProviderState, S>;
 
     /// Provider supplies JSON status patch to apply when entering this state.

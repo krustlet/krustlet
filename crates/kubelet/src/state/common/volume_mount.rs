@@ -2,9 +2,8 @@
 
 use log::error;
 
-use crate::state::prelude::*;
 use crate::volume::Ref;
-
+use crate::pod::state::prelude::*;
 use super::{GenericPodState, GenericProvider, GenericProviderState};
 use crate::state::common::error::Error;
 
@@ -51,12 +50,12 @@ impl<P: GenericProvider> State<P::ProviderState, P::PodState> for VolumeMount<P>
         Transition::next_unchecked(self, P::RunState::default())
     }
 
-    async fn json_status(
+    async fn status(
         &self,
         _pod_state: &mut P::PodState,
         _pod: &Pod,
-    ) -> anyhow::Result<serde_json::Value> {
-        make_status(Phase::Pending, "VolumeMount")
+    ) -> anyhow::Result<<P::PodState as ResourceState>::Status> {
+        Ok(make_status(Phase::Pending, "VolumeMount"))
     }
 }
 

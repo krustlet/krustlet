@@ -44,7 +44,7 @@ use kubelet::state::common::terminated::Terminated;
 use kubelet::state::common::{
     BackoffSequence, GenericPodState, GenericProvider, GenericProviderState, ThresholdTrigger,
 };
-use kubelet::state::prelude::SharedState;
+use kubelet::pod::state::prelude::SharedState;
 use kubelet::store::Store;
 
 use kubelet::pod::state::prelude::ResourceState;
@@ -64,8 +64,6 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Mutex as TokioMutex;
 
 mod states;
-use states::pod::registered::Registered;
-use states::pod::terminated::Terminated;
 
 /// The architecture that the pod targets.
 const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
@@ -382,7 +380,7 @@ impl Provider for WasccProvider {
 impl GenericProvider for WasccProvider {
     type ProviderState = ProviderState;
     type PodState = PodState;
-    type RunState = crate::states::starting::Starting;
+    type RunState = crate::states::pod::starting::Starting;
 
     fn validate_pod_runnable(pod: &Pod) -> anyhow::Result<()> {
         if !pod.init_containers().is_empty() {

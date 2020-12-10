@@ -38,16 +38,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use kubelet::backoff::{BackoffStrategy, ExponentialBackoffStrategy};
 use kubelet::node::Builder;
 use kubelet::pod::{Handle, Pod, PodKey};
 use kubelet::provider::{Provider, ProviderError};
 use kubelet::state::common::registered::Registered;
 use kubelet::state::common::terminated::Terminated;
 use kubelet::state::common::{
-    BackoffSequence, GenericPodState, GenericProvider, GenericProviderState, ThresholdTrigger,
+    GenericProvider, GenericProviderState
 };
-use kubelet::state::prelude::SharedState;
+use kubelet::pod::state::prelude::SharedState;
 use kubelet::store::Store;
 use kubelet::volume::Ref;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -55,8 +54,6 @@ use tokio::sync::RwLock;
 use wasi_runtime::Runtime;
 
 mod states;
-use states::pod::registered::Registered;
-use states::pod::terminated::Terminated;
 use states::pod::PodState;
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
@@ -155,7 +152,7 @@ impl Provider for WasiProvider {
     }
 
     async fn initialize_pod_state(&self, pod: &Pod) -> anyhow::Result<Self::PodState> {
-        Ok(PodState::new(pod, &self.shared))
+        Ok(PodState::new(pod))
     }
 
     async fn logs(
@@ -178,7 +175,7 @@ impl Provider for WasiProvider {
 impl GenericProvider for WasiProvider {
     type ProviderState = ProviderState;
     type PodState = PodState;
-    type RunState = crate::states::initializing::Initializing;
+    type RunState = crate::states::pod::initializing::Initializing;
 
     fn validate_pod_runnable(_pod: &Pod) -> anyhow::Result<()> {
         Ok(())

@@ -1,3 +1,4 @@
+
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::Api;
 use kubelet::container::patch_container_status;
@@ -61,7 +62,11 @@ impl State<ProviderState, PodState> for Running {
         Transition::next(self, Completed)
     }
 
-    async fn status(&self, _pod_state: &mut PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
+    async fn status(
+        &self,
+        _pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> anyhow::Result<PodStatus> {
         Ok(make_status(Phase::Running, "Running"))
     }
 }

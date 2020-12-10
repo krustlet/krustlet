@@ -1,7 +1,6 @@
 //! Kubelet encountered an error when pulling container image.
 
-use crate::state::prelude::*;
-
+use crate::pod::state::prelude::*;
 use super::image_pull::ImagePull;
 use super::{BackoffSequence, GenericPodState, GenericProvider};
 
@@ -36,12 +35,12 @@ impl<P: GenericProvider> State<P::ProviderState, P::PodState> for ImagePullBacko
         Transition::next(self, ImagePull::<P>::default())
     }
 
-    async fn json_status(
+    async fn status(
         &self,
         _pod_state: &mut P::PodState,
         _pod: &Pod,
-    ) -> anyhow::Result<serde_json::Value> {
-        make_status(Phase::Pending, "ImagePullBackoff")
+    ) -> anyhow::Result<<P::PodState as ResourceState>::Status> {
+        Ok(make_status(Phase::Pending, "ImagePullBackoff"))
     }
 }
 

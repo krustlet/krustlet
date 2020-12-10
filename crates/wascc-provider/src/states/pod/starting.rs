@@ -7,11 +7,10 @@ use log::{debug, error, info};
 use tokio::sync::Mutex;
 
 use kubelet::container::{Container, ContainerKey, Handle as ContainerHandle};
-use kubelet::pod::state::prelude::*;
 use kubelet::pod::{Handle, PodKey};
 use kubelet::provider::Provider;
 use kubelet::state::common::error::Error;
-use kubelet::state::prelude::*;
+use kubelet::pod::state::prelude::*;
 
 use crate::rand::Rng;
 use crate::VolumeBinding;
@@ -86,7 +85,7 @@ async fn assign_container_port(
 }
 
 async fn start_container(
-    provider_state: &kubelet::state::prelude::SharedState<ProviderState>,
+    provider_state: &SharedState<ProviderState>,
     pod_state: &mut PodState,
     container: &Container,
     pod: &Pod,
@@ -210,7 +209,11 @@ impl State<ProviderState, PodState> for Starting {
         Transition::next(self, Running)
     }
 
-    async fn status(&self, _pod_state: &mut PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
+    async fn status(
+        &self,
+        _pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> anyhow::Result<PodStatus> {
         Ok(make_status(Phase::Pending, "Starting"))
     }
 }

@@ -1,5 +1,5 @@
 use super::terminated::Terminated;
-use super::ContainerState;
+use super::{SharedContainerState, ContainerState};
 use kubelet::container::state::prelude::*;
 
 /// The container is starting.
@@ -8,12 +8,13 @@ use kubelet::container::state::prelude::*;
 pub struct Running;
 
 #[async_trait::async_trait]
-impl State<ContainerState> for Running {
+impl State<SharedContainerState, ContainerState> for Running {
     async fn next(
         self: Box<Self>,
+        _provider_state: SharedState<SharedContainerState>,
         _state: &mut ContainerState,
         _container: &Container,
-    ) -> Transition<ContainerState> {
+    ) -> Transition<SharedContainerState, ContainerState> {
         todo!()
     }
 

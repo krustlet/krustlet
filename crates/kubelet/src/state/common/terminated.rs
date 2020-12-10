@@ -1,7 +1,6 @@
 //! Pod was deleted.
 
-use crate::state::prelude::*;
-
+use crate::pod::state::prelude::*;
 use super::{GenericProvider, GenericProviderState};
 
 /// Pod was deleted.
@@ -39,11 +38,11 @@ impl<P: GenericProvider> State<P::ProviderState, P::PodState> for Terminated<P> 
         Transition::Complete(stop_result)
     }
 
-    async fn json_status(
+    async fn status(
         &self,
         _pod_state: &mut P::PodState,
         _pod: &Pod,
-    ) -> anyhow::Result<serde_json::Value> {
-        make_status(Phase::Succeeded, "Terminated")
+    ) -> anyhow::Result<<P::PodState as ResourceState>::Status> {
+        Ok(make_status(Phase::Succeeded, "Terminated"))
     }
 }

@@ -2,7 +2,7 @@
 use crate::container::{patch_container_status, Status};
 use crate::container::{Container, ContainerKey};
 use crate::pod::Pod;
-use crate::state::{ResourceState, State, Transition};
+use crate::state::{ResourceState, State, Transition, SharedState};
 use chrono::Utc;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::Api;
@@ -13,18 +13,17 @@ use tokio::sync::RwLock;
 /// Prelude for Pod state machines.
 pub mod prelude {
     pub use crate::container::{Container, Handle, Status};
-    pub use crate::state::{AsyncDrop, ResourceState, State, TransitionTo};
-
-    /// Transition type alias for Containers.
-    pub type Transition<S> = crate::state::Transition<S>;
+    pub use crate::state::{AsyncDrop, ResourceState, State, TransitionTo, Transition, SharedState};
 }
 
 /// Iteratively evaluate state machine until it returns Complete.
 pub async fn run_to_completion<
     S: ResourceState<Manifest = Container, Status = Status> + Send + Sync + 'static,
+    ProviderState: Send + Sync + 'static
 >(
     client: &kube::Client,
-    initial_state: impl State<S>,
+    initial_state: impl State<ProviderState, S>,
+    provider_state: SharedState<ProviderState>,
     container_state: &mut S,
     pod: Arc<RwLock<Pod>>,
     container_name: ContainerKey,
@@ -37,7 +36,7 @@ pub async fn run_to_completion<
         (name, api)
     };
 
-    let mut state: Box<dyn State<S>> = Box::new(initial_state);
+    let mut state: Box<dyn State<ProviderState, S>> = Box::new(initial_state);
 
     loop {
         debug!(
@@ -64,7 +63,12 @@ pub async fn run_to_completion<
             "Pod {} container {} executing state handler {:?}",
             &pod_name, container_name, state
         );
-        let transition = { state.next(container_state, &latest_container).await };
+        let transition = {
+            state
+                .next(provider_state.clone(), container_state, &latest_container)
+                .await
+        };
+
 
         state = match transition {
             Transition::Next(s) => {
