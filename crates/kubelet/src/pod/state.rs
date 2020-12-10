@@ -116,8 +116,8 @@ impl<
 
 #[cfg(test)]
 mod test {
-    use crate::pod::Pod;
-    use crate::state::{SharedState, State, Transition, TransitionTo};
+    use crate::pod::{Pod, Status as PodStatus};
+    use crate::state::{ResourceState, SharedState, State, Transition, TransitionTo};
 
     #[derive(Debug)]
     struct ProviderState;
@@ -127,6 +127,11 @@ mod test {
 
     #[derive(Debug)]
     struct ValidState;
+
+    impl ResourceState for PodState {
+        type Manifest = Pod;
+        type Status = PodStatus;
+    }
 
     #[async_trait::async_trait]
     impl State<ProviderState, PodState> for ValidState {

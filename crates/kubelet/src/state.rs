@@ -12,6 +12,8 @@
 //! // Example of manual trait implementation
 //! // impl TransitionTo<TestState> for TestState {}
 //!
+//! struct ProviderState;
+//!
 //! struct PodState;
 //!
 //! impl ResourceState for PodState {
@@ -20,12 +22,13 @@
 //! }
 //!
 //! #[async_trait::async_trait]
-//! impl State<PodState> for TestState {
+//! impl State<ProviderState, PodState> for TestState {
 //!     async fn next(
 //!         self: Box<Self>,
+//!         _provider_state: SharedState<ProviderState>,
 //!         _state: &mut PodState,
 //!         _pod: &Pod,
-//!     ) -> Transition<PodState> {
+//!     ) -> Transition<ProviderState, PodState> {
 //!         Transition::next(self, TestState)
 //!     }
 //!
