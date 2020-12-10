@@ -12,7 +12,7 @@ use log::{debug, error, warn};
 use crate::pod::state::run_to_completion;
 use crate::pod::{Pod, PodKey};
 use crate::provider::Provider;
-use crate::state::{AsyncDrop, SharedState};
+use crate::state::{ResourceState, SharedState};
 use tokio::sync::RwLock;
 
 /// A per-pod queue that takes incoming Kubernetes events and broadcasts them to the correct queue
@@ -170,7 +170,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
 async fn start_task<P: Provider>(
     task_client: KubeClient,
     pod: Arc<RwLock<Pod>>,
-    provider_state: SharedState<P::ProviderState>,
+    provider_state: SharedState<<P::PodState as ResourceState>::SharedState>,
     mut pod_state: P::PodState,
     pod_deleted: Arc<Notify>,
 ) {

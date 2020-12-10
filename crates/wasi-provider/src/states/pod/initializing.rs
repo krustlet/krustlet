@@ -21,13 +21,13 @@ use crate::fail_fatal;
 pub struct Initializing;
 
 #[async_trait::async_trait]
-impl State<ProviderState, PodState> for Initializing {
+impl State<PodState> for Initializing {
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<ProviderState>,
         pod_state: &mut PodState,
         pod: &Pod,
-    ) -> Transition<ProviderState, PodState> {
+    ) -> Transition<PodState> {
         let client: Api<KubePod> =
             Api::namespaced(provider_state.read().await.client(), pod.namespace());
         let mut container_handles: ContainerHandleMap = HashMap::new();

@@ -6,13 +6,13 @@ use kubelet::pod::state::prelude::*;
 pub struct Completed;
 
 #[async_trait::async_trait]
-impl State<ProviderState, PodState> for Completed {
+impl State<PodState> for Completed {
     async fn next(
         self: Box<Self>,
         _provider_state: SharedState<ProviderState>,
         _pod_state: &mut PodState,
         _pod: &Pod,
-    ) -> Transition<ProviderState, PodState> {
+    ) -> Transition<PodState> {
         Transition::Complete(Ok(()))
     }
 

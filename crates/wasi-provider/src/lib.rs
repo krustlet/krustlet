@@ -133,7 +133,6 @@ struct ModuleRunContext {
 impl Provider for WasiProvider {
     type InitialState = Registered<Self>;
     type TerminatedState = Terminated<Self>;
-    type ProviderState = ProviderState;
     type PodState = PodState;
 
     const ARCH: &'static str = TARGET_WASM32_WASI;

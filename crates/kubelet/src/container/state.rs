@@ -13,19 +13,14 @@ use tokio::sync::RwLock;
 /// Prelude for Pod state machines.
 pub mod prelude {
     pub use crate::container::{Container, Handle, Status};
-    pub use crate::state::{
-        AsyncDrop, ResourceState, SharedState, State, Transition, TransitionTo,
-    };
+    pub use crate::state::{ResourceState, SharedState, State, Transition, TransitionTo};
 }
 
 /// Iteratively evaluate state machine until it returns Complete.
-pub async fn run_to_completion<
-    S: ResourceState<Manifest = Container, Status = Status> + Send + Sync + 'static,
-    ProviderState: Send + Sync + 'static,
->(
+pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = Status>>(
     client: &kube::Client,
-    initial_state: impl State<ProviderState, S>,
-    provider_state: SharedState<ProviderState>,
+    initial_state: impl State<S>,
+    provider_state: SharedState<S::SharedState>,
     container_state: &mut S,
     pod: Arc<RwLock<Pod>>,
     container_name: ContainerKey,
@@ -38,7 +33,7 @@ pub async fn run_to_completion<
         (name, api)
     };
 
-    let mut state: Box<dyn State<ProviderState, S>> = Box::new(initial_state);
+    let mut state: Box<dyn State<S>> = Box::new(initial_state);
 
     loop {
         debug!(

@@ -11,13 +11,13 @@ use kubelet::pod::state::prelude::*;
 pub struct Running;
 
 #[async_trait::async_trait]
-impl State<ProviderState, PodState> for Running {
+impl State<PodState> for Running {
     async fn next(
         self: Box<Self>,
         _provider_state: SharedState<ProviderState>,
         _pod_state: &mut PodState,
         _pod: &Pod,
-    ) -> Transition<ProviderState, PodState> {
+    ) -> Transition<PodState> {
         // Wascc has no notion of exiting so we just sleep.
         // I _think_ that periodically awaiting will allow the task to be interrupted.
         loop {

@@ -17,13 +17,13 @@ use crate::{PodState, ProviderState};
 pub struct Running;
 
 #[async_trait::async_trait]
-impl State<ProviderState, PodState> for Running {
+impl State<PodState> for Running {
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<ProviderState>,
         pod_state: &mut PodState,
         pod: &Pod,
-    ) -> Transition<ProviderState, PodState> {
+    ) -> Transition<PodState> {
         let client: Api<KubePod> =
             Api::namespaced(provider_state.read().await.client(), pod.namespace());
         let mut completed = 0;

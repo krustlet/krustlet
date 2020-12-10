@@ -23,13 +23,13 @@ impl<P: GenericProvider> Default for Terminated<P> {
 }
 
 #[async_trait::async_trait]
-impl<P: GenericProvider> State<P::ProviderState, P::PodState> for Terminated<P> {
+impl<P: GenericProvider> State<P::PodState> for Terminated<P> {
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<P::ProviderState>,
         _pod_state: &mut P::PodState,
         pod: &Pod,
-    ) -> Transition<P::ProviderState, P::PodState> {
+    ) -> Transition<P::PodState> {
         let state_reader = provider_state.read().await;
         // TODO: In original code, pod key was stored in state rather than
         // re-derived.  Is this important e.g. could pod mutate in ways

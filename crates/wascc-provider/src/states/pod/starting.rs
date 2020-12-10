@@ -159,13 +159,13 @@ async fn start_container(
 pub struct Starting;
 
 #[async_trait::async_trait]
-impl State<ProviderState, PodState> for Starting {
+impl State<PodState> for Starting {
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<ProviderState>,
         pod_state: &mut PodState,
         pod: &Pod,
-    ) -> Transition<ProviderState, PodState> {
+    ) -> Transition<PodState> {
         info!("Starting containers for pod {:?}", pod.name());
 
         let port_map = provider_state.read().await.port_map.clone();

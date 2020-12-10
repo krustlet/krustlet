@@ -16,19 +16,22 @@
 //!
 //! struct PodState;
 //!
+//! #[async_trait::async_trait]
 //! impl ResourceState for PodState {
 //!     type Manifest = Pod;
 //!     type Status = Status;
+//!     type SharedState = ProviderState;
+//!     async fn async_drop(self, _provider_state: &mut ProviderState) { }
 //! }
 //!
 //! #[async_trait::async_trait]
-//! impl State<ProviderState, PodState> for TestState {
+//! impl State<PodState> for TestState {
 //!     async fn next(
 //!         self: Box<Self>,
 //!         _provider_state: SharedState<ProviderState>,
 //!         _state: &mut PodState,
 //!         _pod: &Pod,
-//!     ) -> Transition<ProviderState, PodState> {
+//!     ) -> Transition<PodState> {
 //!         Transition::next(self, TestState)
 //!     }
 //!
@@ -52,10 +55,14 @@
 //! struct TestState;
 //!
 //! struct PodState;
+//! struct ProviderState;
 //!
+//! #[async_trait::async_trait]
 //! impl ResourceState for PodState {
 //!     type Manifest = Pod;
 //!     type Status = PodStatus;
+//!     type SharedState = ProviderState;
+//!     async fn async_drop(self, _provider_state: &mut ProviderState) { }
 //! }
 //!
 //! #[derive(Debug)]
@@ -65,6 +72,7 @@
 //! impl State<PodState> for TestState {
 //!     async fn next(
 //!         self: Box<Self>,
+//!         _provider_state: SharedState<ProviderState>,
 //!         _state: &mut PodState,
 //!         _pod: &Pod,
 //!     ) -> Transition<PodState> {
@@ -94,16 +102,21 @@
 //! // impl TransitionTo<TestState> for TestState {}
 //!
 //! struct PodState;
+//! struct ProviderState;
 //!
+//! #[async_trait::async_trait]
 //! impl ResourceState for PodState {
 //!     type Manifest = Pod;
 //!     type Status = PodStatus;
+//!     type SharedState = ProviderState;
+//!     async fn async_drop(self, _provider_state: &mut ProviderState) { }
 //! }
 //!
 //! #[async_trait::async_trait]
 //! impl State<PodState> for TestState {
 //!     async fn next(
 //!         self: Box<Self>,
+//!         _provider_state: SharedState<ProviderState>,
 //!         _state: &mut PodState,
 //!         _pod: &Pod,
 //!     ) -> Transition<PodState> {
@@ -132,10 +145,14 @@
 //! struct TestState;
 //!
 //! struct PodState;
+//! struct ProviderState;
 //!
+//! #[async_trait::async_trait]
 //! impl ResourceState for PodState {
 //!     type Manifest = Pod;
 //!     type Status = PodStatus;
+//!     type SharedState = ProviderState;
+//!     async fn async_drop(self, _provider_state: &mut ProviderState) { }
 //! }
 //!
 //! #[derive(Debug)]
@@ -143,15 +160,19 @@
 //!
 //! struct OtherPodState;
 //!
+//! #[async_trait::async_trait]
 //! impl ResourceState for OtherPodState {
 //!     type Manifest = Pod;
 //!     type Status = PodStatus;
+//!     type SharedState = ProviderState;
+//!     async fn async_drop(self, _provider_state: &mut ProviderState) { }
 //! }
 //!
 //! #[async_trait::async_trait]
 //! impl State<PodState> for TestState {
 //!     async fn next(
 //!         self: Box<Self>,
+//!         _provider_state: SharedState<ProviderState>,
 //!         _state: &mut PodState,
 //!         _pod: &Pod,
 //!     ) -> Transition<PodState> {
@@ -172,6 +193,7 @@
 //! impl State<OtherPodState> for OtherState {
 //!     async fn next(
 //!         self: Box<Self>,
+//!         _provider_state: SharedState<ProviderState>,
 //!         _state: &mut OtherPodState,
 //!         _pod: &Pod,
 //!     ) -> Transition<OtherPodState> {
@@ -201,10 +223,14 @@ pub use kubelet_derive::*;
 /// use kubelet::pod::{Pod, Status, state::Stub};
 ///
 /// struct PodState;
+/// struct ProviderState;
 ///
+/// #[async_trait::async_trait]
 /// impl ResourceState for PodState {
 ///     type Manifest = Pod;
 ///     type Status = Status;
+///     type SharedState = ProviderState;
+///     async fn async_drop(self, _provider_state: &mut ProviderState) { }
 /// }
 ///
 /// // This fails because `state` is a private field. Use Transition::next classmethod instead.
@@ -212,15 +238,15 @@ pub use kubelet_derive::*;
 ///     state: Box::new(Stub),
 /// });
 /// ```
-pub struct StateHolder<ProviderState, S: ResourceState> {
+pub struct StateHolder<S: ResourceState> {
     // This is private, preventing manual construction of Transition::Next
-    pub(crate) state: Box<dyn State<ProviderState, S>>,
+    pub(crate) state: Box<dyn State<S>>,
 }
 
 /// Represents result of state execution and which state to transition to next.
-pub enum Transition<ProviderState, S: ResourceState> {
+pub enum Transition<S: ResourceState> {
     /// Transition to new state.
-    Next(StateHolder<ProviderState, S>),
+    Next(StateHolder<S>),
     /// Stop executing the state machine and report the result of the execution.
     Complete(anyhow::Result<()>),
 }
@@ -228,17 +254,14 @@ pub enum Transition<ProviderState, S: ResourceState> {
 /// Mark an edge exists between two states.
 pub trait TransitionTo<S> {}
 
-impl<ProviderState, S: ResourceState> Transition<ProviderState, S> {
+impl<S: ResourceState> Transition<S> {
     // This prevents user from having to box everything AND allows us to enforce edge constraint.
     /// Construct Transition::Next from old state and new state. Both states must be State<PodState>
     /// with matching PodState. Input state must implement TransitionTo<OutputState>, which can be
     /// done manually or with the `TransitionTo` derive macro (requires the `derive` feature to be
     /// enabled)
     #[allow(clippy::boxed_local)]
-    pub fn next<I: State<ProviderState, S>, O: State<ProviderState, S>>(
-        _i: Box<I>,
-        o: O,
-    ) -> Transition<ProviderState, S>
+    pub fn next<I: State<S>, O: State<S>>(_i: Box<I>, o: O) -> Transition<S>
     where
         I: TransitionTo<O>,
     {
@@ -250,23 +273,9 @@ impl<ProviderState, S: ResourceState> Transition<ProviderState, S> {
     /// states which cannot declare an exit transition to an associated state
     /// without encountering a "conflicting implementations" compiler error.
     #[allow(clippy::boxed_local)]
-    pub fn next_unchecked<I: State<ProviderState, S>, O: State<ProviderState, S>>(
-        _i: Box<I>,
-        o: O,
-    ) -> Transition<ProviderState, S> {
+    pub fn next_unchecked<I: State<S>, O: State<S>>(_i: Box<I>, o: O) -> Transition<S> {
         Transition::Next(StateHolder { state: Box::new(o) })
     }
-}
-
-// TODO: consider moving this to the ProviderState
-#[async_trait::async_trait]
-/// Allow for asynchronous cleanup up of PodState.
-pub trait AsyncDrop: Sized {
-    /// The type of any provider-level state from which the pod
-    /// needs to be cleaned up.
-    type ProviderState;
-    /// Clean up PodState.
-    async fn async_drop(self, provider_state: &mut Self::ProviderState);
 }
 
 /// Convenience redefinition of Arc<RwLock<T>>
@@ -274,23 +283,28 @@ pub type SharedState<T> = std::sync::Arc<tokio::sync::RwLock<T>>;
 
 /// Defines a type which represents a state for a given resource which is passed between its
 /// state handlers.
-pub trait ResourceState {
+#[async_trait::async_trait]
+pub trait ResourceState: 'static + Sync + Send {
     /// The manifest / definition of the resource. Pod, Container, etc.
     type Manifest;
     /// The status type of the state machine.
     type Status;
+    /// A type shared between all state machines.
+    type SharedState: 'static + Sync + Send;
+    /// Clean up resource.
+    async fn async_drop(self, shared_state: &mut Self::SharedState);
 }
 
 #[async_trait::async_trait]
 /// A trait representing a node in the state graph.
-pub trait State<ProviderState, S: ResourceState>: Sync + Send + 'static + std::fmt::Debug {
+pub trait State<S: ResourceState>: Sync + Send + 'static + std::fmt::Debug {
     /// Provider supplies method to be executed when in this state.
     async fn next(
         self: Box<Self>,
-        provider_state: SharedState<ProviderState>,
+        shared_state: SharedState<S::SharedState>,
         state: &mut S,
         manifest: &S::Manifest,
-    ) -> Transition<ProviderState, S>;
+    ) -> Transition<S>;
 
     /// Provider supplies JSON status patch to apply when entering this state.
     async fn status(&self, state: &mut S, manifest: &S::Manifest) -> anyhow::Result<S::Status>;

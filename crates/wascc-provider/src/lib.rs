@@ -292,16 +292,12 @@ impl GenericPodState for PodState {
     }
 }
 
+#[async_trait]
 impl ResourceState for PodState {
     type Manifest = Pod;
     type Status = PodStatus;
-}
-
-// No cleanup state needed, we clean up when dropping PodState.
-#[async_trait]
-impl kubelet::state::AsyncDrop for PodState {
-    type ProviderState = ProviderState;
-    async fn async_drop(self, provider_state: &mut ProviderState) {
+    type SharedState = ProviderState;
+    async fn async_drop(self, provider_state: &mut Self::SharedState) {
         {
             let mut lock = provider_state.port_map.lock().await;
             let ports_to_remove: Vec<u16> = lock
@@ -329,7 +325,6 @@ impl kubelet::state::AsyncDrop for PodState {
 impl Provider for WasccProvider {
     type InitialState = Registered<Self>;
     type TerminatedState = Terminated<Self>;
-    type ProviderState = ProviderState;
     type PodState = PodState;
 
     const ARCH: &'static str = TARGET_WASM32_WASCC;

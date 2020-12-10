@@ -102,13 +102,13 @@ impl Starting {
 }
 
 #[async_trait::async_trait]
-impl State<ProviderState, PodState> for Starting {
+impl State<PodState> for Starting {
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<ProviderState>,
         pod_state: &mut PodState,
         pod: &Pod,
-    ) -> Transition<ProviderState, PodState> {
+    ) -> Transition<PodState> {
         let mut container_handles: ContainerHandleMap = HashMap::new();
 
         {

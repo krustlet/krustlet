@@ -9,13 +9,13 @@ pub struct Terminated {
 }
 
 #[async_trait::async_trait]
-impl State<SharedContainerState, ContainerState> for Terminated {
+impl State<ContainerState> for Terminated {
     async fn next(
         self: Box<Self>,
         _provider_state: SharedState<SharedContainerState>,
         _state: &mut ContainerState,
         _container: &Container,
-    ) -> Transition<SharedContainerState, ContainerState> {
+    ) -> Transition<ContainerState> {
         todo!()
     }
 

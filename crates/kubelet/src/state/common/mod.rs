@@ -77,11 +77,11 @@ pub trait GenericProvider: 'static + Send + Sync {
     /// The state of the provider itself.
     type ProviderState: GenericProviderState;
     /// The state that is passed between Pod state handlers.
-    type PodState: GenericPodState;
+    type PodState: GenericPodState + ResourceState<SharedState = Self::ProviderState>;
     /// The state to which pods should transition after they have completed
     /// all generic states. Typically this is the state which first runs
     /// any pod binary (for example, the state which runs init containers).
-    type RunState: Default + State<Self::ProviderState, Self::PodState>;
+    type RunState: Default + State<Self::PodState>;
 
     /// Validates that the pod specification is compatible with the provider.
     /// If not, implementations should return an Err value with

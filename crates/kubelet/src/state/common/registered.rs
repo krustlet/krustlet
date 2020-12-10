@@ -27,13 +27,13 @@ impl<P: GenericProvider> Default for Registered<P> {
 }
 
 #[async_trait::async_trait]
-impl<P: GenericProvider> State<P::ProviderState, P::PodState> for Registered<P> {
+impl<P: GenericProvider> State<P::PodState> for Registered<P> {
     async fn next(
         self: Box<Self>,
         _provider_state: SharedState<P::ProviderState>,
         _pod_state: &mut P::PodState,
         pod: &Pod,
-    ) -> Transition<P::ProviderState, P::PodState> {
+    ) -> Transition<P::PodState> {
         debug!("Preparing to register pod: {}", pod.name());
         match P::validate_pod_and_containers_runnable(&pod) {
             Ok(_) => (),

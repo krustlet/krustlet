@@ -27,13 +27,13 @@ impl<P: GenericProvider> Default for VolumeMount<P> {
 }
 
 #[async_trait::async_trait]
-impl<P: GenericProvider> State<P::ProviderState, P::PodState> for VolumeMount<P> {
+impl<P: GenericProvider> State<P::PodState> for VolumeMount<P> {
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<P::ProviderState>,
         pod_state: &mut P::PodState,
         pod: &Pod,
-    ) -> Transition<P::ProviderState, P::PodState> {
+    ) -> Transition<P::PodState> {
         let (client, volume_path) = {
             let state_reader = provider_state.read().await;
             (state_reader.client(), state_reader.volume_path())

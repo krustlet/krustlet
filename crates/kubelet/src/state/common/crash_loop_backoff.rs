@@ -24,13 +24,13 @@ impl<P: GenericProvider> Default for CrashLoopBackoff<P> {
 }
 
 #[async_trait::async_trait]
-impl<P: GenericProvider> State<P::ProviderState, P::PodState> for CrashLoopBackoff<P> {
+impl<P: GenericProvider> State<P::PodState> for CrashLoopBackoff<P> {
     async fn next(
         self: Box<Self>,
         _provider_state: SharedState<P::ProviderState>,
         pod_state: &mut P::PodState,
         _pod: &Pod,
-    ) -> Transition<P::ProviderState, P::PodState> {
+    ) -> Transition<P::PodState> {
         pod_state.backoff(BackoffSequence::CrashLoop).await;
         let next = Registered::<P>::default();
         Transition::next(self, next)

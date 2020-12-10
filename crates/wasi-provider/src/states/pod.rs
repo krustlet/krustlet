@@ -25,15 +25,13 @@ pub struct PodState {
     image_pull_backoff_strategy: ExponentialBackoffStrategy,
     crash_loop_backoff_strategy: ExponentialBackoffStrategy,
 }
+
+#[async_trait]
 impl ResourceState for PodState {
     type Manifest = Pod;
     type Status = Status;
-}
-// No cleanup state needed, we clean up when dropping PodState.
-#[async_trait]
-impl kubelet::state::AsyncDrop for PodState {
-    type ProviderState = ProviderState;
-    async fn async_drop(self, provider_state: &mut ProviderState) {
+    type SharedState = ProviderState;
+    async fn async_drop(self, provider_state: &mut Self::SharedState) {
         {
             let mut handles = provider_state.handles.write().await;
             handles.remove(&self.key);

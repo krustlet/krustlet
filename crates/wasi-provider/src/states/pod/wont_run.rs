@@ -7,13 +7,13 @@ use kubelet::pod::state::prelude::*;
 pub struct WontRun;
 
 #[async_trait::async_trait]
-impl State<ProviderState, PodState> for WontRun {
+impl State<PodState> for WontRun {
     async fn next(
         self: Box<Self>,
         _provider_state: SharedState<ProviderState>,
         _state: &mut PodState,
         _pod: &Pod,
-    ) -> Transition<ProviderState, PodState> {
+    ) -> Transition<PodState> {
         loop {
             tokio::time::delay_for(std::time::Duration::from_secs(60)).await;
         }

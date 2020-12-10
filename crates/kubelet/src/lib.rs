@@ -10,7 +10,7 @@
 //! use kubelet::config::Config;
 //! use kubelet::pod::Pod;
 //! use kubelet::provider::Provider;
-//! use kubelet::state::{SharedState, AsyncDrop};
+//! use kubelet::state::{SharedState};
 //! use std::sync::Arc;
 //! use tokio::sync::RwLock;
 //! use kubelet::pod::state::prelude::*;
@@ -24,14 +24,11 @@
 //! // Track pod state amongst pod state handlers.
 //! struct PodState;
 //!
+//! #[async_trait::async_trait]
 //! impl ResourceState for PodState {
 //!     type Manifest = Pod;
 //!     type Status = PodStatus;
-//! }
-//!
-//! #[async_trait::async_trait]
-//! impl AsyncDrop for PodState {
-//!     type ProviderState = ProviderState;
+//!     type SharedState = ProviderState;
 //!     async fn async_drop(self, _provider_state: &mut ProviderState) {}
 //! }
 //!
@@ -41,7 +38,6 @@
 //!     const ARCH: &'static str = "my-arch";
 //!     type InitialState = Stub;
 //!     type TerminatedState = Stub;
-//!     type ProviderState = ProviderState;
 //!     type PodState = PodState;
 //!
 //!     fn provider_state(&self) -> SharedState<ProviderState> {

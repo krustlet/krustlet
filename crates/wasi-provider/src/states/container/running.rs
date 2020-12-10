@@ -8,13 +8,13 @@ use kubelet::container::state::prelude::*;
 pub struct Running;
 
 #[async_trait::async_trait]
-impl State<SharedContainerState, ContainerState> for Running {
+impl State<ContainerState> for Running {
     async fn next(
         self: Box<Self>,
         _provider_state: SharedState<SharedContainerState>,
         _state: &mut ContainerState,
         _container: &Container,
-    ) -> Transition<SharedContainerState, ContainerState> {
+    ) -> Transition<ContainerState> {
         todo!()
     }
 

@@ -29,13 +29,13 @@ impl<P: GenericProvider> Error<P> {
 }
 
 #[async_trait::async_trait]
-impl<P: GenericProvider> State<P::ProviderState, P::PodState> for Error<P> {
+impl<P: GenericProvider> State<P::PodState> for Error<P> {
     async fn next(
         self: Box<Self>,
         _provider_state: SharedState<P::ProviderState>,
         pod_state: &mut P::PodState,
         _pod: &Pod,
-    ) -> Transition<P::ProviderState, P::PodState> {
+    ) -> Transition<P::PodState> {
         match pod_state.record_error() {
             ThresholdTrigger::Triggered => {
                 let next = CrashLoopBackoff::<P>::default();
