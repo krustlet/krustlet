@@ -11,6 +11,8 @@
 //! use kubelet::pod::Pod;
 //! use kubelet::provider::Provider;
 //! use kubelet::state::{SharedState, AsyncDrop};
+//! use std::sync::Arc;
+//! use tokio::sync::RwLock;
 //! use kubelet::pod::state::prelude::*;
 //! use kubelet::pod::state::Stub;
 //!
@@ -43,7 +45,7 @@
 //!     type PodState = PodState;
 //!
 //!     fn provider_state(&self) -> SharedState<ProviderState> {
-//!         SharedState::new(ProviderState {})
+//!         Arc::new(RwLock::new(ProviderState {}))
 //!     }
 //!    
 //!     async fn initialize_pod_state(&self, _pod: &Pod) -> anyhow::Result<Self::PodState> {

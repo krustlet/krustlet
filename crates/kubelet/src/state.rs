@@ -269,38 +269,8 @@ pub trait AsyncDrop: Sized {
     async fn async_drop(self, provider_state: &mut Self::ProviderState);
 }
 
-/// Provides shared access to provider-level state between multiple pod
-/// state machines running within the provider.
-pub struct SharedState<T> {
-    state: std::sync::Arc<tokio::sync::RwLock<T>>,
-}
-
-impl<T> Clone for SharedState<T> {
-    fn clone(&self) -> Self {
-        Self {
-            state: self.state.clone(),
-        }
-    }
-}
-
-impl<T> SharedState<T> {
-    /// Creates a SharedState to provide shared access to the specified value.
-    pub fn new(value: T) -> Self {
-        Self {
-            state: std::sync::Arc::<_>::new(tokio::sync::RwLock::new(value)),
-        }
-    }
-
-    /// Acquires a read lock for the shared state.
-    pub async fn read(&self) -> tokio::sync::RwLockReadGuard<'_, T> {
-        self.state.read().await
-    }
-
-    /// Acquires a write lock for the shared state.
-    pub async fn write(&self) -> tokio::sync::RwLockWriteGuard<'_, T> {
-        self.state.write().await
-    }
-}
+/// Convenience redefinition of Arc<RwLock<T>>
+pub type SharedState<T> = std::sync::Arc<tokio::sync::RwLock<T>>;
 
 /// Defines a type which represents a state for a given resource which is passed between its
 /// state handlers.

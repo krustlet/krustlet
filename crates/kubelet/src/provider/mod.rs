@@ -35,6 +35,8 @@ use crate::state::{AsyncDrop, ResourceState, State};
 /// use kubelet::state::{SharedState, AsyncDrop};
 /// use kubelet::pod::state::Stub;
 /// use kubelet::pod::state::prelude::*;
+/// use std::sync::Arc;
+/// use tokio::sync::RwLock;
 ///
 /// struct MyProvider;
 ///
@@ -62,7 +64,7 @@ use crate::state::{AsyncDrop, ResourceState, State};
 ///     type PodState = PodState;
 ///    
 ///     fn provider_state(&self) -> SharedState<ProviderState> {
-///         SharedState::new(ProviderState {})
+///         Arc::new(RwLock::new(ProviderState {}))
 ///     }
 ///
 ///     async fn initialize_pod_state(&self, _pod: &Pod) -> anyhow::Result<Self::PodState> {

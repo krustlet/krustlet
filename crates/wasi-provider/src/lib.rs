@@ -139,7 +139,7 @@ impl Provider for WasiProvider {
     const ARCH: &'static str = TARGET_WASM32_WASI;
 
     fn provider_state(&self) -> SharedState<ProviderState> {
-        SharedState::new(self.shared.clone())
+        Arc::new(RwLock::new(self.shared.clone()))
     }
 
     async fn node(&self, builder: &mut Builder) -> anyhow::Result<()> {

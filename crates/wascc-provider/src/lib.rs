@@ -335,7 +335,7 @@ impl Provider for WasccProvider {
     const ARCH: &'static str = TARGET_WASM32_WASCC;
 
     fn provider_state(&self) -> SharedState<ProviderState> {
-        SharedState::new(self.shared.clone())
+        Arc::new(RwLock::new(self.shared.clone()))
     }
 
     async fn node(&self, builder: &mut Builder) -> anyhow::Result<()> {
