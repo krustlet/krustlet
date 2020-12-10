@@ -9,16 +9,16 @@ use tokio::sync::Mutex;
 use kubelet::container::{Container, ContainerKey, Handle as ContainerHandle};
 use kubelet::pod::{Handle, PodKey};
 use kubelet::provider::Provider;
+use kubelet::state::common::error::Error;
 use kubelet::state::prelude::*;
 
 use crate::rand::Rng;
-use crate::PodState;
 use crate::VolumeBinding;
 use crate::{
     fail_fatal, transition_to_error, wascc_run, ActorHandle, LogHandleFactory, WasccProvider,
 };
+use crate::{PodState, ProviderState};
 
-use super::error::Error;
 use super::running::Running;
 
 #[derive(Debug)]
@@ -85,13 +85,23 @@ async fn assign_container_port(
 }
 
 async fn start_container(
+    provider_state: &kubelet::state::prelude::SharedState<ProviderState>,
     pod_state: &mut PodState,
     container: &Container,
     pod: &Pod,
     port_assigned: u16,
 ) -> anyhow::Result<ContainerHandle<ActorHandle, LogHandleFactory>> {
-    let env =
-        <WasccProvider as Provider>::env_vars(&container, &pod, &pod_state.shared.client).await;
+    let (client, log_path, host) = {
+        // Limit the time we hold the lock
+        let state_reader = provider_state.read().await;
+        (
+            state_reader.client.clone(),
+            state_reader.log_path.clone(),
+            state_reader.host.clone(),
+        )
+    };
+
+    let env = <WasccProvider as Provider>::env_vars(&container, &pod, &client).await;
     let volume_bindings: Vec<VolumeBinding> =
         if let Some(volume_mounts) = container.volume_mounts().as_ref() {
             volume_mounts
@@ -130,36 +140,43 @@ async fn start_container(
                 container.name()
             )
         })?;
-    let lp = pod_state.shared.log_path.clone();
-    let host = pod_state.shared.host.clone();
     tokio::task::spawn_blocking(move || {
-        wascc_run(host, module_data, env, volume_bindings, &lp, port_assigned)
+        wascc_run(
+            host,
+            module_data,
+            env,
+            volume_bindings,
+            &log_path,
+            port_assigned,
+        )
     })
     .await?
 }
 
 /// The Kubelet is starting the Pod.
 #[derive(Default, Debug, TransitionTo)]
-#[transition_to(Running, Error)]
+#[transition_to(Running)]
 pub struct Starting;
 
 #[async_trait::async_trait]
-impl State<PodState> for Starting {
-    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for Starting {
+    async fn next(
+        self: Box<Self>,
+        provider_state: SharedState<ProviderState>,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         info!("Starting containers for pod {:?}", pod.name());
+
+        let port_map = provider_state.read().await.port_map.clone();
 
         let mut container_handles = HashMap::new();
         for container in pod.containers() {
-            let port_assigned = match assign_container_port(
-                Arc::clone(&pod_state.shared.port_map),
-                &pod,
-                &container,
-            )
-            .await
-            {
-                Ok(port) => port,
-                Err(e) => transition_to_error!(self, e),
-            };
+            let port_assigned =
+                match assign_container_port(Arc::clone(&port_map), &pod, &container).await {
+                    Ok(port) => port,
+                    Err(e) => transition_to_error!(self, e),
+                };
             debug!(
                 "New port assigned to {} is: {}",
                 container.name(),
@@ -167,7 +184,9 @@ impl State<PodState> for Starting {
             );
 
             let container_handle =
-                match start_container(pod_state, &container, &pod, port_assigned).await {
+                match start_container(&provider_state, pod_state, &container, &pod, port_assigned)
+                    .await
+                {
                     Ok(handle) => handle,
                     Err(e) => fail_fatal!(e),
                 };
@@ -180,8 +199,9 @@ impl State<PodState> for Starting {
         let pod_handle = Handle::new(container_handles, pod.clone(), None);
         let pod_key = PodKey::from(pod);
         {
-            let mut handles = pod_state.shared.handles.write().await;
-            handles.insert(pod_key, pod_handle);
+            let state_reader = provider_state.read().await;
+            let mut handles_writer = state_reader.handles.write().await;
+            handles_writer.insert(pod_key, pod_handle);
         }
 
         info!("All containers started for pod {:?}.", pod.name());
@@ -197,3 +217,5 @@ impl State<PodState> for Starting {
         make_status(Phase::Pending, "Starting")
     }
 }
+
+impl TransitionTo<Error<crate::WasccProvider>> for Starting {}

@@ -9,11 +9,12 @@ use tokio::sync::Mutex;
 use kubelet::container::{Container, ContainerKey};
 use kubelet::pod::{Handle, PodKey};
 use kubelet::provider;
+use kubelet::state::common::GenericProviderState;
 use kubelet::state::prelude::*;
 use kubelet::volume::Ref;
 
 use crate::wasi_runtime::{self, HandleFactory, Runtime, WasiRuntime};
-use crate::PodState;
+use crate::{PodState, ProviderState};
 
 use super::running::Running;
 
@@ -48,17 +49,22 @@ fn volume_path_map(
 }
 
 pub(crate) async fn start_container(
+    provider_state: &kubelet::state::prelude::SharedState<ProviderState>,
     pod_state: &mut PodState,
     pod: &Pod,
     container: &Container,
 ) -> anyhow::Result<kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>>
 {
+    let (client, log_path) = {
+        // Limit the time we hold the lock
+        let state_reader = provider_state.read().await;
+        (state_reader.client(), state_reader.log_path.clone())
+    };
     let module_data = pod_state
         .run_context
         .modules
         .remove(container.name())
         .expect("FATAL ERROR: module map not properly populated");
-    let client = kube::Client::new(pod_state.shared.kubeconfig.clone());
     let env = provider::env_vars(&container, pod, &client).await;
     let args = container.args().clone().unwrap_or_default();
     let container_volumes = volume_path_map(container, &pod_state.run_context.volumes)?;
@@ -69,7 +75,7 @@ pub(crate) async fn start_container(
         env,
         args,
         container_volumes,
-        pod_state.shared.log_path.clone(),
+        log_path,
         pod_state.run_context.status_sender.clone(),
     )
     .await?;
@@ -97,8 +103,13 @@ impl Starting {
 }
 
 #[async_trait::async_trait]
-impl State<PodState> for Starting {
-    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for Starting {
+    async fn next(
+        self: Box<Self>,
+        provider_state: SharedState<ProviderState>,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         let mut container_handles: ContainerHandleMap = HashMap::new();
 
         {
@@ -108,7 +119,7 @@ impl State<PodState> for Starting {
 
         info!("Starting containers for pod {:?}", pod.name());
         for container in pod.containers() {
-            match start_container(pod_state, &pod, &container).await {
+            match start_container(&provider_state, pod_state, &pod, &container).await {
                 Ok(h) => {
                     container_handles.insert(ContainerKey::App(container.name().to_string()), h);
                 }
@@ -121,8 +132,9 @@ impl State<PodState> for Starting {
         let pod_handle = Handle::new(container_handles, pod.clone(), None);
         let pod_key = PodKey::from(pod);
         {
-            let mut handles = pod_state.shared.handles.write().await;
-            handles.insert(pod_key, pod_handle);
+            let state_reader = provider_state.read().await;
+            let mut handles_writer = state_reader.handles.write().await;
+            handles_writer.insert(pod_key, pod_handle);
         }
         info!("All containers started for pod {:?}.", pod.name());
 

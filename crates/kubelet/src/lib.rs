@@ -10,17 +10,20 @@
 //! use kubelet::config::Config;
 //! use kubelet::pod::Pod;
 //! use kubelet::provider::Provider;
-//! use kubelet::state::{Stub, AsyncDrop};
+//! use kubelet::state::{SharedState, Stub, AsyncDrop};
 //!
 //! // Create some type that will act as your provider
 //! struct MyProvider;
 //!
+//! // Track shared provider-level state across pods.
+//! struct ProviderState;
 //! // Track pod state amongst pod state handlers.
 //! struct PodState;
 //!
 //! #[async_trait::async_trait]
 //! impl AsyncDrop for PodState {
-//!     async fn async_drop(self) {}
+//!     type ProviderState = ProviderState;
+//!     async fn async_drop(self, _provider_state: &mut ProviderState) {}
 //! }
 //!
 //! // Implement the `Provider` trait for that type
@@ -29,7 +32,12 @@
 //!     const ARCH: &'static str = "my-arch";
 //!     type InitialState = Stub;
 //!     type TerminatedState = Stub;
+//!     type ProviderState = ProviderState;
 //!     type PodState = PodState;
+//!
+//!     fn provider_state(&self) -> SharedState<ProviderState> {
+//!         SharedState::new(ProviderState {})
+//!     }
 //!    
 //!     async fn initialize_pod_state(&self, _pod: &Pod) -> anyhow::Result<Self::PodState> {
 //!         Ok(PodState)

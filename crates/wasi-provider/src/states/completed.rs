@@ -1,4 +1,4 @@
-use crate::PodState;
+use crate::{PodState, ProviderState};
 use kubelet::state::prelude::*;
 
 /// Pod was deleted.
@@ -6,8 +6,13 @@ use kubelet::state::prelude::*;
 pub struct Completed;
 
 #[async_trait::async_trait]
-impl State<PodState> for Completed {
-    async fn next(self: Box<Self>, _pod_state: &mut PodState, _pod: &Pod) -> Transition<PodState> {
+impl State<ProviderState, PodState> for Completed {
+    async fn next(
+        self: Box<Self>,
+        _provider_state: SharedState<ProviderState>,
+        _pod_state: &mut PodState,
+        _pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         Transition::Complete(Ok(()))
     }
 

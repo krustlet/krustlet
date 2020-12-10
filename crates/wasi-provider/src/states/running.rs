@@ -2,26 +2,30 @@ use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::Api;
 use kubelet::container::patch_container_status;
 use kubelet::container::{ContainerKey, Status};
+use kubelet::state::common::error::Error;
+use kubelet::state::common::GenericProviderState;
 use kubelet::state::prelude::*;
 use log::error;
 
 use super::completed::Completed;
-use super::error::Error;
 use crate::fail_fatal;
-use crate::PodState;
+use crate::{PodState, ProviderState};
 
 /// The Kubelet is running the Pod.
 #[derive(Default, Debug, TransitionTo)]
-#[transition_to(Completed, Error)]
+#[transition_to(Completed)]
 pub struct Running;
 
 #[async_trait::async_trait]
-impl State<PodState> for Running {
-    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
-        let client: Api<KubePod> = Api::namespaced(
-            kube::Client::new(pod_state.shared.kubeconfig.clone()),
-            pod.namespace(),
-        );
+impl State<ProviderState, PodState> for Running {
+    async fn next(
+        self: Box<Self>,
+        provider_state: SharedState<ProviderState>,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
+        let client: Api<KubePod> =
+            Api::namespaced(provider_state.read().await.client(), pod.namespace());
         let mut completed = 0;
         let total_containers = pod.containers().len();
 
@@ -65,3 +69,5 @@ impl State<PodState> for Running {
         make_status(Phase::Running, "Running")
     }
 }
+
+impl TransitionTo<Error<crate::WasiProvider>> for Running {}

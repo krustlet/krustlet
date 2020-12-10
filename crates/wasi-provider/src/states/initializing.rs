@@ -2,29 +2,33 @@ use std::collections::HashMap;
 
 use log::{error, info};
 
-use crate::PodState;
+use crate::{PodState, ProviderState};
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Api, PatchParams};
 use kubelet::backoff::BackoffStrategy;
 use kubelet::container::{patch_container_status, ContainerKey, Status as ContainerStatus};
 use kubelet::pod::{Handle, PodKey};
+use kubelet::state::common::error::Error;
+use kubelet::state::common::GenericProviderState;
 use kubelet::state::prelude::*;
 
-use super::error::Error;
 use super::starting::{start_container, ContainerHandleMap, Starting};
 use crate::fail_fatal;
 
 #[derive(Default, Debug, TransitionTo)]
-#[transition_to(Starting, Error)]
+#[transition_to(Starting)]
 pub struct Initializing;
 
 #[async_trait::async_trait]
-impl State<PodState> for Initializing {
-    async fn next(self: Box<Self>, pod_state: &mut PodState, pod: &Pod) -> Transition<PodState> {
-        let client: Api<KubePod> = Api::namespaced(
-            kube::Client::new(pod_state.shared.kubeconfig.clone()),
-            pod.namespace(),
-        );
+impl State<ProviderState, PodState> for Initializing {
+    async fn next(
+        self: Box<Self>,
+        provider_state: SharedState<ProviderState>,
+        pod_state: &mut PodState,
+        pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
+        let client: Api<KubePod> =
+            Api::namespaced(provider_state.read().await.client(), pod.namespace());
         let mut container_handles: ContainerHandleMap = HashMap::new();
 
         for init_container in pod.init_containers() {
@@ -37,7 +41,7 @@ impl State<PodState> for Initializing {
             // Each new init container resets the CrashLoopBackoff timer.
             pod_state.crash_loop_backoff_strategy.reset();
 
-            match start_container(pod_state, pod, &init_container).await {
+            match start_container(&provider_state, pod_state, pod, &init_container).await {
                 Ok(h) => {
                     container_handles
                         .insert(ContainerKey::Init(init_container.name().to_string()), h);
@@ -75,7 +79,8 @@ impl State<PodState> for Initializing {
                         let pod_handle = Handle::new(container_handles, pod.clone(), None);
                         let pod_key = PodKey::from(pod);
                         {
-                            let mut handles = pod_state.shared.handles.write().await;
+                            let state_writer = provider_state.write().await;
+                            let mut handles = state_writer.handles.write().await;
                             handles.insert(pod_key, pod_handle);
                         }
 
@@ -88,7 +93,7 @@ impl State<PodState> for Initializing {
                             .patch_status(pod.name(), &PatchParams::default(), status_json)
                             .await
                         {
-                            Ok(_) => return Transition::next(self, Error { message }),
+                            Ok(_) => return Transition::next(self, Error::<_>::new(message)),
                             Err(e) => fail_fatal!(e),
                         };
                     } else {
@@ -110,3 +115,5 @@ impl State<PodState> for Initializing {
         make_status(Phase::Running, "Initializing")
     }
 }
+
+impl TransitionTo<Error<crate::WasiProvider>> for Initializing {}

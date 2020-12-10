@@ -38,10 +38,16 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use kubelet::backoff::ExponentialBackoffStrategy;
+use kubelet::backoff::{BackoffStrategy, ExponentialBackoffStrategy};
 use kubelet::node::Builder;
 use kubelet::pod::{Handle, Pod, PodKey};
 use kubelet::provider::{Provider, ProviderError};
+use kubelet::state::common::registered::Registered;
+use kubelet::state::common::terminated::Terminated;
+use kubelet::state::common::{
+    BackoffSequence, GenericPodState, GenericProvider, GenericProviderState, ThresholdTrigger,
+};
+use kubelet::state::prelude::SharedState;
 use kubelet::store::Store;
 use kubelet::volume::Ref;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -49,9 +55,6 @@ use tokio::sync::RwLock;
 use wasi_runtime::Runtime;
 
 mod states;
-
-use states::registered::Registered;
-use states::terminated::Terminated;
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
 const LOG_DIR_NAME: &str = "wasi-logs";
@@ -61,16 +64,39 @@ const VOLUME_DIR: &str = "volumes";
 /// binaries conforming to the WASI spec.
 #[derive(Clone)]
 pub struct WasiProvider {
-    shared: SharedPodState,
+    shared: ProviderState,
 }
 
+/// Provider-level state shared between all pods
 #[derive(Clone)]
-struct SharedPodState {
+pub struct ProviderState {
     handles: Arc<RwLock<HashMap<PodKey, Handle<Runtime, wasi_runtime::HandleFactory>>>>,
     store: Arc<dyn Store + Sync + Send>,
     log_path: PathBuf,
     kubeconfig: kube::Config,
     volume_path: PathBuf,
+}
+
+#[async_trait]
+impl GenericProviderState for ProviderState {
+    fn client(&self) -> kube::client::Client {
+        kube::Client::new(self.kubeconfig.clone())
+    }
+    fn store(&self) -> std::sync::Arc<(dyn Store + Send + Sync + 'static)> {
+        self.store.clone()
+    }
+    fn volume_path(&self) -> PathBuf {
+        self.volume_path.clone()
+    }
+    async fn stop(&self, pod: &Pod) -> anyhow::Result<()> {
+        let key = PodKey::from(pod);
+        let mut handle_writer = self.handles.write().await;
+        if let Some(handle) = handle_writer.get_mut(&key) {
+            handle.stop().await
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl WasiProvider {
@@ -85,7 +111,7 @@ impl WasiProvider {
         tokio::fs::create_dir_all(&log_path).await?;
         tokio::fs::create_dir_all(&volume_path).await?;
         Ok(Self {
-            shared: SharedPodState {
+            shared: ProviderState {
                 handles: Default::default(),
                 store,
                 log_path,
@@ -110,27 +136,65 @@ pub struct PodState {
     errors: usize,
     image_pull_backoff_strategy: ExponentialBackoffStrategy,
     crash_loop_backoff_strategy: ExponentialBackoffStrategy,
-    shared: SharedPodState,
 }
 
 // No cleanup state needed, we clean up when dropping PodState.
 #[async_trait]
 impl kubelet::state::AsyncDrop for PodState {
-    async fn async_drop(self) {
+    type ProviderState = ProviderState;
+    async fn async_drop(self, provider_state: &mut ProviderState) {
         {
-            let mut handles = self.shared.handles.write().await;
+            let mut handles = provider_state.handles.write().await;
             handles.remove(&self.key);
+        }
+    }
+}
+
+#[async_trait]
+impl GenericPodState for PodState {
+    fn set_modules(&mut self, modules: HashMap<String, Vec<u8>>) {
+        self.run_context.modules = modules;
+    }
+    fn set_volumes(&mut self, volumes: HashMap<String, kubelet::volume::Ref>) {
+        self.run_context.volumes = volumes;
+    }
+    async fn backoff(&mut self, sequence: BackoffSequence) {
+        let backoff_strategy = match sequence {
+            BackoffSequence::ImagePull => &mut self.image_pull_backoff_strategy,
+            BackoffSequence::CrashLoop => &mut self.crash_loop_backoff_strategy,
+        };
+        backoff_strategy.wait().await;
+    }
+    fn reset_backoff(&mut self, sequence: BackoffSequence) {
+        let backoff_strategy = match sequence {
+            BackoffSequence::ImagePull => &mut self.image_pull_backoff_strategy,
+            BackoffSequence::CrashLoop => &mut self.crash_loop_backoff_strategy,
+        };
+        backoff_strategy.reset();
+    }
+    fn record_error(&mut self) -> ThresholdTrigger {
+        self.errors += 1;
+        if self.errors > 3 {
+            self.errors = 0;
+            ThresholdTrigger::Triggered
+        } else {
+            ThresholdTrigger::Untriggered
         }
     }
 }
 
 #[async_trait::async_trait]
 impl Provider for WasiProvider {
-    type InitialState = Registered;
-    type TerminatedState = Terminated;
+    type InitialState = Registered<Self>;
+    type TerminatedState = Terminated<Self>;
+    type ProviderState = ProviderState;
     type PodState = PodState;
 
     const ARCH: &'static str = TARGET_WASM32_WASI;
+
+    fn provider_state(&self) -> SharedState<ProviderState> {
+        SharedState::new(self.shared.clone())
+    }
 
     async fn node(&self, builder: &mut Builder) -> anyhow::Result<()> {
         builder.set_architecture("wasm-wasi");
@@ -154,7 +218,6 @@ impl Provider for WasiProvider {
             errors: 0,
             image_pull_backoff_strategy: ExponentialBackoffStrategy::default(),
             crash_loop_backoff_strategy: ExponentialBackoffStrategy::default(),
-            shared: self.shared.clone(),
         })
     }
 
@@ -172,5 +235,26 @@ impl Provider for WasiProvider {
                 pod_name: pod_name.clone(),
             })?;
         handle.output(&container_name, sender).await
+    }
+}
+
+impl GenericProvider for WasiProvider {
+    type ProviderState = ProviderState;
+    type PodState = PodState;
+    type RunState = crate::states::initializing::Initializing;
+
+    fn validate_pod_runnable(_pod: &Pod) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn validate_container_runnable(
+        container: &kubelet::container::Container,
+    ) -> anyhow::Result<()> {
+        if let Some(image) = container.image()? {
+            if image.whole().starts_with("k8s.gcr.io/kube-proxy") {
+                return Err(anyhow::anyhow!("Cannot run kube-proxy"));
+            }
+        }
+        Ok(())
     }
 }

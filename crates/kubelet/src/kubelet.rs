@@ -251,23 +251,30 @@ mod test {
 
     struct MockProvider;
 
+    struct ProviderState;
     struct PodState;
 
     #[async_trait::async_trait]
     impl AsyncDrop for PodState {
-        async fn async_drop(self) {}
+        type ProviderState = ProviderState;
+        async fn async_drop(self, _provider_state: &mut ProviderState) {}
     }
 
     #[async_trait::async_trait]
     impl Provider for MockProvider {
         type InitialState = crate::state::Stub;
         type TerminatedState = crate::state::Stub;
+        type ProviderState = ProviderState;
         type PodState = PodState;
 
         const ARCH: &'static str = "mock";
 
         async fn initialize_pod_state(&self, _pod: &Pod) -> anyhow::Result<Self::PodState> {
             Ok(PodState)
+        }
+
+        fn provider_state(&self) -> crate::state::SharedState<ProviderState> {
+            crate::state::SharedState::new(ProviderState {})
         }
 
         async fn logs(
