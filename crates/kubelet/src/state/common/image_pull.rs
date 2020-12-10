@@ -1,9 +1,9 @@
 //! Kubelet is pulling container images.
 
-use crate::pod::state::prelude::*;
 use super::image_pull_backoff::ImagePullBackoff;
 use super::volume_mount::VolumeMount;
 use super::{BackoffSequence, GenericPodState, GenericProvider, GenericProviderState};
+use crate::pod::state::prelude::*;
 
 use log::error;
 

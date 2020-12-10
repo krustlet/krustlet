@@ -1,9 +1,9 @@
 //! The Pod failed to run.
 
-use crate::pod::state::prelude::*;
 use super::crash_loop_backoff::CrashLoopBackoff;
 use super::registered::Registered;
 use super::{GenericPodState, GenericProvider, ThresholdTrigger};
+use crate::pod::state::prelude::*;
 
 /// The Pod failed to run.
 pub struct Error<P: GenericProvider> {

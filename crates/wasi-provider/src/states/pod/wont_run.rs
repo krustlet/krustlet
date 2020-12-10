@@ -8,9 +8,12 @@ pub struct WontRun;
 
 #[async_trait::async_trait]
 impl State<ProviderState, PodState> for WontRun {
-    async fn next(self: Box<Self>,
+    async fn next(
+        self: Box<Self>,
         _provider_state: SharedState<ProviderState>,
-        _state: &mut PodState, _pod: &Pod) -> Transition<ProviderState, PodState> {
+        _state: &mut PodState,
+        _pod: &Pod,
+    ) -> Transition<ProviderState, PodState> {
         loop {
             tokio::time::delay_for(std::time::Duration::from_secs(60)).await;
         }

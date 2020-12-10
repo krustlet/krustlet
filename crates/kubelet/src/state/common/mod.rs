@@ -3,10 +3,10 @@
 //! states in many providers; instead, the provider need only implement the
 //! GenericProviderState and GenericPodState traits for its state types.
 
-use crate::state::State;
-use crate::state::ResourceState;
 use crate::pod::state::prelude::PodStatus;
 use crate::pod::Pod;
+use crate::state::ResourceState;
+use crate::state::State;
 use std::collections::HashMap;
 
 pub mod crash_loop_backoff;
@@ -52,7 +52,9 @@ pub trait GenericProviderState: 'static + Send + Sync {
 /// Exposes pod state in a way that can be consumed by
 /// the generic states.
 #[async_trait::async_trait]
-pub trait GenericPodState: 'static + Send + Sync + ResourceState<Manifest=Pod, Status=PodStatus> {
+pub trait GenericPodState:
+    'static + Send + Sync + ResourceState<Manifest = Pod, Status = PodStatus>
+{
     /// Stores the pod module binaries for future execution. Typically your
     /// implementation can just move the modules map into a member field.
     fn set_modules(&mut self, modules: HashMap<String, Vec<u8>>);

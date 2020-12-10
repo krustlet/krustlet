@@ -36,6 +36,7 @@ use kubelet::backoff::{BackoffStrategy, ExponentialBackoffStrategy};
 use kubelet::container::Handle as ContainerHandle;
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
+use kubelet::pod::state::prelude::SharedState;
 use kubelet::pod::{Handle, Pod, PodKey, Status as PodStatus};
 use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
@@ -44,7 +45,6 @@ use kubelet::state::common::terminated::Terminated;
 use kubelet::state::common::{
     BackoffSequence, GenericPodState, GenericProvider, GenericProviderState, ThresholdTrigger,
 };
-use kubelet::pod::state::prelude::SharedState;
 use kubelet::store::Store;
 
 use kubelet::pod::state::prelude::ResourceState;

@@ -8,10 +8,10 @@ use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::{Api, PatchParams};
 use kubelet::backoff::BackoffStrategy;
 use kubelet::container::{patch_container_status, ContainerKey, Status as ContainerStatus};
+use kubelet::pod::state::prelude::*;
 use kubelet::pod::{Handle, PodKey};
 use kubelet::state::common::error::Error;
 use kubelet::state::common::GenericProviderState;
-use kubelet::pod::state::prelude::*;
 
 use super::starting::{start_container, ContainerHandleMap, Starting};
 use crate::fail_fatal;
@@ -51,9 +51,13 @@ impl State<ProviderState, PodState> for Initializing {
             }
 
             while let Some((name, status)) = pod_state.run_context.status_recv.recv().await {
-                if let Err(e) =
-                    patch_container_status(&client, &pod, &ContainerKey::Init(name.clone()), &status)
-                        .await
+                if let Err(e) = patch_container_status(
+                    &client,
+                    &pod,
+                    &ContainerKey::Init(name.clone()),
+                    &status,
+                )
+                .await
                 {
                     error!("Unable to patch status, will retry on next update: {:?}", e);
                 }
@@ -108,11 +112,7 @@ impl State<ProviderState, PodState> for Initializing {
         Transition::next(self, Starting::new(container_handles))
     }
 
-    async fn status(
-        &self,
-        _pod_state: &mut PodState,
-        _pmeod: &Pod,
-    ) -> anyhow::Result<PodStatus> {
+    async fn status(&self, _pod_state: &mut PodState, _pmeod: &Pod) -> anyhow::Result<PodStatus> {
         Ok(make_status(Phase::Running, "Initializing"))
     }
 }

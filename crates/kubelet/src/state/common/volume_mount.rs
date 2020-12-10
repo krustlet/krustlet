@@ -2,10 +2,10 @@
 
 use log::error;
 
-use crate::volume::Ref;
-use crate::pod::state::prelude::*;
 use super::{GenericPodState, GenericProvider, GenericProviderState};
+use crate::pod::state::prelude::*;
 use crate::state::common::error::Error;
+use crate::volume::Ref;
 
 /// Kubelet is pulling container images.
 pub struct VolumeMount<P: GenericProvider> {

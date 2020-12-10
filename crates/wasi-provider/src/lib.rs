@@ -39,14 +39,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use kubelet::node::Builder;
+use kubelet::pod::state::prelude::SharedState;
 use kubelet::pod::{Handle, Pod, PodKey};
 use kubelet::provider::{Provider, ProviderError};
 use kubelet::state::common::registered::Registered;
 use kubelet::state::common::terminated::Terminated;
-use kubelet::state::common::{
-    GenericProvider, GenericProviderState
-};
-use kubelet::pod::state::prelude::SharedState;
+use kubelet::state::common::{GenericProvider, GenericProviderState};
 use kubelet::store::Store;
 use kubelet::volume::Ref;
 use tokio::sync::mpsc::{Receiver, Sender};

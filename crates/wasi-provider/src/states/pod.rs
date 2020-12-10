@@ -1,24 +1,21 @@
 use crate::ModuleRunContext;
+use crate::ProviderState;
+use async_trait::async_trait;
+use kubelet::backoff::BackoffStrategy;
 use kubelet::backoff::ExponentialBackoffStrategy;
 use kubelet::pod::Pod;
 use kubelet::pod::PodKey;
 use kubelet::pod::Status;
+use kubelet::state::common::{BackoffSequence, GenericPodState, ThresholdTrigger};
 use kubelet::state::ResourceState;
-use tokio::sync::mpsc;
-use kubelet::state::common::{
-    BackoffSequence, GenericPodState, ThresholdTrigger,
-};
-use kubelet::backoff::{BackoffStrategy};
 use std::collections::HashMap;
-use crate::ProviderState;
-use async_trait::async_trait;
+use tokio::sync::mpsc;
 
 pub(crate) mod completed;
 pub(crate) mod initializing;
 pub(crate) mod running;
 pub(crate) mod starting;
 pub(crate) mod wont_run;
-
 
 /// State that is shared between pod state handlers.
 pub struct PodState {

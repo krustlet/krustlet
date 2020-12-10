@@ -1,7 +1,7 @@
 //! The Kubelet is aware of the Pod.
 
-use log::{debug, error, info};
 use crate::pod::state::prelude::*;
+use log::{debug, error, info};
 
 use super::error::Error;
 use super::image_pull::ImagePull;

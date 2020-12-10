@@ -2,7 +2,7 @@
 use crate::container::{patch_container_status, Status};
 use crate::container::{Container, ContainerKey};
 use crate::pod::Pod;
-use crate::state::{ResourceState, State, Transition, SharedState};
+use crate::state::{ResourceState, SharedState, State, Transition};
 use chrono::Utc;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::Api;
@@ -13,13 +13,15 @@ use tokio::sync::RwLock;
 /// Prelude for Pod state machines.
 pub mod prelude {
     pub use crate::container::{Container, Handle, Status};
-    pub use crate::state::{AsyncDrop, ResourceState, State, TransitionTo, Transition, SharedState};
+    pub use crate::state::{
+        AsyncDrop, ResourceState, SharedState, State, Transition, TransitionTo,
+    };
 }
 
 /// Iteratively evaluate state machine until it returns Complete.
 pub async fn run_to_completion<
     S: ResourceState<Manifest = Container, Status = Status> + Send + Sync + 'static,
-    ProviderState: Send + Sync + 'static
+    ProviderState: Send + Sync + 'static,
 >(
     client: &kube::Client,
     initial_state: impl State<ProviderState, S>,
@@ -68,7 +70,6 @@ pub async fn run_to_completion<
                 .next(provider_state.clone(), container_state, &latest_container)
                 .await
         };
-
 
         state = match transition {
             Transition::Next(s) => {

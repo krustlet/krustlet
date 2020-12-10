@@ -1,7 +1,7 @@
 //! Pod was deleted.
 
-use crate::pod::state::prelude::*;
 use super::{GenericProvider, GenericProviderState};
+use crate::pod::state::prelude::*;
 
 /// Pod was deleted.
 pub struct Terminated<P: GenericProvider> {

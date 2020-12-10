@@ -1,8 +1,8 @@
 //! Kubelet encountered an error when pulling container image.
 
-use crate::pod::state::prelude::*;
 use super::image_pull::ImagePull;
 use super::{BackoffSequence, GenericPodState, GenericProvider};
+use crate::pod::state::prelude::*;
 
 /// Kubelet encountered an error when pulling container image.
 pub struct ImagePullBackoff<P: GenericProvider> {

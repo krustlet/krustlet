@@ -1,5 +1,5 @@
 use super::terminated::Terminated;
-use super::{SharedContainerState, ContainerState};
+use super::{ContainerState, SharedContainerState};
 use kubelet::container::state::prelude::*;
 
 /// The container is starting.

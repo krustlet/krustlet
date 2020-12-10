@@ -1,11 +1,10 @@
-
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::Api;
 use kubelet::container::patch_container_status;
 use kubelet::container::{ContainerKey, Status};
+use kubelet::pod::state::prelude::*;
 use kubelet::state::common::error::Error;
 use kubelet::state::common::GenericProviderState;
-use kubelet::pod::state::prelude::*;
 use log::error;
 
 use super::completed::Completed;
@@ -62,11 +61,7 @@ impl State<ProviderState, PodState> for Running {
         Transition::next(self, Completed)
     }
 
-    async fn status(
-        &self,
-        _pod_state: &mut PodState,
-        _pod: &Pod,
-    ) -> anyhow::Result<PodStatus> {
+    async fn status(&self, _pod_state: &mut PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
         Ok(make_status(Phase::Running, "Running"))
     }
 }

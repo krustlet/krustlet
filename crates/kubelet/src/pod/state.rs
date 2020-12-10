@@ -1,8 +1,9 @@
 //! Functions for running Pod state machines.
 use crate::pod::{
-    initialize_pod_container_statuses, make_status, status::patch_status, Phase, Pod, Status as PodStatus
+    initialize_pod_container_statuses, make_status, status::patch_status, Phase, Pod,
+    Status as PodStatus,
 };
-use crate::state::{ResourceState, State, Transition, SharedState};
+use crate::state::{ResourceState, SharedState, State, Transition};
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::Api;
 use log::{debug, error, warn};
@@ -14,14 +15,15 @@ pub mod prelude {
     pub use crate::pod::{
         make_status, make_status_with_containers, Phase, Pod, Status as PodStatus,
     };
-    pub use crate::state::{AsyncDrop, ResourceState, State, TransitionTo, SharedState, Transition};
-    
+    pub use crate::state::{
+        AsyncDrop, ResourceState, SharedState, State, Transition, TransitionTo,
+    };
 }
 
 /// Iteratively evaluate state machine until it returns Complete.
 pub async fn run_to_completion<
     ProviderState: Send + Sync + 'static,
-    PodState: Send + Sync + 'static + ResourceState<Manifest=Pod, Status=PodStatus>,
+    PodState: Send + Sync + 'static + ResourceState<Manifest = Pod, Status = PodStatus>,
 >(
     client: &kube::Client,
     state: impl State<ProviderState, PodState>,
@@ -93,7 +95,11 @@ pub async fn run_to_completion<
 pub struct Stub;
 
 #[async_trait::async_trait]
-impl<Pr: 'static + Sync + Send, P: 'static + Sync + Send + ResourceState<Manifest=Pod, Status=PodStatus>> State<Pr, P> for Stub {
+impl<
+        Pr: 'static + Sync + Send,
+        P: 'static + Sync + Send + ResourceState<Manifest = Pod, Status = PodStatus>,
+    > State<Pr, P> for Stub
+{
     async fn next(
         self: Box<Self>,
         _provider_state: SharedState<Pr>,

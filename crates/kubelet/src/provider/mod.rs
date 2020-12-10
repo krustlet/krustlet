@@ -78,7 +78,11 @@ pub trait Provider: Sized {
     type ProviderState: 'static + Send + Sync;
 
     /// The state that is passed between Pod state handlers.
-    type PodState: 'static + Send + Sync + AsyncDrop<ProviderState = Self::ProviderState> + ResourceState<Manifest = Pod, Status = PodStatus>;
+    type PodState: 'static
+        + Send
+        + Sync
+        + AsyncDrop<ProviderState = Self::ProviderState>
+        + ResourceState<Manifest = Pod, Status = PodStatus>;
 
     /// The initial state for Pod state machine.
     type InitialState: Default + State<Self::ProviderState, Self::PodState>;

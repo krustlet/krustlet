@@ -3,14 +3,14 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use log::{debug, error, info};
-use tokio::sync::Mutex;
-use kubelet::state::common::GenericProviderState;
 use kubelet::container::{Container, ContainerKey};
+use kubelet::pod::state::prelude::*;
 use kubelet::pod::{Handle, PodKey};
 use kubelet::provider;
-use kubelet::pod::state::prelude::*;
+use kubelet::state::common::GenericProviderState;
 use kubelet::volume::Ref;
+use log::{debug, error, info};
+use tokio::sync::Mutex;
 
 use crate::wasi_runtime::{self, HandleFactory, Runtime, WasiRuntime};
 use crate::{PodState, ProviderState};
@@ -140,11 +140,7 @@ impl State<ProviderState, PodState> for Starting {
         Transition::next(self, Running)
     }
 
-    async fn status(
-        &self,
-        _pod_state: &mut PodState,
-        _pod: &Pod,
-    ) -> anyhow::Result<PodStatus> {
+    async fn status(&self, _pod_state: &mut PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
         Ok(make_status(Phase::Pending, "Starting"))
     }
 }

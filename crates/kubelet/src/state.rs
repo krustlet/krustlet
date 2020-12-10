@@ -211,7 +211,7 @@ pub use kubelet_derive::*;
 /// ```
 pub struct StateHolder<ProviderState, S: ResourceState> {
     // This is private, preventing manual construction of Transition::Next
-    pub (crate) state: Box<dyn State<ProviderState, S>>,
+    pub(crate) state: Box<dyn State<ProviderState, S>>,
 }
 
 /// Represents result of state execution and which state to transition to next.

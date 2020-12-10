@@ -1,8 +1,8 @@
 //! The pod is backing off after repeated failures and retries.
 
-use crate::pod::state::prelude::*;
 use super::registered::Registered;
 use super::{BackoffSequence, GenericPodState, GenericProvider};
+use crate::pod::state::prelude::*;
 
 /// The pod is backing off after repeated failures and retries.
 pub struct CrashLoopBackoff<P: GenericProvider> {
