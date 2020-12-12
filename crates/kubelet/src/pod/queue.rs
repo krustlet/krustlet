@@ -170,7 +170,7 @@ impl<P: 'static + Provider + Sync + Send> Queue<P> {
 async fn start_task<P: Provider>(
     task_client: KubeClient,
     pod: Arc<RwLock<Pod>>,
-    provider_state: SharedState<<P::PodState as ResourceState>::SharedState>,
+    provider_state: SharedState<P::ProviderState>,
     mut pod_state: P::PodState,
     pod_deleted: Arc<Notify>,
 ) {

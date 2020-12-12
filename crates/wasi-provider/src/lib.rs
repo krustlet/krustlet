@@ -131,6 +131,7 @@ struct ModuleRunContext {
 
 #[async_trait::async_trait]
 impl Provider for WasiProvider {
+    type ProviderState = ProviderState;
     type InitialState = Registered<Self>;
     type TerminatedState = Terminated<Self>;
     type PodState = PodState;

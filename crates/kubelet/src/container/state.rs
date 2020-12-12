@@ -20,7 +20,7 @@ pub mod prelude {
 pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = Status>>(
     client: &kube::Client,
     initial_state: impl State<S>,
-    provider_state: SharedState<S::SharedState>,
+    shared_state: SharedState<S::SharedState>,
     container_state: &mut S,
     pod: Arc<RwLock<Pod>>,
     container_name: ContainerKey,
@@ -62,7 +62,7 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = S
         );
         let transition = {
             state
-                .next(provider_state.clone(), container_state, &latest_container)
+                .next(shared_state.clone(), container_state, &latest_container)
                 .await
         };
 
@@ -104,7 +104,6 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = S
                         .await
                         .unwrap();
 
-                    // TODO Patch container failure.
                     break;
                 }
             },

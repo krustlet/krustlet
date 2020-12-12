@@ -323,6 +323,7 @@ impl ResourceState for PodState {
 
 #[async_trait]
 impl Provider for WasccProvider {
+    type ProviderState = ProviderState;
     type InitialState = Registered<Self>;
     type TerminatedState = Terminated<Self>;
     type PodState = PodState;

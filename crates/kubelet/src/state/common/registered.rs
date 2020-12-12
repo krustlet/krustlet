@@ -48,11 +48,7 @@ impl<P: GenericProvider> State<P::PodState> for Registered<P> {
         Transition::next(self, next)
     }
 
-    async fn status(
-        &self,
-        _pod_state: &mut P::PodState,
-        _pod: &Pod,
-    ) -> anyhow::Result<<P::PodState as ResourceState>::Status> {
+    async fn status(&self, _pod_state: &mut P::PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
         Ok(make_status(Phase::Pending, "Registered"))
     }
 }

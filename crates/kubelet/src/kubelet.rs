@@ -265,6 +265,7 @@ mod test {
 
     #[async_trait::async_trait]
     impl Provider for MockProvider {
+        type ProviderState = ProviderState;
         type InitialState = crate::pod::state::Stub;
         type TerminatedState = crate::pod::state::Stub;
         type PodState = PodState;

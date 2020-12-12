@@ -53,6 +53,7 @@ use crate::state::{ResourceState, State};
 ///
 /// #[async_trait]
 /// impl Provider for MyProvider {
+///     type ProviderState = ProviderState;
 ///     type InitialState = Stub;
 ///     type TerminatedState = Stub;
 ///     const ARCH: &'static str = "my-arch";
@@ -72,8 +73,15 @@ use crate::state::{ResourceState, State};
 /// ```
 #[async_trait]
 pub trait Provider: Sized {
+    /// The state of the provider itself.
+    type ProviderState: 'static + Send + Sync;
+
     /// The state that is passed between Pod state handlers.
-    type PodState: ResourceState<Manifest = Pod, Status = PodStatus>;
+    type PodState: ResourceState<
+        Manifest = Pod,
+        Status = PodStatus,
+        SharedState = Self::ProviderState,
+    >;
 
     /// The initial state for Pod state machine.
     type InitialState: Default + State<Self::PodState>;
@@ -85,9 +93,7 @@ pub trait Provider: Sized {
     const ARCH: &'static str;
 
     /// Gets the provider state.
-    fn provider_state(
-        &self,
-    ) -> crate::state::SharedState<<Self::PodState as ResourceState>::SharedState>;
+    fn provider_state(&self) -> crate::state::SharedState<Self::ProviderState>;
 
     /// Allows provider to populate node information.
     async fn node(&self, _builder: &mut Builder) -> anyhow::Result<()> {

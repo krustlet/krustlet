@@ -15,7 +15,6 @@ pub(crate) mod completed;
 pub(crate) mod initializing;
 pub(crate) mod running;
 pub(crate) mod starting;
-pub(crate) mod wont_run;
 
 /// State that is shared between pod state handlers.
 pub struct PodState {

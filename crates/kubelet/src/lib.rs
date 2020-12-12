@@ -36,6 +36,7 @@
 //! #[async_trait::async_trait]
 //! impl Provider for MyProvider {
 //!     const ARCH: &'static str = "my-arch";
+//!     type ProviderState = ProviderState;
 //!     type InitialState = Stub;
 //!     type TerminatedState = Stub;
 //!     type PodState = PodState;
