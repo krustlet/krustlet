@@ -14,10 +14,24 @@ pub(crate) type ContainerHandle = kubelet::container::Handle<Runtime, HandleFact
 
 pub(crate) type ContainerHandleMap = HashMap<ContainerKey, ContainerHandle>;
 
-struct ContainerState {
+pub(crate) struct ContainerState {
     pod: Pod,
     container_key: ContainerKey,
     run_context: SharedState<ModuleRunContext>,
+}
+
+impl ContainerState {
+    pub fn new(
+        pod: Pod,
+        container_key: ContainerKey,
+        run_context: SharedState<ModuleRunContext>,
+    ) -> Self {
+        ContainerState {
+            pod,
+            container_key,
+            run_context,
+        }
+    }
 }
 
 #[async_trait::async_trait]

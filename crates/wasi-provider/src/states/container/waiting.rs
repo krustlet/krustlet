@@ -65,13 +65,6 @@ impl State<ContainerState> for Waiting {
             container.name(),
             state.pod.name(),
         );
-        // TODO: Only for init?
-        // TODO: Can we pull this out?
-        // // Each new init container resets the CrashLoopBackoff timer.
-        // {
-        //     let mut pod_state = shared_state.write().await;
-        //     pod_state.crash_loop_backoff_strategy.reset();
-        // }
 
         let (client, log_path) = {
             let provider_state = shared_state.read().await;
