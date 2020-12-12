@@ -261,10 +261,10 @@ pub struct PodState {
 
 #[async_trait::async_trait]
 impl GenericPodState for PodState {
-    fn set_modules(&mut self, modules: HashMap<String, Vec<u8>>) {
+    async fn set_modules(&mut self, modules: HashMap<String, Vec<u8>>) {
         self.run_context.modules = modules;
     }
-    fn set_volumes(&mut self, volumes: HashMap<String, kubelet::volume::Ref>) {
+    async fn set_volumes(&mut self, volumes: HashMap<String, kubelet::volume::Ref>) {
         self.run_context.volumes = volumes;
     }
     async fn backoff(&mut self, sequence: BackoffSequence) {
@@ -274,14 +274,14 @@ impl GenericPodState for PodState {
         };
         backoff_strategy.wait().await;
     }
-    fn reset_backoff(&mut self, sequence: BackoffSequence) {
+    async fn reset_backoff(&mut self, sequence: BackoffSequence) {
         let backoff_strategy = match sequence {
             BackoffSequence::ImagePull => &mut self.image_pull_backoff_strategy,
             BackoffSequence::CrashLoop => &mut self.crash_loop_backoff_strategy,
         };
         backoff_strategy.reset();
     }
-    fn record_error(&mut self) -> ThresholdTrigger {
+    async fn record_error(&mut self) -> ThresholdTrigger {
         self.errors += 1;
         if self.errors > 3 {
             self.errors = 0;

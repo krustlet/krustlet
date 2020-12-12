@@ -47,7 +47,6 @@ use kubelet::state::common::terminated::Terminated;
 use kubelet::state::common::{GenericProvider, GenericProviderState};
 use kubelet::store::Store;
 use kubelet::volume::Ref;
-use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::RwLock;
 use wasi_runtime::Runtime;
 
@@ -125,8 +124,6 @@ impl WasiProvider {
 struct ModuleRunContext {
     modules: HashMap<String, Vec<u8>>,
     volumes: HashMap<String, Ref>,
-    status_sender: Sender<(String, kubelet::container::Status)>,
-    status_recv: Receiver<(String, kubelet::container::Status)>,
 }
 
 #[async_trait::async_trait]

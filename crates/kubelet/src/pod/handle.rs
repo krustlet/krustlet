@@ -52,7 +52,7 @@ impl<H: StopHandler, F> Handle<H, F> {
     }
 
     /// Insert container `Handle` by `ContainerKey`.
-    pub async fn insert_container_handle(self, key: ContainerKey, value: ContainerHandle<H, F>) {
+    pub async fn insert_container_handle(&self, key: ContainerKey, value: ContainerHandle<H, F>) {
         let mut map = self.container_handles.write().await;
         map.insert(key, value);
     }

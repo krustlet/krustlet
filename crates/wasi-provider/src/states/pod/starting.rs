@@ -1,90 +1,15 @@
 use std::collections::HashMap;
-use std::ops::Deref;
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use kubelet::container::{Container, ContainerKey};
 use kubelet::pod::state::prelude::*;
 use kubelet::pod::{Handle, PodKey};
-use kubelet::provider;
-use kubelet::state::common::GenericProviderState;
-use kubelet::volume::Ref;
-use log::{debug, error, info};
+use log::info;
 use tokio::sync::Mutex;
 
-use crate::wasi_runtime::{self, HandleFactory, Runtime, WasiRuntime};
+use crate::states::container::ContainerHandleMap;
 use crate::{PodState, ProviderState};
 
 use super::running::Running;
-
-fn volume_path_map(
-    container: &Container,
-    volumes: &HashMap<String, Ref>,
-) -> anyhow::Result<HashMap<PathBuf, Option<PathBuf>>> {
-    if let Some(volume_mounts) = container.volume_mounts().as_ref() {
-        volume_mounts
-            .iter()
-            .map(|vm| -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
-                // Check the volume exists first
-                let vol = volumes.get(&vm.name).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "no volume with the name of {} found for container {}",
-                        vm.name,
-                        container.name()
-                    )
-                })?;
-                let mut guest_path = PathBuf::from(&vm.mount_path);
-                if let Some(sub_path) = &vm.sub_path {
-                    guest_path.push(sub_path);
-                }
-                // We can safely assume that this should be valid UTF-8 because it would have
-                // been validated by the k8s API
-                Ok((vol.deref().clone(), Some(guest_path)))
-            })
-            .collect::<anyhow::Result<HashMap<PathBuf, Option<PathBuf>>>>()
-    } else {
-        Ok(HashMap::default())
-    }
-}
-
-pub(crate) async fn start_container(
-    provider_state: &SharedState<ProviderState>,
-    pod_state: &mut PodState,
-    pod: &Pod,
-    container: &Container,
-) -> anyhow::Result<kubelet::container::Handle<wasi_runtime::Runtime, wasi_runtime::HandleFactory>>
-{
-    let (client, log_path) = {
-        // Limit the time we hold the lock
-        let state_reader = provider_state.read().await;
-        (state_reader.client(), state_reader.log_path.clone())
-    };
-    let module_data = pod_state
-        .run_context
-        .modules
-        .remove(container.name())
-        .expect("FATAL ERROR: module map not properly populated");
-    let env = provider::env_vars(&container, pod, &client).await;
-    let args = container.args().clone().unwrap_or_default();
-    let container_volumes = volume_path_map(container, &pod_state.run_context.volumes)?;
-
-    let runtime = WasiRuntime::new(
-        container.name().to_owned(),
-        module_data,
-        env,
-        args,
-        container_volumes,
-        log_path,
-        pod_state.run_context.status_sender.clone(),
-    )
-    .await?;
-
-    debug!("Starting container {} on thread", container.name());
-    runtime.start().await
-}
-
-pub(crate) type ContainerHandleMap =
-    HashMap<ContainerKey, kubelet::container::Handle<Runtime, HandleFactory>>;
 
 #[derive(Default, Debug, TransitionTo)]
 #[transition_to(Running)]
@@ -106,7 +31,7 @@ impl State<PodState> for Starting {
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<ProviderState>,
-        pod_state: &mut PodState,
+        _pod_state: &mut PodState,
         pod: &Pod,
     ) -> Transition<PodState> {
         let mut container_handles: ContainerHandleMap = HashMap::new();
@@ -117,16 +42,16 @@ impl State<PodState> for Starting {
         }
 
         info!("Starting containers for pod {:?}", pod.name());
-        for container in pod.containers() {
-            match start_container(&provider_state, pod_state, &pod, &container).await {
-                Ok(h) => {
-                    container_handles.insert(ContainerKey::App(container.name().to_string()), h);
-                }
-                // We should log, transition to running, and properly handle container failure.
-                // Exiting here causes channel to be dropped messages to be lost from already running wasm runtimes.
-                Err(e) => error!("Error spawning wasmtime: {:?}", e),
-            }
-        }
+        // for container in pod.containers() {
+        //     match start_container(&provider_state, pod_state, &pod, &container).await {
+        //         Ok(h) => {
+        //             container_handles.insert(ContainerKey::App(container.name().to_string()), h);
+        //         }
+        //         // We should log, transition to running, and properly handle container failure.
+        //         // Exiting here causes channel to be dropped messages to be lost from already running wasm runtimes.
+        //         Err(e) => error!("Error spawning wasmtime: {:?}", e),
+        //     }
+        // }
 
         let pod_handle = Handle::new(container_handles, pod.clone(), None);
         let pod_key = PodKey::from(pod);

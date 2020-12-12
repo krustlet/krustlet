@@ -36,7 +36,7 @@ impl<P: GenericProvider> State<P::PodState> for Error<P> {
         pod_state: &mut P::PodState,
         _pod: &Pod,
     ) -> Transition<P::PodState> {
-        match pod_state.record_error() {
+        match pod_state.record_error().await {
             ThresholdTrigger::Triggered => {
                 let next = CrashLoopBackoff::<P>::default();
                 Transition::next(self, next)

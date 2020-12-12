@@ -52,23 +52,21 @@ pub trait GenericProviderState: 'static + Send + Sync {
 /// Exposes pod state in a way that can be consumed by
 /// the generic states.
 #[async_trait::async_trait]
-pub trait GenericPodState:
-    'static + Send + Sync + ResourceState<Manifest = Pod, Status = PodStatus>
-{
+pub trait GenericPodState: ResourceState<Manifest = Pod, Status = PodStatus> {
     /// Stores the pod module binaries for future execution. Typically your
     /// implementation can just move the modules map into a member field.
-    fn set_modules(&mut self, modules: HashMap<String, Vec<u8>>);
+    async fn set_modules(&mut self, modules: HashMap<String, Vec<u8>>);
     /// Stores the pod volume references for future mounting into
     /// the provider's execution environment. Typically your
     /// implementation can just move the volumes map into a member field.
-    fn set_volumes(&mut self, volumes: HashMap<String, crate::volume::Ref>);
+    async fn set_volumes(&mut self, volumes: HashMap<String, crate::volume::Ref>);
     /// Backs off (waits) after an error of the specified kind.
     async fn backoff(&mut self, sequence: BackoffSequence);
     /// Resets the backoff time for the specified kind of error.
-    fn reset_backoff(&mut self, sequence: BackoffSequence);
+    async fn reset_backoff(&mut self, sequence: BackoffSequence);
     /// Increments an error count and returns whether the number of errors
     /// has passed the provider's threshold for entering CrashLoopBackoff.
-    fn record_error(&mut self) -> ThresholdTrigger;
+    async fn record_error(&mut self) -> ThresholdTrigger;
 }
 
 /// A provider that wants to use the generic states implemented in this

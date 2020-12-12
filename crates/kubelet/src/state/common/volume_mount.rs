@@ -46,7 +46,7 @@ impl<P: GenericProvider> State<P::PodState> for VolumeMount<P> {
                 return Transition::next(self, next);
             }
         };
-        pod_state.set_volumes(volumes);
+        pod_state.set_volumes(volumes).await;
         Transition::next_unchecked(self, P::RunState::default())
     }
 

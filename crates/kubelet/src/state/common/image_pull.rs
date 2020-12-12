@@ -47,8 +47,8 @@ impl<P: GenericProvider> State<P::PodState> for ImagePull<P> {
                 return Transition::next(self, ImagePullBackoff::<P>::default());
             }
         };
-        pod_state.set_modules(modules);
-        pod_state.reset_backoff(BackoffSequence::ImagePull);
+        pod_state.set_modules(modules).await;
+        pod_state.reset_backoff(BackoffSequence::ImagePull).await;
         Transition::next(self, VolumeMount::<P>::default())
     }
 
