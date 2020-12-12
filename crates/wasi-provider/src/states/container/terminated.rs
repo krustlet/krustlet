@@ -3,10 +3,17 @@ use crate::ProviderState;
 use kubelet::container::state::prelude::*;
 
 /// The container is starting.
-#[derive(Default, Debug, TransitionTo)]
+#[derive(Debug, TransitionTo)]
 #[transition_to()]
 pub struct Terminated {
-    pub failed: bool,
+    message: String,
+    failed: bool,
+}
+
+impl Terminated {
+    pub fn new(message: String, failed: bool) -> Self {
+        Terminated { message, failed }
+    }
 }
 
 #[async_trait::async_trait]
@@ -17,7 +24,11 @@ impl State<ContainerState> for Terminated {
         _state: &mut ContainerState,
         _container: &Container,
     ) -> Transition<ContainerState> {
-        todo!()
+        if self.failed {
+            Transition::Complete(Err(anyhow::anyhow!(self.message.clone())))
+        } else {
+            Transition::Complete(Ok(()))
+        }
     }
 
     async fn status(
@@ -25,6 +36,6 @@ impl State<ContainerState> for Terminated {
         _state: &mut ContainerState,
         _container: &Container,
     ) -> anyhow::Result<Status> {
-        Ok(Status::terminated("Module has exited", self.failed))
+        Ok(Status::terminated(&self.message, self.failed))
     }
 }

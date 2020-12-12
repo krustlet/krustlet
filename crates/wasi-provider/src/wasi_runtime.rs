@@ -48,7 +48,7 @@ pub struct WasiRuntime {
     /// The tempfile that output from the wasmtime process writes to
     output: Arc<NamedTempFile>,
     /// A channel to send status updates on the runtime
-    status_sender: Sender<(String, Status)>,
+    status_sender: Sender<Status>,
 }
 
 struct Data {
@@ -95,7 +95,7 @@ impl WasiRuntime {
         args: Vec<String>,
         dirs: HashMap<PathBuf, Option<PathBuf>>,
         log_dir: L,
-        status_sender: Sender<(String, Status)>,
+        status_sender: Sender<Status>,
     ) -> anyhow::Result<Self> {
         let temp = tokio::task::spawn_blocking(move || -> anyhow::Result<NamedTempFile> {
             Ok(NamedTempFile::new_in(log_dir)?)
@@ -355,13 +355,11 @@ impl WasiRuntime {
     }
 }
 
-fn send(mut sender: Sender<(String, Status)>, name: String, status: Status, cx: &mut Context<'_>) {
+fn send(mut sender: Sender<Status>, name: String, status: Status, cx: &mut Context<'_>) {
     loop {
         if let Poll::Ready(r) = sender.poll_ready(cx) {
             if r.is_ok() {
-                sender
-                    .try_send((name, status))
-                    .expect("Possible deadlock, exiting");
+                sender.try_send(status).expect("Possible deadlock, exiting");
                 return;
             }
             trace!("Receiver for status showing as closed: {:?}", r);
