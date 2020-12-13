@@ -7,8 +7,6 @@ use chrono::Utc;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use kube::api::Api;
 use log::{debug, error, warn};
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 /// Prelude for Pod state machines.
 pub mod prelude {
@@ -21,10 +19,10 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = S
     client: &kube::Client,
     initial_state: impl State<S>,
     shared_state: SharedState<S::SharedState>,
-    container_state: &mut S,
-    pod: Arc<RwLock<Pod>>,
+    mut container_state: S,
+    pod: SharedState<Pod>,
     container_name: ContainerKey,
-) {
+) -> anyhow::Result<()> {
     let (pod_name, api) = {
         let initial_pod = pod.read().await.clone();
         let namespace = initial_pod.namespace().to_string();
@@ -44,7 +42,7 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = S
         let latest_pod = { pod.read().await.clone() };
         let latest_container = latest_pod.find_container(&container_name).unwrap();
 
-        match state.status(container_state, &latest_container).await {
+        match state.status(&mut container_state, &latest_container).await {
             Ok(status) => patch_container_status(&api, &latest_pod, &container_name, &status)
                 .await
                 .unwrap(),
@@ -62,7 +60,11 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = S
         );
         let transition = {
             state
-                .next(shared_state.clone(), container_state, &latest_container)
+                .next(
+                    shared_state.clone(),
+                    &mut container_state,
+                    &latest_container,
+                )
                 .await
         };
 
@@ -88,9 +90,9 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = S
                     patch_container_status(&api, &latest_pod, &container_name, &status)
                         .await
                         .unwrap();
-                    break;
+                    break result;
                 }
-                Err(e) => {
+                Err(ref e) => {
                     error!(
                         "Pod {} container {} state machine exited with error: {:?}",
                         &pod_name, container_name, e
@@ -104,7 +106,7 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = S
                         .await
                         .unwrap();
 
-                    break;
+                    break result;
                 }
             },
         };

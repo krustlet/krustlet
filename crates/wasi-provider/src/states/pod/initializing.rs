@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use log::{error, info};
@@ -79,7 +78,7 @@ impl State<PodState> for Initializing {
         }
         info!("Finished init containers for pod {:?}", pod.name());
         pod_state.crash_loop_backoff_strategy.reset();
-        Transition::next(self, Starting::new(HashMap::new()))
+        Transition::next(self, Starting)
     }
 
     async fn status(&self, _pod_state: &mut PodState, _pmeod: &Pod) -> anyhow::Result<PodStatus> {

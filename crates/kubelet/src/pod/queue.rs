@@ -196,6 +196,8 @@ async fn start_task<P: Provider>(
         pod_state.async_drop(&mut state_writer).await;
     }
 
+    // TODO: Call Provider.stop() to clean up still running containers in event of error.
+
     let pod_client: kube::Api<KubePod> = kube::Api::namespaced(task_client, &namespace);
     let dp = kube::api::DeleteParams {
         grace_period_seconds: Some(0),

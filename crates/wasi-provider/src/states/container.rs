@@ -1,18 +1,12 @@
-use crate::wasi_runtime::{HandleFactory, Runtime};
 use crate::ModuleRunContext;
 use crate::ProviderState;
 use kubelet::container::{Container, ContainerKey, Status};
 use kubelet::pod::Pod;
 use kubelet::state::{ResourceState, SharedState};
-use std::collections::HashMap;
 
 pub(crate) mod running;
 pub(crate) mod terminated;
 pub(crate) mod waiting;
-
-pub(crate) type ContainerHandle = kubelet::container::Handle<Runtime, HandleFactory>;
-
-pub(crate) type ContainerHandleMap = HashMap<ContainerKey, ContainerHandle>;
 
 pub(crate) struct ContainerState {
     pod: Pod,

@@ -1,60 +1,62 @@
-use k8s_openapi::api::core::v1::Pod as KubePod;
-use kube::api::Api;
+use tokio::sync::mpsc::Receiver;
+
 use kubelet::pod::state::prelude::*;
 use kubelet::state::common::error::Error;
 use kubelet::state::common::GenericProviderState;
 
 use super::completed::Completed;
+use crate::fail_fatal;
 use crate::{PodState, ProviderState};
 
 /// The Kubelet is running the Pod.
-#[derive(Default, Debug, TransitionTo)]
+#[derive(Debug, TransitionTo)]
 #[transition_to(Completed)]
-pub struct Running;
+pub struct Running {
+    rx: Receiver<anyhow::Result<()>>,
+}
+
+impl Running {
+    pub fn new(rx: Receiver<anyhow::Result<()>>) -> Self {
+        Running { rx }
+    }
+}
 
 #[async_trait::async_trait]
 impl State<PodState> for Running {
     async fn next(
-        self: Box<Self>,
+        mut self: Box<Self>,
         provider_state: SharedState<ProviderState>,
         _pod_state: &mut PodState,
         pod: &Pod,
     ) -> Transition<PodState> {
-        let _client: Api<KubePod> =
-            Api::namespaced(provider_state.read().await.client(), pod.namespace());
-        let _completed = 0;
-        let _total_containers = pod.containers().len();
+        let mut completed = 0;
+        let total_containers = pod.containers().len();
 
-        // while let Some((name, status)) = pod_state.run_context.status_recv.recv().await {
-        //     // TODO: implement a container state machine such that it will self-update the Kubernetes API as it transitions through these stages.
-
-        //     if let Err(e) =
-        //         patch_container_status(&client, &pod, &ContainerKey::App(name.clone()), &status)
-        //             .await
-        //     {
-        //         error!("Unable to patch status, will retry on next update: {:?}", e);
-        //     }
-
-        //     if let Status::Terminated {
-        //         timestamp: _,
-        //         message,
-        //         failed,
-        //     } = status
-        //     {
-        //         if failed {
-        //             // This appears to be required by the test `test_module_exiting_with_error`
-        //             let e = anyhow::anyhow!(message);
-        //             fail_fatal!(e);
-        //         // return Transition::next(self, Error { message });
-        //         } else {
-        //             completed += 1;
-        //             if completed == total_containers {
-        //                 return Transition::next(self, Completed);
-        //             }
-        //         }
-        //     }
-        // }
-        Transition::next(self, Completed)
+        while let Some(result) = self.rx.recv().await {
+            match result {
+                Ok(()) => {
+                    completed += 1;
+                    if completed == total_containers {
+                        return Transition::next(self, Completed);
+                    }
+                }
+                Err(e) => {
+                    // Stop remaining containers;
+                    {
+                        let provider = provider_state.write().await;
+                        provider.stop(pod).await.unwrap();
+                    }
+                    fail_fatal!(e);
+                }
+            }
+        }
+        Transition::next(
+            self,
+            Error::new(format!(
+                "Pod {} container result channel hung up.",
+                pod.name()
+            )),
+        )
     }
 
     async fn status(&self, _pod_state: &mut PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
