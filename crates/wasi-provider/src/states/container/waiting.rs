@@ -15,6 +15,7 @@ use crate::wasi_runtime::WasiRuntime;
 use crate::ProviderState;
 
 use super::running::Running;
+use super::terminated::Terminated;
 use super::ContainerState;
 
 fn volume_path_map(
@@ -49,7 +50,7 @@ fn volume_path_map(
 
 /// The container is starting.
 #[derive(Default, Debug, TransitionTo)]
-#[transition_to(Running)]
+#[transition_to(Running, Terminated)]
 pub struct Waiting;
 
 #[async_trait::async_trait]
@@ -99,7 +100,23 @@ impl State<ContainerState> for Waiting {
         .await
         .unwrap();
         debug!("Starting container {} on thread", container.name());
-        let container_handle = runtime.start().await.unwrap();
+        let container_handle = match runtime.start().await {
+            Ok(handle) => handle,
+            Err(e) => {
+                return Transition::next(
+                    self,
+                    Terminated::new(
+                        format!(
+                            "Pod {} container {} failed to start: {:?}",
+                            state.pod.name(),
+                            container.name(),
+                            e
+                        ),
+                        true,
+                    ),
+                )
+            }
+        };
         let pod_key = PodKey::from(&state.pod);
         {
             let provider_state = shared_state.write().await;

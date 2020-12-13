@@ -65,14 +65,11 @@ impl State<PodState> for Initializing {
             {
                 Ok(_) => (),
                 Err(e) => {
-                    let message = format!(
-                        "Init container {} in pod {} failed with error: {:?}",
-                        init_container.name(),
-                        pod.name(),
-                        e
-                    );
-                    error!("{}", &message);
-                    return Transition::next(self, Error::new(message));
+                    error!("Init container {} failed: {:?}", init_container.name(), e);
+                    return Transition::Complete(Err(anyhow::anyhow!(format!(
+                        "Init container {} failed",
+                        init_container.name()
+                    ))));
                 }
             }
         }

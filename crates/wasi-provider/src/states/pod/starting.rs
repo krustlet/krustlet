@@ -33,7 +33,7 @@ impl State<PodState> for Starting {
         let (tx, rx) = tokio::sync::mpsc::channel(containers.len());
         for container in containers {
             let initial_state = Waiting;
-            let container_key = ContainerKey::Init(container.name().to_string());
+            let container_key = ContainerKey::App(container.name().to_string());
             let container_state = ContainerState::new(
                 pod.clone(),
                 container_key.clone(),

@@ -132,6 +132,7 @@ pub fn make_status(phase: Phase, reason: &str) -> Status {
     let mut status = Status::new();
     status.set_phase(phase);
     status.set_reason(reason);
+    status.set_message(reason);
     status
 }
 

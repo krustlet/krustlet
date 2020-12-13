@@ -82,14 +82,6 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = S
                         "Pod {} container {} state machine exited without error",
                         &pod_name, container_name
                     );
-                    let status = Status::Terminated {
-                        timestamp: Utc::now(),
-                        message: "Container exited successfully.".to_string(),
-                        failed: false,
-                    };
-                    patch_container_status(&api, &latest_pod, &container_name, &status)
-                        .await
-                        .unwrap();
                     break result;
                 }
                 Err(ref e) => {
