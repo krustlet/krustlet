@@ -57,7 +57,7 @@ pub struct Waiting;
 impl State<ContainerState> for Waiting {
     async fn next(
         self: Box<Self>,
-        shared_state: SharedState<ProviderState>,
+        shared: SharedState<ProviderState>,
         state: &mut ContainerState,
         container: &Container,
     ) -> Transition<ContainerState> {
@@ -68,7 +68,7 @@ impl State<ContainerState> for Waiting {
         );
 
         let (client, log_path) = {
-            let provider_state = shared_state.read().await;
+            let provider_state = shared.read().await;
             (provider_state.client(), provider_state.log_path.clone())
         };
 
@@ -119,7 +119,7 @@ impl State<ContainerState> for Waiting {
         };
         let pod_key = PodKey::from(&state.pod);
         {
-            let provider_state = shared_state.write().await;
+            let provider_state = shared.write().await;
             let mut handles_writer = provider_state.handles.write().await;
             let pod_handle = handles_writer.entry(pod_key).or_insert_with(|| {
                 Arc::new(PodHandle::new(HashMap::new(), state.pod.clone(), None))

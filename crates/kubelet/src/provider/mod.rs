@@ -32,7 +32,7 @@ use crate::state::{ResourceState, State};
 /// use async_trait::async_trait;
 /// use kubelet::pod::{Pod, Status};
 /// use kubelet::provider::Provider;
-/// use kubelet::state::{SharedState};
+/// use kubelet::state::SharedState;
 /// use kubelet::pod::state::Stub;
 /// use kubelet::pod::state::prelude::*;
 /// use std::sync::Arc;

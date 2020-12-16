@@ -13,7 +13,8 @@ use tokio::sync::RwLock;
 /// Prelude for Pod state machines.
 pub mod prelude {
     pub use crate::pod::{
-        make_status, make_status_with_containers, Phase, Pod, Status as PodStatus,
+        make_status, make_status_with_containers, status::StatusBuilder, Phase, Pod,
+        Status as PodStatus,
     };
     pub use crate::state::{ResourceState, SharedState, State, Transition, TransitionTo};
 }

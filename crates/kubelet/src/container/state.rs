@@ -18,7 +18,7 @@ pub mod prelude {
 pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = Status>>(
     client: &kube::Client,
     initial_state: impl State<S>,
-    shared_state: SharedState<S::SharedState>,
+    shared: SharedState<S::SharedState>,
     mut container_state: S,
     pod: SharedState<Pod>,
     container_name: ContainerKey,
@@ -60,11 +60,7 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = S
         );
         let transition = {
             state
-                .next(
-                    shared_state.clone(),
-                    &mut container_state,
-                    &latest_container,
-                )
+                .next(shared.clone(), &mut container_state, &latest_container)
                 .await
         };
 

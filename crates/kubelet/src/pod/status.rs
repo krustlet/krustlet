@@ -129,11 +129,11 @@ pub fn make_registered_status(pod: &Pod) -> Status {
 
 /// Create basic Pod status patch.
 pub fn make_status(phase: Phase, reason: &str) -> Status {
-    let mut status = Status::new();
-    status.set_phase(phase);
-    status.set_reason(reason);
-    status.set_message(reason);
-    status
+    StatusBuilder::new()
+        .phase(phase)
+        .reason(reason)
+        .message(reason)
+        .build()
 }
 
 /// Create basic Pod status patch.
@@ -143,52 +143,19 @@ pub fn make_status_with_containers(
     container_statuses: Vec<KubeContainerStatus>,
     init_container_statuses: Vec<KubeContainerStatus>,
 ) -> Status {
-    let mut status = Status::new();
-    status.set_phase(phase);
-    status.set_reason(reason);
-    status.set_container_statuses(container_statuses);
-    status.set_init_container_statuses(init_container_statuses);
-    status
+    StatusBuilder::new()
+        .phase(phase)
+        .reason(reason)
+        .container_statuses(container_statuses)
+        .init_container_statuses(init_container_statuses)
+        .build()
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 /// Pod Status wrapper.
 pub struct Status(KubePodStatus);
 
 impl Status {
-    /// Create a new status with no fields set.
-    pub fn new() -> Self {
-        Status(Default::default())
-    }
-
-    /// Set Pod phase.
-    pub fn set_phase(&mut self, phase: Phase) {
-        self.0.phase = Some(format!("{}", phase));
-    }
-
-    /// Set Pod reason.
-    pub fn set_reason(&mut self, reason: &str) {
-        self.0.reason = Some(reason.to_string());
-    }
-
-    /// Set Pod message.
-    pub fn set_message(&mut self, message: &str) {
-        self.0.message = Some(message.to_string());
-    }
-
-    /// Set Pod container statuses.
-    pub fn set_container_statuses(&mut self, container_statuses: Vec<KubeContainerStatus>) {
-        self.0.container_statuses = Some(container_statuses);
-    }
-
-    /// Set Pod init container statuses.
-    pub fn set_init_container_statuses(
-        &mut self,
-        init_container_statuses: Vec<KubeContainerStatus>,
-    ) {
-        self.0.init_container_statuses = Some(init_container_statuses);
-    }
-
     pub(crate) fn into_json(self) -> serde_json::Value {
         let mut status = serde_json::Map::new();
         if let Some(s) = self.0.phase {
@@ -219,6 +186,58 @@ impl Status {
                 "status": serde_json::Value::Object(status)
             }
         )
+    }
+}
+
+#[derive(Default)]
+/// Builder for Pod Status wrapper.
+pub struct StatusBuilder(KubePodStatus);
+
+impl StatusBuilder {
+    /// Create a new status with no fields set.
+    pub fn new() -> Self {
+        StatusBuilder(Default::default())
+    }
+
+    /// Set Pod phase.
+    pub fn phase(mut self, phase: Phase) -> StatusBuilder {
+        self.0.phase = Some(format!("{}", phase));
+        self
+    }
+
+    /// Set Pod reason.
+    pub fn reason(mut self, reason: &str) -> StatusBuilder {
+        self.0.reason = Some(reason.to_string());
+        self
+    }
+
+    /// Set Pod message.
+    pub fn message(mut self, message: &str) -> StatusBuilder {
+        self.0.message = Some(message.to_string());
+        self
+    }
+
+    /// Set Pod container statuses.
+    pub fn container_statuses(
+        mut self,
+        container_statuses: Vec<KubeContainerStatus>,
+    ) -> StatusBuilder {
+        self.0.container_statuses = Some(container_statuses);
+        self
+    }
+
+    /// Set Pod init container statuses.
+    pub fn init_container_statuses(
+        mut self,
+        init_container_statuses: Vec<KubeContainerStatus>,
+    ) -> StatusBuilder {
+        self.0.init_container_statuses = Some(init_container_statuses);
+        self
+    }
+
+    /// Finalize Pod Status from builder.
+    pub fn build(self) -> Status {
+        Status(self.0)
     }
 }
 

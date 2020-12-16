@@ -292,7 +292,7 @@ pub trait ResourceState: 'static + Sync + Send {
     /// A type shared between all state machines.
     type SharedState: 'static + Sync + Send;
     /// Clean up resource.
-    async fn async_drop(self, shared_state: &mut Self::SharedState);
+    async fn async_drop(self, shared: &mut Self::SharedState);
 }
 
 #[async_trait::async_trait]
@@ -301,7 +301,7 @@ pub trait State<S: ResourceState>: Sync + Send + 'static + std::fmt::Debug {
     /// Provider supplies method to be executed when in this state.
     async fn next(
         self: Box<Self>,
-        shared_state: SharedState<S::SharedState>,
+        shared: SharedState<S::SharedState>,
         state: &mut S,
         manifest: &S::Manifest,
     ) -> Transition<S>;

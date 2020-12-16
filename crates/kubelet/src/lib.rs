@@ -10,7 +10,7 @@
 //! use kubelet::config::Config;
 //! use kubelet::pod::Pod;
 //! use kubelet::provider::Provider;
-//! use kubelet::state::{SharedState};
+//! use kubelet::state::SharedState;
 //! use std::sync::Arc;
 //! use tokio::sync::RwLock;
 //! use kubelet::pod::state::prelude::*;

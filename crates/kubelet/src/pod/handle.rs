@@ -75,8 +75,7 @@ impl<H: StopHandler, F> Handle<H, F> {
     }
 
     /// Signal the pod and all its running containers to stop and wait for them
-    /// to complete. As of right now, there is not a way to do this in wasmtime,
-    /// so this does nothing
+    /// to complete.
     pub async fn stop(&self) -> anyhow::Result<()> {
         {
             let mut handles = self.container_handles.write().await;
