@@ -44,7 +44,7 @@ impl State<PodState> for Running {
                     // Stop remaining containers;
                     {
                         let provider = provider_state.write().await;
-                        provider.stop(pod).await.unwrap();
+                        provider.stop(pod).await.ok();
                     }
                     fail_fatal!(e);
                 }

@@ -32,22 +32,18 @@
 #![deny(missing_docs)]
 
 use async_trait::async_trait;
-use kubelet::backoff::{BackoffStrategy, ExponentialBackoffStrategy};
 use kubelet::container::Handle as ContainerHandle;
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
 use kubelet::pod::state::prelude::SharedState;
-use kubelet::pod::{Handle, Pod, PodKey, Status as PodStatus};
+use kubelet::pod::{Handle, Pod, PodKey};
 use kubelet::provider::Provider;
 use kubelet::provider::ProviderError;
 use kubelet::state::common::registered::Registered;
 use kubelet::state::common::terminated::Terminated;
-use kubelet::state::common::{
-    BackoffSequence, GenericPodState, GenericProvider, GenericProviderState, ThresholdTrigger,
-};
+use kubelet::state::common::{GenericProvider, GenericProviderState};
 use kubelet::store::Store;
 
-use kubelet::pod::state::prelude::ResourceState;
 use kubelet::volume::Ref;
 use log::{debug, info};
 use tempfile::NamedTempFile;
@@ -64,6 +60,8 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::Mutex as TokioMutex;
 
 mod states;
+
+use states::pod::PodState;
 
 /// The architecture that the pod targets.
 const TARGET_WASM32_WASCC: &str = "wasm32-wascc";
@@ -250,77 +248,6 @@ struct ModuleRunContext {
     volumes: HashMap<String, Ref>,
 }
 
-/// State that is shared between pod state handlers.
-pub struct PodState {
-    key: PodKey,
-    run_context: ModuleRunContext,
-    errors: usize,
-    image_pull_backoff_strategy: ExponentialBackoffStrategy,
-    crash_loop_backoff_strategy: ExponentialBackoffStrategy,
-}
-
-#[async_trait::async_trait]
-impl GenericPodState for PodState {
-    async fn set_modules(&mut self, modules: HashMap<String, Vec<u8>>) {
-        self.run_context.modules = modules;
-    }
-    async fn set_volumes(&mut self, volumes: HashMap<String, kubelet::volume::Ref>) {
-        self.run_context.volumes = volumes;
-    }
-    async fn backoff(&mut self, sequence: BackoffSequence) {
-        let backoff_strategy = match sequence {
-            BackoffSequence::ImagePull => &mut self.image_pull_backoff_strategy,
-            BackoffSequence::CrashLoop => &mut self.crash_loop_backoff_strategy,
-        };
-        backoff_strategy.wait().await;
-    }
-    async fn reset_backoff(&mut self, sequence: BackoffSequence) {
-        let backoff_strategy = match sequence {
-            BackoffSequence::ImagePull => &mut self.image_pull_backoff_strategy,
-            BackoffSequence::CrashLoop => &mut self.crash_loop_backoff_strategy,
-        };
-        backoff_strategy.reset();
-    }
-    async fn record_error(&mut self) -> ThresholdTrigger {
-        self.errors += 1;
-        if self.errors > 3 {
-            self.errors = 0;
-            ThresholdTrigger::Triggered
-        } else {
-            ThresholdTrigger::Untriggered
-        }
-    }
-}
-
-#[async_trait]
-impl ResourceState for PodState {
-    type Manifest = Pod;
-    type Status = PodStatus;
-    type SharedState = ProviderState;
-    async fn async_drop(self, provider_state: &mut Self::SharedState) {
-        {
-            let mut lock = provider_state.port_map.lock().await;
-            let ports_to_remove: Vec<u16> = lock
-                .iter()
-                .filter_map(|(k, v)| if v == &self.key { Some(*k) } else { None })
-                .collect();
-            debug!(
-                "Pod {} in namespace {} releasing ports {:?}.",
-                &self.key.name(),
-                &self.key.namespace(),
-                &ports_to_remove
-            );
-            for port in ports_to_remove {
-                lock.remove(&port);
-            }
-        }
-        {
-            let mut handles = provider_state.handles.write().await;
-            handles.remove(&self.key);
-        }
-    }
-}
-
 #[async_trait]
 impl Provider for WasccProvider {
     type ProviderState = ProviderState;
@@ -342,18 +269,7 @@ impl Provider for WasccProvider {
     }
 
     async fn initialize_pod_state(&self, pod: &Pod) -> anyhow::Result<Self::PodState> {
-        let run_context = ModuleRunContext {
-            modules: Default::default(),
-            volumes: Default::default(),
-        };
-        let key = PodKey::from(pod);
-        Ok(PodState {
-            key,
-            run_context,
-            errors: 0,
-            image_pull_backoff_strategy: ExponentialBackoffStrategy::default(),
-            crash_loop_backoff_strategy: ExponentialBackoffStrategy::default(),
-        })
+        Ok(PodState::new(pod))
     }
 
     async fn logs(

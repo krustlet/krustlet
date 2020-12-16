@@ -43,9 +43,17 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = S
         let latest_container = latest_pod.find_container(&container_name).unwrap();
 
         match state.status(&mut container_state, &latest_container).await {
-            Ok(status) => patch_container_status(&api, &latest_pod, &container_name, &status)
-                .await
-                .unwrap(),
+            Ok(status) => {
+                match patch_container_status(&api, &latest_pod, &container_name, &status).await {
+                    Ok(_) => (),
+                    Err(e) => {
+                        warn!(
+                            "Pod {} container {} status patch request returned error: {:?}",
+                            &pod_name, container_name, e
+                        );
+                    }
+                }
+            }
             Err(e) => {
                 warn!(
                     "Pod {} container {} status patch returned error: {:?}",

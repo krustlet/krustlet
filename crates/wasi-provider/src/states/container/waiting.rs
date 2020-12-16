@@ -74,11 +74,39 @@ impl State<ContainerState> for Waiting {
 
         let (module_data, container_volumes) = {
             let mut run_context = state.run_context.write().await;
-            let module_data = run_context
-                .modules
-                .remove(container.name())
-                .expect("FATAL ERROR: module map not properly populated");
-            let container_volumes = volume_path_map(container, &run_context.volumes).unwrap();
+            let module_data = match run_context.modules.remove(container.name()) {
+                Some(data) => data,
+                None => {
+                    return Transition::next(
+                        self,
+                        Terminated::new(
+                            format!(
+                                "Pod {} container {} failed load module data from run context.",
+                                state.pod.name(),
+                                container.name(),
+                            ),
+                            true,
+                        ),
+                    );
+                }
+            };
+            let container_volumes = match volume_path_map(container, &run_context.volumes) {
+                Ok(volumes) => volumes,
+                Err(e) => {
+                    return Transition::next(
+                        self,
+                        Terminated::new(
+                            format!(
+                                "Pod {} container {} failed to map volume paths: {:?}",
+                                state.pod.name(),
+                                container.name(),
+                                e
+                            ),
+                            true,
+                        ),
+                    )
+                }
+            };
             (module_data, container_volumes)
         };
 
@@ -88,7 +116,7 @@ impl State<ContainerState> for Waiting {
         // TODO: ~magic~ number
         let (tx, rx) = mpsc::channel(8);
 
-        let runtime = WasiRuntime::new(
+        let runtime = match WasiRuntime::new(
             container.name().to_owned(),
             module_data,
             env,
@@ -98,7 +126,23 @@ impl State<ContainerState> for Waiting {
             tx,
         )
         .await
-        .unwrap();
+        {
+            Ok(runtime) => runtime,
+            Err(e) => {
+                return Transition::next(
+                    self,
+                    Terminated::new(
+                        format!(
+                            "Pod {} container {} failed to construct runtime: {:?}",
+                            state.pod.name(),
+                            container.name(),
+                            e
+                        ),
+                        true,
+                    ),
+                )
+            }
+        };
         debug!("Starting container {} on thread", container.name());
         let container_handle = match runtime.start().await {
             Ok(handle) => handle,
