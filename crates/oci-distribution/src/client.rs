@@ -4,7 +4,10 @@
 //! OCI distribution client in the future.
 
 use crate::errors::*;
-use crate::manifest::{OciManifest, Versioned, IMAGE_MANIFEST_MEDIA_TYPE};
+use crate::manifest::{
+    OciDescriptor, OciManifest, Versioned, IMAGE_LAYER_GZIP_MEDIA_TYPE, IMAGE_LAYER_MEDIA_TYPE,
+    IMAGE_MANIFEST_MEDIA_TYPE,
+};
 use crate::secrets::RegistryAuth;
 use crate::secrets::*;
 use crate::Reference;
@@ -15,6 +18,7 @@ use futures_util::stream::StreamExt;
 use hyperx::header::Header;
 use log::debug;
 use reqwest::header::HeaderMap;
+use sha2::Digest;
 use std::collections::HashMap;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
@@ -23,9 +27,62 @@ use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate
 #[derive(Clone)]
 pub struct ImageData {
     /// The layers of the image or module.
-    pub layers: Vec<Vec<u8>>,
+    pub layers: Vec<ImageLayer>,
     /// The digest of the image or module.
     pub digest: Option<String>,
+}
+
+impl ImageData {
+    /// Helper function to compute the digest of the image layers
+    pub fn sha256_digest(&self) -> String {
+        sha256_digest(
+            &self
+                .layers
+                .iter()
+                .cloned()
+                .map(|l| l.data)
+                .flatten()
+                .collect::<Vec<u8>>(),
+        )
+    }
+
+    /// Returns the image digest, either the value in the field or by computing it
+    /// If the value in the field is None, the computed value will be stored
+    pub fn digest(&self) -> String {
+        self.digest.clone().unwrap_or(self.sha256_digest())
+    }
+}
+
+/// The data and media type for an image layer
+#[derive(Clone)]
+pub struct ImageLayer {
+    /// The data of this layer
+    pub data: Vec<u8>,
+    /// The media type of this layer
+    pub media_type: String,
+}
+
+impl ImageLayer {
+    /// Constructs a new ImageLayer struct with provided data and media type
+    pub fn new(data: Vec<u8>, media_type: String) -> Self {
+        ImageLayer { data, media_type }
+    }
+
+    /// Constructs a new ImageLayer struct with provided data and
+    /// media type application/vnd.oci.image.layer.v1.tar
+    pub fn oci_v1(data: Vec<u8>) -> Self {
+        Self::new(data, IMAGE_LAYER_MEDIA_TYPE.to_string())
+    }
+    /// Constructs a new ImageLayer struct with provided data and
+    /// media type application/vnd.oci.image.layer.v1.tar+gzip
+    pub fn oci_v1_gzip(data: Vec<u8>) -> Self {
+        Self::new(data, IMAGE_LAYER_GZIP_MEDIA_TYPE.to_string())
+    }
+
+    /// Helper function to compute the sha256 digest of an image layer
+    pub fn sha256_digest(self) -> String {
+        sha256_digest(&self.data)
+    }
 }
 
 /// The OCI client connects to an OCI registry and fetches OCI images.
@@ -85,7 +142,7 @@ impl Client {
         debug!("Pulling image: {:?}", image);
 
         if !self.tokens.contains_key(image.registry()) {
-            self.auth(image, auth).await?;
+            self.auth(image, auth, &RegistryOperation::Pull).await?;
         }
 
         let (manifest, digest) = self.pull_manifest(image).await?;
@@ -102,7 +159,7 @@ impl Client {
                 let mut out: Vec<u8> = Vec::new();
                 debug!("Pulling image layer");
                 this.pull_layer(image, &layer.digest, &mut out).await?;
-                Ok::<_, anyhow::Error>(out)
+                Ok::<_, anyhow::Error>(ImageLayer::new(out, layer.media_type))
             }
         });
 
@@ -114,6 +171,61 @@ impl Client {
         })
     }
 
+    /// Push an image and return the uploaded URL of the image
+    ///
+    /// The client will check if it's already been authenticated and if
+    /// not will attempt to do.
+    ///
+    /// If a manifest is not provided, the client will attempt to generate
+    /// it from the provided image and config data.
+    ///
+    /// Returns pullable URL for the image
+    pub async fn push(
+        &mut self,
+        image_ref: &Reference,
+        image_data: &ImageData,
+        config_data: &[u8],
+        config_media_type: &str,
+        auth: &RegistryAuth,
+        image_manifest: Option<OciManifest>,
+    ) -> anyhow::Result<String> {
+        debug!("Pushing image: {:?}", image_ref);
+
+        if !self.tokens.contains_key(image_ref.registry()) {
+            self.auth(image_ref, auth, &RegistryOperation::Push).await?;
+        }
+
+        // Start push session
+        let mut location = self.begin_push_session(image_ref).await?;
+
+        // Upload layers
+        let mut start_byte = 0;
+        for layer in &image_data.layers {
+            // Destructuring assignment is not yet supported
+            let (next_location, next_byte) = self
+                .push_layer(&location, &image_ref, layer.data.to_vec(), start_byte)
+                .await?;
+            location = next_location;
+            start_byte = next_byte;
+        }
+
+        // End push session, upload manifest
+        let image_url = self
+            .end_push_session(&location, &image_ref, &image_data.digest())
+            .await?;
+
+        // Push config and manifest to registry
+        let manifest: OciManifest = match image_manifest {
+            Some(m) => m,
+            None => self.generate_manifest(&image_data, &config_data, config_media_type),
+        };
+        self.push_config(image_ref, &config_data, &manifest.config.digest)
+            .await?;
+        self.push_manifest(&image_ref, &manifest).await?;
+
+        Ok(image_url)
+    }
+
     /// Perform an OAuth v2 auth request if necessary.
     ///
     /// This performs authorization and then stores the token internally to be used
@@ -122,8 +234,9 @@ impl Client {
         &mut self,
         image: &Reference,
         authentication: &RegistryAuth,
+        operation: &RegistryOperation,
     ) -> anyhow::Result<()> {
-        debug!("Authorzing for image: {:?}", image);
+        debug!("Authorizing for image: {:?}", image);
         // The version request will tell us where to go.
         let url = format!(
             "{}://{}/v2/",
@@ -145,8 +258,12 @@ impl Client {
             None => return Ok(()),
         };
 
-        // Right now, we do read-only auth.
-        let pull_perms = format!("repository:{}:pull", image.repository());
+        // Allow for either push or pull authentication
+        let scope = match operation {
+            RegistryOperation::Pull => format!("repository:{}:pull", image.repository()),
+            RegistryOperation::Push => format!("repository:{}:pull,push", image.repository()),
+        };
+
         let challenge = &challenge_opt[0];
         let realm = challenge.realm.as_ref().unwrap();
         let service = challenge.service.as_ref().unwrap();
@@ -157,7 +274,7 @@ impl Client {
         let auth_res = self
             .client
             .get(realm)
-            .query(&[("service", service), ("scope", &pull_perms)])
+            .query(&[("service", service), ("scope", &scope)])
             .apply_authentication(authentication)
             .send()
             .await?;
@@ -190,7 +307,7 @@ impl Client {
         auth: &RegistryAuth,
     ) -> anyhow::Result<String> {
         if !self.tokens.contains_key(image.registry()) {
-            self.auth(image, auth).await?;
+            self.auth(image, auth, &RegistryOperation::Pull).await?;
         }
 
         let url = self.to_v2_manifest_url(image);
@@ -334,6 +451,202 @@ impl Client {
         Ok(())
     }
 
+    /// Begins a session to push an image to registry
+    ///
+    /// Returns URL with session UUID
+    async fn begin_push_session(&self, image: &Reference) -> anyhow::Result<String> {
+        let url = &self.to_v2_blob_upload_url(image);
+        let mut headers = self.auth_headers(image);
+        headers.insert("Content-Length", "0".parse().unwrap());
+
+        let res = self.client.post(url).headers(headers).send().await?;
+
+        // OCI spec requires the status code be 202 Accepted to successfully begin the push process
+        self.extract_location_header(&image, res, &reqwest::StatusCode::ACCEPTED)
+            .await
+    }
+
+    /// Closes the push session
+    ///
+    /// Returns the pullable URL for the image
+    async fn end_push_session(
+        &self,
+        location: &str,
+        image: &Reference,
+        digest: &str,
+    ) -> anyhow::Result<String> {
+        let url = format!("{}&digest={}", location, digest);
+        let mut close_headers = self.auth_headers(image);
+        close_headers.insert("Content-Length", "0".parse().unwrap());
+
+        let res = self.client.put(&url).headers(close_headers).send().await?;
+        self.extract_location_header(&image, res, &reqwest::StatusCode::CREATED)
+            .await
+    }
+
+    /// Pushes a single layer (blob) of an image to registry
+    ///
+    /// Returns the URL location for the next layer
+    async fn push_layer(
+        &self,
+        location: &str,
+        image: &Reference,
+        layer: Vec<u8>,
+        start_byte: usize,
+    ) -> anyhow::Result<(String, usize)> {
+        if layer.is_empty() {
+            return Err(anyhow::anyhow!("cannot push a layer without data"));
+        };
+        let end_byte = start_byte + layer.len() - 1;
+        let mut headers = self.auth_headers(image);
+        headers.insert(
+            "Content-Range",
+            format!("{}-{}", start_byte, end_byte).parse().unwrap(),
+        );
+        headers.insert(
+            "Content-Length",
+            format!("{}", layer.len()).parse().unwrap(),
+        );
+        headers.insert("Content-Type", "application/octet-stream".parse().unwrap());
+
+        let res = self
+            .client
+            .patch(location)
+            .headers(headers)
+            .body(layer)
+            .send()
+            .await?;
+
+        // Returns location for next chunk and the start byte for the next range
+        Ok((
+            self.extract_location_header(&image, res, &reqwest::StatusCode::ACCEPTED)
+                .await?,
+            end_byte + 1,
+        ))
+    }
+
+    /// Pushes the config as a blob to the registry
+    ///
+    /// Returns the pullable location of the config
+    async fn push_config(
+        &self,
+        image: &Reference,
+        config_data: &[u8],
+        config_digest: &str,
+    ) -> anyhow::Result<String> {
+        let location = self.begin_push_session(image).await?;
+        let (end_location, _) = self
+            .push_layer(&location, &image, config_data.to_vec(), 0)
+            .await?;
+        self.end_push_session(&end_location, &image, config_digest)
+            .await
+    }
+
+    /// Pushes the manifest for a specified image
+    ///
+    /// Returns pullable manifest URL
+    async fn push_manifest(
+        &self,
+        image: &Reference,
+        manifest: &OciManifest,
+    ) -> anyhow::Result<String> {
+        let url = self.to_v2_manifest_url(image);
+
+        let mut headers = self.auth_headers(image);
+        headers.insert(
+            "Content-Type",
+            "application/vnd.oci.image.manifest.v1+json"
+                .parse()
+                .unwrap(),
+        );
+
+        let res = self
+            .client
+            .put(&url)
+            .headers(headers)
+            .body(serde_json::to_string(manifest)?)
+            .send()
+            .await?;
+
+        self.extract_location_header(&image, res, &reqwest::StatusCode::CREATED)
+            .await
+    }
+
+    async fn extract_location_header(
+        &self,
+        image: &Reference,
+        res: reqwest::Response,
+        expected_status: &reqwest::StatusCode,
+    ) -> anyhow::Result<String> {
+        if res.status().eq(expected_status) {
+            let location_header = res.headers().get("Location");
+            match location_header {
+                None => Err(anyhow::anyhow!("registry did not return a location header")),
+                Some(lh) => self.location_header_to_url(&image, &lh),
+            }
+        } else {
+            Err(anyhow::anyhow!(
+                "An unexpected error occured: code={}, message='{}'",
+                res.status(),
+                res.text().await?
+            ))
+        }
+    }
+
+    /// Helper function to convert location header to URL
+    ///
+    /// Location may be absolute (containing the protocol and/or hostname), or relative (containing just the URL path)
+    /// Returns a properly formatted absolute URL
+    fn location_header_to_url(
+        &self,
+        image: &Reference,
+        location_header: &reqwest::header::HeaderValue,
+    ) -> anyhow::Result<String> {
+        let lh = location_header.to_str().map_err(anyhow::Error::new)?;
+        if lh.starts_with("/v2/") {
+            Ok(format!(
+                "{}://{}{}",
+                self.config.protocol.scheme_for(image.registry()),
+                image.registry(),
+                lh
+            ))
+        } else {
+            Ok(lh.to_string())
+        }
+    }
+
+    fn generate_manifest(
+        &self,
+        image_data: &ImageData,
+        config_data: &[u8],
+        config_media_type: &str,
+    ) -> OciManifest {
+        let mut manifest = OciManifest::default();
+
+        manifest.config.media_type = config_media_type.to_string();
+        manifest.config.size = config_data.len() as i64;
+        manifest.config.digest = sha256_digest(config_data);
+
+        for layer in image_data.layers.clone() {
+            let mut descriptor: OciDescriptor = OciDescriptor::default();
+            descriptor.size = layer.data.len() as i64;
+            descriptor.digest = sha256_digest(&layer.data);
+            descriptor.media_type = layer.media_type;
+
+            //TODO: Determine necessity of generating an image title
+            let mut annotations = HashMap::new();
+            annotations.insert(
+                "org.opencontainers.image.title".to_string(),
+                descriptor.digest.to_string(),
+            );
+            descriptor.annotations = Some(annotations);
+
+            manifest.layers.push(descriptor);
+        }
+
+        manifest
+    }
+
     /// Convert a Reference to a v2 manifest URL.
     fn to_v2_manifest_url(&self, reference: &Reference) -> String {
         if let Some(digest) = reference.digest() {
@@ -364,6 +677,11 @@ impl Client {
             repository,
             digest,
         )
+    }
+
+    /// Convert a Reference to a v2 blob upload URL.
+    fn to_v2_blob_upload_url(&self, reference: &Reference) -> String {
+        self.to_v2_blob_url(&reference.registry(), &reference.repository(), "uploads/")
     }
 
     /// Generate the headers necessary for authentication.
@@ -485,6 +803,11 @@ fn digest_header_value(response: &reqwest::Response) -> anyhow::Result<String> {
     }
 }
 
+/// Computes the SHA256 digest of a byte vector
+fn sha256_digest(bytes: &[u8]) -> String {
+    format!("sha256:{:x}", sha2::Sha256::digest(bytes))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -532,6 +855,17 @@ mod test {
                 let reference = Reference::try_from(image).expect("failed to parse reference");
                 assert_eq!(c.to_v2_manifest_url(&reference), expected_uri);
             }
+    }
+
+    #[test]
+    fn test_to_v2_blob_upload_url() {
+        let image = Reference::try_from(HELLO_IMAGE_TAG).expect("failed to parse reference");
+        let blob_url = Client::default().to_v2_blob_upload_url(&image);
+
+        assert_eq!(
+            blob_url,
+            "https://webassembly.azurecr.io/v2/hello-wasm/blobs/uploads/"
+        )
     }
 
     #[test]
@@ -624,14 +958,37 @@ mod test {
         );
     }
 
+    #[test]
+    fn can_generate_valid_digest() {
+        let bytes = b"hellobytes";
+        let hash = sha256_digest(&bytes.to_vec());
+
+        let combination = vec![b"hello".to_vec(), b"bytes".to_vec()];
+        let combination_hash =
+            sha256_digest(&combination.into_iter().flatten().collect::<Vec<u8>>());
+
+        assert_eq!(
+            hash,
+            "sha256:fdbd95aafcbc814a2600fcc54c1e1706f52d2f9bf45cf53254f25bcd7599ce99"
+        );
+        assert_eq!(
+            combination_hash,
+            "sha256:fdbd95aafcbc814a2600fcc54c1e1706f52d2f9bf45cf53254f25bcd7599ce99"
+        );
+    }
+
     #[tokio::test]
     async fn test_auth() {
         for &image in TEST_IMAGES {
             let reference = Reference::try_from(image).expect("failed to parse reference");
             let mut c = Client::default();
-            c.auth(&reference, &RegistryAuth::Anonymous)
-                .await
-                .expect("result from auth request");
+            c.auth(
+                &reference,
+                &RegistryAuth::Anonymous,
+                &RegistryOperation::Pull,
+            )
+            .await
+            .expect("result from auth request");
 
             let tok = c
                 .tokens
@@ -654,9 +1011,13 @@ mod test {
 
             // But this should pass
             let mut c = Client::default();
-            c.auth(&reference, &RegistryAuth::Anonymous)
-                .await
-                .expect("authenticated");
+            c.auth(
+                &reference,
+                &RegistryAuth::Anonymous,
+                &RegistryOperation::Pull,
+            )
+            .await
+            .expect("authenticated");
             let (manifest, _) = c
                 .pull_manifest(&reference)
                 .await
@@ -681,9 +1042,13 @@ mod test {
             // This should pass
             let reference = Reference::try_from(image).expect("failed to parse reference");
             let mut c = Client::default();
-            c.auth(&reference, &RegistryAuth::Anonymous)
-                .await
-                .expect("authenticated");
+            c.auth(
+                &reference,
+                &RegistryAuth::Anonymous,
+                &RegistryOperation::Pull,
+            )
+            .await
+            .expect("authenticated");
             let digest = c
                 .fetch_manifest_digest(&reference, &RegistryAuth::Anonymous)
                 .await
@@ -702,9 +1067,13 @@ mod test {
 
         for &image in TEST_IMAGES {
             let reference = Reference::try_from(image).expect("failed to parse reference");
-            c.auth(&reference, &RegistryAuth::Anonymous)
-                .await
-                .expect("authenticated");
+            c.auth(
+                &reference,
+                &RegistryAuth::Anonymous,
+                &RegistryOperation::Pull,
+            )
+            .await
+            .expect("authenticated");
             let (manifest, _) = c
                 .pull_manifest(&reference)
                 .await
@@ -764,5 +1133,190 @@ mod test {
                 .await
                 .is_err());
         }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    /// Requires local registry resolveable at `oci.registry.local`
+    async fn can_push_layer() {
+        let mut c = Client::new(ClientConfig {
+            protocol: ClientProtocol::Http,
+        });
+        let url = "oci.registry.local/hello-wasm:v1";
+        let image: Reference = url.parse().unwrap();
+
+        c.auth(&image, &RegistryAuth::Anonymous, &RegistryOperation::Push)
+            .await
+            .expect("result from auth request");
+
+        let location = c
+            .begin_push_session(&image)
+            .await
+            .expect("failed to begin push session");
+
+        let image_data: Vec<Vec<u8>> = vec![b"iamawebassemblymodule".to_vec()];
+
+        let (next_location, next_byte) = c
+            .push_layer(&location, &image, image_data[0].clone(), 0)
+            .await
+            .expect("failed to push layer");
+
+        // Location should include original URL with at session ID appended
+        assert!(next_location.len() >= url.len() + "6987887f-0196-45ee-91a1-2dfad901bea0".len());
+        assert_eq!(
+            next_byte,
+            "iamawebassemblymodule".to_string().into_bytes().len()
+        );
+
+        let layer_location = c
+            .end_push_session(&next_location, &image, &sha256_digest(&image_data[0]))
+            .await
+            .expect("failed to end push session");
+
+        assert_eq!(layer_location, "http://oci.registry.local/v2/hello-wasm/blobs/sha256:6165c4ad43c0803798b6f2e49d6348c915d52c999a5f890846cee77ea65d230b");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    /// Requires local registry resolveable at `oci.registry.local`
+    async fn can_push_multiple_layers() {
+        let mut c = Client::new(ClientConfig {
+            protocol: ClientProtocol::Http,
+        });
+        let sample_uuid = "6987887f-0196-45ee-91a1-2dfad901bea0";
+        let url = "oci.registry.local/hello-wasm:v1";
+        let image: Reference = url.parse().unwrap();
+
+        c.auth(&image, &RegistryAuth::Anonymous, &RegistryOperation::Push)
+            .await
+            .expect("result from auth request");
+
+        let image_data: Vec<Vec<u8>> = vec![
+            b"iamawebassemblymodule".to_vec(),
+            b"anotherwebassemblymodule".to_vec(),
+            b"lastlayerwasm".to_vec(),
+        ];
+
+        let mut location = c
+            .begin_push_session(&image)
+            .await
+            .expect("failed to begin push session");
+
+        let mut start_byte = 0;
+
+        for layer in image_data.clone() {
+            let (next_location, next_byte) = c
+                .push_layer(&location, &image, layer.clone(), start_byte)
+                .await
+                .expect("failed to push layer");
+
+            // Each next location should be valid and include a UUID
+            // Each next byte should be the byte after the pushed layer
+            assert!(next_location.len() >= url.len() + sample_uuid.len());
+            assert_eq!(next_byte, start_byte + layer.len());
+
+            location = next_location;
+            start_byte = next_byte;
+        }
+
+        let layer_location = c
+            .end_push_session(
+                &location,
+                &image,
+                &sha256_digest(
+                    &image_data
+                        .clone()
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<u8>>(),
+                ),
+            )
+            .await
+            .expect("failed to end push session");
+
+        assert_eq!(layer_location, "http://oci.registry.local/v2/hello-wasm/blobs/sha256:5aef3de484a7d350ece6f5483047712be7c9a228998ba16242b3e50b5f16605a");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    /// Requires local registry resolveable at `oci.registry.local`
+    async fn test_image_roundtrip() {
+        let mut c = Client::new(ClientConfig {
+            protocol: ClientProtocol::HttpsExcept(vec!["oci.registry.local".to_string()]),
+        });
+
+        let image: Reference = HELLO_IMAGE_TAG_AND_DIGEST.parse().unwrap();
+        c.auth(&image, &RegistryAuth::Anonymous, &RegistryOperation::Pull)
+            .await
+            .expect("authenticated");
+
+        let (manifest, _digest) = c
+            .pull_manifest(&image)
+            .await
+            .expect("failed to pull manifest");
+
+        let image_data = c
+            .pull(
+                &image,
+                &RegistryAuth::Anonymous,
+                vec![manifest::WASM_LAYER_MEDIA_TYPE],
+            )
+            .await
+            .expect("failed to pull image");
+
+        let push_image: Reference = "oci.registry.local/hello-wasm:v1".parse().unwrap();
+        c.auth(
+            &push_image,
+            &RegistryAuth::Anonymous,
+            &RegistryOperation::Push,
+        )
+        .await
+        .expect("authenticated");
+
+        let config_data = b"{}".to_vec();
+
+        c.push(
+            &push_image,
+            &image_data,
+            &config_data,
+            manifest::WASM_CONFIG_MEDIA_TYPE,
+            &RegistryAuth::Anonymous,
+            None,
+        )
+        .await
+        .expect("failed to push image");
+
+        let new_manifest =
+            c.generate_manifest(&image_data, &config_data, manifest::WASM_CONFIG_MEDIA_TYPE);
+
+        c.push_manifest(&push_image, &new_manifest)
+            .await
+            .expect("error pushing manifest");
+
+        let pulled_image_data = c
+            .pull(
+                &push_image,
+                &RegistryAuth::Anonymous,
+                vec![manifest::WASM_LAYER_MEDIA_TYPE],
+            )
+            .await
+            .expect("failed to pull pushed image");
+
+        let (pulled_manifest, _digest) = c
+            .pull_manifest(&push_image)
+            .await
+            .expect("failed to pull pushed image manifest");
+
+        assert!(image_data.layers.len() == 1);
+        assert!(pulled_image_data.layers.len() == 1);
+        assert_eq!(
+            image_data.layers[0].data.len(),
+            pulled_image_data.layers[0].data.len()
+        );
+        assert_eq!(image_data.layers[0].data, pulled_image_data.layers[0].data);
+
+        assert_eq!(manifest.media_type, pulled_manifest.media_type);
+        assert_eq!(manifest.schema_version, pulled_manifest.schema_version);
+        assert_eq!(manifest.config.digest, pulled_manifest.config.digest);
     }
 }

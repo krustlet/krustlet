@@ -89,7 +89,7 @@ impl Storer for FileStorer {
         if image_data.layers.is_empty() {
             return Err(anyhow::anyhow!("No module layer present in image data"));
         }
-        tokio::fs::write(&module_path, &image_data.layers[0]).await?;
+        tokio::fs::write(&module_path, &image_data.layers[0].data).await?;
         if let Some(d) = image_data.digest {
             tokio::fs::write(&digest_path, d).await?;
         }
@@ -131,7 +131,7 @@ mod test {
     use super::*;
     use crate::container::PullPolicy;
     use crate::store::Store;
-    use oci_distribution::client::ImageData;
+    use oci_distribution::client::{ImageData, ImageLayer};
     use oci_distribution::secrets::RegistryAuth;
     use std::collections::HashMap;
     use std::convert::TryFrom;
@@ -176,7 +176,7 @@ mod test {
                 images.insert(
                     name.to_owned(),
                     ImageData {
-                        layers: vec![content],
+                        layers: vec![ImageLayer::oci_v1(content)],
                         digest: Some(digest.to_owned()),
                     },
                 );
@@ -192,7 +192,7 @@ mod test {
             images.insert(
                 key.to_owned(),
                 ImageData {
-                    layers: vec![content],
+                    layers: vec![ImageLayer::oci_v1(content)],
                     digest: Some(digest.to_owned()),
                 },
             );
