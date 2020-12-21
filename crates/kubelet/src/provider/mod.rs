@@ -11,7 +11,8 @@ use crate::container::Container;
 use crate::log::Sender;
 use crate::node::Builder;
 use crate::pod::Pod;
-use crate::state::{AsyncDrop, State};
+use crate::pod::Status as PodStatus;
+use crate::state::{ResourceState, State};
 
 /// A back-end for a Kubelet.
 ///
@@ -29,9 +30,13 @@ use crate::state::{AsyncDrop, State};
 /// # Example
 /// ```rust
 /// use async_trait::async_trait;
-/// use kubelet::pod::Pod;
+/// use kubelet::pod::{Pod, Status};
 /// use kubelet::provider::Provider;
-/// use kubelet::state::{SharedState, Stub, AsyncDrop};
+/// use kubelet::state::SharedState;
+/// use kubelet::pod::state::Stub;
+/// use kubelet::pod::state::prelude::*;
+/// use std::sync::Arc;
+/// use tokio::sync::RwLock;
 ///
 /// struct MyProvider;
 ///
@@ -39,22 +44,24 @@ use crate::state::{AsyncDrop, State};
 /// struct PodState;
 ///
 /// #[async_trait]
-/// impl AsyncDrop for PodState {
-///     type ProviderState = ProviderState;
+/// impl ResourceState for PodState {
+///     type Manifest = Pod;
+///     type Status = Status;
+///     type SharedState = ProviderState;
 ///     async fn async_drop(self, _provider_state: &mut ProviderState) { }
 /// }
 ///
 /// #[async_trait]
 /// impl Provider for MyProvider {
+///     type ProviderState = ProviderState;
 ///     type InitialState = Stub;
 ///     type TerminatedState = Stub;
 ///     const ARCH: &'static str = "my-arch";
 ///
-///     type ProviderState = ProviderState;
 ///     type PodState = PodState;
 ///    
 ///     fn provider_state(&self) -> SharedState<ProviderState> {
-///         SharedState::new(ProviderState {})
+///         Arc::new(RwLock::new(ProviderState {}))
 ///     }
 ///
 ///     async fn initialize_pod_state(&self, _pod: &Pod) -> anyhow::Result<Self::PodState> {
@@ -70,13 +77,17 @@ pub trait Provider: Sized {
     type ProviderState: 'static + Send + Sync;
 
     /// The state that is passed between Pod state handlers.
-    type PodState: 'static + Send + Sync + AsyncDrop<ProviderState = Self::ProviderState>;
+    type PodState: ResourceState<
+        Manifest = Pod,
+        Status = PodStatus,
+        SharedState = Self::ProviderState,
+    >;
 
     /// The initial state for Pod state machine.
-    type InitialState: Default + State<Self::ProviderState, Self::PodState>;
+    type InitialState: Default + State<Self::PodState>;
 
     /// The a state to handle early Pod termination.
-    type TerminatedState: Default + State<Self::ProviderState, Self::PodState>;
+    type TerminatedState: Default + State<Self::PodState>;
 
     /// Arch returns a string specifying what architecture this provider supports
     const ARCH: &'static str;

@@ -235,13 +235,14 @@ async fn start_signal_handler(
 mod test {
     use super::*;
     use crate::container::Container;
-    use crate::pod::Pod;
-    use crate::state::AsyncDrop;
+    use crate::pod::{Pod, Status};
+    use crate::state::ResourceState;
     use k8s_openapi::api::core::v1::{
         Container as KubeContainer, EnvVar, EnvVarSource, ObjectFieldSelector, PodSpec, PodStatus,
     };
     use kube::api::ObjectMeta;
     use std::collections::BTreeMap;
+    use tokio::sync::RwLock;
 
     fn mock_client() -> kube::Client {
         kube::Client::new(kube::Config::new(
@@ -255,16 +256,18 @@ mod test {
     struct PodState;
 
     #[async_trait::async_trait]
-    impl AsyncDrop for PodState {
-        type ProviderState = ProviderState;
+    impl ResourceState for PodState {
+        type Manifest = Pod;
+        type Status = Status;
+        type SharedState = ProviderState;
         async fn async_drop(self, _provider_state: &mut ProviderState) {}
     }
 
     #[async_trait::async_trait]
     impl Provider for MockProvider {
-        type InitialState = crate::state::Stub;
-        type TerminatedState = crate::state::Stub;
         type ProviderState = ProviderState;
+        type InitialState = crate::pod::state::Stub;
+        type TerminatedState = crate::pod::state::Stub;
         type PodState = PodState;
 
         const ARCH: &'static str = "mock";
@@ -274,7 +277,7 @@ mod test {
         }
 
         fn provider_state(&self) -> crate::state::SharedState<ProviderState> {
-            crate::state::SharedState::new(ProviderState {})
+            Arc::new(RwLock::new(ProviderState {}))
         }
 
         async fn logs(

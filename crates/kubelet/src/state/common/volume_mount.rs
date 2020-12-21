@@ -2,11 +2,10 @@
 
 use log::error;
 
-use crate::state::prelude::*;
-use crate::volume::Ref;
-
 use super::{GenericPodState, GenericProvider, GenericProviderState};
+use crate::pod::state::prelude::*;
 use crate::state::common::error::Error;
+use crate::volume::Ref;
 
 /// Kubelet is pulling container images.
 pub struct VolumeMount<P: GenericProvider> {
@@ -28,13 +27,13 @@ impl<P: GenericProvider> Default for VolumeMount<P> {
 }
 
 #[async_trait::async_trait]
-impl<P: GenericProvider> State<P::ProviderState, P::PodState> for VolumeMount<P> {
+impl<P: GenericProvider> State<P::PodState> for VolumeMount<P> {
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<P::ProviderState>,
         pod_state: &mut P::PodState,
         pod: &Pod,
-    ) -> Transition<P::ProviderState, P::PodState> {
+    ) -> Transition<P::PodState> {
         let (client, volume_path) = {
             let state_reader = provider_state.read().await;
             (state_reader.client(), state_reader.volume_path())
@@ -47,16 +46,12 @@ impl<P: GenericProvider> State<P::ProviderState, P::PodState> for VolumeMount<P>
                 return Transition::next(self, next);
             }
         };
-        pod_state.set_volumes(volumes);
+        pod_state.set_volumes(volumes).await;
         Transition::next_unchecked(self, P::RunState::default())
     }
 
-    async fn json_status(
-        &self,
-        _pod_state: &mut P::PodState,
-        _pod: &Pod,
-    ) -> anyhow::Result<serde_json::Value> {
-        make_status(Phase::Pending, "VolumeMount")
+    async fn status(&self, _pod_state: &mut P::PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
+        Ok(make_status(Phase::Pending, "VolumeMount"))
     }
 }
 

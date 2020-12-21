@@ -9,9 +9,10 @@ use kube::Client as KubeClient;
 use kube_runtime::watcher::Event;
 use log::{debug, error, warn};
 
+use crate::pod::state::run_to_completion;
 use crate::pod::{Pod, PodKey};
 use crate::provider::Provider;
-use crate::state::{run_to_completion, AsyncDrop, SharedState};
+use crate::state::{ResourceState, SharedState};
 use tokio::sync::RwLock;
 
 /// A per-pod queue that takes incoming Kubernetes events and broadcasts them to the correct queue
@@ -194,6 +195,8 @@ async fn start_task<P: Provider>(
         let mut state_writer = provider_state.write().await;
         pod_state.async_drop(&mut state_writer).await;
     }
+
+    // TODO: Call Provider.stop() to clean up still running containers in event of error.
 
     let pod_client: kube::Api<KubePod> = kube::Api::namespaced(task_client, &namespace);
     let dp = kube::api::DeleteParams {

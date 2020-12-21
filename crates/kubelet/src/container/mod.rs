@@ -6,6 +6,7 @@ use std::convert::TryInto;
 use std::fmt::Display;
 
 mod handle;
+pub mod state;
 mod status;
 
 pub use handle::{Handle, HandleMap};

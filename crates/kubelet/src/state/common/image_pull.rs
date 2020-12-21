@@ -1,10 +1,9 @@
 //! Kubelet is pulling container images.
 
-use crate::state::prelude::*;
-
 use super::image_pull_backoff::ImagePullBackoff;
 use super::volume_mount::VolumeMount;
 use super::{BackoffSequence, GenericPodState, GenericProvider, GenericProviderState};
+use crate::pod::state::prelude::*;
 
 use log::error;
 
@@ -28,13 +27,13 @@ impl<P: GenericProvider> Default for ImagePull<P> {
 }
 
 #[async_trait::async_trait]
-impl<P: GenericProvider> State<P::ProviderState, P::PodState> for ImagePull<P> {
+impl<P: GenericProvider> State<P::PodState> for ImagePull<P> {
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<P::ProviderState>,
         pod_state: &mut P::PodState,
         pod: &Pod,
-    ) -> Transition<P::ProviderState, P::PodState> {
+    ) -> Transition<P::PodState> {
         let (client, store) = {
             // Minimise the amount of time we hold any locks
             let state_reader = provider_state.read().await;
@@ -48,17 +47,13 @@ impl<P: GenericProvider> State<P::ProviderState, P::PodState> for ImagePull<P> {
                 return Transition::next(self, ImagePullBackoff::<P>::default());
             }
         };
-        pod_state.set_modules(modules);
-        pod_state.reset_backoff(BackoffSequence::ImagePull);
+        pod_state.set_modules(modules).await;
+        pod_state.reset_backoff(BackoffSequence::ImagePull).await;
         Transition::next(self, VolumeMount::<P>::default())
     }
 
-    async fn json_status(
-        &self,
-        _pod_state: &mut P::PodState,
-        _pod: &Pod,
-    ) -> anyhow::Result<serde_json::Value> {
-        make_status(Phase::Pending, "ImagePull")
+    async fn status(&self, _pod_state: &mut P::PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
+        Ok(make_status(Phase::Pending, "ImagePull"))
     }
 }
 

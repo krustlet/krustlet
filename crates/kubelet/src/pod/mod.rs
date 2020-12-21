@@ -1,6 +1,7 @@
 //! `pod` is a collection of utilities surrounding the Kubernetes pod API.
 mod handle;
 mod queue;
+pub mod state;
 mod status;
 // Ignore deprecated here as this is just a reexport
 #[allow(deprecated)]
@@ -9,7 +10,6 @@ pub(crate) use queue::Queue;
 pub(crate) use status::initialize_pod_container_statuses;
 pub use status::{
     make_registered_status, make_status, make_status_with_containers, patch_status, Phase, Status,
-    StatusMessage,
 };
 
 use crate::container::{Container, ContainerKey};

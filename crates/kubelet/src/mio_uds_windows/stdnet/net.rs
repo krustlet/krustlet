@@ -1,5 +1,5 @@
 use std::fmt;
-use std::io::{self};
+use std::io;
 use std::mem;
 use std::net::Shutdown;
 use std::os::raw::c_int;

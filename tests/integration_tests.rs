@@ -879,7 +879,7 @@ async fn test_failing_init_containers() -> anyhow::Result<()> {
 
     create_pod_with_failing_init_container(client.clone(), &pods, &mut resource_manager).await?;
     assert::pod_exited_with_failure(&pods, FAILY_INITS_POD).await?;
-    assert::pod_message_contains(
+    assert::pod_reason_contains(
         &pods,
         FAILY_INITS_POD,
         "Init container init-that-fails failed",

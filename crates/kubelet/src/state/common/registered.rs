@@ -1,7 +1,6 @@
 //! The Kubelet is aware of the Pod.
 
-use crate::state::prelude::*;
-
+use crate::pod::state::prelude::*;
 use log::{debug, error, info};
 
 use super::error::Error;
@@ -28,13 +27,13 @@ impl<P: GenericProvider> Default for Registered<P> {
 }
 
 #[async_trait::async_trait]
-impl<P: GenericProvider> State<P::ProviderState, P::PodState> for Registered<P> {
+impl<P: GenericProvider> State<P::PodState> for Registered<P> {
     async fn next(
         self: Box<Self>,
         _provider_state: SharedState<P::ProviderState>,
         _pod_state: &mut P::PodState,
         pod: &Pod,
-    ) -> Transition<P::ProviderState, P::PodState> {
+    ) -> Transition<P::PodState> {
         debug!("Preparing to register pod: {}", pod.name());
         match P::validate_pod_and_containers_runnable(&pod) {
             Ok(_) => (),
@@ -49,12 +48,8 @@ impl<P: GenericProvider> State<P::ProviderState, P::PodState> for Registered<P> 
         Transition::next(self, next)
     }
 
-    async fn json_status(
-        &self,
-        _pod_state: &mut P::PodState,
-        _pod: &Pod,
-    ) -> anyhow::Result<serde_json::Value> {
-        make_status(Phase::Pending, "Registered")
+    async fn status(&self, _pod_state: &mut P::PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
+        Ok(make_status(Phase::Pending, "Registered"))
     }
 }
 

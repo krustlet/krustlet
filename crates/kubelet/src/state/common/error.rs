@@ -1,10 +1,9 @@
 //! The Pod failed to run.
 
-use crate::state::prelude::*;
-
 use super::crash_loop_backoff::CrashLoopBackoff;
 use super::registered::Registered;
 use super::{GenericPodState, GenericProvider, ThresholdTrigger};
+use crate::pod::state::prelude::*;
 
 /// The Pod failed to run.
 pub struct Error<P: GenericProvider> {
@@ -30,14 +29,14 @@ impl<P: GenericProvider> Error<P> {
 }
 
 #[async_trait::async_trait]
-impl<P: GenericProvider> State<P::ProviderState, P::PodState> for Error<P> {
+impl<P: GenericProvider> State<P::PodState> for Error<P> {
     async fn next(
         self: Box<Self>,
         _provider_state: SharedState<P::ProviderState>,
         pod_state: &mut P::PodState,
         _pod: &Pod,
-    ) -> Transition<P::ProviderState, P::PodState> {
-        match pod_state.record_error() {
+    ) -> Transition<P::PodState> {
+        match pod_state.record_error().await {
             ThresholdTrigger::Triggered => {
                 let next = CrashLoopBackoff::<P>::default();
                 Transition::next(self, next)
@@ -50,12 +49,8 @@ impl<P: GenericProvider> State<P::ProviderState, P::PodState> for Error<P> {
         }
     }
 
-    async fn json_status(
-        &self,
-        _pod_state: &mut P::PodState,
-        _pod: &Pod,
-    ) -> anyhow::Result<serde_json::Value> {
-        make_status(Phase::Pending, &self.message)
+    async fn status(&self, _pod_state: &mut P::PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
+        Ok(make_status(Phase::Pending, &self.message))
     }
 }
 

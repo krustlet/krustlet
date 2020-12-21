@@ -20,8 +20,17 @@ pub async fn wait_for_pod_ready(
     let mut went_ready = false;
     while let Some(event) = watcher.try_next().await? {
         if let Event::Applied(o) = event {
+            let containers = o
+                .clone()
+                .status
+                .unwrap()
+                .container_statuses
+                .unwrap_or_else(Vec::new);
             let phase = o.status.unwrap().phase.unwrap();
-            if phase == "Running" {
+            if (phase == "Running")
+                & (containers.len() > 0)
+                & containers.iter().all(|status| status.ready)
+            {
                 went_ready = true;
                 break;
             }

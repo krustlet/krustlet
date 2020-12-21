@@ -1,9 +1,10 @@
 //! Container statuses
 
 use super::Pod;
-use crate::container::{make_initial_container_status, ContainerMap, Status as ContainerStatus};
+use crate::container::make_initial_container_status;
 use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 use k8s_openapi::api::core::v1::Pod as KubePod;
+use k8s_openapi::api::core::v1::PodStatus as KubePodStatus;
 use kube::api::PatchParams;
 use kube::Api;
 use log::{debug, warn};
@@ -11,7 +12,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Patch Pod status with Kubernetes API.
-pub async fn patch_status(api: &Api<KubePod>, name: &str, patch: serde_json::Value) {
+pub async fn patch_status(api: &Api<KubePod>, name: &str, status: Status) {
+    let patch = status.into_json();
     match serde_json::to_vec(&patch) {
         Ok(data) => {
             debug!(
@@ -57,18 +59,11 @@ pub async fn initialize_pod_container_statuses(
     let mut retries = 0;
     'main: loop {
         if retries == MAX_STATUS_INIT_RETRIES {
-            let patch = serde_json::json!(
-                {
-                    "metadata": {
-                        "resourceVersion": "",
-                    },
-                    "status": {
-                        "phase": Phase::Failed,
-                        "reason": "Timed out while initializing container statuses.",
-                    }
-                }
+            let status = make_status(
+                Phase::Failed,
+                "Timed out while initializing container statuses.",
             );
-            patch_status(&api, &name, patch).await;
+            patch_status(&api, &name, status).await;
             anyhow::bail!("Timed out while initializing container statuses.")
         }
         let (num_containers, num_init_containers) = {
@@ -113,7 +108,7 @@ pub async fn initialize_pod_container_statuses(
 /// Initialize Pod status.
 /// This initializes Pod status to include containers in the correct order as expected by
 /// `patch_container_status`.
-pub fn make_registered_status(pod: &Pod) -> serde_json::Value {
+pub fn make_registered_status(pod: &Pod) -> Status {
     let init_container_statuses: Vec<KubeContainerStatus> = pod
         .init_containers()
         .iter()
@@ -133,18 +128,12 @@ pub fn make_registered_status(pod: &Pod) -> serde_json::Value {
 }
 
 /// Create basic Pod status patch.
-pub fn make_status(phase: Phase, reason: &str) -> anyhow::Result<serde_json::Value> {
-    Ok(serde_json::json!(
-       {
-           "metadata": {
-               "resourceVersion": "",
-           },
-           "status": {
-               "phase": phase,
-               "reason": reason,
-           }
-       }
-    ))
+pub fn make_status(phase: Phase, reason: &str) -> Status {
+    StatusBuilder::new()
+        .phase(phase)
+        .reason(reason)
+        .message(reason)
+        .build()
 }
 
 /// Create basic Pod status patch.
@@ -153,46 +142,102 @@ pub fn make_status_with_containers(
     reason: &str,
     container_statuses: Vec<KubeContainerStatus>,
     init_container_statuses: Vec<KubeContainerStatus>,
-) -> serde_json::Value {
-    serde_json::json!(
-       {
-           "metadata": {
-               "resourceVersion": "",
-           },
-           "status": {
-               "phase": phase,
-               "reason": reason,
-               "containerStatuses": container_statuses,
-               "initContainerStatuses": init_container_statuses,
-           }
-       }
-    )
+) -> Status {
+    StatusBuilder::new()
+        .phase(phase)
+        .reason(reason)
+        .container_statuses(container_statuses)
+        .init_container_statuses(init_container_statuses)
+        .build()
 }
 
-/// Describe the status of a workload.
-#[derive(Clone, Debug, Default)]
-pub struct Status {
-    /// Allows a provider to set a custom message, otherwise, kubelet will infer
-    /// a message from the container statuses
-    pub message: StatusMessage,
-    /// The statuses of containers keyed off their names
-    pub container_statuses: ContainerMap<ContainerStatus>,
+#[derive(Debug, Default)]
+/// Pod Status wrapper.
+pub struct Status(KubePodStatus);
+
+impl Status {
+    pub(crate) fn into_json(self) -> serde_json::Value {
+        let mut status = serde_json::Map::new();
+        if let Some(s) = self.0.phase {
+            status.insert("phase".to_string(), serde_json::Value::String(s));
+        };
+
+        if let Some(s) = self.0.message {
+            status.insert("message".to_string(), serde_json::Value::String(s));
+        };
+
+        if let Some(s) = self.0.reason {
+            status.insert("reason".to_string(), serde_json::Value::String(s));
+        };
+
+        if let Some(s) = self.0.container_statuses {
+            status.insert("containerStatuses".to_string(), serde_json::json!(s));
+        };
+
+        if let Some(s) = self.0.init_container_statuses {
+            status.insert("initContainerStatuses".to_string(), serde_json::json!(s));
+        };
+
+        serde_json::json!(
+            {
+                "metadata": {
+                    "resourceVersion": "",
+                },
+                "status": serde_json::Value::Object(status)
+            }
+        )
+    }
 }
 
-#[derive(Clone, Debug)]
-/// The message to be set in a pod status update.
-pub enum StatusMessage {
-    /// Do not change the existing status message.
-    LeaveUnchanged,
-    /// Remove any existing status message.
-    Clear,
-    /// Set the status message to the given value.
-    Message(String),
-}
+#[derive(Default)]
+/// Builder for Pod Status wrapper.
+pub struct StatusBuilder(KubePodStatus);
 
-impl Default for StatusMessage {
-    fn default() -> Self {
-        Self::LeaveUnchanged
+impl StatusBuilder {
+    /// Create a new status with no fields set.
+    pub fn new() -> Self {
+        StatusBuilder(Default::default())
+    }
+
+    /// Set Pod phase.
+    pub fn phase(mut self, phase: Phase) -> StatusBuilder {
+        self.0.phase = Some(format!("{}", phase));
+        self
+    }
+
+    /// Set Pod reason.
+    pub fn reason(mut self, reason: &str) -> StatusBuilder {
+        self.0.reason = Some(reason.to_string());
+        self
+    }
+
+    /// Set Pod message.
+    pub fn message(mut self, message: &str) -> StatusBuilder {
+        self.0.message = Some(message.to_string());
+        self
+    }
+
+    /// Set Pod container statuses.
+    pub fn container_statuses(
+        mut self,
+        container_statuses: Vec<KubeContainerStatus>,
+    ) -> StatusBuilder {
+        self.0.container_statuses = Some(container_statuses);
+        self
+    }
+
+    /// Set Pod init container statuses.
+    pub fn init_container_statuses(
+        mut self,
+        init_container_statuses: Vec<KubeContainerStatus>,
+    ) -> StatusBuilder {
+        self.0.init_container_statuses = Some(init_container_statuses);
+        self
+    }
+
+    /// Finalize Pod Status from builder.
+    pub fn build(self) -> Status {
+        Status(self.0)
     }
 }
 
@@ -211,6 +256,12 @@ pub enum Phase {
     Succeeded,
     /// The lifecycle phase of the workload cannot be determined.
     Unknown,
+}
+
+impl std::fmt::Display for Phase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", serde_json::json!(self).as_str().unwrap())
+    }
 }
 
 impl Default for Phase {
