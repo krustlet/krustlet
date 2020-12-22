@@ -82,7 +82,8 @@ impl PluginRegistry {
     }
 
     /// Gets the endpoint for the given plugin name, returning `None` if it doesn't exist
-    #[cfg(test)]
+    // TODO: Remove clippy exception when CSI is completed.
+    #[allow(dead_code)]
     pub async fn get_endpoint(&self, plugin_name: &str) -> Option<PathBuf> {
         let plugins = self.plugins.read().await;
         plugins
