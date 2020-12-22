@@ -36,10 +36,21 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
 
     create_wascc_pod(client.clone(), &pods).await?;
 
-    // Send a request to the pod to trigger some logging
-    reqwest::get("http://127.0.0.1:30000")
-        .await
-        .expect("unable to perform request to test pod");
+    let mut tries: u8 = 0;
+    loop {
+        // Send a request to the pod to trigger some logging
+        match reqwest::get("http://127.0.0.1:30000").await {
+            Ok(_) => {
+                break;
+            }
+            Err(e) => (),
+        }
+        tries += 1;
+        if tries == 10 {
+            panic!("Wascc pod failed 10 readiness checks.");
+        }
+        tokio::time::delay_for(std::time::Duration::from_millis(100)).await;
+    }
 
     let logs = pods
         .logs("greet-wascc", &LogParams::default())
