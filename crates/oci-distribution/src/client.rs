@@ -49,7 +49,7 @@ impl ImageData {
     /// Returns the image digest, either the value in the field or by computing it
     /// If the value in the field is None, the computed value will be stored
     pub fn digest(&self) -> String {
-        self.digest.clone().unwrap_or(self.sha256_digest())
+        self.digest.clone().unwrap_or_else(|| self.sha256_digest())
     }
 }
 

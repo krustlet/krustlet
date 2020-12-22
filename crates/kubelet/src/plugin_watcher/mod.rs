@@ -82,6 +82,7 @@ impl PluginRegistry {
     }
 
     /// Gets the endpoint for the given plugin name, returning `None` if it doesn't exist
+    #[cfg(test)]
     pub async fn get_endpoint(&self, plugin_name: &str) -> Option<PathBuf> {
         let plugins = self.plugins.read().await;
         plugins
