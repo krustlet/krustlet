@@ -22,6 +22,7 @@ Krustlet sends status updates about scheduled pods to the Kubernetes API.
 Therefore, it does not require its own database.
 
 ### Providers
+
 Krustlet uses [providers](./providers.md) to interact with a given runtime. The
 `kubelet` crate has the common functionality for listing to a stream of pods (an
 "Informer" in Kubernetes parlance), keeping a node status updated, and handling

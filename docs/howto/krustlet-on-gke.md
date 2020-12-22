@@ -43,7 +43,6 @@ gke-cluster-default-pool-6d70a85d-19r8   Ready    <none>   1m      v1.17.4-gke.1
 > **NOTE** If you chose to create a single-zone cluster, replace
 `--region=${REGION}` with `--zone=${ZONE}` in the above `gcloud` commands.
 
-
 ## Step 1: Create Compute Engine VM
 
 We can create a new VM with the following command:
@@ -123,10 +122,10 @@ $ KUBECONFIG=${PWD}/kubeconfig krustlet-wasi \
 --bootstrap-file=./bootstrap.conf
 ```
 
-> **NOTE** To increase the level of debugging, you may prefix the command with
+**NOTE** To increase the level of debugging, you may prefix the command with
 `RUST_LOG=info` or `RUST_LOG=debug`.
 
-> **NOTE** The value of `${IP}` was determined in step #1.
+**NOTE** The value of `${IP}` was determined in step #1.
 
 ### Step 4a: Approving the serving CSR
 
