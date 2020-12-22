@@ -118,9 +118,6 @@ jobs:
         run: just test-e2e-standalone
       - name: Run e2e tests (PR)
         if: ${{ github.event_name == 'pull_request' }}
-        env:
-          KRUSTLET_TEST_ENV: "ci"
-          KRUSTLET_E2E_IMAGE_PULL_SECRET: ${{ secrets.KRUSTLET_E2E_IMAGE_PULL_SECRET }}
         run: just test-e2e-standalone
       - name: Output krustlet logs (on error)
         if: ${{ failure() }}
