@@ -67,8 +67,9 @@ pub async fn run_to_completion<PodState: ResourceState<Manifest = Pod, Status = 
 
         state = match transition {
             Transition::Next(s) => {
-                debug!("Pod {} transitioning to {:?}.", &name, s.state);
-                s.state
+                let state = s.into();
+                debug!("Pod {} transitioning to {:?}.", &name, state);
+                state
             }
             Transition::Complete(result) => match result {
                 Ok(()) => {

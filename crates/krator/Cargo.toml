@@ -1,0 +1,31 @@
+[package]
+name = "krator"
+version = "0.5.0"
+authors = [
+    "Matt Butcher <matt.butcher@microsoft.com>",
+    "Matthew Fisher <matt.fisher@microsoft.com>",
+    "Radu Matei <radu.matei@microsoft.com>",
+    "Taylor Thomas <taylor.thomas@microsoft.com>",
+    "Brian Ketelsen <Brian.Ketelsen@microsoft.com>",
+    "Brian Hardock <Brian.Hardock@microsoft.com>",
+    "Ryan Levick <rylevick@microsoft.com>",
+    "Kevin Flansburg <kevin.flansburg@gmail.com>",
+]
+edition = "2018"
+license-file = "../../LICENSE"
+description = "A Kubernetes operator implementation in Rust"
+repository = "https://github.com/deislabs/krustlet"
+readme = "README.md"
+keywords = [
+    "state_machine",
+    "operator",
+    "kubernetes",
+]
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[dependencies]
+async-trait = "0.1"
+anyhow = "1.0"
+tokio  = { version = "0.2", features = ["fs", "stream", "macros", "signal"] }
