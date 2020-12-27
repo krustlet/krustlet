@@ -92,22 +92,22 @@ pub trait State<S: ResourceState>: Sync + Send + 'static + std::fmt::Debug {
 }
 
 /// Iteratively evaluate state machine until it returns Complete.
-pub async fn run_to_completion<ObjectState: ResourceState>(
+pub async fn run_to_completion<S: ResourceState>(
     client: &kube::Client,
-    state: impl State<ObjectState>,
-    shared: SharedState<ObjectState::SharedState>,
-    object_state: &mut ObjectState,
-    manifest: Arc<RwLock<ObjectState::Manifest>>,
+    state: impl State<S>,
+    shared: SharedState<S::SharedState>,
+    object_state: &mut S,
+    manifest: Arc<RwLock<S::Manifest>>,
 ) where
-    ObjectState::Manifest: Resource + Meta + DeserializeOwned,
-    ObjectState::Status: ObjectStatus,
+    S::Manifest: Resource + Meta + DeserializeOwned,
+    S::Status: ObjectStatus,
 {
     let (name, namespace, api) = {
         let initial_manifest = manifest.read().await.clone();
         let namespace = initial_manifest.namespace();
         let name = initial_manifest.name();
 
-        let api: Api<ObjectState::Manifest> = match namespace {
+        let api: Api<S::Manifest> = match namespace {
             Some(ref namespace) => Api::namespaced(client.clone(), namespace),
             None => Api::all(client.clone()),
         };
@@ -122,7 +122,7 @@ pub async fn run_to_completion<ObjectState: ResourceState>(
     //     return;
     // }
 
-    let mut state: Box<dyn State<ObjectState>> = Box::new(state);
+    let mut state: Box<dyn State<S>> = Box::new(state);
 
     loop {
         debug!(
@@ -137,11 +137,17 @@ pub async fn run_to_completion<ObjectState: ResourceState>(
                 patch_status(&api, &name, status).await;
             }
             Err(e) => {
-                warn!("Object {} status patch returned error: {:?}", &name, e);
+                warn!(
+                    "Object {} in namespace {:?} status patch returned error: {:?}",
+                    &name, &namespace, e
+                );
             }
         }
 
-        debug!("Object {} executing state handler {:?}", &name, state);
+        debug!(
+            "Object {} in namespace {:?} executing state handler {:?}",
+            &name, &namespace, state
+        );
         let transition = {
             state
                 .next(shared.clone(), object_state, &latest_manifest)
@@ -151,17 +157,26 @@ pub async fn run_to_completion<ObjectState: ResourceState>(
         state = match transition {
             Transition::Next(s) => {
                 let state = s.into();
-                debug!("Object {} transitioning to {:?}.", &name, state);
+                debug!(
+                    "Object {} in namespace {:?} transitioning to {:?}.",
+                    &name, &namespace, state
+                );
                 state
             }
             Transition::Complete(result) => match result {
                 Ok(()) => {
-                    debug!("Object {} state machine exited without error", &name);
+                    debug!(
+                        "Object {} in namespace {:?} state machine exited without error",
+                        &name, &namespace
+                    );
                     break;
                 }
                 Err(e) => {
-                    error!("Object {} state machine exited with error: {:?}", &name, e);
-                    let status = ObjectState::Status::failed(&format!("{:?}", e));
+                    error!(
+                        "Object {} in namespace {:?} state machine exited with error: {:?}",
+                        &name, &namespace, e
+                    );
+                    let status = S::Status::failed(&format!("{:?}", e));
                     patch_status(&api, &name, status).await;
                     break;
                 }
@@ -171,20 +186,19 @@ pub async fn run_to_completion<ObjectState: ResourceState>(
 }
 
 /// Patch object status with Kubernetes API.
-pub async fn patch_status<R: Resource + Clone + DeserializeOwned, Status: ObjectStatus>(
+pub async fn patch_status<R: Resource + Clone + DeserializeOwned, S: ObjectStatus>(
     api: &Api<R>,
     name: &str,
-    status: Status,
+    status: S,
 ) {
     let patch = status.json_patch();
-    match serde_json::to_vec(&patch) {
-        Ok(data) => {
-            debug!(
-                "Applying status patch to object {}: '{}'",
-                &name,
-                std::str::from_utf8(&data).unwrap()
-            );
-            match api.patch_status(&name, &PatchParams::default(), data).await {
+    match serde_json::to_string(&patch) {
+        Ok(s) => {
+            debug!("Applying status patch to object {}: '{}'", &name, &s);
+            match api
+                .patch_status(&name, &PatchParams::default(), s.as_bytes().to_vec())
+                .await
+            {
                 Ok(_) => (),
                 Err(e) => {
                     warn!("Object {} error patching status: {:?}", name, e);
