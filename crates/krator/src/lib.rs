@@ -98,8 +98,7 @@ fn object_key<R: Meta>(object: &R) -> ObjectKey {
 }
 
 #[async_trait::async_trait]
-// TODO: I dont like this name.
-pub trait OperatorProvider {
+pub trait Operator {
     type Manifest: Meta + Clone + DeserializeOwned + Send + 'static + std::fmt::Debug + Sync;
     type Status: ObjectStatus + Send;
 
@@ -117,26 +116,26 @@ pub trait OperatorProvider {
     ) -> SharedState<<Self::ResourceState as ResourceState>::SharedState>;
 }
 
-pub struct Operator<P: OperatorProvider> {
+pub struct OperatorContext<O: Operator> {
     client: Client,
-    handlers: HashMap<ObjectKey, tokio::sync::mpsc::Sender<Event<P::Manifest>>>,
-    provider: P,
+    handlers: HashMap<ObjectKey, tokio::sync::mpsc::Sender<Event<O::Manifest>>>,
+    operator: O,
 }
 
-impl<P: OperatorProvider> Operator<P> {
-    pub fn new(kubeconfig: &kube::Config, provider: P) -> Self {
+impl<O: Operator> OperatorContext<O> {
+    pub fn new(kubeconfig: &kube::Config, operator: O) -> Self {
         let client = Client::new(kubeconfig.clone());
-        Operator {
+        OperatorContext {
             client,
             handlers: HashMap::new(),
-            provider,
+            operator,
         }
     }
 
     /// Dispatch event to the matching resource's task.
     // If no task is found, `self.start_object` is called to start a task for
     // the new object.
-    async fn dispatch(&mut self, event: Event<P::Manifest>) -> anyhow::Result<()> {
+    async fn dispatch(&mut self, event: Event<O::Manifest>) -> anyhow::Result<()> {
         match &event {
             Event::Applied(object) => {
                 let key = object_key(object);
@@ -199,24 +198,24 @@ impl<P: OperatorProvider> Operator<P> {
     // on subsequent events.
     async fn start_object(
         &self,
-        initial_event: Event<P::Manifest>,
-    ) -> anyhow::Result<tokio::sync::mpsc::Sender<Event<P::Manifest>>> {
-        let (sender, mut receiver) = tokio::sync::mpsc::channel::<Event<P::Manifest>>(16);
+        initial_event: Event<O::Manifest>,
+    ) -> anyhow::Result<tokio::sync::mpsc::Sender<Event<O::Manifest>>> {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel::<Event<O::Manifest>>(16);
 
         let deleted = Arc::new(Notify::new());
 
         let shared_manifest = match initial_event {
             Event::Applied(manifest) => {
-                let resource_state = self.provider.initialize_resource_state(&manifest).await?;
+                let resource_state = self.operator.initialize_resource_state(&manifest).await?;
                 let manifest = Arc::new(RwLock::new(manifest));
                 tokio::spawn(run_object_task::<
-                    P::ResourceState,
-                    P::InitialState,
-                    P::DeletedState,
+                    O::ResourceState,
+                    O::InitialState,
+                    O::DeletedState,
                 >(
                     self.client.clone(),
                     Arc::clone(&manifest),
-                    self.provider.shared_state().await,
+                    self.operator.shared_state().await,
                     resource_state,
                     Arc::clone(&deleted),
                 ));
@@ -264,7 +263,7 @@ impl<P: OperatorProvider> Operator<P> {
 
     /// Resyncs the queue given the list of objects. Objects that exist in
     /// the queue but no longer exist in the list will be deleted
-    async fn resync(&mut self, objects: Vec<P::Manifest>) -> anyhow::Result<()> {
+    async fn resync(&mut self, objects: Vec<O::Manifest>) -> anyhow::Result<()> {
         // First reconcile any deleted items we might have missed (if it exists
         // in our map, but not in the list)
         // TODO
@@ -292,7 +291,7 @@ impl<P: OperatorProvider> Operator<P> {
     /// Listens for updates to objects and forwards them to queue.
     pub async fn start(&mut self, list_params: Option<ListParams>) {
         let params = list_params.unwrap_or_else(Default::default);
-        let api = Api::<P::Manifest>::all(self.client.clone());
+        let api = Api::<O::Manifest>::all(self.client.clone());
         let mut informer = watcher(api, params).boxed();
         loop {
             match informer.try_next().await {
