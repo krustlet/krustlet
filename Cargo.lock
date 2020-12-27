@@ -1936,6 +1936,13 @@ version = "0.5.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "futures",
+ "k8s-openapi",
+ "kube",
+ "kube-runtime",
+ "log 0.4.11",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 

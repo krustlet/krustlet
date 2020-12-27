@@ -1,5 +1,13 @@
 //! Used to define a state machine.
 
+use k8s_openapi::Resource;
+use kube::api::{Meta, PatchParams};
+use kube::Api;
+use log::{debug, error, warn};
+use serde::de::DeserializeOwned;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
 pub struct StateHolder<S: ResourceState> {
     // This is private, preventing manual construction of Transition::Next
     pub(crate) state: Box<dyn State<S>>,
@@ -54,13 +62,18 @@ pub type SharedState<T> = std::sync::Arc<tokio::sync::RwLock<T>>;
 #[async_trait::async_trait]
 pub trait ResourceState: 'static + Sync + Send {
     /// The manifest / definition of the resource. Pod, Container, etc.
-    type Manifest;
+    type Manifest: Clone;
     /// The status type of the state machine.
     type Status;
     /// A type shared between all state machines.
     type SharedState: 'static + Sync + Send;
     /// Clean up resource.
     async fn async_drop(self, shared: &mut Self::SharedState);
+}
+
+pub trait ObjectStatus {
+    fn json_patch(&self) -> serde_json::Value;
+    fn failed(e: &str) -> Self;
 }
 
 #[async_trait::async_trait]
@@ -76,4 +89,113 @@ pub trait State<S: ResourceState>: Sync + Send + 'static + std::fmt::Debug {
 
     /// Provider supplies JSON status patch to apply when entering this state.
     async fn status(&self, state: &mut S, manifest: &S::Manifest) -> anyhow::Result<S::Status>;
+}
+
+/// Iteratively evaluate state machine until it returns Complete.
+pub async fn run_to_completion<ObjectState: ResourceState>(
+    client: &kube::Client,
+    state: impl State<ObjectState>,
+    shared: SharedState<ObjectState::SharedState>,
+    object_state: &mut ObjectState,
+    manifest: Arc<RwLock<ObjectState::Manifest>>,
+) where
+    ObjectState::Manifest: Resource + Meta + DeserializeOwned,
+    ObjectState::Status: ObjectStatus,
+{
+    let (name, namespace, api) = {
+        let initial_manifest = manifest.read().await.clone();
+        let namespace = initial_manifest.namespace();
+        let name = initial_manifest.name();
+
+        let api: Api<ObjectState::Manifest> = match namespace {
+            Some(ref namespace) => Api::namespaced(client.clone(), namespace),
+            None => Api::all(client.clone()),
+        };
+        (name, namespace, api)
+    };
+
+    // TODO
+    // if initialize_pod_container_statuses(&name, Arc::clone(&pod), &api)
+    //     .await
+    //     .is_err()
+    // {
+    //     return;
+    // }
+
+    let mut state: Box<dyn State<ObjectState>> = Box::new(state);
+
+    loop {
+        debug!(
+            "Object {} in namespace {:?} entering state {:?}",
+            &name, &namespace, state
+        );
+
+        let latest_manifest = { manifest.read().await.clone() };
+
+        match state.status(object_state, &latest_manifest).await {
+            Ok(status) => {
+                patch_status(&api, &name, status).await;
+            }
+            Err(e) => {
+                warn!("Object {} status patch returned error: {:?}", &name, e);
+            }
+        }
+
+        debug!("Object {} executing state handler {:?}", &name, state);
+        let transition = {
+            state
+                .next(shared.clone(), object_state, &latest_manifest)
+                .await
+        };
+
+        state = match transition {
+            Transition::Next(s) => {
+                let state = s.into();
+                debug!("Object {} transitioning to {:?}.", &name, state);
+                state
+            }
+            Transition::Complete(result) => match result {
+                Ok(()) => {
+                    debug!("Object {} state machine exited without error", &name);
+                    break;
+                }
+                Err(e) => {
+                    error!("Object {} state machine exited with error: {:?}", &name, e);
+                    let status = ObjectState::Status::failed(&format!("{:?}", e));
+                    patch_status(&api, &name, status).await;
+                    break;
+                }
+            },
+        };
+    }
+}
+
+/// Patch object status with Kubernetes API.
+pub async fn patch_status<R: Resource + Clone + DeserializeOwned, Status: ObjectStatus>(
+    api: &Api<R>,
+    name: &str,
+    status: Status,
+) {
+    let patch = status.json_patch();
+    match serde_json::to_vec(&patch) {
+        Ok(data) => {
+            debug!(
+                "Applying status patch to object {}: '{}'",
+                &name,
+                std::str::from_utf8(&data).unwrap()
+            );
+            match api.patch_status(&name, &PatchParams::default(), data).await {
+                Ok(_) => (),
+                Err(e) => {
+                    warn!("Object {} error patching status: {:?}", name, e);
+                }
+            }
+        }
+        Err(e) => {
+            warn!(
+                "Object {} error serializing status patch {:?}: {:?}",
+                name, &patch, e
+            );
+        }
+    }
 }
