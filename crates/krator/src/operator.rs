@@ -2,7 +2,8 @@ use serde::de::DeserializeOwned;
 
 use kube::api::Meta;
 
-use crate::state::{ObjectStatus, ResourceState, SharedState, State};
+use crate::object::{ObjectStatus, ResourceState};
+use crate::state::{SharedState, State};
 
 #[async_trait::async_trait]
 /// Interface for creating an operator.

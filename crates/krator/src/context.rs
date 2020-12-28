@@ -14,9 +14,10 @@ use kube::{
 use kube_runtime::watcher;
 use kube_runtime::watcher::Event;
 
+use crate::object::ObjectKey;
+use crate::object::{ObjectStatus, ResourceState};
 use crate::operator::Operator;
-use crate::state::{run_to_completion, ObjectStatus, ResourceState, SharedState, State};
-use crate::{object_key, ObjectKey};
+use crate::state::{run_to_completion, SharedState, State};
 
 pub struct OperatorContext<O: Operator> {
     client: Client,
@@ -43,20 +44,21 @@ impl<O: Operator> OperatorContext<O> {
     async fn dispatch(&mut self, event: Event<O::Manifest>) -> anyhow::Result<()> {
         match &event {
             Event::Applied(object) => {
-                let key = object_key(object);
+                let key: ObjectKey = object.into();
                 // We are explicitly not using the entry api here to insert to avoid the need for a
                 // mutex
                 match self.handlers.get_mut(&key) {
                     Some(sender) => {
                         debug!(
                             "Found existing event handler for object {} in namespace {:?}.",
-                            key.name, key.namespace
+                            key.name(),
+                            key.namespace()
                         );
                         match sender.send(event).await {
                             Ok(_) => debug!(
                                 "successfully sent event to handler for object {} in namespace {:?}.",
-                                key.name,
-                                key.namespace
+                                key.name(),
+                                key.namespace()
                             ),
                             Err(e) => error!(
                                 "error while sending event. Will retry on next event: {:?}.",
@@ -67,7 +69,8 @@ impl<O: Operator> OperatorContext<O> {
                     None => {
                         debug!(
                             "Creating event handler for object {} in namespace {:?}.",
-                            key.name, key.namespace
+                            key.name(),
+                            key.namespace()
                         );
                         self.handlers.insert(
                             key.clone(),
@@ -80,11 +83,12 @@ impl<O: Operator> OperatorContext<O> {
                 Ok(())
             }
             Event::Deleted(object) => {
-                let key = object_key(object);
+                let key: ObjectKey = object.into();
                 if let Some(mut sender) = self.handlers.remove(&key) {
                     debug!(
                         "Removed event handler for object {} in namespace {:?}.",
-                        key.name, key.namespace
+                        key.name(),
+                        key.namespace()
                     );
                     sender.send(event).await?;
                 }
@@ -172,13 +176,13 @@ impl<O: Operator> OperatorContext<O> {
         // First reconcile any deleted items we might have missed (if it exists
         // in our map, but not in the list)
         // TODO
-        let _current_objects: HashSet<ObjectKey> = objects.iter().map(object_key).collect();
+        let _current_objects: HashSet<ObjectKey> = objects.iter().map(|obj| obj.into()).collect();
         let _objects_in_state: HashSet<ObjectKey> = self.handlers.keys().cloned().collect();
         // for key in objects_in_state.difference(&current_objects) {
         //     self.dispatch(Event::Deleted(R {
         //         metadata: ObjectMeta {
         //             name: Some(key.name),
-        //             namespace: key.namespace,
+        //             namespace: key.namespace(),
         //             ..Default::default()
         //         },
         //         ..Default::default()

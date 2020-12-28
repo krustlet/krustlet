@@ -2,26 +2,13 @@
 
 #![deny(missing_docs)]
 
-use kube::api::Meta;
-
 mod context;
+mod object;
 mod operator;
+
 pub mod state;
 
 pub use operator::Operator;
-
-#[derive(Hash, Eq, PartialEq, Clone)]
-struct ObjectKey {
-    namespace: Option<String>,
-    name: String,
-}
-
-fn object_key<R: Meta>(object: &R) -> ObjectKey {
-    ObjectKey {
-        namespace: object.namespace(),
-        name: object.name(),
-    }
-}
 
 /// Run Operator forever.
 pub async fn run_operator<O: Operator>(kubeconfig: &kube::Config, operator: O) {

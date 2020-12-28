@@ -8,6 +8,10 @@ use serde::de::DeserializeOwned;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use crate::object::ObjectStatus;
+// Re-export for compatibility.
+pub use crate::object::ResourceState;
+
 /// Guard for preventing manual construction on Transition::Next.
 pub struct StateHolder<S: ResourceState> {
     pub(crate) state: Box<dyn State<S>>,
@@ -56,28 +60,6 @@ impl<S: ResourceState> Transition<S> {
 
 /// Convenience redefinition of Arc<RwLock<T>>
 pub type SharedState<T> = std::sync::Arc<tokio::sync::RwLock<T>>;
-
-/// Defines a type which represents a state for a given resource which is passed between its
-/// state handlers.
-#[async_trait::async_trait]
-pub trait ResourceState: 'static + Sync + Send {
-    /// The manifest / definition of the resource. Pod, Container, etc.
-    type Manifest: Clone;
-    /// The status type of the state machine.
-    type Status;
-    /// A type shared between all state machines.
-    type SharedState: 'static + Sync + Send;
-    /// Clean up resource.
-    async fn async_drop(self, shared: &mut Self::SharedState);
-}
-
-/// Interfacefor types which represent the status of an object.
-pub trait ObjectStatus {
-    /// Produce a JSON patch based on the set values of this status.
-    fn json_patch(&self) -> serde_json::Value;
-    /// Produce a status which marks an object as failed with supplied error message.
-    fn failed(e: &str) -> Self;
-}
 
 #[async_trait::async_trait]
 /// A trait representing a node in the state graph.
