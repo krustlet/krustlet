@@ -8,8 +8,8 @@ use serde::de::DeserializeOwned;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Guard for preventing manual construction on Transition::Next.
 pub struct StateHolder<S: ResourceState> {
-    // This is private, preventing manual construction of Transition::Next
     pub(crate) state: Box<dyn State<S>>,
 }
 
@@ -71,8 +71,11 @@ pub trait ResourceState: 'static + Sync + Send {
     async fn async_drop(self, shared: &mut Self::SharedState);
 }
 
+/// Interfacefor types which represent the status of an object.
 pub trait ObjectStatus {
+    /// Produce a JSON patch based on the set values of this status.
     fn json_patch(&self) -> serde_json::Value;
+    /// Produce a status which marks an object as failed with supplied error message.
     fn failed(e: &str) -> Self;
 }
 

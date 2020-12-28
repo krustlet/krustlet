@@ -1,3 +1,7 @@
+//! Exposes an API for creating state-machine-based Kubernetes Operators.
+
+#![deny(missing_docs)]
+
 use kube::api::Meta;
 
 mod context;
@@ -19,6 +23,7 @@ fn object_key<R: Meta>(object: &R) -> ObjectKey {
     }
 }
 
+/// Run Operator forever.
 pub async fn run_operator<O: Operator>(kubeconfig: &kube::Config, operator: O) {
     let mut context = context::OperatorContext::new(kubeconfig, operator, None);
     context.start().await
