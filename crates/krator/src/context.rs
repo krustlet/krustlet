@@ -219,7 +219,6 @@ impl<O: Operator> OperatorContext<O> {
             }
         }
     }
-
 }
 
 async fn run_object_task<O: Operator>(
