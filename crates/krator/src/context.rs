@@ -15,7 +15,7 @@ use kube_runtime::watcher;
 use kube_runtime::watcher::Event;
 
 use crate::object::ObjectKey;
-use crate::object::{ObjectStatus, ResourceState};
+use crate::object::{ObjectState, ObjectStatus};
 use crate::operator::Operator;
 use crate::state::{run_to_completion, SharedState, State};
 
@@ -118,7 +118,7 @@ impl<O: Operator> OperatorContext<O> {
                 let resource_state = self.operator.initialize_resource_state(&manifest).await?;
                 let manifest = Arc::new(RwLock::new(manifest));
                 tokio::spawn(run_object_task::<
-                    O::ResourceState,
+                    O::ObjectState,
                     O::InitialState,
                     O::DeletedState,
                 >(
@@ -227,7 +227,7 @@ impl<O: Operator> OperatorContext<O> {
 }
 
 async fn run_object_task<
-    S: ResourceState,
+    S: ObjectState,
     InitialState: Default + State<S>,
     DeletedState: Default + State<S>,
 >(

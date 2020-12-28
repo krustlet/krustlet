@@ -2,7 +2,7 @@ use serde::de::DeserializeOwned;
 
 use kube::api::Meta;
 
-use crate::object::{ObjectStatus, ResourceState};
+use crate::object::{ObjectState, ObjectStatus};
 use crate::state::{SharedState, State};
 
 #[async_trait::async_trait]
@@ -15,22 +15,20 @@ pub trait Operator {
     type Status: ObjectStatus + Send;
 
     /// Type holding state specific to a single object.
-    type ResourceState: ResourceState<Manifest = Self::Manifest, Status = Self::Status>;
+    type ObjectState: ObjectState<Manifest = Self::Manifest, Status = Self::Status>;
 
     /// State handler to run when object is created.
-    type InitialState: State<Self::ResourceState> + Default;
+    type InitialState: State<Self::ObjectState> + Default;
 
     /// State handler to run when object is deleted.
-    type DeletedState: State<Self::ResourceState> + Default;
+    type DeletedState: State<Self::ObjectState> + Default;
 
     /// Initialize a new resource state for running a new object's state machine.
     async fn initialize_resource_state(
         &self,
-        manifest: &<Self::ResourceState as ResourceState>::Manifest,
-    ) -> anyhow::Result<Self::ResourceState>;
+        manifest: &<Self::ObjectState as ObjectState>::Manifest,
+    ) -> anyhow::Result<Self::ObjectState>;
 
     /// Create a reference to state shared between state machines.
-    async fn shared_state(
-        &self,
-    ) -> SharedState<<Self::ResourceState as ResourceState>::SharedState>;
+    async fn shared_state(&self) -> SharedState<<Self::ObjectState as ObjectState>::SharedState>;
 }

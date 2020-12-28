@@ -25,10 +25,10 @@ impl<R: Meta> From<&R> for ObjectKey {
     }
 }
 
-/// Defines a type which represents a state for a given resource which is passed between its
-/// state handlers.
+/// Interface for types which capture data related to a specific object that is
+/// passed between the object's state handlers.  
 #[async_trait::async_trait]
-pub trait ResourceState: 'static + Sync + Send {
+pub trait ObjectState: 'static + Sync + Send {
     /// The manifest / definition of the resource. Pod, Container, etc.
     type Manifest: Clone;
     /// The status type of the state machine.
@@ -39,7 +39,7 @@ pub trait ResourceState: 'static + Sync + Send {
     async fn async_drop(self, shared: &mut Self::SharedState);
 }
 
-/// Interfacefor types which represent the status of an object.
+/// Interface for types which represent the status of an object.
 pub trait ObjectStatus {
     /// Produce a JSON patch based on the set values of this status.
     fn json_patch(&self) -> serde_json::Value;

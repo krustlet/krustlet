@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 
 use crate::object::ObjectStatus;
 // Re-export for compatibility.
-pub use crate::object::ResourceState;
+pub use crate::object::ObjectState as ResourceState;
 
 /// Guard for preventing manual construction on Transition::Next.
 pub struct StateHolder<S: ResourceState> {
