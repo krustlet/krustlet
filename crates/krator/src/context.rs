@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use futures::{StreamExt, TryStreamExt};
 use log::{debug, error, info, warn};
-use serde::de::DeserializeOwned;
 use tokio::sync::Notify;
 use tokio::sync::RwLock;
 
@@ -15,9 +14,9 @@ use kube_runtime::watcher;
 use kube_runtime::watcher::Event;
 
 use crate::object::ObjectKey;
-use crate::object::{ObjectState, ObjectStatus};
+use crate::object::ObjectState;
 use crate::operator::Operator;
-use crate::state::{run_to_completion, SharedState, State};
+use crate::state::{run_to_completion, SharedState};
 
 pub struct OperatorContext<O: Operator> {
     client: Client,
@@ -115,17 +114,13 @@ impl<O: Operator> OperatorContext<O> {
 
         let shared_manifest = match initial_event {
             Event::Applied(manifest) => {
-                let resource_state = self.operator.initialize_resource_state(&manifest).await?;
+                let object_state = self.operator.initialize_object_state(&manifest).await?;
                 let manifest = Arc::new(RwLock::new(manifest));
-                tokio::spawn(run_object_task::<
-                    O::ObjectState,
-                    O::InitialState,
-                    O::DeletedState,
-                >(
+                tokio::spawn(run_object_task::<O>(
                     self.client.clone(),
                     Arc::clone(&manifest),
                     self.operator.shared_state().await,
-                    resource_state,
+                    object_state,
                     Arc::clone(&deleted),
                 ));
                 manifest
@@ -224,23 +219,17 @@ impl<O: Operator> OperatorContext<O> {
             }
         }
     }
+
 }
 
-async fn run_object_task<
-    S: ObjectState,
-    InitialState: Default + State<S>,
-    DeletedState: Default + State<S>,
->(
+async fn run_object_task<O: Operator>(
     client: Client,
-    manifest: Arc<RwLock<S::Manifest>>,
-    shared: SharedState<S::SharedState>,
-    mut object_state: S,
+    manifest: Arc<RwLock<O::Manifest>>,
+    shared: SharedState<<O::ObjectState as ObjectState>::SharedState>,
+    mut object_state: O::ObjectState,
     deleted: Arc<Notify>,
-) where
-    S::Manifest: Meta + Clone + DeserializeOwned,
-    S::Status: ObjectStatus,
-{
-    let state: InitialState = Default::default();
+) {
+    let state: O::InitialState = Default::default();
     let (namespace, name) = {
         let m = manifest.read().await;
         (m.namespace(), m.name())
@@ -249,7 +238,7 @@ async fn run_object_task<
     tokio::select! {
         _ = run_to_completion(&client, state, shared.clone(), &mut object_state, Arc::clone(&manifest)) => (),
         _ = deleted.notified() => {
-            let state: DeletedState = Default::default();
+            let state: O::DeletedState = Default::default();
             debug!("Object {} in namespace {:?} terminated. Jumping to state {:?}.", name, &namespace, state);
             run_to_completion(&client, state, shared.clone(), &mut object_state, Arc::clone(&manifest)).await;
         }
@@ -265,7 +254,7 @@ async fn run_object_task<
         object_state.async_drop(&mut state_writer).await;
     }
 
-    let api_client: Api<S::Manifest> = match namespace {
+    let api_client: Api<O::Manifest> = match namespace {
         Some(ref namespace) => kube::Api::namespaced(client, namespace),
         None => kube::Api::all(client),
     };
