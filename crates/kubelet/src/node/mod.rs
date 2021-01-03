@@ -436,8 +436,8 @@ fn lease_spec_definition(node_name: &str) -> serde_json::Value {
 /// Default values and passed node-labels arguments are injected by config.
 fn node_labels_definition(arch: &str, config: &Config, builder: &mut Builder) {
     // Add mandatory static labels
-    builder.add_label("beta.kubernetes.io/os", "linux");
-    builder.add_label("kubernetes.io/os", "linux");
+    builder.add_label("beta.kubernetes.io/os", arch);
+    builder.add_label("kubernetes.io/os", arch);
     builder.add_label("type", "krustlet");
     // add the mandatory labels that are dependent on injected values
     builder.add_label("beta.kubernetes.io/arch", arch);

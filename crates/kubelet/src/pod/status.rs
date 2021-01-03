@@ -271,6 +271,10 @@ impl ObjectStatus for Status {
     }
 
     fn failed(e: &str) -> Self {
-        StatusBuilder::new().phase(Phase::Failed).message(e).build()
+        StatusBuilder::new()
+            .phase(Phase::Failed)
+            .message(e)
+            .reason(e)
+            .build()
     }
 }

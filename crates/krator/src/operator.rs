@@ -8,7 +8,7 @@ use crate::state::{SharedState, State};
 
 #[async_trait::async_trait]
 /// Interface for creating an operator.
-pub trait Operator: 'static + Sync {
+pub trait Operator: 'static + Sync + Send {
     /// Type representing the specification of the object in the Kubernetes API.
     type Manifest: Metadata<Ty = ObjectMeta>
         + Clone

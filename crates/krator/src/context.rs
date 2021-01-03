@@ -25,7 +25,7 @@ use crate::state::{run_to_completion, SharedState};
 pub struct OperatorContext<O: Operator> {
     client: Client,
     handlers: HashMap<ObjectKey, tokio::sync::mpsc::Sender<Event<O::Manifest>>>,
-    operator: O,
+    operator: Arc<O>,
     list_params: ListParams,
     signal: Option<Arc<AtomicBool>>,
 }
@@ -38,7 +38,7 @@ impl<O: Operator> OperatorContext<O> {
         OperatorContext {
             client,
             handlers: HashMap::new(),
-            operator,
+            operator: Arc::new(operator),
             list_params,
             signal: None,
         }
@@ -119,24 +119,17 @@ impl<O: Operator> OperatorContext<O> {
 
         let deleted = Arc::new(Notify::new());
 
-        let shared_manifest = match initial_event {
+        let (shared_manifest, object_state) = match initial_event {
             Event::Applied(manifest) => {
                 let object_state = self.operator.initialize_object_state(&manifest).await?;
                 let manifest = Arc::new(RwLock::new(manifest));
-                self.operator
-                    .registration_hook(Arc::clone(&manifest))
-                    .await?;
-                tokio::spawn(run_object_task::<O>(
-                    self.client.clone(),
-                    Arc::clone(&manifest),
-                    self.operator.shared_state().await,
-                    object_state,
-                    Arc::clone(&deleted),
-                ));
-                manifest
+                (manifest, object_state)
             }
             _ => return Err(anyhow::anyhow!("Got non-apply event when starting pod")),
         };
+
+        let reflector_manifest = Arc::clone(&shared_manifest);
+        let reflector_deleted = Arc::clone(&deleted);
 
         tokio::spawn(async move {
             while let Some(event) = receiver.recv().await {
@@ -151,9 +144,9 @@ impl<O: Operator> OperatorContext<O> {
                         );
                         let meta = manifest.meta();
                         if meta.deletion_timestamp.is_some() {
-                            deleted.notify();
+                            reflector_deleted.notify();
                         }
-                        *shared_manifest.write().await = manifest;
+                        *reflector_manifest.write().await = manifest;
                     }
                     Event::Deleted(manifest) => {
                         // I'm not sure if this matters, we get notified of pod deletion with a
@@ -165,13 +158,23 @@ impl<O: Operator> OperatorContext<O> {
                             manifest.name(),
                             manifest.namespace()
                         );
-                        deleted.notify();
+                        reflector_deleted.notify();
                         break;
                     }
                     _ => warn!("Resource got unexpected event, ignoring: {:?}", &event),
                 }
             }
         });
+
+        tokio::spawn(run_object_task::<O>(
+            self.client.clone(),
+            shared_manifest,
+            self.operator.shared_state().await,
+            object_state,
+            deleted,
+            Arc::clone(&self.operator),
+        ));
+
         Ok(sender)
     }
 
@@ -242,7 +245,17 @@ async fn run_object_task<O: Operator>(
     shared: SharedState<<O::ObjectState as ObjectState>::SharedState>,
     mut object_state: O::ObjectState,
     deleted: Arc<Notify>,
+    operator: Arc<O>,
 ) {
+    debug!("Running registration hook.");
+    match operator.registration_hook(Arc::clone(&manifest)).await {
+        Ok(()) => debug!("Running hook complete."),
+        Err(e) => {
+            error!("Operator registration hook failed: {:?}", e);
+            return;
+        }
+    }
+
     let state: O::InitialState = Default::default();
     let (namespace, name) = {
         let m = manifest.read().await;
