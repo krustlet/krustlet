@@ -123,6 +123,9 @@ impl<O: Operator> OperatorContext<O> {
             Event::Applied(manifest) => {
                 let object_state = self.operator.initialize_object_state(&manifest).await?;
                 let manifest = Arc::new(RwLock::new(manifest));
+                self.operator
+                    .registration_hook(Arc::clone(&manifest))
+                    .await?;
                 tokio::spawn(run_object_task::<O>(
                     self.client.clone(),
                     Arc::clone(&manifest),
