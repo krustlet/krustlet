@@ -8,6 +8,7 @@ mod operator;
 
 pub mod state;
 
+pub use object::{ObjectState, ObjectStatus};
 pub use operator::Operator;
 
 /// Run Operator forever.

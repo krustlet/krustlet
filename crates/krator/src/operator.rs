@@ -34,7 +34,7 @@ pub trait Operator: 'static {
     /// Initialize a new object state for running a new object's state machine.
     async fn initialize_object_state(
         &self,
-        manifest: &<Self::ObjectState as ObjectState>::Manifest,
+        manifest: &Self::Manifest,
     ) -> anyhow::Result<Self::ObjectState>;
 
     /// Create a reference to state shared between state machines.
