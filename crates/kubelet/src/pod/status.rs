@@ -42,7 +42,7 @@ const MAX_STATUS_INIT_RETRIES: usize = 5;
 
 /// Initializes Pod container status array and wait for Pod reflection to update.
 pub async fn initialize_pod_container_statuses(
-    name: &str,
+    name: String,
     pod: Arc<RwLock<Pod>>,
     api: &Api<KubePod>,
 ) -> anyhow::Result<()> {

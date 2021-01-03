@@ -39,4 +39,12 @@ pub trait Operator: 'static {
 
     /// Create a reference to state shared between state machines.
     async fn shared_state(&self) -> SharedState<<Self::ObjectState as ObjectState>::SharedState>;
+
+    /// Called before the state machine is run.
+    async fn registration_hook(
+        &self,
+        _manifest: SharedState<Self::Manifest>,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
 }

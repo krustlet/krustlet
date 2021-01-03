@@ -107,7 +107,7 @@ impl<P: Provider> Kubelet<P> {
         .fuse()
         .boxed();
 
-        let operator = PodOperator::new(Arc::clone(&self.provider));
+        let operator = PodOperator::new(Arc::clone(&self.provider), client.clone());
         let node_selector = format!("spec.nodeName={}", &self.config.node_name);
         let params = ListParams {
             field_selector: Some(node_selector),

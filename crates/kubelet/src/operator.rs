@@ -1,17 +1,21 @@
+use crate::pod::initialize_pod_container_statuses;
 use crate::pod::Pod;
 use crate::provider::Provider;
+use k8s_openapi::api::core::v1::Pod as KubePod;
 use krator::state::SharedState;
 use krator::ObjectState;
 use krator::Operator;
+use kube::Api;
 use std::sync::Arc;
 
 pub(crate) struct PodOperator<P: Provider> {
     provider: Arc<P>,
+    client: kube::Client,
 }
 
 impl<P: Provider> PodOperator<P> {
-    pub fn new(provider: Arc<P>) -> Self {
-        PodOperator { provider }
+    pub fn new(provider: Arc<P>, client: kube::Client) -> Self {
+        PodOperator { provider, client }
     }
 }
 
@@ -29,5 +33,16 @@ impl<P: Provider> Operator for PodOperator<P> {
 
     async fn shared_state(&self) -> SharedState<<P::PodState as ObjectState>::SharedState> {
         self.provider.provider_state()
+    }
+
+    async fn registration_hook(&self, manifest: SharedState<Self::Manifest>) -> anyhow::Result<()> {
+        let (name, api) = {
+            let initial_manifest = manifest.read().await.clone();
+            let namespace = initial_manifest.namespace();
+            let name = initial_manifest.name();
+            let api: Api<KubePod> = Api::namespaced(self.client.clone(), namespace);
+            (name.to_string(), api)
+        };
+        initialize_pod_container_statuses(name, manifest, &api).await
     }
 }
