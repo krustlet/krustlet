@@ -8,11 +8,6 @@ mod operator;
 
 pub mod state;
 
+pub use context::OperatorContext;
 pub use object::{ObjectState, ObjectStatus};
 pub use operator::Operator;
-
-/// Run Operator forever.
-pub async fn run_operator<O: Operator>(kubeconfig: &kube::Config, operator: O) {
-    let mut context = context::OperatorContext::new(kubeconfig, operator, None);
-    context.start().await
-}

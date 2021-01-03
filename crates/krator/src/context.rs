@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use futures::{StreamExt, TryStreamExt};
@@ -20,14 +21,17 @@ use crate::object::ObjectState;
 use crate::operator::Operator;
 use crate::state::{run_to_completion, SharedState};
 
+/// Runs a given operator.
 pub struct OperatorContext<O: Operator> {
     client: Client,
     handlers: HashMap<ObjectKey, tokio::sync::mpsc::Sender<Event<O::Manifest>>>,
     operator: O,
     list_params: ListParams,
+    signal: Option<Arc<AtomicBool>>,
 }
 
 impl<O: Operator> OperatorContext<O> {
+    /// Create new context with optional ListParams.
     pub fn new(kubeconfig: &kube::Config, operator: O, params: Option<ListParams>) -> Self {
         let client = Client::new(kubeconfig.clone());
         let list_params = params.unwrap_or_else(Default::default);
@@ -36,6 +40,7 @@ impl<O: Operator> OperatorContext<O> {
             handlers: HashMap::new(),
             operator,
             list_params,
+            signal: None,
         }
     }
 
@@ -198,6 +203,14 @@ impl<O: Operator> OperatorContext<O> {
         loop {
             match informer.try_next().await {
                 Ok(Some(event)) => {
+                    if let Some(ref signal) = self.signal {
+                        if matches!(event, kube_runtime::watcher::Event::Applied(_))
+                            && signal.load(Ordering::Relaxed)
+                        {
+                            warn!("Node is shutting down and unschedulable. Dropping Add event.");
+                            continue;
+                        }
+                    }
                     debug!("Handling Kubernetes object event: {:?}", event);
                     if let Event::Restarted(objects) = event {
                         info!("Got a watch restart. Resyncing queue...");

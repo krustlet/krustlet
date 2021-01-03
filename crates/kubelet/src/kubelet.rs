@@ -8,12 +8,13 @@ use crate::provider::Provider;
 use crate::webserver::start as start_webserver;
 
 use futures::future::FutureExt;
+use kube::api::ListParams;
 use log::{error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::signal::ctrl_c;
 
-use krator::run_operator;
+use krator::OperatorContext;
 
 /// A Kubelet server backed by a given `Provider`.
 ///
@@ -107,7 +108,13 @@ impl<P: Provider> Kubelet<P> {
         .boxed();
 
         let operator = PodOperator::new(Arc::clone(&self.provider));
-        let operator_task = run_operator(&self.kube_config, operator).fuse().boxed();
+        let node_selector = format!("spec.nodeName={}", &self.config.node_name);
+        let params = ListParams {
+            field_selector: Some(node_selector),
+            ..Default::default()
+        };
+        let mut operator_context = OperatorContext::new(&self.kube_config, operator, Some(params));
+        let operator_task = operator_context.start().fuse().boxed();
 
         // These must all be running for graceful shutdown. An error here exits ungracefully.
         let core = Box::pin(async {
