@@ -6,6 +6,8 @@ use log::{debug, error, info, warn};
 use tokio::sync::Notify;
 use tokio::sync::RwLock;
 
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+use k8s_openapi::Metadata;
 use kube::{
     api::{Api, ListParams, Meta},
     Client,
@@ -170,20 +172,17 @@ impl<O: Operator> OperatorContext<O> {
     async fn resync(&mut self, objects: Vec<O::Manifest>) -> anyhow::Result<()> {
         // First reconcile any deleted items we might have missed (if it exists
         // in our map, but not in the list)
-        // TODO
-        let _current_objects: HashSet<ObjectKey> = objects.iter().map(|obj| obj.into()).collect();
-        let _objects_in_state: HashSet<ObjectKey> = self.handlers.keys().cloned().collect();
-        // for key in objects_in_state.difference(&current_objects) {
-        //     self.dispatch(Event::Deleted(R {
-        //         metadata: ObjectMeta {
-        //             name: Some(key.name),
-        //             namespace: key.namespace(),
-        //             ..Default::default()
-        //         },
-        //         ..Default::default()
-        //     }))
-        //     .await?
-        // }
+        let current_objects: HashSet<ObjectKey> = objects.iter().map(|obj| obj.into()).collect();
+        let objects_in_state: HashSet<ObjectKey> = self.handlers.keys().cloned().collect();
+        for key in objects_in_state.difference(&current_objects) {
+            let mut manifest: O::Manifest = Default::default();
+            {
+                let meta: &mut ObjectMeta = manifest.metadata_mut();
+                meta.name = Some(key.name().to_string());
+                meta.namespace = key.namespace().cloned();
+            }
+            self.dispatch(Event::Deleted(manifest)).await?;
+        }
 
         // Now that we've sent off deletes, queue an apply event for all pods
         for object in objects.into_iter() {

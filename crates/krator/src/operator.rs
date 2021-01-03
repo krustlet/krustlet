@@ -1,6 +1,7 @@
 use serde::de::DeserializeOwned;
 
-use kube::api::Meta;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+use k8s_openapi::Metadata;
 
 use crate::object::{ObjectState, ObjectStatus};
 use crate::state::{SharedState, State};
@@ -9,7 +10,14 @@ use crate::state::{SharedState, State};
 /// Interface for creating an operator.
 pub trait Operator: 'static {
     /// Type representing the specification of the object in the Kubernetes API.
-    type Manifest: Meta + Clone + DeserializeOwned + Send + 'static + std::fmt::Debug + Sync;
+    type Manifest: Metadata<Ty = ObjectMeta>
+        + Clone
+        + DeserializeOwned
+        + Send
+        + 'static
+        + std::fmt::Debug
+        + Sync
+        + Default;
 
     /// Type describing the status of the object.
     type Status: ObjectStatus + Send;
