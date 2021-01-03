@@ -16,17 +16,18 @@ impl<P: Provider> PodOperator<P> {
 }
 
 #[async_trait::async_trait]
-impl<P: 'static + Provider + Send + Sync> Operator for PodOperator<P> {
+impl<P: Provider> Operator for PodOperator<P> {
     type Manifest = crate::pod::Pod;
     type Status = crate::pod::Status;
     type ObjectState = P::PodState;
     type InitialState = P::InitialState;
     type DeletedState = P::TerminatedState;
+
     async fn initialize_object_state(&self, manifest: &Pod) -> anyhow::Result<P::PodState> {
         self.provider.initialize_pod_state(manifest).await
     }
 
     async fn shared_state(&self) -> SharedState<<P::PodState as ObjectState>::SharedState> {
-        todo!()
+        self.provider.provider_state()
     }
 }

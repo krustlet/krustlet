@@ -33,7 +33,7 @@ pub struct Kubelet<P> {
     config: Box<Config>,
 }
 
-impl<P: 'static + Provider + Sync + Send> Kubelet<P> {
+impl<P: Provider> Kubelet<P> {
     /// Create a new Kubelet with a provider, a kubernetes configuration,
     /// and a kubelet configuration
     pub async fn new(

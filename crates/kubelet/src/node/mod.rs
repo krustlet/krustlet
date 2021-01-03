@@ -65,11 +65,7 @@ macro_rules! retry {
 /// A node comes with a lease, and we maintain the lease to tell Kubernetes that the
 /// node remains alive and functional. Note that this will not work in
 /// versions of Kubernetes prior to 1.14.
-pub async fn create<P: 'static + Provider + Sync + Send>(
-    client: &kube::Client,
-    config: &Config,
-    provider: Arc<P>,
-) {
+pub async fn create<P: Provider>(client: &kube::Client, config: &Config, provider: Arc<P>) {
     let node_client: Api<KubeNode> = Api::all(client.clone());
 
     match retry!(node_client.get(&config.node_name).await, times: 4, break_on: &Error::Api(ErrorResponse { code: 404, .. }))
