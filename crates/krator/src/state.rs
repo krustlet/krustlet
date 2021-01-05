@@ -3,7 +3,7 @@
 use k8s_openapi::Resource;
 use kube::api::{Meta, PatchParams};
 use kube::Api;
-use log::{debug, error, warn};
+use log::{debug, error, trace, warn};
 use serde::de::DeserializeOwned;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -99,20 +99,14 @@ pub async fn run_to_completion<S: ResourceState>(
         (name, namespace, api)
     };
 
-    // TODO
-    // if initialize_pod_container_statuses(&name, Arc::clone(&pod), &api)
-    //     .await
-    //     .is_err()
-    // {
-    //     return;
-    // }
-
     let mut state: Box<dyn State<S>> = Box::new(state);
 
     loop {
-        debug!(
+        trace!(
             "Object {} in namespace {:?} entering state {:?}",
-            &name, &namespace, state
+            &name,
+            &namespace,
+            state
         );
 
         let latest_manifest = { manifest.read().await.clone() };
@@ -129,9 +123,11 @@ pub async fn run_to_completion<S: ResourceState>(
             }
         }
 
-        debug!(
+        trace!(
             "Object {} in namespace {:?} executing state handler {:?}",
-            &name, &namespace, state
+            &name,
+            &namespace,
+            state
         );
         let transition = {
             state
@@ -142,9 +138,11 @@ pub async fn run_to_completion<S: ResourceState>(
         state = match transition {
             Transition::Next(s) => {
                 let state = s.into();
-                debug!(
+                trace!(
                     "Object {} in namespace {:?} transitioning to {:?}.",
-                    &name, &namespace, state
+                    &name,
+                    &namespace,
+                    state
                 );
                 state
             }

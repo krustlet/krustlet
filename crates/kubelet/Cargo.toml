@@ -61,7 +61,7 @@ warp = { version = "0.2", features = ['tls'] }
 http = "0.2"
 rcgen = "0.8"
 uuid = { version = "0.8.1", features = ["v4"] }
-krator = { path = "../krator", version = "0.5" }
+krator = { path = "../krator", version = "0.1" }
 kubelet-derive = { version = "0.1", path = "../kubelet-derive", optional = true }
 json-patch = "0.2"
 tonic = "0.3"

@@ -2,12 +2,12 @@
 
 #![deny(missing_docs)]
 
-mod context;
 mod object;
 mod operator;
+mod runtime;
 
 pub mod state;
 
-pub use context::OperatorContext;
 pub use object::{ObjectState, ObjectStatus};
 pub use operator::Operator;
+pub use runtime::OperatorRuntime;

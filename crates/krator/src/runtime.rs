@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use futures::{StreamExt, TryStreamExt};
 use log::{debug, error, info, warn};
+use tokio::sync::mpsc::Sender;
 use tokio::sync::Notify;
 use tokio::sync::RwLock;
 
@@ -21,21 +22,24 @@ use crate::object::ObjectState;
 use crate::operator::Operator;
 use crate::state::{run_to_completion, SharedState};
 
-/// Runs a given operator.
-pub struct OperatorContext<O: Operator> {
+/// Accepts a type implementing the `Operator` trait and watches
+/// for resources of the associated `Manifest` type, running the
+/// associated state machine for each. Optionally filter by
+/// `kube::api::ListParams`.
+pub struct OperatorRuntime<O: Operator> {
     client: Client,
-    handlers: HashMap<ObjectKey, tokio::sync::mpsc::Sender<Event<O::Manifest>>>,
+    handlers: HashMap<ObjectKey, Sender<Event<O::Manifest>>>,
     operator: Arc<O>,
     list_params: ListParams,
     signal: Option<Arc<AtomicBool>>,
 }
 
-impl<O: Operator> OperatorContext<O> {
-    /// Create new context with optional ListParams.
+impl<O: Operator> OperatorRuntime<O> {
+    /// Create new runtime with optional ListParams.
     pub fn new(kubeconfig: &kube::Config, operator: O, params: Option<ListParams>) -> Self {
         let client = Client::new(kubeconfig.clone());
         let list_params = params.unwrap_or_else(Default::default);
-        OperatorContext {
+        OperatorRuntime {
             client,
             handlers: HashMap::new(),
             operator: Arc::new(operator),
@@ -45,8 +49,8 @@ impl<O: Operator> OperatorContext<O> {
     }
 
     /// Dispatch event to the matching resource's task.
-    // If no task is found, `self.start_object` is called to start a task for
-    // the new object.
+    /// If no task is found, `self.start_object` is called to start a task for
+    /// the new object.
     async fn dispatch(&mut self, event: Event<O::Manifest>) -> anyhow::Result<()> {
         match &event {
             Event::Applied(object) => {
@@ -114,8 +118,8 @@ impl<O: Operator> OperatorContext<O> {
     async fn start_object(
         &self,
         initial_event: Event<O::Manifest>,
-    ) -> anyhow::Result<tokio::sync::mpsc::Sender<Event<O::Manifest>>> {
-        let (sender, mut receiver) = tokio::sync::mpsc::channel::<Event<O::Manifest>>(16);
+    ) -> anyhow::Result<Sender<Event<O::Manifest>>> {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel::<Event<O::Manifest>>(128);
 
         let deleted = Arc::new(Notify::new());
 
@@ -130,6 +134,10 @@ impl<O: Operator> OperatorContext<O> {
 
         let reflector_manifest = Arc::clone(&shared_manifest);
         let reflector_deleted = Arc::clone(&deleted);
+
+        // Two tasks are spawned for each resource. The first updates shared state (manifest and
+        // deleted flag) while the second awaits on the actual state machine, interrupts it on
+        // deletion, and handles cleanup.
 
         tokio::spawn(async move {
             while let Some(event) = receiver.recv().await {
@@ -213,7 +221,7 @@ impl<O: Operator> OperatorContext<O> {
                         if matches!(event, kube_runtime::watcher::Event::Applied(_))
                             && signal.load(Ordering::Relaxed)
                         {
-                            warn!("Node is shutting down and unschedulable. Dropping Add event.");
+                            warn!("Controller is shutting down (got signal). Dropping Add event.");
                             continue;
                         }
                     }

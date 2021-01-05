@@ -1,4 +1,5 @@
 use serde::de::DeserializeOwned;
+use std::fmt::Debug;
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::Metadata;
@@ -15,7 +16,7 @@ pub trait Operator: 'static + Sync + Send {
         + DeserializeOwned
         + Send
         + 'static
-        + std::fmt::Debug
+        + Debug
         + Sync
         + Default;
 

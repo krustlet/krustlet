@@ -1,4 +1,4 @@
-//! Re-export of `krator::state` and common states for Kublets.
+//! Re-export of `krator::state` and common states for Kubelets.
 //!
 //! Example Pod state machine:
 //! ```
