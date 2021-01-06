@@ -7,6 +7,9 @@ run: build
 build +FLAGS='':
     cargo build {{FLAGS}}
 
+lint-docs:
+    markdownlint '**/*.md' -c .markdownlint.json
+
 test:
     cargo fmt --all -- --check
     cargo clippy --workspace

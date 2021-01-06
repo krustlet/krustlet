@@ -1,3 +1,5 @@
+# mio-uds-windows
+
 **NOTE**: The README below is included for context. This crate is not currently
 published and hasn't been updated in a while (nor do I think it needs to be).
 There is a fork of this repo that has been updated, but it removed mio support.
@@ -14,7 +16,7 @@ are only included on Windows builds. As soon as there is mainline support for
 Unix Domain Sockets on Windows in tokio/mio, this can be removed. Thank you for
 coming to my TED talk.
 
-# mio-uds-windows
+## Overview
 
 A library for integrating Unix Domain Sockets with [mio] on Windows. Similar to
 the standard library's [support for Unix sockets][std], except all of the
@@ -40,6 +42,7 @@ Two "extension" traits, `UnixListenerExt` and `UnixStreamExt`, and their
 implementations, were adapted from their TCP counterparts in the [miow] library.
 
 ## Windows support for Unix domain sockets
+
 Support for Unix domain sockets was introduced in Windows 10
 [Insider Build 17063][af-unix-preview]. It became generally available in version
 1809 (aka the October 2018 Update), and in Windows Server 1809/2019.
@@ -49,21 +52,26 @@ Support for Unix domain sockets was introduced in Windows 10
 [std]: https://doc.rust-lang.org/std/os/unix/net/
 [miow]: https://github.com/alexcrichton/miow
 
-# License
+## License
 
 This project is licensed under MIT license ([LICENSE-MIT](LICENSE-MIT) or
-http://opensource.org/licenses/MIT).
+[http://opensource.org/licenses/MIT](http://opensource.org/licenses/MIT)).
 
-# Contributing
+## Contributing
 
-This project welcomes contributions and suggestions.  Most contributions require you to agree to a
-Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
-the rights to use your contribution. For details, visit https://cla.microsoft.com.
+This project welcomes contributions and suggestions.  Most contributions require
+you to agree to a Contributor License Agreement (CLA) declaring that you have
+the right to, and actually do, grant us the rights to use your contribution. For
+details, visit [https://cla.microsoft.com](https://cla.microsoft.com).
 
-When you submit a pull request, a CLA-bot will automatically determine whether you need to provide
-a CLA and decorate the PR appropriately (e.g., label, comment). Simply follow the instructions
-provided by the bot. You will only need to do this once across all repos using our CLA.
+When you submit a pull request, a CLA-bot will automatically determine whether
+you need to provide a CLA and decorate the PR appropriately (e.g., label,
+comment). Simply follow the instructions provided by the bot. You will only
+need to do this once across all repos using our CLA.
 
-This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
-For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
-contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+This project has adopted the
+[Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
+For more information see the
+[Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/)
+or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any
+additional questions or comments.

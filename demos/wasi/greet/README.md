@@ -6,8 +6,8 @@ It is meant to be a simple demo for the wasi-provider with Krustlet.
 
 ## Running the example
 
-This example has already been pre-built, so you only need to install it into your Kubernetes
-cluster.
+This example has already been pre-built, so you only need to install it into
+your Kubernetes cluster.
 
 Create the pod and configmap with `kubectl`:
 

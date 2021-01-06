@@ -16,8 +16,9 @@ You'll need to have Rust installed with `wasm32-wasi` target installed:
 $ rustup target add wasm32-wasi
 ```
 
-If you don't have Krustlet with the WASI provider running locally, see the instructions in the
-[tutorial](../../../docs/intro/tutorial03.md) for running locally.
+If you don't have Krustlet with the WASI provider running locally, see
+the instructions in the [tutorial](../../../docs/intro/tutorial03.md) for
+running locally.
 
 ### Building
 
@@ -31,5 +32,6 @@ $ cargo build --target wasm32-wasi --release
 
 Detailed instructions for pushing a module can be found [here](../../../docs/intro/tutorial02.md).
 
-We hope to improve and streamline the build and push process in the future. However, for test
-purposes, the image will be pushed to the `webassembly` Azure Container Registry.
+We hope to improve and streamline the build and push process in the future.
+However, for test purposes, the image will be pushed to the `webassembly` Azure
+Container Registry.
