@@ -113,8 +113,6 @@ $ KUBECONFIG=${PWD}/kubeconfig krustlet-wasi \
 --hostname="krustlet" \
 --node-ip=${IP} \
 --node-name="krustlet" \
---cert-file=./krustlet.crt \
---private-key-file=./krustlet.key \
 --bootstrap-file=./bootstrap.conf
 ```
 
