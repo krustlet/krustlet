@@ -38,7 +38,7 @@ impl<O: Operator> OperatorRuntime<O> {
     /// Create new runtime with optional ListParams.
     pub fn new(kubeconfig: &kube::Config, operator: O, params: Option<ListParams>) -> Self {
         let client = Client::new(kubeconfig.clone());
-        let list_params = params.unwrap_or_else(Default::default);
+        let list_params = params.unwrap_or_default();
         OperatorRuntime {
             client,
             handlers: HashMap::new(),
