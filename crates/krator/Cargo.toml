@@ -25,6 +25,10 @@ keywords = [
 [badges]
 maintenance = { status = "actively-developed" }
 
+[features]
+default = ["kube-native-tls"]
+kube-native-tls = ["kube/native-tls", "kube-runtime/native-tls"]
+
 [dependencies]
 async-trait = "0.1"
 anyhow = "1.0"

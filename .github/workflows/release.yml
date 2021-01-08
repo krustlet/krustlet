@@ -152,6 +152,12 @@ jobs:
         continue-on-error: true
       - name: wait for kubelet-derive to be published
         run: sleep 60
+      - name: publish krator crate to crates.io
+        working-directory: ./crates/krator
+        run: cargo publish --token ${{ secrets.CargoToken }}
+        continue-on-error: true
+      - name: wait for krator to be published
+        run: sleep 60
       - name: publish kubelet to crates.io
         working-directory: ./crates/kubelet
         run: cargo publish --token ${{ secrets.CargoToken }}
