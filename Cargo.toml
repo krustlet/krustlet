@@ -39,7 +39,7 @@ default = ["native-tls"]
 native-tls = [
     "kube/native-tls",
     "kube-runtime/native-tls",
-    "krator/native-tls",
+    "krator/kube-native-tls",
     "kubelet/kube-native-tls",
     "wascc-provider/native-tls",
     "wasi-provider/native-tls",
