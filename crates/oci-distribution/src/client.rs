@@ -266,15 +266,21 @@ impl Client {
 
         let challenge = &challenge_opt[0];
         let realm = challenge.realm.as_ref().unwrap();
-        let service = challenge.service.as_ref().unwrap();
+        let service = challenge.service.as_ref();
+        let mut query = vec![("scope", &scope)];
+
+        if service.is_some() {
+            query.push(("service", service.unwrap()))
+        }
 
         // TODO: At some point in the future, we should support sending a secret to the
         // server for auth. This particular workflow is for read-only public auth.
         debug!("Making authentication call to {}", realm);
+
         let auth_res = self
             .client
             .get(realm)
-            .query(&[("service", service), ("scope", &scope)])
+            .query(&query)
             .apply_authentication(authentication)
             .send()
             .await?;
