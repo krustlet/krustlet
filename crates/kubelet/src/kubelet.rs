@@ -2,20 +2,19 @@
 ///! Kubelet with a specific handler (called a `Provider`)
 use crate::config::Config;
 use crate::node;
+use crate::operator::PodOperator;
 use crate::plugin_watcher::PluginRegistry;
-use crate::pod::Queue;
 use crate::provider::Provider;
 use crate::webserver::start as start_webserver;
 
 use futures::future::FutureExt;
-use futures::{StreamExt, TryStreamExt};
-use k8s_openapi::api::core::v1::Pod as KubePod;
-use kube::{api::ListParams, Api};
-use kube_runtime::watcher;
-use log::{debug, error, info, warn};
+use kube::api::ListParams;
+use log::{error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::signal::ctrl_c;
+
+use krator::OperatorRuntime;
 
 /// A Kubelet server backed by a given `Provider`.
 ///
@@ -35,7 +34,7 @@ pub struct Kubelet<P> {
     config: Box<Config>,
 }
 
-impl<P: 'static + Provider + Sync + Send> Kubelet<P> {
+impl<P: Provider> Kubelet<P> {
     /// Create a new Kubelet with a provider, a kubernetes configuration,
     /// and a kubelet configuration
     pub async fn new(
@@ -108,16 +107,14 @@ impl<P: 'static + Provider + Sync + Send> Kubelet<P> {
         .fuse()
         .boxed();
 
-        // Create a queue that locks on events per pod
-        let queue = Queue::new(self.provider.clone(), client.clone());
-        let pod_informer = start_pod_informer::<P>(
-            client.clone(),
-            self.config.node_name.clone(),
-            queue,
-            Arc::clone(&signal),
-        )
-        .fuse()
-        .boxed();
+        let operator = PodOperator::new(Arc::clone(&self.provider), client.clone());
+        let node_selector = format!("spec.nodeName={}", &self.config.node_name);
+        let params = ListParams {
+            field_selector: Some(node_selector),
+            ..Default::default()
+        };
+        let mut operator_runtime = OperatorRuntime::new(&self.kube_config, operator, Some(params));
+        let operator_task = operator_runtime.start().fuse().boxed();
 
         // These must all be running for graceful shutdown. An error here exits ungracefully.
         let core = Box::pin(async {
@@ -126,8 +123,8 @@ impl<P: 'static + Provider + Sync + Send> Kubelet<P> {
                     error!("Signal handler task joined with error {:?}", &e);
                     e
                 }),
-                _ = pod_informer => {
-                    warn!("Pod informer has completed");
+                _ = operator_task => {
+                    warn!("Pod operator has completed");
                     Ok(())
                 }
             }
@@ -159,50 +156,6 @@ async fn start_signal_task(signal: Arc<AtomicBool>) -> anyhow::Result<()> {
     warn!("Caught keyboard interrupt.");
     signal.store(true, Ordering::Relaxed);
     Ok(())
-}
-
-/// Listens for updates to pods on this node and forwards them to queue.
-async fn start_pod_informer<P: 'static + Provider + Sync + Send>(
-    client: kube::Client,
-    node_name: String,
-    mut queue: Queue<P>,
-    signal: Arc<AtomicBool>,
-) {
-    let node_selector = format!("spec.nodeName={}", node_name);
-    let params = ListParams {
-        field_selector: Some(node_selector),
-        ..Default::default()
-    };
-    let api = Api::<KubePod>::all(client);
-    let mut informer = watcher(api, params).boxed();
-    loop {
-        match informer.try_next().await {
-            Ok(Some(event)) => {
-                debug!("Handling Kubernetes pod event: {:?}", event);
-                if matches!(event, kube_runtime::watcher::Event::Applied(_))
-                    && signal.load(Ordering::Relaxed)
-                {
-                    warn!("Node is shutting down and unschedulable. Dropping Add Pod event.");
-                    continue;
-                }
-                if let kube_runtime::watcher::Event::Restarted(pods) = event {
-                    info!("Got a pod watch restart. Resyncing queue...");
-                    // If we got a restart, we need to requeue an applied event for all pods
-                    match queue.resync(pods).await {
-                        Ok(()) => info!("Finished resync of pods"),
-                        Err(e) => warn!("Error resyncing pods: {}", e),
-                    };
-                } else {
-                    match queue.enqueue(event).await {
-                        Ok(()) => debug!("Enqueued event for processing"),
-                        Err(e) => warn!("Error enqueuing pod event: {}", e),
-                    };
-                }
-            }
-            Ok(None) => break,
-            Err(e) => warn!("Error streaming pod events: {:?}", e),
-        }
-    }
 }
 
 /// Periodically renew node lease and status. Exits if signal is caught.
@@ -238,7 +191,8 @@ mod test {
     use crate::pod::{Pod, Status};
     use crate::state::ResourceState;
     use k8s_openapi::api::core::v1::{
-        Container as KubeContainer, EnvVar, EnvVarSource, ObjectFieldSelector, PodSpec, PodStatus,
+        Container as KubeContainer, EnvVar, EnvVarSource, ObjectFieldSelector, Pod as KubePod,
+        PodSpec, PodStatus,
     };
     use kube::api::ObjectMeta;
     use std::collections::BTreeMap;

@@ -72,7 +72,7 @@ use crate::state::{ResourceState, State};
 /// }
 /// ```
 #[async_trait]
-pub trait Provider: Sized {
+pub trait Provider: Sized + Send + Sync + 'static {
     /// The state of the provider itself.
     type ProviderState: 'static + Send + Sync;
 

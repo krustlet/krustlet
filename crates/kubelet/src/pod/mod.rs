@@ -1,12 +1,10 @@
 //! `pod` is a collection of utilities surrounding the Kubernetes pod API.
 mod handle;
-mod queue;
 pub mod state;
 mod status;
 // Ignore deprecated here as this is just a reexport
 #[allow(deprecated)]
 pub use handle::{key_from_pod, pod_key, Handle};
-pub(crate) use queue::Queue;
 pub(crate) use status::initialize_pod_container_statuses;
 pub use status::{
     make_registered_status, make_status, make_status_with_containers, patch_status, Phase, Status,
@@ -17,14 +15,17 @@ use chrono::{DateTime, Utc};
 use k8s_openapi::api::core::v1::{
     Container as KubeContainer, Pod as KubePod, Volume as KubeVolume,
 };
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::Meta;
+use serde::Deserialize;
 
 /// A Kubernetes Pod
 ///
 /// This is a new type around the k8s_openapi Pod definition
 /// providing convenient accessor methods
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Deserialize)]
 pub struct Pod {
+    #[serde(flatten)]
     kube_pod: KubePod,
 }
 
@@ -213,6 +214,25 @@ impl Pod {
     pub fn as_kube_pod(&self) -> &KubePod {
         &self.kube_pod
     }
+}
+
+impl k8s_openapi::Metadata for Pod {
+    type Ty = ObjectMeta;
+
+    fn metadata(&self) -> &ObjectMeta {
+        self.kube_pod.metadata()
+    }
+
+    fn metadata_mut(&mut self) -> &mut ObjectMeta {
+        self.kube_pod.metadata_mut()
+    }
+}
+
+impl k8s_openapi::Resource for Pod {
+    const API_VERSION: &'static str = "v1";
+    const GROUP: &'static str = "";
+    const KIND: &'static str = "Pod";
+    const VERSION: &'static str = "v1";
 }
 
 impl std::convert::From<KubePod> for Pod {

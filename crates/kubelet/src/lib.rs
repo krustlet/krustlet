@@ -74,6 +74,7 @@
 mod bootstrapping;
 mod config_interpreter;
 mod kubelet;
+mod operator;
 
 pub(crate) mod kubeconfig;
 pub(crate) mod webserver;

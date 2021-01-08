@@ -17,7 +17,7 @@ const PING: &str = "this is the Krustlet HTTP server";
 /// Start the Krustlet HTTP(S) server
 ///
 /// This is a primitive implementation of an HTTP provider for the internal API.
-pub(crate) async fn start<T: 'static + Provider + Send + Sync>(
+pub(crate) async fn start<T: Provider>(
     provider: Arc<T>,
     config: &ServerConfig,
 ) -> anyhow::Result<()> {
@@ -55,7 +55,7 @@ pub(crate) async fn start<T: 'static + Provider + Send + Sync>(
 /// Get the logs from the running container.
 ///
 /// Implements the kubelet path /containerLogs/{namespace}/{pod}/{container}
-async fn get_container_logs<T: 'static + Provider + Send + Sync>(
+async fn get_container_logs<T: Provider>(
     provider: Arc<T>,
     namespace: String,
     pod: String,
@@ -91,7 +91,7 @@ async fn get_container_logs<T: 'static + Provider + Send + Sync>(
 /// Run a pod exec command and get the output
 ///
 /// Implements the kubelet path /exec/{namespace}/{pod}/{container}
-async fn post_exec<T: 'static + Provider + Send + Sync>(
+async fn post_exec<T: Provider>(
     _provider: Arc<T>,
     _namespace: String,
     _pod: String,

@@ -5,6 +5,7 @@ use crate::container::make_initial_container_status;
 use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use k8s_openapi::api::core::v1::PodStatus as KubePodStatus;
+use krator::ObjectStatus;
 use kube::api::PatchParams;
 use kube::Api;
 use log::{debug, warn};
@@ -13,7 +14,7 @@ use tokio::sync::RwLock;
 
 /// Patch Pod status with Kubernetes API.
 pub async fn patch_status(api: &Api<KubePod>, name: &str, status: Status) {
-    let patch = status.into_json();
+    let patch = status.json_patch();
     match serde_json::to_vec(&patch) {
         Ok(data) => {
             debug!(
@@ -41,7 +42,7 @@ const MAX_STATUS_INIT_RETRIES: usize = 5;
 
 /// Initializes Pod container status array and wait for Pod reflection to update.
 pub async fn initialize_pod_container_statuses(
-    name: &str,
+    name: String,
     pod: Arc<RwLock<Pod>>,
     api: &Api<KubePod>,
 ) -> anyhow::Result<()> {
@@ -155,40 +156,6 @@ pub fn make_status_with_containers(
 /// Pod Status wrapper.
 pub struct Status(KubePodStatus);
 
-impl Status {
-    pub(crate) fn into_json(self) -> serde_json::Value {
-        let mut status = serde_json::Map::new();
-        if let Some(s) = self.0.phase {
-            status.insert("phase".to_string(), serde_json::Value::String(s));
-        };
-
-        if let Some(s) = self.0.message {
-            status.insert("message".to_string(), serde_json::Value::String(s));
-        };
-
-        if let Some(s) = self.0.reason {
-            status.insert("reason".to_string(), serde_json::Value::String(s));
-        };
-
-        if let Some(s) = self.0.container_statuses {
-            status.insert("containerStatuses".to_string(), serde_json::json!(s));
-        };
-
-        if let Some(s) = self.0.init_container_statuses {
-            status.insert("initContainerStatuses".to_string(), serde_json::json!(s));
-        };
-
-        serde_json::json!(
-            {
-                "metadata": {
-                    "resourceVersion": "",
-                },
-                "status": serde_json::Value::Object(status)
-            }
-        )
-    }
-}
-
 #[derive(Default)]
 /// Builder for Pod Status wrapper.
 pub struct StatusBuilder(KubePodStatus);
@@ -267,5 +234,47 @@ impl std::fmt::Display for Phase {
 impl Default for Phase {
     fn default() -> Self {
         Self::Unknown
+    }
+}
+
+impl ObjectStatus for Status {
+    fn json_patch(&self) -> serde_json::Value {
+        let mut status = serde_json::Map::new();
+        if let Some(s) = self.0.phase.clone() {
+            status.insert("phase".to_string(), serde_json::Value::String(s));
+        };
+
+        if let Some(s) = self.0.message.clone() {
+            status.insert("message".to_string(), serde_json::Value::String(s));
+        };
+
+        if let Some(s) = self.0.reason.clone() {
+            status.insert("reason".to_string(), serde_json::Value::String(s));
+        };
+
+        if let Some(s) = self.0.container_statuses.clone() {
+            status.insert("containerStatuses".to_string(), serde_json::json!(s));
+        };
+
+        if let Some(s) = self.0.init_container_statuses.clone() {
+            status.insert("initContainerStatuses".to_string(), serde_json::json!(s));
+        };
+
+        serde_json::json!(
+            {
+                "metadata": {
+                    "resourceVersion": "",
+                },
+                "status": serde_json::Value::Object(status)
+            }
+        )
+    }
+
+    fn failed(e: &str) -> Self {
+        StatusBuilder::new()
+            .phase(Phase::Failed)
+            .message(e)
+            .reason(e)
+            .build()
     }
 }
