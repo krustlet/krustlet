@@ -28,6 +28,7 @@ maintenance = { status = "actively-developed" }
 [features]
 default = ["kube-native-tls"]
 kube-native-tls = ["kube/native-tls", "kube-runtime/native-tls"]
+rustls-tls = ["kube/rustls-tls", "kube-runtime/rustls-tls"]
 
 [dependencies]
 async-trait = "0.1"
