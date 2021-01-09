@@ -269,8 +269,8 @@ impl Client {
         let service = challenge.service.as_ref();
         let mut query = vec![("scope", &scope)];
 
-        if service.is_some() {
-            query.push(("service", service.unwrap()))
+        if let Some(s) = service {
+            query.push(("service", s))
         }
 
         // TODO: At some point in the future, we should support sending a secret to the
