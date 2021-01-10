@@ -1,0 +1,9 @@
+error[E0451]: field `state` of struct `StateHolder` is private
+  --> $DIR/cannot_construct_transition_next.rs:23:9
+   |
+23 |         state: Box::new(Stub),
+   |         ^^^^^^^^^^^^^^^^^^^^^ private field
+
+error: aborting due to previous error
+
+For more information about this error, try `rustc --explain E0451`.

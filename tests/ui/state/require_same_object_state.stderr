@@ -1,0 +1,13 @@
+error[E0277]: the trait bound `OtherState: kubelet::state::State<PodState>` is not satisfied
+  --> $DIR/require_same_object_state.rs:47:9
+   |
+47 |         Transition::next(self, OtherState)
+   |         ^^^^^^^^^^^^^^^^ the trait `kubelet::state::State<PodState>` is not implemented for `OtherState`
+   |
+   = help: the following implementations were found:
+             <OtherState as kubelet::state::State<OtherPodState>>
+   = note: required by `kubelet::state::Transition::<S>::next`
+
+error: aborting due to previous error
+
+For more information about this error, try `rustc --explain E0277`.
