@@ -75,7 +75,7 @@ async fn assign_container_port(
                     );
                     return Err(anyhow::anyhow!("Port {} is currently in use", &host_port));
                 }
-            } else if container_port >= 0 && container_port <= 65536 {
+            } else if (0..=65536).contains(&container_port) {
                 port_assigned = find_available_port(&port_map, pod).await?;
             }
         }

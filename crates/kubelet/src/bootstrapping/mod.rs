@@ -266,6 +266,9 @@ fn completed_csr_approval(cert_description: &str) -> String {
     )
 }
 
+// Known false positive for non_exhaustive struct `CertificateParams`
+// https://github.com/rust-lang/rust-clippy/issues/6559
+#[allow(clippy::field_reassign_with_default)]
 fn gen_auth_cert(config: &KubeletConfig) -> anyhow::Result<Certificate> {
     let mut params = CertificateParams::default();
     params.not_before = chrono::Utc::now();
@@ -286,6 +289,9 @@ fn gen_auth_cert(config: &KubeletConfig) -> anyhow::Result<Certificate> {
     Ok(Certificate::from_params(params)?)
 }
 
+// Known false positive for non_exhaustive struct `CertificateParams`
+// https://github.com/rust-lang/rust-clippy/issues/6559
+#[allow(clippy::field_reassign_with_default)]
 fn gen_tls_cert(config: &KubeletConfig) -> anyhow::Result<Certificate> {
     let mut params = CertificateParams::default();
     params.not_before = chrono::Utc::now();
