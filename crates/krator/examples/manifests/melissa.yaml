@@ -1,0 +1,10 @@
+apiVersion: animals.com/v1
+kind: Moose
+metadata:
+  name: melissa
+  labels:
+    nps.gov/park: glacier
+spec:
+  height: 1.8
+  weight: 550
+  antlers: false

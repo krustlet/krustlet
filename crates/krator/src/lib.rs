@@ -11,3 +11,4 @@ pub mod state;
 pub use object::{ObjectState, ObjectStatus};
 pub use operator::Operator;
 pub use runtime::OperatorRuntime;
+pub use state::{State, Transition, TransitionTo};
