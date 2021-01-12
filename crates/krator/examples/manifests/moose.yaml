@@ -1,0 +1,47 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: mooses.animals.com
+spec:
+  group: animals.com
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+      - name: Phase
+        type: string
+        description: The moose's status. 
+        jsonPath: .status.phase
+      - name: Message
+        type: string
+        description: Moose details.
+        jsonPath: .status.message
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                height:
+                  type: number
+                weight:
+                  type: number
+                antlers:
+                  type: boolean
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                message:
+                  type: string
+  scope: Namespaced
+  names:
+    plural: mooses
+    singular: moose
+    kind: Moose
+    shortNames: []
