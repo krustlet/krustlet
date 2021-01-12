@@ -634,18 +634,22 @@ impl Client {
         manifest.config.digest = sha256_digest(config_data);
 
         for layer in image_data.layers.clone() {
-            let mut descriptor: OciDescriptor = OciDescriptor::default();
-            descriptor.size = layer.data.len() as i64;
-            descriptor.digest = sha256_digest(&layer.data);
-            descriptor.media_type = layer.media_type;
+            let digest = sha256_digest(&layer.data);
 
             //TODO: Determine necessity of generating an image title
             let mut annotations = HashMap::new();
             annotations.insert(
                 "org.opencontainers.image.title".to_string(),
-                descriptor.digest.to_string(),
+                digest.to_string(),
             );
-            descriptor.annotations = Some(annotations);
+
+            let descriptor = OciDescriptor {
+                size: layer.data.len() as i64,
+                digest,
+                media_type: layer.media_type,
+                annotations: Some(annotations),
+                ..Default::default()
+            };
 
             manifest.layers.push(descriptor);
         }

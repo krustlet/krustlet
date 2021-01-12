@@ -100,13 +100,13 @@ impl Reference {
     pub fn whole(&self) -> String {
         let mut s = self.full_name();
         if let Some(t) = self.tag() {
-            if s != "" {
+            if !s.is_empty() {
                 s.push(':');
             }
             s.push_str(t);
         }
         if let Some(d) = self.digest() {
-            if s != "" {
+            if !s.is_empty() {
                 s.push('@');
             }
             s.push_str(d);

@@ -644,32 +644,41 @@ impl Builder {
 
     /// Build node definition from builder.
     pub fn build(self) -> Node {
-        let mut metadata: k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta =
-            Default::default();
-        metadata.name = Some(self.name);
-        metadata.annotations = Some(self.annotations);
-        metadata.labels = Some(self.labels);
+        let metadata = k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta {
+            name: Some(self.name),
+            annotations: Some(self.annotations),
+            labels: Some(self.labels),
+            ..Default::default()
+        };
 
-        let mut spec: k8s_openapi::api::core::v1::NodeSpec = Default::default();
-        spec.pod_cidr = Some(self.pod_cidr);
-        spec.taints = Some(self.taints);
+        let spec = k8s_openapi::api::core::v1::NodeSpec {
+            pod_cidr: Some(self.pod_cidr),
+            taints: Some(self.taints),
+            ..Default::default()
+        };
 
-        let mut node_info: k8s_openapi::api::core::v1::NodeSystemInfo = Default::default();
-        node_info.architecture = self.architecture;
-        node_info.kube_proxy_version = self.kube_proxy_version;
-        node_info.kubelet_version = self.kubelet_version;
-        node_info.container_runtime_version = self.container_runtime_version;
-        node_info.operating_system = self.operating_system;
+        let node_info = k8s_openapi::api::core::v1::NodeSystemInfo {
+            architecture: self.architecture,
+            kube_proxy_version: self.kube_proxy_version,
+            kubelet_version: self.kubelet_version,
+            container_runtime_version: self.container_runtime_version,
+            operating_system: self.operating_system,
+            ..Default::default()
+        };
 
-        let mut status: k8s_openapi::api::core::v1::NodeStatus = Default::default();
-        status.node_info = Some(node_info);
-        status.capacity = Some(self.capacity);
-        status.allocatable = Some(self.allocatable);
-        status.daemon_endpoints = Some(k8s_openapi::api::core::v1::NodeDaemonEndpoints {
-            kubelet_endpoint: Some(k8s_openapi::api::core::v1::DaemonEndpoint { port: self.port }),
-        });
-        status.conditions = Some(self.conditions);
-        status.addresses = Some(self.addresses);
+        let status = k8s_openapi::api::core::v1::NodeStatus {
+            node_info: Some(node_info),
+            capacity: Some(self.capacity),
+            allocatable: Some(self.allocatable),
+            daemon_endpoints: Some(k8s_openapi::api::core::v1::NodeDaemonEndpoints {
+                kubelet_endpoint: Some(k8s_openapi::api::core::v1::DaemonEndpoint {
+                    port: self.port,
+                }),
+            }),
+            conditions: Some(self.conditions),
+            addresses: Some(self.addresses),
+            ..Default::default()
+        };
 
         let kube_node = k8s_openapi::api::core::v1::Node {
             metadata,
