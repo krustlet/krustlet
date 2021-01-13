@@ -8,7 +8,7 @@ quickly accomplish common tasks.
 - [Running Krustlet on Azure](krustlet-on-azure.md)
 - [Running Krustlet on Amazon Elastic Kubernetes Service
   (EKS)](krustlet-on-eks.md)
-- [Running Krustlet on Google Kubernetes Engine (GKE)](krustlet-on-gke.ms)
+- [Running Krustlet on Google Kubernetes Engine (GKE)](krustlet-on-gke.md)
 - [Running Krustlet on Kubernetes-in-Docker (KinD)](krustlet-on-kind.md)
 - [Running Krustlet on Minikube](krustlet-on-minikube.md)
 - [Running Krustlet on any Kubernetes cluster with
