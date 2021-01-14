@@ -10,6 +10,9 @@ build +FLAGS='':
 lint-docs:
     markdownlint '**/*.md' -c .markdownlint.json
 
+ui-test +FLAGS='':
+    cargo test --test ui {{FLAGS}}
+
 test:
     cargo fmt --all -- --check
     cargo clippy --workspace

@@ -88,6 +88,11 @@ jobs:
           make CC=aarch64-linux-gnu-gcc
           sudo make install
           rustup target add aarch64-unknown-linux-gnu
+      - name: UI Test
+        if: matrix.config.arch != 'aarch64'
+        run: |
+          # Must be run before building
+          just ui-test ${{ matrix.config.args }}
       - name: Build
         run: |
           just build ${{ matrix.config.args }}
