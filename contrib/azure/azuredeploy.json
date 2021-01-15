@@ -121,7 +121,7 @@
 				"autoUpgradeMinorVersion": true,
 				"settings": {
 					"fileUris": [
-						"[uri(parameters('_artifactsLocation'), concat('install_krustlet.sh', parameters('_artifactsLocationSasToken')))]"
+						"[uri(parameters('_artifactsLocation'), concat('contrib/azure/install_krustlet.sh', parameters('_artifactsLocationSasToken')))]"
 					],
 					"commandToExecute": "[concat('bash install_krustlet.sh', ' ', parameters('krustletURL'), ' ', parameters('clusterName'), ' ', resourceGroup().name, ' ', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('msiName')), ' ', parameters('kubernetesVersion'))]"
 				}
