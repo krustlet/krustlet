@@ -3,6 +3,7 @@ use super::ContainerState;
 use crate::ProviderState;
 use kubelet::container::state::prelude::*;
 use tokio::sync::mpsc::Receiver;
+use tokio::sync::watch::Receiver as WatchReceiver;
 
 /// The container is starting.
 #[derive(Debug, TransitionTo)]
@@ -23,7 +24,7 @@ impl State<ContainerState> for Running {
         mut self: Box<Self>,
         _shared_state: SharedState<ProviderState>,
         _state: &mut ContainerState,
-        _container: &Container,
+        _container: WatchReceiver<Container>,
     ) -> Transition<ContainerState> {
         while let Some(status) = self.rx.recv().await {
             if let Status::Terminated {

@@ -32,8 +32,13 @@ impl<P: GenericProvider> State<P::PodState> for Registered<P> {
         self: Box<Self>,
         _provider_state: SharedState<P::ProviderState>,
         _pod_state: &mut P::PodState,
-        pod: &Pod,
+        mut pod: Receiver<Pod>,
     ) -> Transition<P::PodState> {
+        let pod = match pod.recv().await {
+            Some(pod) => pod,
+            None => return Transition::Complete(Err(anyhow::anyhow!("Manifest sender dropped."))),
+        };
+
         debug!("Preparing to register pod: {}", pod.name());
         match P::validate_pod_and_containers_runnable(&pod) {
             Ok(_) => (),

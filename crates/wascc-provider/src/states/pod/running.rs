@@ -1,4 +1,4 @@
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::Receiver as MpscReceiver;
 
 use kubelet::pod::state::prelude::*;
 use kubelet::state::common::error::Error;
@@ -10,11 +10,11 @@ use crate::{fail_fatal, PodState, ProviderState};
 #[derive(Debug, TransitionTo)]
 #[transition_to()]
 pub struct Running {
-    rx: Receiver<anyhow::Result<()>>,
+    rx: MpscReceiver<anyhow::Result<()>>,
 }
 
 impl Running {
-    pub fn new(rx: Receiver<anyhow::Result<()>>) -> Self {
+    pub fn new(rx: MpscReceiver<anyhow::Result<()>>) -> Self {
         Running { rx }
     }
 }
@@ -25,8 +25,13 @@ impl State<PodState> for Running {
         mut self: Box<Self>,
         provider_state: SharedState<ProviderState>,
         _pod_state: &mut PodState,
-        pod: &Pod,
+        mut pod: Receiver<Pod>,
     ) -> Transition<PodState> {
+        let pod = match pod.recv().await {
+            Some(pod) => pod,
+            None => return Transition::Complete(Err(anyhow::anyhow!("Manifest sender dropped."))),
+        };
+
         // This collects errors from registering the actor.
         if let Some(result) = self.rx.recv().await {
             match result {
@@ -42,7 +47,7 @@ impl State<PodState> for Running {
                     {
                         let provider = provider_state.write().await;
                         // This Result doesnt matter since we are about to exit with error.
-                        provider.stop(pod).await.ok();
+                        provider.stop(&pod).await.ok();
                     }
                     fail_fatal!(e);
                 }

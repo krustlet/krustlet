@@ -3,6 +3,7 @@ use std::fmt::Debug;
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::Metadata;
+use tokio::sync::watch::Receiver;
 
 use crate::object::{ObjectState, ObjectStatus};
 use crate::state::{SharedState, State};
@@ -44,7 +45,7 @@ pub trait Operator: 'static + Sync + Send {
     /// Called before the state machine is run.
     async fn registration_hook(
         &self,
-        _manifest: SharedState<Self::Manifest>,
+        mut _manifest: Receiver<Self::Manifest>,
     ) -> anyhow::Result<()> {
         Ok(())
     }

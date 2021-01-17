@@ -26,8 +26,13 @@ impl State<ContainerState> for Terminated {
         self: Box<Self>,
         _shared_state: SharedState<ProviderState>,
         state: &mut ContainerState,
-        container: &Container,
+        mut container: Receiver<Container>,
     ) -> Transition<ContainerState> {
+        let container = match container.recv().await {
+            Some(container) => container,
+            None => return Transition::Complete(Err(anyhow::anyhow!("Manifest sender dropped."))),
+        };
+
         if self.failed {
             error!(
                 "Pod {} container {} exited with error: {}",

@@ -7,6 +7,7 @@ use krator::ObjectState;
 use krator::Operator;
 use kube::Api;
 use std::sync::Arc;
+use tokio::sync::watch::Receiver;
 
 pub(crate) struct PodOperator<P: Provider> {
     provider: Arc<P>,
@@ -35,14 +36,18 @@ impl<P: Provider> Operator for PodOperator<P> {
         self.provider.provider_state()
     }
 
-    async fn registration_hook(&self, manifest: SharedState<Self::Manifest>) -> anyhow::Result<()> {
-        let (name, api) = {
-            let initial_manifest = manifest.read().await.clone();
-            let namespace = initial_manifest.namespace();
-            let name = initial_manifest.name();
-            let api: Api<KubePod> = Api::namespaced(self.client.clone(), namespace);
-            (name.to_string(), api)
-        };
+    async fn registration_hook(
+        &self,
+        mut manifest: Receiver<Self::Manifest>,
+    ) -> anyhow::Result<()> {
+        let initial_manifest = manifest
+            .recv()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("Manifest sender dropped."))?;
+        let namespace = initial_manifest.namespace();
+        let name = initial_manifest.name().to_string();
+        let api: Api<KubePod> = Api::namespaced(self.client.clone(), namespace);
+
         initialize_pod_container_statuses(name, manifest, &api).await
     }
 }

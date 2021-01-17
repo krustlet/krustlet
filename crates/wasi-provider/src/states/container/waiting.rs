@@ -59,8 +59,13 @@ impl State<ContainerState> for Waiting {
         self: Box<Self>,
         shared: SharedState<ProviderState>,
         state: &mut ContainerState,
-        container: &Container,
+        mut container: Receiver<Container>,
     ) -> Transition<ContainerState> {
+        let container = match container.recv().await {
+            Some(container) => container,
+            None => return Transition::Complete(Err(anyhow::anyhow!("Manifest sender dropped."))),
+        };
+
         info!(
             "Starting container {} for pod {}",
             container.name(),
@@ -90,7 +95,7 @@ impl State<ContainerState> for Waiting {
                     );
                 }
             };
-            let container_volumes = match volume_path_map(container, &run_context.volumes) {
+            let container_volumes = match volume_path_map(&container, &run_context.volumes) {
                 Ok(volumes) => volumes,
                 Err(e) => {
                     return Transition::next(

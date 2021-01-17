@@ -1,6 +1,7 @@
 //! Functions for running Pod state machines.
 use crate::pod::{Pod, Status as PodStatus};
 use crate::state::{ResourceState, SharedState, State, Transition};
+use tokio::sync::watch::Receiver;
 
 /// Prelude for Pod state machines.
 pub mod prelude {
@@ -9,6 +10,7 @@ pub mod prelude {
         Status as PodStatus,
     };
     pub use crate::state::{ResourceState, SharedState, State, Transition, TransitionTo};
+    pub use tokio::sync::watch::Receiver;
 }
 
 #[derive(Default, Debug)]
@@ -21,7 +23,7 @@ impl<PodState: ResourceState<Manifest = Pod, Status = PodStatus>> State<PodState
         self: Box<Self>,
         _shared_state: SharedState<PodState::SharedState>,
         _pod_state: &mut PodState,
-        _pod: &Pod,
+        _pod: Receiver<Pod>,
     ) -> Transition<PodState> {
         Transition::Complete(Ok(()))
     }

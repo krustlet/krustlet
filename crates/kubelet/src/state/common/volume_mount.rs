@@ -32,8 +32,13 @@ impl<P: GenericProvider> State<P::PodState> for VolumeMount<P> {
         self: Box<Self>,
         provider_state: SharedState<P::ProviderState>,
         pod_state: &mut P::PodState,
-        pod: &Pod,
+        mut pod: Receiver<Pod>,
     ) -> Transition<P::PodState> {
+        let pod = match pod.recv().await {
+            Some(pod) => pod,
+            None => return Transition::Complete(Err(anyhow::anyhow!("Manifest sender dropped."))),
+        };
+
         let (client, volume_path) = {
             let state_reader = provider_state.read().await;
             (state_reader.client(), state_reader.volume_path())

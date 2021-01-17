@@ -5,8 +5,7 @@ use kube::api::{Meta, PatchParams};
 use kube::Api;
 use log::{debug, error, trace, warn};
 use serde::de::DeserializeOwned;
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::watch::Receiver;
 
 use crate::object::ObjectStatus;
 // Re-export for compatibility.
@@ -69,7 +68,7 @@ pub trait State<S: ResourceState>: Sync + Send + 'static + std::fmt::Debug {
         self: Box<Self>,
         shared: SharedState<S::SharedState>,
         state: &mut S,
-        manifest: &S::Manifest,
+        manifest: Receiver<S::Manifest>,
     ) -> Transition<S>;
 
     /// Provider supplies JSON status patch to apply when entering this state.
@@ -82,13 +81,19 @@ pub async fn run_to_completion<S: ResourceState>(
     state: impl State<S>,
     shared: SharedState<S::SharedState>,
     object_state: &mut S,
-    manifest: Arc<RwLock<S::Manifest>>,
+    mut manifest: Receiver<S::Manifest>,
 ) where
     S::Manifest: Resource + Meta + DeserializeOwned,
     S::Status: ObjectStatus,
 {
     let (name, namespace, api) = {
-        let initial_manifest = manifest.read().await.clone();
+        let initial_manifest = match manifest.recv().await {
+            Some(manifest) => manifest,
+            None => {
+                warn!("Manifest sender dropped.");
+                return;
+            }
+        };
         let namespace = initial_manifest.namespace();
         let name = initial_manifest.name();
 
@@ -109,7 +114,16 @@ pub async fn run_to_completion<S: ResourceState>(
             state
         );
 
-        let latest_manifest = { manifest.read().await.clone() };
+        let latest_manifest = match manifest.recv().await {
+            Some(manifest) => manifest,
+            None => {
+                warn!(
+                    "Manifest sender dropped for pod {} in namespace {:?}.",
+                    name, namespace
+                );
+                return;
+            }
+        };
 
         match state.status(object_state, &latest_manifest).await {
             Ok(status) => {
@@ -131,7 +145,7 @@ pub async fn run_to_completion<S: ResourceState>(
         );
         let transition = {
             state
-                .next(shared.clone(), object_state, &latest_manifest)
+                .next(shared.clone(), object_state, manifest.clone())
                 .await
         };
 

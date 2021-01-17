@@ -28,13 +28,18 @@ impl<P: GenericProvider> State<P::PodState> for Terminated<P> {
         self: Box<Self>,
         provider_state: SharedState<P::ProviderState>,
         _pod_state: &mut P::PodState,
-        pod: &Pod,
+        mut pod: Receiver<Pod>,
     ) -> Transition<P::PodState> {
+        let pod = match pod.recv().await {
+            Some(pod) => pod,
+            None => return Transition::Complete(Err(anyhow::anyhow!("Manifest sender dropped."))),
+        };
+
         let state_reader = provider_state.read().await;
         // TODO: In original code, pod key was stored in state rather than
         // re-derived.  Is this important e.g. could pod mutate in ways
         // that invalidate the key assigned on startup?
-        let stop_result = state_reader.stop(pod).await;
+        let stop_result = state_reader.stop(&pod).await;
         Transition::Complete(stop_result)
     }
 
