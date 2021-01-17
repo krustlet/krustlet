@@ -5,11 +5,10 @@ use crate::container::make_initial_container_status;
 use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use k8s_openapi::api::core::v1::PodStatus as KubePodStatus;
-use krator::ObjectStatus;
+use krator::{Manifest, ObjectStatus};
 use kube::api::PatchParams;
 use kube::Api;
 use log::{debug, warn};
-use tokio::sync::watch::Receiver;
 
 /// Patch Pod status with Kubernetes API.
 pub async fn patch_status(api: &Api<KubePod>, name: &str, status: Status) {
@@ -42,7 +41,7 @@ const MAX_STATUS_INIT_RETRIES: usize = 5;
 /// Initializes Pod container status array and wait for Pod reflection to update.
 pub async fn initialize_pod_container_statuses(
     name: String,
-    mut pod: Receiver<Pod>,
+    pod: Manifest<Pod>,
     api: &Api<KubePod>,
 ) -> anyhow::Result<()> {
     // NOTE: This loop patches the container statuses of the Pod with and then
@@ -67,10 +66,7 @@ pub async fn initialize_pod_container_statuses(
             anyhow::bail!("Timed out while initializing container statuses.")
         }
         let (num_containers, num_init_containers) = {
-            let pod = pod
-                .recv()
-                .await
-                .ok_or_else(|| anyhow::anyhow!("Manifest sender dropped."))?;
+            let pod = pod.latest();
             patch_status(&api, &name, make_registered_status(&pod)).await;
             let num_containers = pod.containers().len();
             let num_init_containers = pod.init_containers().len();
@@ -78,9 +74,7 @@ pub async fn initialize_pod_container_statuses(
         };
         for _ in 0..10 {
             let status = pod
-                .recv()
-                .await
-                .ok_or_else(|| anyhow::anyhow!("Manifest sender dropped."))?
+                .latest()
                 .as_kube_pod()
                 .status
                 .clone()

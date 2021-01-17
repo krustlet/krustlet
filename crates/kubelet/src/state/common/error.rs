@@ -34,7 +34,7 @@ impl<P: GenericProvider> State<P::PodState> for Error<P> {
         self: Box<Self>,
         _provider_state: SharedState<P::ProviderState>,
         pod_state: &mut P::PodState,
-        _pod: Receiver<Pod>,
+        _pod: Manifest<Pod>,
     ) -> Transition<P::PodState> {
         match pod_state.record_error().await {
             ThresholdTrigger::Triggered => {

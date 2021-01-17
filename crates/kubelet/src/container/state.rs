@@ -4,16 +4,17 @@ use crate::container::{Container, ContainerKey};
 use crate::pod::Pod;
 use crate::state::{ResourceState, SharedState, State, Transition};
 use chrono::Utc;
+use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod as KubePod;
+use krator::Manifest;
 use kube::api::Api;
 use log::{debug, error, warn};
-use tokio::sync::watch::{channel, Receiver};
 
 /// Prelude for Pod state machines.
 pub mod prelude {
     pub use crate::container::{Container, Handle, Status};
     pub use crate::state::{ResourceState, SharedState, State, Transition, TransitionTo};
-    pub use tokio::sync::watch::Receiver;
+    pub use krator::Manifest;
 }
 
 /// Iteratively evaluate state machine until it returns Complete.
@@ -22,13 +23,10 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = S
     initial_state: impl State<S>,
     shared: SharedState<S::SharedState>,
     mut container_state: S,
-    mut pod: Receiver<Pod>,
+    pod: Manifest<Pod>,
     container_name: ContainerKey,
 ) -> anyhow::Result<()> {
-    let initial_pod = pod
-        .recv()
-        .await
-        .ok_or_else(|| anyhow::anyhow!("Manifest sender dropped."))?;
+    let initial_pod = pod.latest();
     let namespace = initial_pod.namespace().to_string();
     let pod_name = initial_pod.name().to_string();
     let api: Api<KubePod> = Api::namespaced(client.clone(), &namespace);
@@ -37,11 +35,11 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = S
 
     // Forward pod updates as container updates.
     let initial_container = initial_pod.find_container(&container_name).unwrap();
-    let (container_tx, container_rx) = channel(initial_container);
+    let (container_tx, container_rx) = Manifest::new(initial_container);
     let mut task_pod = pod.clone();
     let task_container_name = container_name.clone();
     tokio::spawn(async move {
-        while let Some(latest_pod) = task_pod.recv().await {
+        while let Some(latest_pod) = task_pod.next().await {
             let latest_container = latest_pod.find_container(&task_container_name).unwrap();
             match container_tx.broadcast(latest_container) {
                 Ok(()) => (),
@@ -59,10 +57,7 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = S
             &pod_name, container_name, state
         );
 
-        let latest_pod = pod
-            .recv()
-            .await
-            .ok_or_else(|| anyhow::anyhow!("Manifest sender dropped."))?;
+        let latest_pod = pod.latest();
         let latest_container = latest_pod.find_container(&container_name).unwrap();
 
         match state.status(&mut container_state, &latest_container).await {

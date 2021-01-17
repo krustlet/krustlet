@@ -29,7 +29,7 @@ impl<P: GenericProvider> State<P::PodState> for ImagePullBackoff<P> {
         self: Box<Self>,
         _provider_state: SharedState<P::ProviderState>,
         pod_state: &mut P::PodState,
-        _pod: Receiver<Pod>,
+        _pod: Manifest<Pod>,
     ) -> Transition<P::PodState> {
         pod_state.backoff(BackoffSequence::ImagePull).await;
         Transition::next(self, ImagePull::<P>::default())

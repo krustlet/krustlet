@@ -41,7 +41,7 @@ impl State<PodState> for TestState {
         self: Box<Self>,
         _provider_state: SharedState<ProviderState>,
         _state: &mut PodState,
-        _pod: Receiver<Pod>,
+        _pod: Manifest<Pod>,
     ) -> Transition<PodState> {
         // This fails because `OtherState` is `State<OtherPodState, PodStatus>`
         Transition::next(self, OtherState)
@@ -62,7 +62,7 @@ impl State<OtherPodState> for OtherState {
         self: Box<Self>,
         _provider_state: SharedState<ProviderState>,
         _state: &mut OtherPodState,
-        _pod: Receiver<Pod>,
+        _pod: Manifest<Pod>,
     ) -> Transition<OtherPodState> {
         Transition::Complete(Ok(()))
     }

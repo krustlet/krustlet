@@ -32,12 +32,9 @@ impl<P: GenericProvider> State<P::PodState> for ImagePull<P> {
         self: Box<Self>,
         provider_state: SharedState<P::ProviderState>,
         pod_state: &mut P::PodState,
-        mut pod: Receiver<Pod>,
+        pod: Manifest<Pod>,
     ) -> Transition<P::PodState> {
-        let pod = match pod.recv().await {
-            Some(pod) => pod,
-            None => return Transition::Complete(Err(anyhow::anyhow!("Manifest sender dropped."))),
-        };
+        let pod = pod.latest();
 
         let (client, store) = {
             // Minimise the amount of time we hold any locks

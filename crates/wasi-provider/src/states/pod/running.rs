@@ -1,4 +1,4 @@
-use tokio::sync::mpsc::Receiver as MpscReceiver;
+use tokio::sync::mpsc::Receiver;
 
 use kubelet::pod::state::prelude::*;
 use kubelet::state::common::error::Error;
@@ -12,11 +12,11 @@ use crate::{PodState, ProviderState};
 #[derive(Debug, TransitionTo)]
 #[transition_to(Completed)]
 pub struct Running {
-    rx: MpscReceiver<anyhow::Result<()>>,
+    rx: Receiver<anyhow::Result<()>>,
 }
 
 impl Running {
-    pub fn new(rx: MpscReceiver<anyhow::Result<()>>) -> Self {
+    pub fn new(rx: Receiver<anyhow::Result<()>>) -> Self {
         Running { rx }
     }
 }
@@ -27,12 +27,9 @@ impl State<PodState> for Running {
         mut self: Box<Self>,
         provider_state: SharedState<ProviderState>,
         _pod_state: &mut PodState,
-        mut pod: Receiver<Pod>,
+        pod: Manifest<Pod>,
     ) -> Transition<PodState> {
-        let pod = match pod.recv().await {
-            Some(pod) => pod,
-            None => return Transition::Complete(Err(anyhow::anyhow!("Manifest sender dropped."))),
-        };
+        let pod = pod.latest();
 
         let mut completed = 0;
         let total_containers = pod.containers().len();

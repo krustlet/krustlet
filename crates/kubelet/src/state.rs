@@ -30,7 +30,7 @@
 //!         self: Box<Self>,
 //!         _provider_state: SharedState<ProviderState>,
 //!         _state: &mut PodState,
-//!         _pod: Receiver<Pod>,
+//!         _pod: Manifest<Pod>,
 //!     ) -> Transition<PodState> {
 //!         Transition::next(self, TestState)
 //!     }

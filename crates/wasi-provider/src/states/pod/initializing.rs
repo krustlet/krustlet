@@ -25,13 +25,10 @@ impl State<PodState> for Initializing {
         self: Box<Self>,
         provider_state: SharedState<ProviderState>,
         pod_state: &mut PodState,
-        mut pod: Receiver<Pod>,
+        pod: Manifest<Pod>,
     ) -> Transition<PodState> {
         let pod_rx = pod.clone();
-        let pod = match pod.recv().await {
-            Some(pod) => pod,
-            None => return Transition::Complete(Err(anyhow::anyhow!("Manifest sender dropped."))),
-        };
+        let pod = pod.latest();
 
         let client = {
             let provider_state = provider_state.read().await;

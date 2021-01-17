@@ -94,12 +94,9 @@ impl State<ContainerState> for Waiting {
         self: Box<Self>,
         shared: SharedState<ProviderState>,
         state: &mut ContainerState,
-        mut container: Receiver<Container>,
+        container: Manifest<Container>,
     ) -> Transition<ContainerState> {
-        let container = match container.recv().await {
-            Some(container) => container,
-            None => return Transition::Complete(Err(anyhow::anyhow!("Manifest sender dropped."))),
-        };
+        let container = container.latest();
 
         info!(
             "Starting container {} for pod {}",

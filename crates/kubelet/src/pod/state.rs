@@ -1,7 +1,7 @@
 //! Functions for running Pod state machines.
 use crate::pod::{Pod, Status as PodStatus};
 use crate::state::{ResourceState, SharedState, State, Transition};
-use tokio::sync::watch::Receiver;
+use krator::Manifest;
 
 /// Prelude for Pod state machines.
 pub mod prelude {
@@ -10,7 +10,7 @@ pub mod prelude {
         Status as PodStatus,
     };
     pub use crate::state::{ResourceState, SharedState, State, Transition, TransitionTo};
-    pub use tokio::sync::watch::Receiver;
+    pub use krator::Manifest;
 }
 
 #[derive(Default, Debug)]
@@ -23,7 +23,7 @@ impl<PodState: ResourceState<Manifest = Pod, Status = PodStatus>> State<PodState
         self: Box<Self>,
         _shared_state: SharedState<PodState::SharedState>,
         _pod_state: &mut PodState,
-        _pod: Receiver<Pod>,
+        _pod: Manifest<Pod>,
     ) -> Transition<PodState> {
         Transition::Complete(Ok(()))
     }
@@ -37,7 +37,7 @@ impl<PodState: ResourceState<Manifest = Pod, Status = PodStatus>> State<PodState
 mod test {
     use crate::pod::{Pod, Status as PodStatus};
     use crate::state::{ResourceState, SharedState, State, Transition, TransitionTo};
-    use tokio::sync::watch::Receiver;
+    use krator::Manifest;
 
     #[derive(Debug)]
     struct ProviderState;
@@ -62,7 +62,7 @@ mod test {
             self: Box<Self>,
             _provider_state: SharedState<ProviderState>,
             _pod_state: &mut PodState,
-            _pod: Receiver<Pod>,
+            _pod: Manifest<Pod>,
         ) -> Transition<PodState> {
             Transition::Complete(Ok(()))
         }
@@ -85,7 +85,7 @@ mod test {
                 self: Box<Self>,
                 _provider_state: SharedState<ProviderState>,
                 _pod_state: &mut PodState,
-                _pod: Receiver<Pod>,
+                _pod: Manifest<Pod>,
             ) -> Transition<PodState> {
                 Transition::next(self, ValidState)
             }

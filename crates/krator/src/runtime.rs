@@ -5,7 +5,6 @@ use std::sync::Arc;
 use futures::{StreamExt, TryStreamExt};
 use log::{debug, error, info, warn};
 use tokio::sync::mpsc::Sender;
-use tokio::sync::watch::{channel, Receiver};
 use tokio::sync::Notify;
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
@@ -17,6 +16,7 @@ use kube::{
 use kube_runtime::watcher;
 use kube_runtime::watcher::Event;
 
+use crate::manifest::Manifest;
 use crate::object::ObjectKey;
 use crate::object::ObjectState;
 use crate::operator::Operator;
@@ -131,7 +131,7 @@ impl<O: Operator> OperatorRuntime<O> {
             _ => return Err(anyhow::anyhow!("Got non-apply event when starting pod")),
         };
 
-        let (manifest_tx, manifest_rx) = channel(manifest);
+        let (manifest_tx, manifest_rx) = Manifest::new(manifest);
         let reflector_deleted = Arc::clone(&deleted);
 
         // Two tasks are spawned for each resource. The first updates shared state (manifest and
@@ -261,7 +261,7 @@ impl<O: Operator> OperatorRuntime<O> {
 
 async fn run_object_task<O: Operator>(
     client: Client,
-    mut manifest: Receiver<O::Manifest>,
+    manifest: Manifest<O::Manifest>,
     shared: SharedState<<O::ObjectState as ObjectState>::SharedState>,
     mut object_state: O::ObjectState,
     deleted: Arc<Notify>,
@@ -270,13 +270,7 @@ async fn run_object_task<O: Operator>(
     debug!("Running registration hook.");
     let state: O::InitialState = Default::default();
     let (namespace, name) = {
-        let m = match manifest.recv().await {
-            Some(manifest) => manifest,
-            None => {
-                warn!("Manifest sender dropped.");
-                return;
-            }
-        };
+        let m = manifest.latest();
         match operator.registration_hook(manifest.clone()).await {
             Ok(()) => debug!("Running hook complete."),
             Err(e) => {
