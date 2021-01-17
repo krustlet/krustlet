@@ -1,6 +1,6 @@
 use k8s_openapi::Metadata;
 use krator::{
-    ObjectState, ObjectStatus, Operator, OperatorRuntime, State, Transition, TransitionTo,
+    Manifest, ObjectState, ObjectStatus, Operator, OperatorRuntime, State, Transition, TransitionTo,
 };
 use kube::api::ListParams;
 use kube_derive::CustomResource;
@@ -89,7 +89,7 @@ impl State<MooseState> for Tagged {
         self: Box<Self>,
         shared: Arc<RwLock<SharedMooseState>>,
         state: &mut MooseState,
-        _manifest: &Moose,
+        _manifest: Manifest<Moose>,
     ) -> Transition<MooseState> {
         info!("Found new moose named {}!", state.name);
         shared
@@ -136,7 +136,7 @@ impl State<MooseState> for Roam {
         self: Box<Self>,
         shared: Arc<RwLock<SharedMooseState>>,
         state: &mut MooseState,
-        _manifest: &Moose,
+        _manifest: Manifest<Moose>,
     ) -> Transition<MooseState> {
         loop {
             tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
@@ -178,10 +178,11 @@ impl State<MooseState> for Eat {
         self: Box<Self>,
         _shared: Arc<RwLock<SharedMooseState>>,
         state: &mut MooseState,
-        manifest: &Moose,
+        manifest: Manifest<Moose>,
     ) -> Transition<MooseState> {
+        let moose = manifest.latest();
         tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
-        state.food = manifest.spec.weight / 10.0;
+        state.food = moose.spec.weight / 10.0;
         Transition::next(self, Sleep)
     }
 
@@ -207,7 +208,7 @@ impl State<MooseState> for Sleep {
         self: Box<Self>,
         _shared: Arc<RwLock<SharedMooseState>>,
         _state: &mut MooseState,
-        _manifest: &Moose,
+        _manifest: Manifest<Moose>,
     ) -> Transition<MooseState> {
         tokio::time::delay_for(std::time::Duration::from_secs(60)).await;
         Transition::next(self, Roam)
@@ -235,7 +236,7 @@ impl State<MooseState> for Released {
         self: Box<Self>,
         _shared: Arc<RwLock<SharedMooseState>>,
         _state: &mut MooseState,
-        _manifest: &Moose,
+        _manifest: Manifest<Moose>,
     ) -> Transition<MooseState> {
         info!("Moose tagged for release!");
         Transition::Complete(Ok(()))
