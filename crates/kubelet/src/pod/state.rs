@@ -37,6 +37,7 @@ impl<PodState: ResourceState<Manifest = Pod, Status = PodStatus>> State<PodState
 mod test {
     use crate::pod::{Pod, Status as PodStatus};
     use crate::state::{ResourceState, SharedState, State, Transition, TransitionTo};
+    use tokio::sync::watch::Receiver;
 
     #[derive(Debug)]
     struct ProviderState;
@@ -61,7 +62,7 @@ mod test {
             self: Box<Self>,
             _provider_state: SharedState<ProviderState>,
             _pod_state: &mut PodState,
-            _pod: &Pod,
+            _pod: Receiver<Pod>,
         ) -> Transition<PodState> {
             Transition::Complete(Ok(()))
         }
@@ -84,7 +85,7 @@ mod test {
                 self: Box<Self>,
                 _provider_state: SharedState<ProviderState>,
                 _pod_state: &mut PodState,
-                _pod: &Pod,
+                _pod: Receiver<Pod>,
             ) -> Transition<PodState> {
                 Transition::next(self, ValidState)
             }

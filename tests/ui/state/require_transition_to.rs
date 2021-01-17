@@ -30,7 +30,7 @@ impl State<PodState> for TestState {
         self: Box<Self>,
         _provider_state: SharedState<ProviderState>,
         _state: &mut PodState,
-        _pod: &Pod,
+        _pod: Receiver<Pod>,
     ) -> Transition<PodState> {
         // This fails because TestState is not TransitionTo<TestState>
         Transition::next(self, TestState)
