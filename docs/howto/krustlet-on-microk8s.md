@@ -51,8 +51,7 @@ There are 2 binaries (`krustlet-wasi` and `krustlet-wascc`), let's start the
 first:
 
 ```console
-$ KUBECONFIG=~/.krustlet/config \
-./krustlet-wasi \
+$ ./krustlet-wasi \
 --node-ip=127.0.0.1 \
 --node-name=krustlet \
 --bootstrap-file=~/.krustlet/config/bootstrap.conf
