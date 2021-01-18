@@ -84,8 +84,16 @@ $ microk8s.kubectl apply --filename=https://raw.githubusercontent.com/deislabs/k
 $ microk8s.kubectl logs pod/hello-world-wasi-rust
 hello from stdout!
 hello from stderr!
-CONFIG_MAP_VAL=cool stuff
-FOO=bar
 POD_NAME=hello-world-wasi-rust
+FOO=bar
+CONFIG_MAP_VAL=cool stuff
 Args are: []
+
+Bacon ipsum dolor amet chuck turducken porchetta, tri-tip spare ribs t-bone ham hock. Meatloaf
+pork belly leberkas, ham beef pig corned beef boudin ground round meatball alcatra jerky.
+Pancetta brisket pastrami, flank pork chop ball tip short loin burgdoggen. Tri-tip kevin
+shoulder cow andouille. Prosciutto chislic cupim, short ribs venison jerky beef ribs ham hock
+short loin fatback. Bresaola meatloaf capicola pancetta, prosciutto chicken landjaeger andouille
+swine kielbasa drumstick cupim tenderloin chuck shank. Flank jowl leberkas turducken ham tongue
+beef ribs shankle meatloaf drumstick pork t-bone frankfurter tri-tip.
 ```
