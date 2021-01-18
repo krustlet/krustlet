@@ -80,7 +80,7 @@ Now you can see things work! Feel free to give any of the demos a try in another
 terminal like so:
 
 ```console
-$ microk8s.kubectl apply --file=https://raw.githubusercontent.com/deislabs/krustlet/master/demos/wasi/hello-world-rust/k8s.yaml
+$ microk8s.kubectl apply --filename=https://raw.githubusercontent.com/deislabs/krustlet/master/demos/wasi/hello-world-rust/k8s.yaml
 $ microk8s.kubectl logs pod/hello-world-wasi-rust
 hello from stdout!
 hello from stderr!
