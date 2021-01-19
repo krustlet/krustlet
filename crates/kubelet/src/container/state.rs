@@ -34,13 +34,32 @@ pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = S
     let mut state: Box<dyn State<S>> = Box::new(initial_state);
 
     // Forward pod updates as container updates.
-    let initial_container = initial_pod.find_container(&container_name).unwrap();
+    let initial_container = match initial_pod.find_container(&container_name) {
+        Some(container) => container,
+        None => anyhow::bail!(
+            "Unable to locate container {} in pod {} manifest.",
+            container_name,
+            pod_name
+        ),
+    };
+
     let (container_tx, container_rx) = Manifest::new(initial_container);
     let mut task_pod = pod.clone();
     let task_container_name = container_name.clone();
     tokio::spawn(async move {
         while let Some(latest_pod) = task_pod.next().await {
-            let latest_container = latest_pod.find_container(&task_container_name).unwrap();
+            let latest_container = match latest_pod.find_container(&task_container_name) {
+                Some(container) => container,
+                None => {
+                    error!(
+                        "Unable to locate container {} in pod {} manifest.",
+                        &task_container_name,
+                        latest_pod.name()
+                    );
+                    continue;
+                }
+            };
+
             match container_tx.broadcast(latest_container) {
                 Ok(()) => (),
                 Err(e) => {

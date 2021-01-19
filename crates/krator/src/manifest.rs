@@ -1,8 +1,11 @@
+use core::pin::Pin;
+use core::task::{Context, Poll};
+use tokio::stream::Stream;
 use tokio::sync::watch::{channel, Receiver, Sender};
 
-#[derive(Clone)]
 /// Wrapper for `ObjectState::Manifest` type which reflects
 /// the latest version of the object's manifest.
+#[derive(Clone)]
 pub struct Manifest<T: Clone> {
     rx: Receiver<T>,
 }
@@ -20,13 +23,10 @@ impl<T: Clone> Manifest<T> {
     }
 }
 
-impl<T: Clone> tokio::stream::Stream for Manifest<T> {
+impl<T: Clone> Stream for Manifest<T> {
     type Item = T;
 
-    fn poll_next(
-        mut self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context,
-    ) -> core::task::Poll<Option<Self::Item>> {
-        core::pin::Pin::new(&mut self.rx).poll_next(cx)
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.rx).poll_next(cx)
     }
 }
