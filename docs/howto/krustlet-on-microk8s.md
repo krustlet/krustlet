@@ -42,6 +42,8 @@ that you generated through another process, you can proceed to the next step.
 However, the credentials Krustlet uses must be part of the `system:nodes` group
 in order for things to function properly.
 
+> **NOTE** You should now have a file `bootstrap.conf` in `${HOME}/.krustlet/config`
+
 ## Step 2: Install and configure Krustlet
 
 Install the latest release of Krustlet following [the install
@@ -51,11 +53,21 @@ There are 2 binaries (`krustlet-wasi` and `krustlet-wascc`), let's start the
 first:
 
 ```console
-$ ./krustlet-wasi \
---node-ip=127.0.0.1 \
---node-name=krustlet \
---bootstrap-file=~/.krustlet/config/bootstrap.conf
+$ ./KUBECONFIG=${PWD}/krustlet-config \
+  krustlet-wasi \
+  --node-ip=127.0.0.1 \
+  --node-name=krustlet \
+  --bootstrap-file=${HOME}/.krustlet/config/bootstrap.conf
 ```
+
+> **NOTE**: To avoid the Krustlet using your default Kubernetes credentials (`~/.kube/config`),
+it is a good idea to override the default value here using `KUBECONFIG`. For bootstrapping,
+`KUBECONFIG` must point to a non-existent file (!). Bootstrapping will write a new
+configuration file to this location for you.
+
+> **NOTE**: If you receive an error that the CSR already exists, you may safely delete
+the existing CSR (`kubectl delete csr <hostname>-tls`) and try again.
+
 
 ### Step 2a: Approving the serving CSR
 
@@ -71,7 +83,7 @@ run:
 $ microk8s.kubectl certificate approve <hostname>-tls
 ```
 
-NOTE: You will only need to do this approval step the first time Krustlet
+> **NOTE**: You will only need to do this approval step the first time Krustlet
 starts. It will generate and save all of the needed credentials to your machine
 
 ## Step 3: Test that things work
