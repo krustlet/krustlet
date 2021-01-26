@@ -14,9 +14,12 @@ quickly accomplish common tasks.
 - [Running Krustlet on any Kubernetes cluster with
   inlets](krustlet-with-inlets.md)
 - [Running Krustlet on MicroK8s](krustlet-on-microk8s.md)
+- [Running Krustlet on Managed Kubernetes on DigitalOcean](krustlet-on-do.md)
+- [Running Krustlet on Linode Kubernetes Engine (LKE)](krustlet-on-lke.md)
 - [Running Kubernetes on Amazon Elastic Kubernetes Service
   (EKS)](kubernetes-on-eks.md)
 - [Running Kubernetes on Kubernetes-in-Docker (KinD)](kubernetes-on-kind.md)
 - [Running Kubernetes on Minikube](kubernetes-on-minikube.md)
-
+- [Running Kubernetes on Managed Kubernetes on DigitalOcean](kubernetes-on-do.md)
+- [Running Kubernetes on Linode Kubernetes Engine](kubernetes-on-lke.md)
 - [Running Web Assembly (WASM) workloads in Kubernetes](wasm.md)

@@ -26,7 +26,10 @@ For development and evaluation purposes, it may make sense to use a VM-based
 Kubernetes cluster for quick and easy setup and teardown:
 
 - [Kubernetes-in-Docker (KinD)](../howto/kubernetes-on-kind.md)
+- [MicroK8s](../howto/kubernetes-on-microk8s.md)
 - [Minikube](../howto/kubernetes-on-minikube.md)
+- [DigitalOcean](../howto/kubernetes-on-do.md)
+- [Linode](../howto/kubernetes-on-lke.md)
 
 ## Step 2: Boot a Krustlet Node
 
@@ -48,6 +51,8 @@ For testing/development environments:
 - [MicroK8s](../howto/krustlet-on-microk8s.md)
 - [Minikube](../howto/krustlet-on-minikube.md)
 - [Windows Subsystem for Linux (WSL2)](../howto/krustlet-on-wsl2.md)
+- [DigitalOcean](../howto/krustlet-on-do.md)
+- [Linode](../howto/krustlet-on-lke.md)
 
 ## Step 3: Deploy your First Application
 
