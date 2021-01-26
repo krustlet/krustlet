@@ -1,9 +1,11 @@
 name: Lint Documentation
 on:
   push:
+    paths: 'docs/**'
     branches:
       - master
-  pull_request: {}
+  pull_request:
+    paths: 'docs/**'
 jobs:
   lint_docs:
     runs-on: ubuntu-latest
