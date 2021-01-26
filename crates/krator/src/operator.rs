@@ -6,6 +6,7 @@ use k8s_openapi::Metadata;
 
 use crate::object::{ObjectState, ObjectStatus};
 use crate::state::{SharedState, State};
+use crate::Manifest;
 
 #[async_trait::async_trait]
 /// Interface for creating an operator.
@@ -44,7 +45,7 @@ pub trait Operator: 'static + Sync + Send {
     /// Called before the state machine is run.
     async fn registration_hook(
         &self,
-        _manifest: SharedState<Self::Manifest>,
+        mut _manifest: Manifest<Self::Manifest>,
     ) -> anyhow::Result<()> {
         Ok(())
     }

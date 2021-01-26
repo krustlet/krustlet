@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use log::info;
-use tokio::sync::RwLock;
 
 use kubelet::container::state::run_to_completion;
 use kubelet::container::ContainerKey;
@@ -25,10 +24,12 @@ impl State<PodState> for Starting {
         self: Box<Self>,
         provider_state: SharedState<ProviderState>,
         pod_state: &mut PodState,
-        pod: &Pod,
+        pod: Manifest<Pod>,
     ) -> Transition<PodState> {
+        let pod_rx = pod.clone();
+        let pod = pod.latest();
+
         info!("Starting containers for pod {:?}.", pod.name());
-        let arc_pod = Arc::new(RwLock::new(pod.clone()));
         let containers = pod.containers();
         let (tx, rx) = tokio::sync::mpsc::channel(containers.len());
         for container in containers {
@@ -40,8 +41,8 @@ impl State<PodState> for Starting {
                 Arc::clone(&pod_state.run_context),
             );
             let task_provider = Arc::clone(&provider_state);
-            let task_pod = Arc::clone(&arc_pod);
             let mut task_tx = tx.clone();
+            let task_pod = pod_rx.clone();
             tokio::task::spawn(async move {
                 let client = {
                     let provider_state = task_provider.read().await;

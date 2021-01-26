@@ -59,8 +59,10 @@ impl State<ContainerState> for Waiting {
         self: Box<Self>,
         shared: SharedState<ProviderState>,
         state: &mut ContainerState,
-        container: &Container,
+        container: Manifest<Container>,
     ) -> Transition<ContainerState> {
+        let container = container.latest();
+
         info!(
             "Starting container {} for pod {}",
             container.name(),
@@ -90,7 +92,7 @@ impl State<ContainerState> for Waiting {
                     );
                 }
             };
-            let container_volumes = match volume_path_map(container, &run_context.volumes) {
+            let container_volumes = match volume_path_map(&container, &run_context.volumes) {
                 Ok(volumes) => volumes,
                 Err(e) => {
                     return Transition::next(

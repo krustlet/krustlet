@@ -29,7 +29,7 @@ impl<P: GenericProvider> State<P::PodState> for CrashLoopBackoff<P> {
         self: Box<Self>,
         _provider_state: SharedState<P::ProviderState>,
         pod_state: &mut P::PodState,
-        _pod: &Pod,
+        _pod: Manifest<Pod>,
     ) -> Transition<P::PodState> {
         pod_state.backoff(BackoffSequence::CrashLoop).await;
         let next = Registered::<P>::default();

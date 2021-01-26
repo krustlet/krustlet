@@ -94,8 +94,10 @@ impl State<ContainerState> for Waiting {
         self: Box<Self>,
         shared: SharedState<ProviderState>,
         state: &mut ContainerState,
-        container: &Container,
+        container: Manifest<Container>,
     ) -> Transition<ContainerState> {
+        let container = container.latest();
+
         info!(
             "Starting container {} for pod {}",
             container.name(),

@@ -14,7 +14,7 @@ impl State<ContainerState> for Running {
         mut self: Box<Self>,
         _shared_state: SharedState<ProviderState>,
         _state: &mut ContainerState,
-        _container: &Container,
+        _container: Manifest<Container>,
     ) -> Transition<ContainerState> {
         loop {
             tokio::time::delay_for(std::time::Duration::from_secs(10)).await;

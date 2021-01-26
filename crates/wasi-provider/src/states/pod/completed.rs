@@ -11,7 +11,7 @@ impl State<PodState> for Completed {
         self: Box<Self>,
         _provider_state: SharedState<ProviderState>,
         _pod_state: &mut PodState,
-        _pod: &Pod,
+        _pod: Manifest<Pod>,
     ) -> Transition<PodState> {
         Transition::Complete(Ok(()))
     }

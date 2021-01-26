@@ -25,8 +25,10 @@ impl State<PodState> for Running {
         mut self: Box<Self>,
         provider_state: SharedState<ProviderState>,
         _pod_state: &mut PodState,
-        pod: &Pod,
+        pod: Manifest<Pod>,
     ) -> Transition<PodState> {
+        let pod = pod.latest();
+
         // This collects errors from registering the actor.
         if let Some(result) = self.rx.recv().await {
             match result {
@@ -42,7 +44,7 @@ impl State<PodState> for Running {
                     {
                         let provider = provider_state.write().await;
                         // This Result doesnt matter since we are about to exit with error.
-                        provider.stop(pod).await.ok();
+                        provider.stop(&pod).await.ok();
                     }
                     fail_fatal!(e);
                 }

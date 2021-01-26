@@ -23,7 +23,7 @@ impl State<ContainerState> for Running {
         mut self: Box<Self>,
         _shared_state: SharedState<ProviderState>,
         _state: &mut ContainerState,
-        _container: &Container,
+        _container: Manifest<Container>,
     ) -> Transition<ContainerState> {
         while let Some(status) = self.rx.recv().await {
             if let Status::Terminated {

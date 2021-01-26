@@ -5,10 +5,9 @@ use kube::api::{Meta, PatchParams};
 use kube::Api;
 use log::{debug, error, trace, warn};
 use serde::de::DeserializeOwned;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use crate::object::ObjectStatus;
+use crate::Manifest;
 // Re-export for compatibility.
 pub use crate::object::ObjectState as ResourceState;
 
@@ -69,7 +68,7 @@ pub trait State<S: ResourceState>: Sync + Send + 'static + std::fmt::Debug {
         self: Box<Self>,
         shared: SharedState<S::SharedState>,
         state: &mut S,
-        manifest: &S::Manifest,
+        manifest: Manifest<S::Manifest>,
     ) -> Transition<S>;
 
     /// Provider supplies JSON status patch to apply when entering this state.
@@ -82,13 +81,13 @@ pub async fn run_to_completion<S: ResourceState>(
     state: impl State<S>,
     shared: SharedState<S::SharedState>,
     object_state: &mut S,
-    manifest: Arc<RwLock<S::Manifest>>,
+    manifest: Manifest<S::Manifest>,
 ) where
     S::Manifest: Resource + Meta + DeserializeOwned,
     S::Status: ObjectStatus,
 {
     let (name, namespace, api) = {
-        let initial_manifest = manifest.read().await.clone();
+        let initial_manifest = manifest.latest();
         let namespace = initial_manifest.namespace();
         let name = initial_manifest.name();
 
@@ -109,7 +108,7 @@ pub async fn run_to_completion<S: ResourceState>(
             state
         );
 
-        let latest_manifest = { manifest.read().await.clone() };
+        let latest_manifest = manifest.latest();
 
         match state.status(object_state, &latest_manifest).await {
             Ok(status) => {
@@ -131,7 +130,7 @@ pub async fn run_to_completion<S: ResourceState>(
         );
         let transition = {
             state
-                .next(shared.clone(), object_state, &latest_manifest)
+                .next(shared.clone(), object_state, manifest.clone())
                 .await
         };
 

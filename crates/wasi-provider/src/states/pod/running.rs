@@ -27,8 +27,10 @@ impl State<PodState> for Running {
         mut self: Box<Self>,
         provider_state: SharedState<ProviderState>,
         _pod_state: &mut PodState,
-        pod: &Pod,
+        pod: Manifest<Pod>,
     ) -> Transition<PodState> {
+        let pod = pod.latest();
+
         let mut completed = 0;
         let total_containers = pod.containers().len();
 
@@ -44,7 +46,7 @@ impl State<PodState> for Running {
                     // Stop remaining containers;
                     {
                         let provider = provider_state.write().await;
-                        provider.stop(pod).await.ok();
+                        provider.stop(&pod).await.ok();
                     }
                     fail_fatal!(e);
                 }

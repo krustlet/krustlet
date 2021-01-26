@@ -26,8 +26,10 @@ impl State<ContainerState> for Terminated {
         self: Box<Self>,
         _shared_state: SharedState<ProviderState>,
         state: &mut ContainerState,
-        container: &Container,
+        container: Manifest<Container>,
     ) -> Transition<ContainerState> {
+        let container = container.latest();
+
         if self.failed {
             error!(
                 "Pod {} container {} exited with error: {}",

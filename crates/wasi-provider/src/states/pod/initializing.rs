@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use log::{error, info};
-use tokio::sync::RwLock;
 
 use kubelet::backoff::BackoffStrategy;
 use kubelet::container::state::run_to_completion;
@@ -26,8 +25,11 @@ impl State<PodState> for Initializing {
         self: Box<Self>,
         provider_state: SharedState<ProviderState>,
         pod_state: &mut PodState,
-        pod: &Pod,
+        pod: Manifest<Pod>,
     ) -> Transition<PodState> {
+        let pod_rx = pod.clone();
+        let pod = pod.latest();
+
         let client = {
             let provider_state = provider_state.read().await;
             provider_state.client()
@@ -58,7 +60,7 @@ impl State<PodState> for Initializing {
                 // TODO: I think everything should be a SharedState to the same pod in the reflector.
                 Arc::clone(&provider_state),
                 container_state,
-                Arc::new(RwLock::new(pod.clone())),
+                pod_rx.clone(),
                 container_key,
             )
             .await

@@ -6,7 +6,6 @@ use futures::{StreamExt, TryStreamExt};
 use log::{debug, error, info, warn};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Notify;
-use tokio::sync::RwLock;
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::Metadata;
@@ -17,6 +16,7 @@ use kube::{
 use kube_runtime::watcher;
 use kube_runtime::watcher::Event;
 
+use crate::manifest::Manifest;
 use crate::object::ObjectKey;
 use crate::object::ObjectState;
 use crate::operator::Operator;
@@ -123,16 +123,15 @@ impl<O: Operator> OperatorRuntime<O> {
 
         let deleted = Arc::new(Notify::new());
 
-        let (shared_manifest, object_state) = match initial_event {
+        let (manifest, object_state) = match initial_event {
             Event::Applied(manifest) => {
                 let object_state = self.operator.initialize_object_state(&manifest).await?;
-                let manifest = Arc::new(RwLock::new(manifest));
                 (manifest, object_state)
             }
             _ => return Err(anyhow::anyhow!("Got non-apply event when starting pod")),
         };
 
-        let reflector_manifest = Arc::clone(&shared_manifest);
+        let (manifest_tx, manifest_rx) = Manifest::new(manifest);
         let reflector_deleted = Arc::clone(&deleted);
 
         // Two tasks are spawned for each resource. The first updates shared state (manifest and
@@ -154,7 +153,13 @@ impl<O: Operator> OperatorRuntime<O> {
                         if meta.deletion_timestamp.is_some() {
                             reflector_deleted.notify();
                         }
-                        *reflector_manifest.write().await = manifest;
+                        match manifest_tx.broadcast(manifest) {
+                            Ok(()) => (),
+                            Err(e) => {
+                                warn!("Unable to broadcast manifest update: {:?}", e);
+                                return;
+                            }
+                        }
                     }
                     Event::Deleted(manifest) => {
                         // I'm not sure if this matters, we get notified of pod deletion with a
@@ -167,6 +172,13 @@ impl<O: Operator> OperatorRuntime<O> {
                             manifest.namespace()
                         );
                         reflector_deleted.notify();
+                        match manifest_tx.broadcast(manifest) {
+                            Ok(()) => (),
+                            Err(e) => {
+                                warn!("Unable to broadcast manifest update: {:?}", e);
+                                return;
+                            }
+                        }
                         break;
                     }
                     _ => warn!("Resource got unexpected event, ignoring: {:?}", &event),
@@ -176,7 +188,7 @@ impl<O: Operator> OperatorRuntime<O> {
 
         tokio::spawn(run_object_task::<O>(
             self.client.clone(),
-            shared_manifest,
+            manifest_rx,
             self.operator.shared_state().await,
             object_state,
             deleted,
@@ -249,33 +261,32 @@ impl<O: Operator> OperatorRuntime<O> {
 
 async fn run_object_task<O: Operator>(
     client: Client,
-    manifest: Arc<RwLock<O::Manifest>>,
+    manifest: Manifest<O::Manifest>,
     shared: SharedState<<O::ObjectState as ObjectState>::SharedState>,
     mut object_state: O::ObjectState,
     deleted: Arc<Notify>,
     operator: Arc<O>,
 ) {
     debug!("Running registration hook.");
-    match operator.registration_hook(Arc::clone(&manifest)).await {
-        Ok(()) => debug!("Running hook complete."),
-        Err(e) => {
-            error!("Operator registration hook failed: {:?}", e);
-            return;
-        }
-    }
-
     let state: O::InitialState = Default::default();
     let (namespace, name) = {
-        let m = manifest.read().await;
+        let m = manifest.latest();
+        match operator.registration_hook(manifest.clone()).await {
+            Ok(()) => debug!("Running hook complete."),
+            Err(e) => {
+                error!("Operator registration hook failed: {:?}", e);
+                return;
+            }
+        }
         (m.namespace(), m.name())
     };
 
     tokio::select! {
-        _ = run_to_completion(&client, state, shared.clone(), &mut object_state, Arc::clone(&manifest)) => (),
+        _ = run_to_completion(&client, state, shared.clone(), &mut object_state, manifest.clone()) => (),
         _ = deleted.notified() => {
             let state: O::DeletedState = Default::default();
             debug!("Object {} in namespace {:?} terminated. Jumping to state {:?}.", name, &namespace, state);
-            run_to_completion(&client, state, shared.clone(), &mut object_state, Arc::clone(&manifest)).await;
+            run_to_completion(&client, state, shared.clone(), &mut object_state, manifest.clone()).await;
         }
     }
 

@@ -64,10 +64,8 @@ $ ./KUBECONFIG=${PWD}/krustlet-config \
 it is a good idea to override the default value here using `KUBECONFIG`. For bootstrapping,
 `KUBECONFIG` must point to a non-existent file (!). Bootstrapping will write a new
 configuration file to this location for you.
-
 > **NOTE**: If you receive an error that the CSR already exists, you may safely delete
 the existing CSR (`kubectl delete csr <hostname>-tls`) and try again.
-
 
 ### Step 2a: Approving the serving CSR
 
