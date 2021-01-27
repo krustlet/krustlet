@@ -98,7 +98,7 @@ have a kubeconfig available that you generated through another process, you can
 proceed to the next step. However, the credentials Krustlet uses must be part of
 the `system:nodes` group in order for things to function properly.
 
-NOTE: You may be wondering why you can't run this on the VM you just
+> **NOTE** You may be wondering why you can't run this on the VM you just
 provisioned. We need access to the Kubernetes API in order to create the
 bootstrap token, so the script used to generate the bootstrap config needs to be
 run on a machine with the proper Kubernetes credentials.
@@ -144,10 +144,10 @@ $ KUBECONFIG=${PWD}/kubeconfig krustlet-wasi \
 --private-key-file=${PWD}/krustlet.key
 ```
 
-**NOTE** To increase the level of debugging, you may prefix the command with
+> **NOTE** To increase the level of debugging, you may prefix the command with
 `RUST_LOG=info` or `RUST_LOG=debug`.
 
-**NOTE** The value of `${IP}` was determined in step #1.
+> **NOTE** The value of `${IP}` was determined in step #1.
 
 ### Step 4a: Approving the serving CSR
 
