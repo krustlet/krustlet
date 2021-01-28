@@ -144,6 +144,10 @@ $ KUBECONFIG=${PWD}/kubeconfig krustlet-wasi \
 --private-key-file=${PWD}/krustlet.key
 ```
 
+> **NOTE** In anything other than a test scenario, you should secure the Linode
+on which the Krustlet is running rather than use a public IP. One way to do this
+is to address the Linode using a Private IP and configuring the Linode's firewall.
+
 > **NOTE** To increase the level of debugging, you may prefix the command with
 `RUST_LOG=info` or `RUST_LOG=debug`.
 
