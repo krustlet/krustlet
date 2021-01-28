@@ -17,7 +17,7 @@
 //! struct PodState;
 //!
 //! #[async_trait::async_trait]
-//! impl ResourceState for PodState {
+//! impl ObjectState for PodState {
 //!     type Manifest = Pod;
 //!     type Status = Status;
 //!     type SharedState = ProviderState;
@@ -46,7 +46,6 @@
 //! ```
 //!
 
-pub use krator::state::*;
 pub mod common;
 
 #[cfg(feature = "derive")]

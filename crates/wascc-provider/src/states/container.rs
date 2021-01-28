@@ -1,8 +1,8 @@
 use crate::ModuleRunContext;
 use crate::ProviderState;
+use krator::{ObjectState, SharedState};
 use kubelet::container::{Container, ContainerKey, Status};
 use kubelet::pod::Pod;
-use kubelet::state::{ResourceState, SharedState};
 
 pub(crate) mod running;
 pub(crate) mod terminated;
@@ -29,7 +29,7 @@ impl ContainerState {
 }
 
 #[async_trait::async_trait]
-impl ResourceState for ContainerState {
+impl ObjectState for ContainerState {
     type Manifest = Container;
     type Status = Status;
     type SharedState = ProviderState;

@@ -10,7 +10,6 @@
 //! use kubelet::config::Config;
 //! use kubelet::pod::Pod;
 //! use kubelet::provider::Provider;
-//! use kubelet::state::SharedState;
 //! use std::sync::Arc;
 //! use tokio::sync::RwLock;
 //! use kubelet::pod::state::prelude::*;
@@ -25,7 +24,7 @@
 //! struct PodState;
 //!
 //! #[async_trait::async_trait]
-//! impl ResourceState for PodState {
+//! impl ObjectState for PodState {
 //!     type Manifest = Pod;
 //!     type Status = PodStatus;
 //!     type SharedState = ProviderState;

@@ -3,7 +3,7 @@
 extern crate async_trait;
 extern crate kubelet;
 extern crate anyhow;
-
+extern crate krator;
 
 use kubelet::pod::state::prelude::*;
 use kubelet::pod::Pod;
@@ -17,7 +17,7 @@ struct PodState;
 struct ProviderState;
 
 #[async_trait::async_trait]
-impl ResourceState for PodState {
+impl ObjectState for PodState {
     type Manifest = Pod;
     type Status = PodStatus;
     type SharedState = ProviderState;

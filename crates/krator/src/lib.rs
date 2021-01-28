@@ -13,7 +13,7 @@ pub use manifest::Manifest;
 pub use object::{ObjectState, ObjectStatus};
 pub use operator::Operator;
 pub use runtime::OperatorRuntime;
-pub use state::{State, Transition, TransitionTo};
+pub use state::{SharedState, State, Transition, TransitionTo};
 
 #[cfg(feature = "derive")]
 #[allow(unused_imports)]

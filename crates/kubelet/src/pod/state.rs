@@ -1,7 +1,6 @@
 //! Functions for running Pod state machines.
 use crate::pod::{Pod, Status as PodStatus};
-use crate::state::{ResourceState, SharedState, State, Transition};
-use krator::Manifest;
+use krator::{Manifest, ObjectState, SharedState, State, Transition};
 
 /// Prelude for Pod state machines.
 pub mod prelude {
@@ -9,8 +8,7 @@ pub mod prelude {
         make_status, make_status_with_containers, status::StatusBuilder, Phase, Pod,
         Status as PodStatus,
     };
-    pub use crate::state::{ResourceState, SharedState, State, Transition, TransitionTo};
-    pub use krator::Manifest;
+    pub use krator::{Manifest, ObjectState, SharedState, State, Transition, TransitionTo};
 }
 
 #[derive(Default, Debug)]
@@ -18,7 +16,7 @@ pub mod prelude {
 pub struct Stub;
 
 #[async_trait::async_trait]
-impl<PodState: ResourceState<Manifest = Pod, Status = PodStatus>> State<PodState> for Stub {
+impl<PodState: ObjectState<Manifest = Pod, Status = PodStatus>> State<PodState> for Stub {
     async fn next(
         self: Box<Self>,
         _shared_state: SharedState<PodState::SharedState>,
@@ -35,8 +33,8 @@ impl<PodState: ResourceState<Manifest = Pod, Status = PodStatus>> State<PodState
 
 #[cfg(test)]
 mod test {
+    use crate::pod::state::prelude::*;
     use crate::pod::{Pod, Status as PodStatus};
-    use crate::state::{ResourceState, SharedState, State, Transition, TransitionTo};
     use krator::Manifest;
 
     #[derive(Debug)]
@@ -49,7 +47,7 @@ mod test {
     struct ValidState;
 
     #[async_trait::async_trait]
-    impl ResourceState for PodState {
+    impl ObjectState for PodState {
         type Manifest = Pod;
         type Status = PodStatus;
         type SharedState = ProviderState;

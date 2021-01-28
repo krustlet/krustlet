@@ -1,13 +1,13 @@
 use crate::ModuleRunContext;
 use crate::ProviderState;
 use async_trait::async_trait;
+use krator::{ObjectState, SharedState};
 use kubelet::backoff::BackoffStrategy;
 use kubelet::backoff::ExponentialBackoffStrategy;
 use kubelet::pod::Pod;
 use kubelet::pod::PodKey;
 use kubelet::pod::Status;
 use kubelet::state::common::{BackoffSequence, GenericPodState, ThresholdTrigger};
-use kubelet::state::{ResourceState, SharedState};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -27,7 +27,7 @@ pub struct PodState {
 }
 
 #[async_trait]
-impl ResourceState for PodState {
+impl ObjectState for PodState {
     type Manifest = Pod;
     type Status = Status;
     type SharedState = ProviderState;

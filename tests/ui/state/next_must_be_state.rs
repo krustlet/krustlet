@@ -16,7 +16,7 @@ struct PodState;
 struct ProviderState;
 
 #[async_trait::async_trait]
-impl ResourceState for PodState {
+impl ObjectState for PodState {
     type Manifest = Pod;
     type Status = PodStatus;
     type SharedState = ProviderState;

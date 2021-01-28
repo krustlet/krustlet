@@ -4,7 +4,7 @@ error[E0277]: the trait bound `TestState: TransitionTo<_>` is not satisfied
 36 |         Transition::next(self, TestState)
    |         ^^^^^^^^^^^^^^^^ the trait `TransitionTo<_>` is not implemented for `TestState`
    |
-   = note: required by `kubelet::state::Transition::<S>::next`
+   = note: required by `krator::Transition::<S>::next`
 
 error: aborting due to previous error
 
