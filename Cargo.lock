@@ -2016,6 +2016,7 @@ dependencies = [
  "env_logger 0.8.2",
  "futures",
  "k8s-openapi",
+ "krator-derive",
  "kube",
  "kube-derive",
  "kube-runtime",
@@ -2024,6 +2025,15 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "krator-derive"
+version = "0.1.0"
+dependencies = [
+ "krator",
+ "quote 1.0.7",
+ "syn 1.0.42",
 ]
 
 [[package]]
@@ -2138,7 +2148,6 @@ dependencies = [
  "krator",
  "kube",
  "kube-runtime",
- "kubelet-derive",
  "lazy_static",
  "lazycell",
  "log 0.4.11",
@@ -2168,15 +2177,6 @@ dependencies = [
  "warp",
  "winapi 0.2.8",
  "ws2_32-sys",
-]
-
-[[package]]
-name = "kubelet-derive"
-version = "0.1.0"
-dependencies = [
- "kubelet",
- "quote 1.0.7",
- "syn 1.0.42",
 ]
 
 [[package]]
@@ -4827,6 +4827,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "k8s-openapi",
+ "krator",
  "kube",
  "kubelet",
  "log 0.4.11",
@@ -4888,6 +4889,7 @@ dependencies = [
  "chrono",
  "futures",
  "k8s-openapi",
+ "krator",
  "kube",
  "kubelet",
  "log 0.4.11",

@@ -7,8 +7,7 @@ use crate::ProviderState;
 use super::ContainerState;
 
 /// The container is starting.
-#[derive(Debug, TransitionTo)]
-#[transition_to()]
+#[derive(Debug)]
 pub struct Terminated {
     message: String,
     failed: bool,

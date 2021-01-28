@@ -51,4 +51,4 @@ pub mod common;
 
 #[cfg(feature = "derive")]
 #[doc(hidden)]
-pub use kubelet_derive::*;
+pub use krator::TransitionTo;

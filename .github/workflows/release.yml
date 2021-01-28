@@ -27,9 +27,7 @@ jobs:
               args: "--release --target aarch64-unknown-linux-gnu",
               targetDir: "target/aarch64-unknown-linux-gnu/release",
               extension: "",
-              env: {
-                OPENSSL_DIR: "/usr/local/openssl-aarch64",
-              },
+              env: { OPENSSL_DIR: "/usr/local/openssl-aarch64" },
             }
           - {
               os: "macos-latest",
@@ -146,11 +144,11 @@ jobs:
         continue-on-error: true
       - name: wait for oci-distribution to be published
         run: sleep 60
-      - name: publish kubelet-derive crate to crates.io
-        working-directory: ./crates/kubelet-derive
+      - name: publish krator-derive crate to crates.io
+        working-directory: ./crates/krator-derive
         run: cargo publish --token ${{ secrets.CargoToken }}
         continue-on-error: true
-      - name: wait for kubelet-derive to be published
+      - name: wait for krator-derive to be published
         run: sleep 60
       - name: publish krator crate to crates.io
         working-directory: ./crates/krator

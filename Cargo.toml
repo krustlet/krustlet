@@ -88,7 +88,7 @@ members = [
     "crates/wascc-logging",
     "crates/wascc-provider",
     "crates/wasi-provider",
-    "crates/kubelet-derive"
+    "crates/krator-derive"
 ]
 
 

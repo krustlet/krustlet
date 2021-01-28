@@ -8,7 +8,7 @@ use crate::{fail_fatal, PodState, ProviderState};
 
 /// The Kubelet is running the Pod.
 #[derive(Debug, TransitionTo)]
-#[transition_to()]
+#[transition_to(Error<crate::WasccProvider>)]
 pub struct Running {
     rx: Receiver<anyhow::Result<()>>,
 }
@@ -63,5 +63,3 @@ impl State<PodState> for Running {
         Ok(make_status(Phase::Running, "Running"))
     }
 }
-
-impl TransitionTo<Error<crate::WasccProvider>> for Running {}

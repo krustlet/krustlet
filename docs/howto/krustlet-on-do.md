@@ -143,7 +143,6 @@ $ KUBECONFIG=${PWD}/kubeconfig ${PWD}/krustlet-wasi \
 ```
 
 > **NOTE** You'll need the `IP` of the Droplet from step 1.
-
 > **NOTE** To increase the level of debugging, you may prefix the command with
 `RUST_LOG=info` or `RUST_LOG=debug`.
 
