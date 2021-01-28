@@ -1,7 +1,7 @@
 error[E0451]: field `state` of struct `StateHolder` is private
-  --> $DIR/cannot_construct_transition_next.rs:23:9
+  --> $DIR/cannot_construct_transition_next.rs:24:9
    |
-23 |         state: Box::new(Stub),
+24 |         state: Box::new(Stub),
    |         ^^^^^^^^^^^^^^^^^^^^^ private field
 
 error: aborting due to previous error

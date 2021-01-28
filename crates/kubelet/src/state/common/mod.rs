@@ -5,8 +5,7 @@
 
 use crate::pod::state::prelude::PodStatus;
 use crate::pod::Pod;
-use crate::state::ResourceState;
-use crate::state::State;
+use krator::{ObjectState, State};
 use std::collections::HashMap;
 
 pub mod crash_loop_backoff;
@@ -52,7 +51,7 @@ pub trait GenericProviderState: 'static + Send + Sync {
 /// Exposes pod state in a way that can be consumed by
 /// the generic states.
 #[async_trait::async_trait]
-pub trait GenericPodState: ResourceState<Manifest = Pod, Status = PodStatus> {
+pub trait GenericPodState: ObjectState<Manifest = Pod, Status = PodStatus> {
     /// Stores the pod module binaries for future execution. Typically your
     /// implementation can just move the modules map into a member field.
     async fn set_modules(&mut self, modules: HashMap<String, Vec<u8>>);
@@ -75,7 +74,7 @@ pub trait GenericProvider: 'static + Send + Sync {
     /// The state of the provider itself.
     type ProviderState: GenericProviderState;
     /// The state that is passed between Pod state handlers.
-    type PodState: GenericPodState + ResourceState<SharedState = Self::ProviderState>;
+    type PodState: GenericPodState + ObjectState<SharedState = Self::ProviderState>;
     /// The state to which pods should transition after they have completed
     /// all generic states. Typically this is the state which first runs
     /// any pod binary (for example, the state which runs init containers).

@@ -12,7 +12,7 @@ use crate::log::Sender;
 use crate::node::Builder;
 use crate::pod::Pod;
 use crate::pod::Status as PodStatus;
-use crate::state::{ResourceState, State};
+use krator::{ObjectState, State};
 
 /// A back-end for a Kubelet.
 ///
@@ -32,7 +32,6 @@ use crate::state::{ResourceState, State};
 /// use async_trait::async_trait;
 /// use kubelet::pod::{Pod, Status};
 /// use kubelet::provider::Provider;
-/// use kubelet::state::SharedState;
 /// use kubelet::pod::state::Stub;
 /// use kubelet::pod::state::prelude::*;
 /// use std::sync::Arc;
@@ -44,7 +43,7 @@ use crate::state::{ResourceState, State};
 /// struct PodState;
 ///
 /// #[async_trait]
-/// impl ResourceState for PodState {
+/// impl ObjectState for PodState {
 ///     type Manifest = Pod;
 ///     type Status = Status;
 ///     type SharedState = ProviderState;
@@ -77,7 +76,7 @@ pub trait Provider: Sized + Send + Sync + 'static {
     type ProviderState: 'static + Send + Sync;
 
     /// The state that is passed between Pod state handlers.
-    type PodState: ResourceState<
+    type PodState: ObjectState<
         Manifest = Pod,
         Status = PodStatus,
         SharedState = Self::ProviderState,
@@ -93,7 +92,7 @@ pub trait Provider: Sized + Send + Sync + 'static {
     const ARCH: &'static str;
 
     /// Gets the provider state.
-    fn provider_state(&self) -> crate::state::SharedState<Self::ProviderState>;
+    fn provider_state(&self) -> krator::SharedState<Self::ProviderState>;
 
     /// Allows provider to populate node information.
     async fn node(&self, _builder: &mut Builder) -> anyhow::Result<()> {

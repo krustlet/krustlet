@@ -2,23 +2,21 @@
 use crate::container::{patch_container_status, Status};
 use crate::container::{Container, ContainerKey};
 use crate::pod::Pod;
-use crate::state::{ResourceState, SharedState, State, Transition};
 use chrono::Utc;
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod as KubePod;
-use krator::Manifest;
+use krator::{Manifest, ObjectState, SharedState, State, Transition};
 use kube::api::Api;
 use log::{debug, error, warn};
 
 /// Prelude for Pod state machines.
 pub mod prelude {
     pub use crate::container::{Container, Handle, Status};
-    pub use crate::state::{ResourceState, SharedState, State, Transition, TransitionTo};
-    pub use krator::Manifest;
+    pub use krator::{Manifest, ObjectState, SharedState, State, Transition, TransitionTo};
 }
 
 /// Iteratively evaluate state machine until it returns Complete.
-pub async fn run_to_completion<S: ResourceState<Manifest = Container, Status = Status>>(
+pub async fn run_to_completion<S: ObjectState<Manifest = Container, Status = Status>>(
     client: &kube::Client,
     initial_state: impl State<S>,
     shared: SharedState<S::SharedState>,

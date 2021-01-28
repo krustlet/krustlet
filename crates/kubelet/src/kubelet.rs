@@ -189,11 +189,11 @@ mod test {
     use super::*;
     use crate::container::Container;
     use crate::pod::{Pod, Status};
-    use crate::state::ResourceState;
     use k8s_openapi::api::core::v1::{
         Container as KubeContainer, EnvVar, EnvVarSource, ObjectFieldSelector, Pod as KubePod,
         PodSpec, PodStatus,
     };
+    use krator::ObjectState;
     use kube::api::ObjectMeta;
     use std::collections::BTreeMap;
     use tokio::sync::RwLock;
@@ -210,7 +210,7 @@ mod test {
     struct PodState;
 
     #[async_trait::async_trait]
-    impl ResourceState for PodState {
+    impl ObjectState for PodState {
         type Manifest = Pod;
         type Status = Status;
         type SharedState = ProviderState;
@@ -230,7 +230,7 @@ mod test {
             Ok(PodState)
         }
 
-        fn provider_state(&self) -> crate::state::SharedState<ProviderState> {
+        fn provider_state(&self) -> krator::SharedState<ProviderState> {
             Arc::new(RwLock::new(ProviderState {}))
         }
 
