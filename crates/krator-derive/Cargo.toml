@@ -1,5 +1,5 @@
 [package]
-name = "kubelet-derive"
+name = "krator-derive"
 version = "0.1.0"
 authors = [
     "Matt Butcher <matt.butcher@microsoft.com>",
@@ -13,7 +13,7 @@ authors = [
 ]
 edition = "2018"
 license-file = "../../LICENSE"
-description = "Derive macros for the Kubelet crate"
+description = "Derive macros for the Krator crate"
 repository = "https://github.com/deislabs/krustlet"
 readme = "README.md"
 keywords = [

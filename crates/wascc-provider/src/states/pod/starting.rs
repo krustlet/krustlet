@@ -15,7 +15,7 @@ use super::running::Running;
 
 /// The Kubelet is starting the Pod.
 #[derive(Default, Debug, TransitionTo)]
-#[transition_to(Running)]
+#[transition_to(Running, Error<crate::WasccProvider>)]
 pub struct Starting;
 
 #[async_trait::async_trait]
@@ -72,5 +72,3 @@ impl State<PodState> for Starting {
         Ok(make_status(Phase::Pending, "Starting"))
     }
 }
-
-impl TransitionTo<Error<crate::WasccProvider>> for Starting {}

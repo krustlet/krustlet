@@ -16,7 +16,7 @@ use crate::{PodState, ProviderState};
 use super::starting::Starting;
 
 #[derive(Default, Debug, TransitionTo)]
-#[transition_to(Starting)]
+#[transition_to(Starting, Error<crate::WasiProvider>)]
 pub struct Initializing;
 
 #[async_trait::async_trait]
@@ -84,5 +84,3 @@ impl State<PodState> for Initializing {
         Ok(make_status(Phase::Running, "Initializing"))
     }
 }
-
-impl TransitionTo<Error<crate::WasiProvider>> for Initializing {}
