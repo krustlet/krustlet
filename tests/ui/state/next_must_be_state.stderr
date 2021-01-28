@@ -1,10 +1,10 @@
-error[E0277]: the trait bound `NotState: kubelet::state::State<PodState>` is not satisfied
-  --> $DIR/next_must_be_state.rs:37:9
+error[E0277]: the trait bound `NotState: krator::State<PodState>` is not satisfied
+  --> $DIR/next_must_be_state.rs:38:9
    |
-37 |         Transition::next(self, NotState)
-   |         ^^^^^^^^^^^^^^^^ the trait `kubelet::state::State<PodState>` is not implemented for `NotState`
+38 |         Transition::next(self, NotState)
+   |         ^^^^^^^^^^^^^^^^ the trait `krator::State<PodState>` is not implemented for `NotState`
    |
-   = note: required by `kubelet::state::Transition::<S>::next`
+   = note: required by `krator::Transition::<S>::next`
 
 error: aborting due to previous error
 

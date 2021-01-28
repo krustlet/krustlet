@@ -1,6 +1,7 @@
 // Test that State<T> can only transition to State<T>
 // edition:2018
 extern crate async_trait;
+extern crate krator;
 extern crate kubelet;
 extern crate anyhow;
 

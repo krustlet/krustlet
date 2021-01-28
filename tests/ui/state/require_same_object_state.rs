@@ -2,6 +2,7 @@
 // edition:2018
 extern crate async_trait;
 extern crate kubelet;
+extern crate krator;
 extern crate anyhow;
 
 use kubelet::pod::Pod;
