@@ -5,6 +5,7 @@ use krator::{
 use kube::api::ListParams;
 use kube_derive::CustomResource;
 use log::info;
+use rand::seq::IteratorRandom;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -112,16 +113,29 @@ impl State<MooseState> for Tagged {
     }
 }
 
-#[derive(Debug, Default)]
+// Explicitly implement TransitionTo
+impl TransitionTo<Roam> for Tagged {}
+
+// Derive TransitionTo
+#[derive(Debug, Default, TransitionTo)]
+// Specify valid next states.
+#[transition_to(Eat)]
 /// Moose is roaming the wilderness.
 struct Roam;
 
 async fn make_friend(name: &str, shared: &Arc<RwLock<SharedMooseState>>) -> Option<String> {
     let mut mooses = shared.write().await;
-    for (other_moose, friends) in mooses.friends.iter_mut() {
+    let mut rng = rand::thread_rng();
+    let other_meese = mooses
+        .friends
+        .keys()
+        .map(|s| s.to_owned())
+        .choose_multiple(&mut rng, mooses.friends.len());
+    for other_moose in other_meese {
         if name == other_moose {
             continue;
         }
+        let friends = mooses.friends.get_mut(&other_moose).unwrap();
         if !friends.contains(name) {
             friends.insert(name.to_string());
             return Some(other_moose.to_string());
@@ -139,9 +153,9 @@ impl State<MooseState> for Roam {
         _manifest: Manifest<Moose>,
     ) -> Transition<MooseState> {
         loop {
-            tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
+            tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
             state.food -= 5.0;
-            if state.food <= 50.0 {
+            if state.food <= 10.0 {
                 return Transition::next(self, Eat);
             }
             let r: f64 = {
@@ -168,7 +182,8 @@ impl State<MooseState> for Roam {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, TransitionTo)]
+#[transition_to(Sleep)]
 /// Moose is eating.
 struct Eat;
 
@@ -181,8 +196,8 @@ impl State<MooseState> for Eat {
         manifest: Manifest<Moose>,
     ) -> Transition<MooseState> {
         let moose = manifest.latest();
-        tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
         state.food = moose.spec.weight / 10.0;
+        tokio::time::delay_for(std::time::Duration::from_secs((state.food / 10.0) as u64)).await;
         Transition::next(self, Sleep)
     }
 
@@ -198,7 +213,8 @@ impl State<MooseState> for Eat {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, TransitionTo)]
+#[transition_to(Roam)]
 /// Moose is sleeping.
 struct Sleep;
 
@@ -210,7 +226,7 @@ impl State<MooseState> for Sleep {
         _state: &mut MooseState,
         _manifest: Manifest<Moose>,
     ) -> Transition<MooseState> {
-        tokio::time::delay_for(std::time::Duration::from_secs(60)).await;
+        tokio::time::delay_for(std::time::Duration::from_secs(20)).await;
         Transition::next(self, Roam)
     }
 
@@ -254,11 +270,6 @@ impl State<MooseState> for Released {
     }
 }
 
-impl TransitionTo<Roam> for Tagged {}
-impl TransitionTo<Eat> for Roam {}
-impl TransitionTo<Sleep> for Eat {}
-impl TransitionTo<Roam> for Sleep {}
-
 struct SharedMooseState {
     friends: HashMap<String, HashSet<String>>,
 }
@@ -289,7 +300,10 @@ impl Operator for MooseTracker {
         manifest: &Self::Manifest,
     ) -> anyhow::Result<Self::ObjectState> {
         let name = manifest.metadata().name.clone().unwrap();
-        Ok(MooseState { name, food: 100.0 })
+        Ok(MooseState {
+            name,
+            food: manifest.spec.weight / 10.0,
+        })
     }
 
     async fn shared_state(&self) -> Arc<RwLock<SharedMooseState>> {
