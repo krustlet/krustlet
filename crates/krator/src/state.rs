@@ -101,11 +101,9 @@ pub async fn run_to_completion<S: ResourceState>(
     let mut state: Box<dyn State<S>> = Box::new(state);
 
     loop {
-        trace!(
+        debug!(
             "Object {} in namespace {:?} entering state {:?}",
-            &name,
-            &namespace,
-            state
+            &name, &namespace, state
         );
 
         let latest_manifest = manifest.latest();
