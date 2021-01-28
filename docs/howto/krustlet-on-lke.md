@@ -160,7 +160,7 @@ specify anything. From another terminal that's configured to access the cluster,
 run:
 
 ```console
-$ kubectl certificate approve krustlet-tls
+$ kubectl certificate approve ${HOSTNAME}-tls
 ```
 
 > **NOTE** You will only need to do this approval step the first time Krustlet
