@@ -26,7 +26,7 @@ keywords = [
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["kube-native-tls", "derive"]
+default = ["kube-native-tls"]
 kube-native-tls = ["kube/native-tls", "kube-runtime/native-tls"]
 rustls-tls = ["kube/rustls-tls", "kube-runtime/rustls-tls"]
 derive = ["krator-derive"]
@@ -49,3 +49,7 @@ kube-derive = "0.42"
 chrono = "0.4"
 env_logger = "0.8"
 rand = "0.8"
+
+[[example]]
+name = "moose"
+required-features = ["derive"]
