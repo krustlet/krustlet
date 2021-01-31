@@ -164,12 +164,12 @@ impl WasiRuntime {
                 .envs(&data.env)
                 .stdout(wasi_common::OsFile::try_from(output_write.try_clone()?)?)
                 .stderr(wasi_common::OsFile::try_from(output_write.try_clone()?)?);
-            let mut ctx_builder_unstable = wasi_common::old::snapshot_0::WasiCtxBuilder::new();
+            let mut ctx_builder_unstable = wasi_common::WasiCtxBuilder::new();
             let mut ctx_builder_unstable = ctx_builder_unstable
                 .args(&data.args)
                 .envs(&data.env)
-                .stdout(output_write.try_clone()?)
-                .stderr(output_write);
+                .stdout(wasi_common::OsFile::try_from(output_write.try_clone()?)?)
+                .stderr(wasi_common::OsFile::try_from(output_write.try_clone()?)?);
 
             for (key, value) in data.dirs.iter() {
                 let guest_dir = value.as_ref().unwrap_or(key);
@@ -220,19 +220,16 @@ impl WasiRuntime {
             let imports = module
                 .imports()
                 .map(|i| {
+                    let name = i.name().unwrap();
                     // This is super funky logic, but it matches what is in 0.12.0
                     let export = match i.module() {
-                        "wasi_snapshot_preview1" => wasi_snapshot.get_export(i.name()),
-                        "wasi_unstable" => wasi_unstable.get_export(i.name()),
+                        "wasi_snapshot_preview1" => wasi_snapshot.get_export(name),
+                        "wasi_unstable" => wasi_unstable.get_export(name),
                         other => bail!("import module `{}` was not found", other),
                     };
                     match export {
                         Some(export) => Ok(export.clone().into()),
-                        None => bail!(
-                            "import `{}` was not found in module `{}`",
-                            i.name(),
-                            i.module()
-                        ),
+                        None => bail!("import `{}` was not found in module `{}`", name, i.module()),
                     }
                 })
                 .collect::<Result<Vec<_>, _>>();
