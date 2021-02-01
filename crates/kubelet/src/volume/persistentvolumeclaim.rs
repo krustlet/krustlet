@@ -1,8 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use kube;
-
 use k8s_csi::v1_3_0::node_client::NodeClient;
 use k8s_csi::v1_3_0::node_service_capability::{rpc, Rpc, Type as CapabilityType};
 use k8s_csi::v1_3_0::volume_capability::access_mode::Mode as CSIMode;
@@ -11,7 +9,7 @@ use k8s_csi::v1_3_0::volume_capability::{
 };
 use k8s_csi::v1_3_0::{
     NodeGetCapabilitiesRequest, NodePublishVolumeRequest, NodeStageVolumeRequest,
-    NodeUnpublishVolumeRequest, NodeUnstageVolumeRequest, VolumeCapability,
+    NodeUnpublishVolumeRequest, VolumeCapability,
 };
 
 use k8s_openapi::api::core::v1::{
@@ -31,6 +29,7 @@ use super::*;
 
 /// VolumeError describes the possible error states when mounting persistent volume claims.
 #[derive(Error, Debug)]
+#[allow(clippy::enum_variant_names)]
 enum VolumeError {
     #[error("bad volume mode")]
     BadVolumeMode,
@@ -105,6 +104,7 @@ impl FromStr for ReclaimPolicy {
 }
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 enum AccessMode {
     ReadOnlyMany,
     ReadWriteMany,
@@ -162,7 +162,7 @@ pub(crate) fn validate(spec: &PersistentVolumeClaimSpec) -> anyhow::Result<()> {
             ));
         }
         Some(s) => {
-            if s == "" {
+            if s.is_empty() {
                 return Err(anyhow::anyhow!(
                     "PersistentVolumeClaim must specify a storage class"
                 ));
@@ -320,7 +320,7 @@ async fn publish_volume(
                 mode: CSIMode::SingleNodeWriter as i32,
             }),
             access_type: Some(CSIAccessType::Mount(CSIMountVolume {
-                fs_type: csi.fs_type.clone().unwrap_or("".to_owned()),
+                fs_type: csi.fs_type.clone().unwrap_or_default(),
                 mount_flags: Default::default(),
             })),
         }),
@@ -373,7 +373,7 @@ async fn get_csi_client(
     let endpoint = plugin_registry
         .get_endpoint(&storage_class.provisioner)
         .await
-        .ok_or(anyhow::anyhow!("could not get CSI plugin endpoint"))?;
+        .ok_or_else(|| anyhow::anyhow!("could not get CSI plugin endpoint"))?;
     let chan = grpc_sock::client::socket_channel(endpoint).await?;
     Ok(NodeClient::new(chan))
 }
@@ -398,9 +398,9 @@ async fn get_csi(
     // https://github.com/kubernetes/kubernetes/blob/734889ed822d1a60c6dd61ccd8f1ed0e8ab31ea5/pkg/volume/csi/csi_attacher.go#L295-L298
     let csi = pv
         .spec
-        .ok_or(anyhow::anyhow!("no PersistentVolume spec defined"))?
+        .ok_or_else(|| anyhow::anyhow!("no PersistentVolume spec defined"))?
         .csi
-        .ok_or(anyhow::anyhow!("no CSI spec defined"))?;
+        .ok_or_else(|| anyhow::anyhow!("no CSI spec defined"))?;
     Ok(csi)
 }
 

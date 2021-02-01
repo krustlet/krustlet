@@ -108,7 +108,7 @@ pub async fn assert_container_statuses(
 
     let status = pod
         .status
-        .ok_or(anyhow::anyhow!("Pod {} had no status", pod_name))?;
+        .ok_or_else(|| anyhow::anyhow!("Pod {} had no status", pod_name))?;
 
     for expectation in expectations {
         if let Err(e) = expectation.verify_against(&status) {

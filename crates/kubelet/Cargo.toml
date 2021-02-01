@@ -1,6 +1,6 @@
 [package]
 name = "kubelet"
-version = "0.5.0"
+version = "0.6.0"
 authors = [
     "Matt Butcher <matt.butcher@microsoft.com>",
     "Matthew Fisher <matt.fisher@microsoft.com>",
@@ -56,7 +56,7 @@ structopt = { version = "0.3", features = ["wrap_help"], optional = true }
 hostname = "0.3"
 thiserror = "1.0"
 lazy_static = "1.4"
-oci-distribution = { path = "../oci-distribution", version = "0.4", default-features = false }
+oci-distribution = { path = "../oci-distribution", version = "0.5", default-features = false }
 url = "2.1"
 warp = { version = "0.2", features = ['tls'] }
 http = "0.2"

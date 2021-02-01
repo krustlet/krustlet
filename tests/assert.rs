@@ -35,8 +35,10 @@ pub async fn pod_container_log_contains(
     container_name: &str,
     expected_log: &str,
 ) -> anyhow::Result<()> {
-    let mut log_params = LogParams::default();
-    log_params.container = Some(container_name.to_owned());
+    let log_params = LogParams {
+        container: Some(container_name.to_owned()),
+        ..Default::default()
+    };
     let logs = pods.logs(pod_name, &log_params).await?;
     assert!(
         logs.contains(expected_log),

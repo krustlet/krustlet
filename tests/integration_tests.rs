@@ -39,11 +39,8 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     let mut tries: u8 = 0;
     loop {
         // Send a request to the pod to trigger some logging
-        match reqwest::get("http://127.0.0.1:30000").await {
-            Ok(_) => {
-                break;
-            }
-            Err(e) => (),
+        if reqwest::get("http://127.0.0.1:30000").await.is_ok() {
+            break;
         }
         tries += 1;
         if tries == 10 {
@@ -64,7 +61,7 @@ async fn test_wascc_provider() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn verify_wascc_node(node: Node) -> () {
+async fn verify_wascc_node(node: Node) {
     let node_status = node.status.expect("node reported no status");
     assert_eq!(
         node_status
@@ -183,7 +180,7 @@ impl Drop for WasccTestResourceCleaner {
     }
 }
 
-async fn clean_up_wascc_test_resources() -> () {
+async fn clean_up_wascc_test_resources() {
     let client = kube::Client::try_default()
         .await
         .expect("Failed to create client");
@@ -194,7 +191,7 @@ async fn clean_up_wascc_test_resources() -> () {
         .expect("Failed to delete pod");
 }
 
-async fn verify_wasi_node(node: Node) -> () {
+async fn verify_wasi_node(node: Node) {
     let node_status = node.status.expect("node reported no status");
     assert_eq!(
         node_status
@@ -559,6 +556,7 @@ async fn create_faily_pod(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn wasmercise_wasi(
     pod_name: &str,
     client: kube::Client,

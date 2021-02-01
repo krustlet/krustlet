@@ -3,7 +3,6 @@ use log::error;
 
 use super::{GenericProvider, GenericProviderState};
 use crate::pod::state::prelude::*;
-use crate::state::common::error::Error;
 use crate::volume::Ref;
 
 /// Pod was deleted.

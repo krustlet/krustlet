@@ -8,7 +8,7 @@ use crate::log::{stream, HandleFactory, Sender};
 
 /// Represents a handle to a running "container" (whatever that might be). This
 /// can be used on its own, however, it is generally better to use it as a part
-/// of a [`pod::Handle`], which manages a group of containers in a Kubernetes
+/// of a [`crate::pod::Handle`], which manages a group of containers in a Kubernetes
 /// Pod
 pub struct Handle<H, F> {
     handle: H,

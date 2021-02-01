@@ -52,7 +52,7 @@
 		},
 		"krustletURL": {
 			"type": "string",
-			"defaultValue": "https://krustlet.blob.core.windows.net/releases/krustlet-v0.5.0-linux-amd64.tar.gz",
+			"defaultValue": "https://krustlet.blob.core.windows.net/releases/krustlet-v0.6.0-linux-amd64.tar.gz",
 			"metadata": {
 				"description": "URL to a Krustlet release archive."
 			}
