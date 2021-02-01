@@ -1,3 +1,4 @@
+//! The Kubelet plugin manager. Used to lookup which plugins are registered with this node.
 use crate::fs_watch::FileSystemWatcher;
 use crate::grpc_sock;
 use crate::plugin_registration_api::v1::{

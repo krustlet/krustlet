@@ -1980,6 +1980,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "k8s-csi"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "199b989c1b16edd6bb7734b09eded95e01d96330461083200e8fbc06c618a512"
+dependencies = [
+ "prost",
+ "prost-build",
+ "prost-types",
+ "tonic",
+ "tonic-build 0.2.0",
+]
+
+[[package]]
 name = "k8s-openapi"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2143,6 +2156,7 @@ dependencies = [
  "hyper",
  "iovec",
  "json-patch",
+ "k8s-csi",
  "k8s-openapi",
  "kernel32-sys",
  "krator",
@@ -2169,7 +2183,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tonic",
- "tonic-build",
+ "tonic-build 0.3.1",
  "tower",
  "url 2.1.1",
  "uuid",
@@ -4164,6 +4178,7 @@ dependencies = [
  "prost",
  "prost-derive",
  "tokio",
+ "tokio-rustls",
  "tokio-util 0.3.1",
  "tower",
  "tower-balance",
@@ -4172,6 +4187,18 @@ dependencies = [
  "tower-service",
  "tracing",
  "tracing-futures",
+]
+
+[[package]]
+name = "tonic-build"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71d8d21cb568e802d77055ab7fcd43f0992206de5028de95c8d3a41118d32e8e"
+dependencies = [
+ "proc-macro2",
+ "prost-build",
+ "quote 1.0.7",
+ "syn 1.0.42",
 ]
 
 [[package]]

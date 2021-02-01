@@ -1,0 +1,57 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: csi-hostpath-sc
+provisioner: hostpath.csi.k8s.io
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: csi-pvc
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: csi-hostpath-sc
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hello-world-wasi-rust
+spec:
+  containers:
+    - name: hello-world-wasi-rust
+      image: webassembly.azurecr.io/hello-world-wasi-rust:v0.2.0
+      env:
+        - name: FOO
+          value: bar
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+      volumeMounts:
+        - name: storage
+          mountPath: /mnt/storage
+  volumes:
+    - name: storage
+      persistentVolumeClaim:
+        claimName: csi-pvc
+  nodeSelector:
+    kubernetes.io/arch: "wasm32-wasi"
+  tolerations:
+    - key: "kubernetes.io/arch"
+      operator: "Equal"
+      value: "wasm32-wasi"
+      effect: "NoExecute"
+    - key: "node.kubernetes.io/network-unavailable"
+      operator: "Exists"
+      effect: "NoSchedule"
+    - key: "kubernetes.io/arch"
+      operator: "Equal"
+      value: "wasm32-wasi"
+      effect: "NoSchedule"

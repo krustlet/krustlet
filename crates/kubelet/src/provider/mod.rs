@@ -5,11 +5,13 @@ use async_trait::async_trait;
 use k8s_openapi::api::core::v1::{ConfigMap, EnvVarSource, Secret};
 use kube::api::Api;
 use log::{error, info};
+use std::sync::Arc;
 use thiserror::Error;
 
 use crate::container::Container;
 use crate::log::Sender;
 use crate::node::Builder;
+use crate::plugin_watcher::PluginRegistry;
 use crate::pod::Pod;
 use crate::pod::Status as PodStatus;
 use krator::{ObjectState, State};
@@ -30,6 +32,7 @@ use krator::{ObjectState, State};
 /// # Example
 /// ```rust
 /// use async_trait::async_trait;
+/// use kubelet::plugin_watcher::PluginRegistry;
 /// use kubelet::pod::{Pod, Status};
 /// use kubelet::provider::Provider;
 /// use kubelet::pod::state::Stub;
@@ -58,9 +61,13 @@ use krator::{ObjectState, State};
 ///     const ARCH: &'static str = "my-arch";
 ///
 ///     type PodState = PodState;
-///    
+///
 ///     fn provider_state(&self) -> SharedState<ProviderState> {
 ///         Arc::new(RwLock::new(ProviderState {}))
+///     }
+///
+///     fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
+///         Some(Arc::new(Default::default()))
 ///     }
 ///
 ///     async fn initialize_pod_state(&self, _pod: &Pod) -> anyhow::Result<Self::PodState> {
@@ -118,6 +125,11 @@ pub trait Provider: Sized + Send + Sync + 'static {
     /// not available. Override this only when there is an implementation.
     async fn exec(&self, _pod: Pod, _command: String) -> anyhow::Result<Vec<String>> {
         Err(NotImplementedError.into())
+    }
+
+    /// Fetch the CSI driver plugin registry.
+    fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
+        None
     }
 
     /// Resolve the environment variables for a container.

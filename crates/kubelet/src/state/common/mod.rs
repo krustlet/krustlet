@@ -3,6 +3,7 @@
 //! states in many providers; instead, the provider need only implement the
 //! GenericProviderState and GenericPodState traits for its state types.
 
+use crate::plugin_watcher::PluginRegistry;
 use crate::pod::state::prelude::PodStatus;
 use crate::pod::Pod;
 use krator::{ObjectState, State};
@@ -43,6 +44,10 @@ pub trait GenericProviderState: 'static + Send + Sync {
     fn store(&self) -> std::sync::Arc<dyn crate::store::Store + Sync + Send>;
     /// Gets the path at which to construct temporary directories for volumes.
     fn volume_path(&self) -> std::path::PathBuf;
+    /// Gets the plugin registry used to fetch volume plugins
+    fn plugin_registry(&self) -> Option<std::sync::Arc<PluginRegistry>> {
+        None
+    }
     /// Stops the specified pod. This typically involves tearing down a
     /// runtime or other execution environment.
     async fn stop(&self, pod: &crate::pod::Pod) -> anyhow::Result<()>;

@@ -18,9 +18,10 @@
 //!
 //!     // Load a kubernetes configuration
 //!     let kubeconfig = kube::Config::infer().await.unwrap();
+//!     let plugin_registry = Arc::new(Default::default());
 //!
 //!     // Instantiate the provider type
-//!     let provider = WasccProvider::new(store, &kubelet_config, kubeconfig.clone()).await.unwrap();
+//!     let provider = WasccProvider::new(store, &kubelet_config, kubeconfig.clone(), plugin_registry).await.unwrap();
 //!
 //!     // Instantiate the Kubelet
 //!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config).await.unwrap();
@@ -32,9 +33,11 @@
 #![deny(missing_docs)]
 
 use async_trait::async_trait;
+
 use kubelet::container::Handle as ContainerHandle;
 use kubelet::handle::StopHandler;
 use kubelet::node::Builder;
+use kubelet::plugin_watcher::PluginRegistry;
 use kubelet::pod::state::prelude::SharedState;
 use kubelet::pod::{Handle, Pod, PodKey};
 use kubelet::provider::Provider;
@@ -43,8 +46,8 @@ use kubelet::state::common::registered::Registered;
 use kubelet::state::common::terminated::Terminated;
 use kubelet::state::common::{GenericProvider, GenericProviderState};
 use kubelet::store::Store;
-
 use kubelet::volume::Ref;
+
 use log::{debug, info};
 use tempfile::NamedTempFile;
 use tokio::sync::RwLock;
@@ -152,6 +155,7 @@ pub struct ProviderState {
     log_path: PathBuf,
     host: Arc<Mutex<Host>>,
     port_map: Arc<TokioMutex<BTreeMap<u16, PodKey>>>,
+    plugin_registry: Arc<PluginRegistry>,
 }
 
 #[async_trait::async_trait]
@@ -164,6 +168,9 @@ impl GenericProviderState for ProviderState {
     }
     fn volume_path(&self) -> PathBuf {
         self.volume_path.clone()
+    }
+    fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
+        Some(self.plugin_registry.clone())
     }
     async fn stop(&self, pod: &Pod) -> anyhow::Result<()> {
         let key = PodKey::from(pod);
@@ -183,6 +190,7 @@ impl WasccProvider {
         store: Arc<dyn Store + Sync + Send>,
         config: &kubelet::config::Config,
         kubeconfig: kube::Config,
+        plugin_registry: Arc<PluginRegistry>,
     ) -> anyhow::Result<Self> {
         let client = kube::Client::new(kubeconfig);
         let host = Arc::new(Mutex::new(Host::new()));
@@ -238,6 +246,7 @@ impl WasccProvider {
                 log_path,
                 host,
                 port_map,
+                plugin_registry,
             },
         })
     }
@@ -286,6 +295,10 @@ impl Provider for WasccProvider {
                 pod_name: pod_name.clone(),
             })?;
         handle.output(&container_name, sender).await
+    }
+
+    fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
+        Some(self.shared.plugin_registry.clone())
     }
 }
 
