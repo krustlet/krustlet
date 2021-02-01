@@ -1140,6 +1140,7 @@ mod test {
                 {
                     Ok(data) => {
                         image_data = data;
+                        last_error = None;
                         break;
                     }
                     Err(e) => {
