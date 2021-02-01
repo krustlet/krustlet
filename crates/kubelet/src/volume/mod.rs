@@ -6,8 +6,6 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tokio::task;
-
 use k8s_openapi::api::core::v1::KeyToPath;
 use k8s_openapi::api::core::v1::{ConfigMap, PersistentVolumeClaim, Secret, Volume as KubeVolume};
 use kube::api::Api;

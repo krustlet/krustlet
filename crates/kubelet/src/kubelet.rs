@@ -164,9 +164,14 @@ async fn start_plugin_registry(registrar: Option<Arc<PluginRegistry>>) -> anyhow
         Some(r) => r.run().await,
         // Do nothing; just poll forever and "pretend" that a plugin watcher is running
         None => {
-            task::spawn(async { loop {} })
-                .map_err(anyhow::Error::from)
-                .await
+            task::spawn(async {
+                loop {
+                    // We run a delay here so we don't waste time on NOOP CPU cycles
+                    tokio::time::delay_for(tokio::time::Duration::from_secs(std::u64::MAX)).await;
+                }
+            })
+            .map_err(anyhow::Error::from)
+            .await
         }
     }
 }

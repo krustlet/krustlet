@@ -428,7 +428,7 @@ impl Client {
         Ok(())
     }
 
-    /// Pull a single layer from an OCI registy.
+    /// Pull a single layer from an OCI registry.
     ///
     /// This pulls the layer for a particular image that is identified by
     /// the given digest. The image reference is used to find the
@@ -828,7 +828,7 @@ mod test {
     const HELLO_IMAGE_TAG: &str = "webassembly.azurecr.io/hello-wasm:v1";
     const HELLO_IMAGE_DIGEST: &str = "webassembly.azurecr.io/hello-wasm@sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7";
     const HELLO_IMAGE_TAG_AND_DIGEST: &str = "webassembly.azurecr.io/hello-wasm:v1@sha256:51d9b231d5129e3ffc267c9d455c49d789bf3167b611a07ab6e4b3304c96b0e7";
-    const TEST_IMAGES: &'static [&str] = &[
+    const TEST_IMAGES: &[&str] = &[
         // TODO(jlegrone): this image cannot be pulled currently because no `latest`
         //                 tag exists on the image repository. Re-enable this image
         //                 in tests once `latest` is published.
@@ -1093,9 +1093,25 @@ mod test {
             let mut file: Vec<u8> = Vec::new();
             let layer0 = &manifest.layers[0];
 
-            c.pull_layer(&reference, &layer0.digest, &mut file)
-                .await
-                .expect("Pull layer into vec");
+            // This call likes to flake, so we try it at least 5 times
+            let mut last_error = None;
+            for i in 1..6 {
+                if let Err(e) = c.pull_layer(&reference, &layer0.digest, &mut file).await {
+                    println!(
+                        "Got error on pull_layer call attempt {}. Will retry in 1s: {:?}",
+                        i, e
+                    );
+                    last_error.replace(e);
+                    tokio::time::delay_for(tokio::time::Duration::from_secs(1)).await;
+                } else {
+                    last_error = None;
+                    break;
+                }
+            }
+
+            if let Some(e) = last_error {
+                panic!("Unable to pull layer: {:?}", e);
+            }
 
             // The manifest says how many bytes we should expect.
             assert_eq!(file.len(), layer0.size as usize);
@@ -1107,14 +1123,39 @@ mod test {
         for &image in TEST_IMAGES {
             let reference = Reference::try_from(image).expect("failed to parse reference");
 
-            let image_data = Client::default()
-                .pull(
-                    &reference,
-                    &RegistryAuth::Anonymous,
-                    vec![manifest::WASM_LAYER_MEDIA_TYPE],
-                )
-                .await
-                .expect("failed to pull manifest");
+            // This call likes to flake, so we try it at least 5 times
+            let mut last_error = None;
+            let mut image_data = ImageData {
+                layers: Vec::with_capacity(0),
+                digest: None,
+            };
+            for i in 1..6 {
+                match Client::default()
+                    .pull(
+                        &reference,
+                        &RegistryAuth::Anonymous,
+                        vec![manifest::WASM_LAYER_MEDIA_TYPE],
+                    )
+                    .await
+                {
+                    Ok(data) => {
+                        image_data = data;
+                        break;
+                    }
+                    Err(e) => {
+                        println!(
+                            "Got error on pull call attempt {}. Will retry in 1s: {:?}",
+                            i, e
+                        );
+                        last_error.replace(e);
+                        tokio::time::delay_for(tokio::time::Duration::from_secs(1)).await;
+                    }
+                }
+            }
+
+            if let Some(e) = last_error {
+                panic!("Unable to pull layer: {:?}", e);
+            }
 
             assert!(!image_data.layers.is_empty());
             assert!(image_data.digest.is_some());

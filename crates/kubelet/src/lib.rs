@@ -1,8 +1,8 @@
 //! A crate for building custom Kubernetes [kubelets](https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet/).
 //!
-//! The crate provides the [`Provider`] trait for declaring a Kubelet backend
-//! as well as a the [`Kubelet`] type which takes a [`Provider`] and runs
-//! a Kubelet server.
+//! The crate provides the [`Provider`](crate::provider::Provider) trait for declaring a Kubelet
+//! backend as well as a the [`Kubelet`] type which takes a [`Provider`](crate::provider::Provider)
+//! and runs a Kubelet server.
 //!
 //! # Example
 //! ```rust,no_run

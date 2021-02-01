@@ -28,7 +28,7 @@ pub async fn wait_for_pod_ready(
                 .unwrap_or_else(Vec::new);
             let phase = o.status.unwrap().phase.unwrap();
             if (phase == "Running")
-                & (containers.len() > 0)
+                & (!containers.is_empty())
                 & containers.iter().all(|status| status.ready)
             {
                 went_ready = true;

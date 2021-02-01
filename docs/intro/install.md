@@ -11,7 +11,7 @@ PowerShell)
 
 1. Download your desired version from [the releases
    page](https://github.com/deislabs/krustlet/releases)
-1. Unpack it (`tar -xzf krustlet-v0.4.0-linux-amd64.tar.gz`)
+1. Unpack it (`tar -xzf krustlet-v0.6.0-linux-amd64.tar.gz`)
 1. Find the desired Krustlet provider in the unpacked directory, and move it to
    its desired destination somewhere in your `$PATH` (e.g. `mv krustlet-wasi
    /usr/local/bin/` on unix-like systems or `mv krustlet-wasi.exe
@@ -24,7 +24,7 @@ environment variable is set correctly.
 ### Validating
 
 If you'd like to validate the download, checksums can be downloaded from
-<https://krustlet.blob.core.windows.net/releases/checksums-v0.4.0.txt>
+<https://krustlet.blob.core.windows.net/releases/checksums-v0.6.0.txt>
 
 ### Windows
 

@@ -52,7 +52,7 @@ const PRIVATE_TEST_REGISTRY: &str = "krustletintegrationtestprivate";
 
 fn wasmerciser_container(
     spec: &WasmerciserContainerSpec,
-    volumes: &Vec<WasmerciserVolumeSpec>,
+    volumes: &[WasmerciserVolumeSpec],
 ) -> anyhow::Result<Container> {
     let volume_mounts: Vec<_> = volumes
         .iter()
@@ -207,13 +207,13 @@ pub fn wasmerciser_pod(
     })
 }
 
-fn unzip<T, U: Clone>(source: &Vec<(T, U)>) -> (Vec<&T>, Vec<U>) {
+fn unzip<T, U: Clone>(source: &[(T, U)]) -> (Vec<&T>, Vec<U>) {
     let ts: Vec<_> = source.iter().map(|v| &v.0).collect();
     let us: Vec<_> = source.iter().map(|v| v.1.clone()).collect();
     (ts, us)
 }
 
-fn option_values<T: Clone>(source: &Vec<Option<T>>) -> Vec<T> {
+fn option_values<T: Clone>(source: &[Option<T>]) -> Vec<T> {
     source.iter().filter_map(|t| t.clone()).collect()
 }
 

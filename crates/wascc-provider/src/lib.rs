@@ -90,7 +90,7 @@ const VOLUME_DIR: &str = "volumes";
 /// Kubernetes' view of environment variables is an unordered map of string to string.
 type EnvVars = std::collections::HashMap<String, String>;
 
-/// A [kubelet::handle::Handle] implementation for a wascc actor
+/// A [kubelet::handle::StopHandler] implementation for a wascc actor
 pub struct ActorHandle {
     /// The public key of the wascc Actor that will be stopped
     pub key: String,

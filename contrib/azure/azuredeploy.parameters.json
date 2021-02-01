@@ -21,7 +21,7 @@
 			"value": "1.18.10"
 		},
 		"krustletURL": {
-			"value": "https://krustlet.blob.core.windows.net/releases/krustlet-v0.5.0-linux-amd64.tar.gz"
+			"value": "https://krustlet.blob.core.windows.net/releases/krustlet-v0.6.0-linux-amd64.tar.gz"
 		},
 		"servicePrincipalClientId": {
 			"value": null
