@@ -30,10 +30,6 @@ proc-macro = true
 syn = "1.0"
 quote = "1.0"
 
-[dev-dependencies]
-# For docs builds
-krator = { path = "../krator", version = "0.1", default-features = false }
-
 [package.metadata.docs.rs]
 features = ["docs"]
 rustdoc-args = ["--cfg", "feature=\"docs\""]
