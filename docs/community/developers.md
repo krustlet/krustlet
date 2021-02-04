@@ -41,7 +41,7 @@ implementation):
 $ just build --no-default-features --features rustls-tls
 ```
 
-The same flags can be passed to `just run`. if you want to just [run](#running)
+The same flags can be passed to `just run` if you want to just [run](#running)
 the project instead.
 
 #### Caveats
@@ -86,7 +86,7 @@ things to be aware of. See the [caveats](#caveats) section for more details
 
 ## Running
 
-There default included runtime with Krustlet is `wasi`.
+The default included runtime with Krustlet is `wasi`.
 
 The `wasi` runtime uses a project called
 [`wasmtime`](https://github.com/bytecodealliance/wasmtime). wasmtime is a
