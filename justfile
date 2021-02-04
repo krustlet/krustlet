@@ -1,8 +1,9 @@
-export RUST_LOG := "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,main=debug"
+export RUST_LOG := "wasi_provider=debug,main=debug"
 export PFX_PASSWORD := "testing"
 export CONFIG_DIR := env_var_or_default('CONFIG_DIR', '$HOME/.krustlet/config')
 
-run: build
+# For backward compatibility with those running `just run-wasi`
+run-wasi: run
 
 build +FLAGS='':
     cargo build {{FLAGS}}
@@ -31,10 +32,7 @@ test-e2e-ci:
 test-e2e-standalone-ci:
     KRUSTLET_TEST_ENV=ci cargo run --bin oneclick
 
-run-wascc +FLAGS='': bootstrap
-    KUBECONFIG=$(eval echo $CONFIG_DIR)/kubeconfig-wascc cargo run --bin krustlet-wascc {{FLAGS}} -- --node-name krustlet-wascc --port 3000 --bootstrap-file $(eval echo $CONFIG_DIR)/bootstrap.conf --cert-file $(eval echo $CONFIG_DIR)/krustlet-wascc.crt --private-key-file $(eval echo $CONFIG_DIR)/krustlet-wascc.key
-
-run-wasi +FLAGS='': bootstrap
+run +FLAGS='': bootstrap
     KUBECONFIG=$(eval echo $CONFIG_DIR)/kubeconfig-wasi cargo run --bin krustlet-wasi {{FLAGS}} -- --node-name krustlet-wasi --port 3001 --bootstrap-file $(eval echo $CONFIG_DIR)/bootstrap.conf --cert-file $(eval echo $CONFIG_DIR)/krustlet-wasi.crt --private-key-file $(eval echo $CONFIG_DIR)/krustlet-wasi.key
 
 bootstrap:

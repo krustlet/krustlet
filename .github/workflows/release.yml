@@ -96,9 +96,9 @@ jobs:
         shell: bash
         run: |
           mkdir _dist
-          cp README.md LICENSE ${{ matrix.config.targetDir }}/krustlet-wasi${{ matrix.config.extension }} ${{ matrix.config.targetDir }}/krustlet-wascc${{ matrix.config.extension }} _dist/
+          cp README.md LICENSE ${{ matrix.config.targetDir }}/krustlet-wasi${{ matrix.config.extension }} _dist/
           cd _dist
-          tar czf krustlet-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz README.md LICENSE krustlet-wasi${{ matrix.config.extension }} krustlet-wascc${{ matrix.config.extension }}
+          tar czf krustlet-${{ env.RELEASE_VERSION }}-${{ env.RUNNER_OS }}-${{ matrix.config.arch }}.tar.gz README.md LICENSE krustlet-wasi${{ matrix.config.extension }}
 
       - uses: actions/upload-artifact@v1
         with:

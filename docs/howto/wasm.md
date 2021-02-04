@@ -1,22 +1,24 @@
 # Running Web Assembly (WASM) workloads in Kubernetes
 
-The Krustlet repository contains two projects, `krustlet-wasi` and
-`krustlet-wascc`, for running WASM workloads in Kubernetes. These kubelets run
-workloads implemented as Web Assembly (WASM) modules rather than as OCI
-containers. Each running instance appears to Kubernetes as a node; Kubernetes
-schedules work to the instance as to any other node.
+The Krustlet repository contains the built-in `krustlet-wasi` provider for
+running WASM workloads in Kubernetes. There is also a `krustlet-wasmcloud`
+[provider](https://github.com/wasmCloud/krustlet-wasmcloud-provider) available
+that also runs WASM workloads. These kubelets run workloads implemented as Web
+Assembly (WASM) modules rather than as OCI containers. Each running instance
+appears to Kubernetes as a node; Kubernetes schedules work to the instance as to
+any other node.
 
 ## Running WASM modules on the right kubelet
 
 WASM modules are not interchangeable with OCI containers: `krustlet-wasi` and
-`krustlet-wascc` can't run OCI containers, and normal OCI nodes can't run WASM
+`krustlet-wasmcloud` can't run OCI containers, and normal OCI nodes can't run WASM
 modules. In order to run your WASM workloads on the right nodes, you should use
 the Kubernetes tolerations system; in some cases you will also need to use node
 affinity.
 
-The `krustlet-wasi` and `krustlet-wascc` 'virtual nodes' both have `NoExecute`
+The `krustlet-wasi` and `krustlet-wasmcloud` 'virtual nodes' both have `NoExecute`
 and `NoSchedule` taints with the key `kubernetes.io/arch` and a provider-defined
-value (`wasm32-wasi` or `wasm32-wascc` respectively).
+value (`wasm32-wasi` or `wasm32-wasmcloud` respectively).
 WASM pods must therefore specify a toleration for this taint.  For example:
 
 ```yaml
@@ -32,11 +34,11 @@ spec:
   - effect: NoExecute
     key: kubernetes.io/arch
     operator: Equal
-    value: wasm32-wasi   # or wasm32-wascc according to module target arch
+    value: wasm32-wasi   # or wasm32-wasmcloud according to module target arch
   - effect: NoSchedule
     key: kubernetes.io/arch
     operator: Equal
-    value: wasm32-wasi   # or wasm32-wascc according to module target arch
+    value: wasm32-wasi   # or wasm32-wasmcloud according to module target arch
 ```
 
 In addition, if the Kubernetes cluster contains 'standard' OCI nodes which do
@@ -54,7 +56,7 @@ metadata:
 spec:
   # other values as above
   nodeSelector:
-    kubernetes.io/arch: wasm32-wasi  # or wasm32-wascc
+    kubernetes.io/arch: wasm32-wasi  # or wasm32-wasmcloud
 ```
 
 If you get intermittent image pull errors on your WASM workloads, check that

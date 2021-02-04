@@ -3,7 +3,7 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::Metadata;
 use kube::api::{Api, DeleteParams, ListParams};
 
-const E2E_NS_PREFIXES: &[&str] = &["wascc-e2e", "wasi-e2e"];
+const E2E_NS_PREFIXES: &[&str] = &["wasi-e2e"];
 
 #[tokio::main(threaded_scheduler)]
 async fn main() -> anyhow::Result<()> {

@@ -12,7 +12,7 @@ authors = [
     "Kevin Flansburg <kevin.flansburg@gmail.com>",
 ]
 edition = "2018"
-default-run = "krustlet-wascc"
+default-run = "krustlet-wasi"
 license-file = "LICENSE"
 description = "A Kubernetes kubelet implementation in Rust, used for running WebAssembly modules in Kubernetes"
 repository = "https://github.com/deislabs/krustlet"
@@ -41,7 +41,6 @@ native-tls = [
     "kube-runtime/native-tls",
     "krator/kube-native-tls",
     "kubelet/kube-native-tls",
-    "wascc-provider/native-tls",
     "wasi-provider/native-tls",
     "oci-distribution/native-tls"
 ]
@@ -50,7 +49,6 @@ rustls-tls = [
     "kube-runtime/rustls-tls",
     "krator/rustls-tls",
     "kubelet/rustls-tls",
-    "wascc-provider/rustls-tls",
     "wasi-provider/rustls-tls",
     "oci-distribution/rustls-tls"
 ]
@@ -64,7 +62,6 @@ env_logger = "0.7"
 futures = "0.3"
 krator = { path = "./crates/krator", version = "0.1", default-features = false }
 kubelet = { path = "./crates/kubelet", version = "0.6", default-features = false, features = ["cli"] }
-wascc-provider = { path = "./crates/wascc-provider", version = "0.6", default-features = false }
 wasi-provider = { path = "./crates/wasi-provider", version = "0.6", default-features = false }
 oci-distribution = { path = "./crates/oci-distribution", version = "0.5", default-features = false }
 dirs = "3.0"
@@ -85,17 +82,9 @@ members = [
     "crates/krator",
     "crates/kubelet",
     "crates/oci-distribution",
-    "crates/wascc-logging",
-    "crates/wascc-provider",
     "crates/wasi-provider",
     "crates/krator-derive"
 ]
-
-
-[[bin]]
-name = "krustlet-wascc"
-path = "src/krustlet-wascc.rs"
-
 
 [[bin]]
 name = "krustlet-wasi"

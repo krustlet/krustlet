@@ -109,8 +109,7 @@ $ gcloud compute ssh ${INSTANCE} --project=${PROJECT} --zone=${ZONE}
 Install the latest release of krustlet following [the install
 guide](../intro/install.md).
 
-There are two flavors of Krustlet (`krustlet-wasi` and `krustlet-wascc`), let's
-use the first:
+Let's use the built-in `krustlet-wasi` provider:
 
 ```console
 $ KUBECONFIG=${PWD}/kubeconfig krustlet-wasi \
@@ -234,7 +233,7 @@ Environment=NODE_NAME=krustlet
 Environment=KRUSTLET_CERT_FILE=/etc/krustlet/config/krustlet.crt
 Environment=KRUSTLET_PRIVATE_KEY_FILE=/etc/krustlet/config/krustlet.key
 Environment=KRUSTLET_DATA_DIR=/etc/krustlet
-Environment=RUST_LOG=wascc_provider=info,wasi_provider=info,main=info
+Environment=RUST_LOG=wasi_provider=info,main=info
 Environment=KRUSTLET_BOOTSTRAP_FILE=/etc/krustlet/config/bootstrap.conf
 ExecStart=/usr/local/bin/krustlet-wasi
 User=root
