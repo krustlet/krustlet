@@ -25,6 +25,8 @@ spec:
   containers:
     - name: krustlet-tutorial
       image: mycontainerregistry007.azurecr.io/krustlet-tutorial:v1.0.0
+  imagePullSecrets:
+    - name: <acr-secret>
   tolerations:
     - key: "kubernetes.io/arch"
       operator: "Equal"
@@ -43,6 +45,7 @@ Let's break this file down:
 - `metadata.name`: what is the name of our workload?
 - `spec.containers[0].name`: what should I name this module?
 - `spec.containers[0].image`: where can I find the module?
+- `spec.imagePullSecrets[0].name`: which name has the  image pull secret?
 - `spec.tolerations`: what kind of node am I allowed to run on?
 
 To deploy this workload to Kubernetes, we use `kubectl`.
