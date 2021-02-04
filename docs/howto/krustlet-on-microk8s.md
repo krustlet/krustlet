@@ -49,8 +49,7 @@ in order for things to function properly.
 Install the latest release of Krustlet following [the install
 guide](../intro/install.md).
 
-There are 2 binaries (`krustlet-wasi` and `krustlet-wascc`), let's start the
-first:
+Let's use the built in `krustlet-wasi` provider
 
 ```console
 $ ./KUBECONFIG=${PWD}/krustlet-config \

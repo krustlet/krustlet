@@ -100,15 +100,10 @@ fn prepare_for_bootstrap() -> BootstrapReadiness {
         .into_string()
         .expect("Can't get host name");
 
-    let cert_paths: Vec<_> = vec![
-        "krustlet-wasi.crt",
-        "krustlet-wasi.key",
-        "krustlet-wascc.crt",
-        "krustlet-wascc.key",
-    ]
-    .iter()
-    .map(|f| config_dir().join(f))
-    .collect();
+    let cert_paths: Vec<_> = vec!["krustlet-wasi.crt", "krustlet-wasi.key"]
+        .iter()
+        .map(|f| config_dir().join(f))
+        .collect();
 
     let status = all_or_none(cert_paths);
 
@@ -126,20 +121,13 @@ fn prepare_for_bootstrap() -> BootstrapReadiness {
 
     // TODO: allow override of host names
     let wasi_host_name = &host_name;
-    let wascc_host_name = &host_name;
 
     let wasi_cert_name = format!("{}-tls", wasi_host_name);
-    let wascc_cert_name = format!("{}-tls", wascc_host_name);
 
-    let csr_spawn_deletes: Vec<_> = vec![
-        "krustlet-wasi",
-        "krustlet-wascc",
-        &wasi_cert_name,
-        &wascc_cert_name,
-    ]
-    .iter()
-    .map(delete_csr)
-    .collect();
+    let csr_spawn_deletes: Vec<_> = vec!["krustlet-wasi", &wasi_cert_name]
+        .iter()
+        .map(delete_csr)
+        .collect();
 
     let (csr_deletions, csr_spawn_delete_errors) = csr_spawn_deletes.partition_success();
 
@@ -293,10 +281,7 @@ fn launch_kubelet(
             "true",
         ])
         .env("KUBECONFIG", kubeconfig)
-        .env(
-            "RUST_LOG",
-            "wascc_host=debug,wascc_provider=debug,wasi_provider=debug,main=debug",
-        )
+        .env("RUST_LOG", "wasi_provider=debug,main=debug")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
@@ -423,35 +408,23 @@ fn run_tests(readiness: BootstrapReadiness) -> anyhow::Result<()> {
         3001,
         matches!(readiness, BootstrapReadiness::NeedBootstrapAndApprove),
     );
-    let wascc_process_result = launch_kubelet(
-        "krustlet-wascc",
-        "wascc",
-        3000,
-        matches!(readiness, BootstrapReadiness::NeedBootstrapAndApprove),
-    );
 
-    for process in &[&wasi_process_result, &wascc_process_result] {
-        match process {
-            Err(e) => {
-                eprintln!("Error running kubelet process: {}", e);
-                return Err(anyhow::anyhow!("Error running kubelet process: {}", e));
-            }
-            Ok(_) => println!("Running kubelet process"),
+    match wasi_process_result {
+        Err(e) => {
+            eprintln!("Error running kubelet process: {}", e);
+            return Err(anyhow::anyhow!("Error running kubelet process: {}", e));
         }
+        Ok(_) => println!("Running kubelet process"),
     }
 
     let test_result = run_test_suite();
 
     let mut wasi_process = wasi_process_result.unwrap();
-    let mut wascc_process = wascc_process_result.unwrap();
 
     if matches!(test_result, Err(_)) {
         warn_if_premature_exit(&mut wasi_process, "krustlet-wasi");
-        warn_if_premature_exit(&mut wascc_process, "krustlet-wascc");
         // TODO: ideally we shouldn't have to wait for termination before getting logs
-        let terminate_result = wasi_process
-            .terminate()
-            .and_then(|_| wascc_process.terminate());
+        let terminate_result = wasi_process.terminate();
         match terminate_result {
             Ok(_) => {
                 let wasi_log_destination = std::path::PathBuf::from("./krustlet-wasi-e2e");
@@ -459,12 +432,6 @@ fn run_tests(readiness: BootstrapReadiness) -> anyhow::Result<()> {
                     "krustlet-wasi",
                     &mut wasi_process.child,
                     wasi_log_destination,
-                );
-                let wascc_log_destination = std::path::PathBuf::from("./krustlet-wascc-e2e");
-                capture_kubelet_logs(
-                    "krustlet-wascc",
-                    &mut wascc_process.child,
-                    wascc_log_destination,
                 );
             }
             Err(e) => {

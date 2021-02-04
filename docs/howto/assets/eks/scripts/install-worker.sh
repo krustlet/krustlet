@@ -105,7 +105,7 @@ export PATH=$PATH:$HOME/.cargo/bin
 
 # Build krustlet to link against the system libssl
 # Amazon Linux has an older openssl version than the krustlet release binary
-# TODO: make the krustlet to build (wasi or wascc) configurable
+# TODO: make the krustlet to build (wasi or wasmcloud) configurable
 echo "Downloading Krustlet source from $KRUSTLET_SRC"
 curl $KRUSTLET_SRC -L -o /tmp/krustlet.tar.gz
 

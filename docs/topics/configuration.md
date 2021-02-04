@@ -5,9 +5,8 @@ file or environment variables.
 
 **NOTE:** Custom kubelets built using the `kubelet` crate can choose which of
 these methods to support, or may choose to bypass `kubelet`'s built-in
-configuration system in favour of their own. `krustlet-wascc` and
-`krustlet-wasi` use standard configuration and support all configuration
-methods.
+configuration system in favour of their own. `krustlet-wasi` uses standard
+configuration and supports all configuration methods.
 
 **NOTE:** Certain flags must be handled at the provider or custom kubelet level.
 If you are building a custom kubelet using the `kubelet` crate, please see the
@@ -58,8 +57,8 @@ By default, the configuration file is located at
 common way to override this.  However, custom kubelets built on `kubelet` may
 provide such a mechanism.
 
-The `krustlet-wascc` and `krustlet-wasi` kubelets do not currently provide a way
-to override the default location.
+The `krustlet-wasi` kubelet does not currently provide a way to override the
+default location.
 
 **TODO: should we build in a standard way of overriding the file location?**
 
@@ -72,8 +71,8 @@ configuration file and on the command line - then the precedence is:
 * Environment variables take precedence over the configuration file
 
 This allows you to conveniently override individual settings from a
-configuration file, for example by writing `MAX_PODS=200 krustlet-wascc` or
-`krustlet-wascc --max-pods 200`.
+configuration file, for example by writing `MAX_PODS=200 krustlet-wasi` or
+`krustlet-wasi --max-pods 200`.
 
 If you specify node labels in multiple places, the collections are _not_
 combined: the place with the highest precedence takes effect and all others are

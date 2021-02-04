@@ -41,8 +41,8 @@ implementation):
 $ just build --no-default-features --features rustls-tls
 ```
 
-The same flags can be passed to `just run-wasi` and `just run-wascc` if you want
-to just [run](#running) the project instead.
+The same flags can be passed to `just run`. if you want to just [run](#running)
+the project instead.
 
 #### Caveats
 
@@ -86,12 +86,7 @@ things to be aware of. See the [caveats](#caveats) section for more details
 
 ## Running
 
-There are two different runtimes available for Krustlet: `wascc` or `wasi`.
-
-The `wascc` runtime is a secure WebAssembly host runtime, connecting "actors"
-and "capability providers" together to connect your WebAssembly runtime to
-cloud-native services like message brokers, databases, or other external
-services normally unavailable to the WebAssembly runtime.
+There default included runtime with Krustlet is `wasi`.
 
 The `wasi` runtime uses a project called
 [`wasmtime`](https://github.com/bytecodealliance/wasmtime). wasmtime is a
@@ -100,13 +95,6 @@ primarily on standards compliance with the WASM specification as it relates to
 [WASI](https://wasi.dev/). If your WebAssembly module complies with the
 [WebAssembly specification](https://github.com/WebAssembly/spec), wasmtime can
 run it.
-
-Depending on which host runtime you want, choose one of either:
-
-```console
-$ just run-wascc
-$ just run-wasi
-```
 
 Before startup, this command will delete any nodes in your Kubernetes cluster
 named with your hostname, so make sure you're running this in a test
@@ -136,22 +124,16 @@ For unit tests:
 $ just test
 ```
 
-For the integration tests, start a wascc and wasi node in separate terminals
-before running the tests.
+For the integration tests, start a WASI node in a separate terminal before
+running the tests.
 
 In terminal 1:
-
-```console
-$ just run-wascc
-```
-
-In terminal 2:
 
 ```console
 $ just run-wasi
 ```
 
-And in terminal 3:
+And in terminal 2:
 
 ```console
 $ just test-e2e
@@ -167,7 +149,7 @@ $ just test-e2e-standalone
 This:
 
 - Bootstraps and approves certificates if necessary
-- Runs the WASI and WASCC kubelets in the background
+- Runs the WASI kubelet in the background
 - Runs the integration tests
 - Terminates the kubelets when the integration tests complete
 - Reports test failures, and saves the kubelet logs if any tests failed
@@ -195,5 +177,5 @@ to be collected.
 If you want to create your own Kubelet based on Krustlet, all you need to do is
 implement a `Provider`.
 
-See `src/krustlet-*.rs` and their corresponding provider implementation in
-`crates/*-provider` to get started.
+See `src/krustlet-wasi.rs` and its corresponding provider implementation in
+`crates/wasi-provider` to get started.
