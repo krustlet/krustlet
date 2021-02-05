@@ -167,7 +167,7 @@ async fn start_plugin_registry(registrar: Option<Arc<PluginRegistry>>) -> anyhow
             task::spawn(async {
                 loop {
                     // We run a delay here so we don't waste time on NOOP CPU cycles
-                    tokio::time::delay_for(tokio::time::Duration::from_secs(std::u64::MAX)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_secs(std::u64::MAX)).await;
                 }
             })
             .map_err(anyhow::Error::from)
@@ -181,7 +181,7 @@ async fn start_node_updater(client: kube::Client, node_name: String) -> anyhow::
     let sleep_interval = std::time::Duration::from_secs(10);
     loop {
         node::update(&client, &node_name).await;
-        tokio::time::delay_for(sleep_interval).await;
+        tokio::time::sleep(sleep_interval).await;
     }
 }
 
@@ -198,7 +198,7 @@ async fn start_signal_handler(
             node::drain(&client, &node_name).await?;
             break Ok(());
         }
-        tokio::time::delay_for(duration).await;
+        tokio::time::sleep(duration).await;
     }
 }
 

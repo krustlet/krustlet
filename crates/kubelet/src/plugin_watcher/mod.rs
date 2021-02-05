@@ -10,8 +10,9 @@ use anyhow::Context;
 use log::{debug, error, trace, warn};
 use notify::Event;
 use tokio::fs::{create_dir_all, read_dir};
-use tokio::stream::StreamExt;
 use tokio::sync::{RwLock, RwLockWriteGuard};
+use tokio_stream::wrappers::ReadDirStream;
+use tokio_stream::StreamExt;
 use tonic::Request;
 
 use std::collections::HashMap;
@@ -101,8 +102,7 @@ impl PluginRegistry {
         create_dir_all(&self.plugin_dir).await?;
 
         // Walk the plugin dir beforehand and process any currently existing files
-        let dir_entries: Vec<PathBuf> = read_dir(&self.plugin_dir)
-            .await?
+        let dir_entries: Vec<PathBuf> = ReadDirStream::new(read_dir(&self.plugin_dir).await?)
             .map(|res| res.map(|entry| entry.path()))
             .collect::<Result<Vec<PathBuf>, _>>()
             .await?;
@@ -496,7 +496,7 @@ mod test {
             println!("registrar exited");
         });
 
-        tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
 
     // Waits with a timeout on getting a RegistrationStatus. Will unwrap all errors
@@ -597,7 +597,7 @@ mod test {
         setup_server(plugin, tempdir.path().join("foo.sock"));
 
         // Delay to give it time to start
-        tokio::time::delay_for(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         start_registrar(registrar.clone()).await;
 
@@ -656,7 +656,7 @@ mod test {
         });
 
         // Delay to give it time to start
-        tokio::time::delay_for(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         start_registrar(registrar.clone()).await;
 
@@ -675,7 +675,7 @@ mod test {
             .expect("Unable to remove socket");
 
         // Delay to give it time to remove (needs to be a little longer for MacOS' sake)
-        tokio::time::delay_for(Duration::from_secs(3)).await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
         assert!(
             registrar.get_endpoint("foo").await.is_none(),

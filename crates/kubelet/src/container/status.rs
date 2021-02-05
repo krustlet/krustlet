@@ -159,10 +159,7 @@ pub async fn patch_container_status(
             };
 
             let patch = json_patch::Patch(patches);
-            let params = kube::api::PatchParams {
-                patch_strategy: kube::api::PatchStrategy::JSON,
-                ..Default::default()
-            };
+            let params = kube::api::PatchParams::default();
             let patch_data = serde_json::to_vec(&patch)?;
             debug!(
                 "Patching container status {} {}: '{}'",
@@ -170,7 +167,13 @@ pub async fn patch_container_status(
                 container.name(),
                 std::str::from_utf8(&patch_data).unwrap()
             );
-            client.patch_status(pod.name(), &params, patch_data).await?;
+            client
+                .patch_status(
+                    pod.name(),
+                    &params,
+                    &kube::api::Patch::Strategic(patch_data),
+                )
+                .await?;
             Ok(())
         }
         None => {

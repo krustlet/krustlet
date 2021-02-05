@@ -11,7 +11,7 @@ pub trait BackoffStrategy: Send {
     fn next_duration(&mut self) -> Duration;
     /// Waits the prescribed amount of time (as per `next_duration`).
     async fn wait(&mut self) {
-        tokio::time::delay_for(self.next_duration()).await
+        tokio::time::sleep(self.next_duration()).await
     }
 }
 

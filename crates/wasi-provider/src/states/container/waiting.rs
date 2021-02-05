@@ -118,33 +118,24 @@ impl State<ContainerState> for Waiting {
         // TODO: ~magic~ number
         let (tx, rx) = mpsc::channel(8);
 
-        let runtime = match WasiRuntime::new(
-            container.name().to_owned(),
-            module_data,
-            env,
-            args,
-            container_volumes,
-            log_path,
-            tx,
-        )
-        .await
-        {
-            Ok(runtime) => runtime,
-            Err(e) => {
-                return Transition::next(
-                    self,
-                    Terminated::new(
-                        format!(
-                            "Pod {} container {} failed to construct runtime: {:?}",
-                            state.pod.name(),
-                            container.name(),
-                            e
+        let runtime =
+            match WasiRuntime::new(module_data, env, args, container_volumes, log_path, tx).await {
+                Ok(runtime) => runtime,
+                Err(e) => {
+                    return Transition::next(
+                        self,
+                        Terminated::new(
+                            format!(
+                                "Pod {} container {} failed to construct runtime: {:?}",
+                                state.pod.name(),
+                                container.name(),
+                                e
+                            ),
+                            true,
                         ),
-                        true,
-                    ),
-                )
-            }
-        };
+                    )
+                }
+            };
         debug!("Starting container {} on thread", container.name());
         let container_handle = match runtime.start().await {
             Ok(handle) => handle,

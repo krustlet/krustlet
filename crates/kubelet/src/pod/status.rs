@@ -20,7 +20,14 @@ pub async fn patch_status(api: &Api<KubePod>, name: &str, status: Status) {
                 &name,
                 std::str::from_utf8(&data).unwrap()
             );
-            match api.patch_status(&name, &PatchParams::default(), data).await {
+            match api
+                .patch_status(
+                    &name,
+                    &PatchParams::default(),
+                    &kube::api::Patch::Strategic(data),
+                )
+                .await
+            {
                 Ok(_) => (),
                 Err(e) => {
                     warn!("Pod {} error patching status: {:?}", name, e);
@@ -95,7 +102,7 @@ pub async fn initialize_pod_container_statuses(
                 break 'main Ok(());
             } else {
                 debug!("Pod {} waiting for status to populate: {:?}", &name, status);
-                tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
         }
         retries += 1;

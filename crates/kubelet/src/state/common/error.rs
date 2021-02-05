@@ -42,7 +42,7 @@ impl<P: GenericProvider> State<P::PodState> for Error<P> {
                 Transition::next(self, next)
             }
             ThresholdTrigger::Untriggered => {
-                tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 let next = Registered::<P>::default();
                 Transition::next(self, next)
             }

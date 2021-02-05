@@ -6,22 +6,22 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::stream::TryStreamExt;
 use futures::Stream;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::server::Connected;
 
 #[derive(Debug)]
 pub struct UnixStream(tokio::net::UnixStream);
 
 pub struct Socket {
-    listener: tokio::net::UnixListener,
+    listener_stream: UnixListenerStream,
 }
 
 impl Socket {
     pub fn new<P: AsRef<Path>>(path: &P) -> anyhow::Result<Self> {
-        let listener = tokio::net::UnixListener::bind(path)?;
-        Ok(Socket { listener })
+        let listener_stream = UnixListenerStream::new(tokio::net::UnixListener::bind(path)?);
+        Ok(Socket { listener_stream })
     }
 }
 
@@ -29,8 +29,9 @@ impl Stream for Socket {
     type Item = Result<UnixStream, std::io::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut stream = self.listener.incoming().map_ok(UnixStream);
-        Pin::new(&mut stream).poll_next(cx)
+        Pin::new(&mut self.listener_stream)
+            .poll_next(cx)
+            .map(|opt| opt.map(|res| res.map(UnixStream)))
     }
 }
 
@@ -40,8 +41,8 @@ impl AsyncRead for UnixStream {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<std::io::Result<usize>> {
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.0).poll_read(cx, buf)
     }
 }

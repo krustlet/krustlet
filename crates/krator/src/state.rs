@@ -176,7 +176,11 @@ pub async fn patch_status<R: Resource + Clone + DeserializeOwned, S: ObjectStatu
         Ok(s) => {
             debug!("Applying status patch to object {}: '{}'", &name, &s);
             match api
-                .patch_status(&name, &PatchParams::default(), s.as_bytes().to_vec())
+                .patch_status(
+                    &name,
+                    &PatchParams::default(),
+                    &kube::api::Patch::Strategic(s.as_bytes()),
+                )
                 .await
             {
                 Ok(_) => (),

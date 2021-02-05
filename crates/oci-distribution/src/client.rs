@@ -1102,7 +1102,7 @@ mod test {
                         i, e
                     );
                     last_error.replace(e);
-                    tokio::time::delay_for(tokio::time::Duration::from_secs(1)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                 } else {
                     last_error = None;
                     break;
@@ -1149,7 +1149,7 @@ mod test {
                             i, e
                         );
                         last_error.replace(e);
-                        tokio::time::delay_for(tokio::time::Duration::from_secs(1)).await;
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                     }
                 }
             }
