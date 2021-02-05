@@ -133,13 +133,20 @@ $ wasm-to-oci push demo.wasm mycontainerregistry007.azurecr.io/krustlet-tutorial
 
 ## Create a container registry pull secret 
 
-Unless your container registry is enabled with anonymous access, you need to authenticate krustlet to pull images from it. At the moment, there is no flag in the Azure portal to make a registry public, but you can [create a support ticket](https://docs.microsoft.com/en-us/azure/container-registry/container-registry-faq#how-do-i-enable-anonymous-pull-access) to have it enabled manually. 
+Unless your container registry is enabled with anonymous access, you need to 
+authenticate krustlet to pull images from it. At the moment, there is no flag in the 
+Azure portal to make a registry public, but you can [create a support ticket](https://docs.microsoft.com/en-us/azure/container-registry/container-registry-faq#how-do-i-enable-anonymous-pull-access) 
+to have it enabled manually. 
 
-Without public access to the container registry, you need to create a _Kubernetes pull secret_. The steps below for Azure are [extracted from the Azure documentation](https://docs.microsoft.com/en-us/azure/container-registry/container-registry-auth-kubernetes), and repeated herefor convenience.
+Without public access to the container registry, you need to create a _Kubernetes 
+pull secret_. The steps below for Azure are 
+[extracted from the Azure documentation](https://docs.microsoft.com/en-us/azure/container-registry/container-registry-auth-kubernetes), 
+and repeated here for convenience.
 
 ### Create a service principal and assign a role in Azure
 
-Below is a bash script that will create a service principal for the registry. Replace `<container-registry-name>` with `mycontainerregistry007`. 
+Below is a bash script that will create a service principal for pulling images for 
+the registry. Replace `<container-registry-name>` with `mycontainerregistry007`. 
 
 ```bash
 #!/bin/bash
@@ -168,7 +175,12 @@ echo "Service principal ID: $SP_APP_ID"
 echo "Service principal password: $SP_PASSWD"
 ```
 
-If you do not want to create a service principal in Azure, you can also use the registry `Admin` username and password which gives full access to the registry and is not generally recommended. This is not enabled by default. Go to the Azure portal and the settings for your registry and the `Access keys` menu. There you can enable `Admin` access and use the associated username instead of hte service principal ID and the password when creating the pull secret below.
+If you do not want to create a service principal in Azure, you can also use the 
+registry `Admin` username and password which gives full access to the registry and 
+is not generally recommended. This is not enabled by default. Go to the Azure portal 
+and the settings for your registry and the `Access keys` menu. There you can enable 
+`Admin` access and use the associated username instead of hte service principal ID 
+and the password when creating the pull secret below.
 
 ### Use the service principal
 
@@ -182,7 +194,10 @@ kubectl create secret docker-registry <acr-secret-name> \
     --docker-password=<service-principal-password>
 ```
 
-where `<acr-secret-name>` is a name you give this secret, `<service-principal-ID>`and `<service-principal-password>` are taken from the output of the bash script above. The `--namespace` can be omitted if you are using the default Kubernetes namespace. 
+where `<acr-secret-name>` is a name you give this secret, `<service-principal-ID>` 
+and `<service-principal-password>` are taken from the output of the bash script 
+above. The `--namespace` can be omitted if you are using the default Kubernetes 
+namespace. 
 
 ## Next steps
 
