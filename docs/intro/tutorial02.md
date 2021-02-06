@@ -131,6 +131,76 @@ $ wasm-to-oci push demo.wasm mycontainerregistry007.azurecr.io/krustlet-tutorial
 1](tutorial01.md) of this tutorial. If you are publishing the Rust example, use
 `target/wasm32-wasi/debug/demo.wasm` instead.
 
+## Create a container registry pull secret 
+
+Unless your container registry is enabled with anonymous access, you need to 
+authenticate krustlet to pull images from it. At the moment, there is no flag in the 
+Azure portal to make a registry public, but you can [create a support ticket](https://docs.microsoft.com/en-us/azure/container-registry/container-registry-faq#how-do-i-enable-anonymous-pull-access) 
+to have it enabled manually. 
+
+Without public access to the container registry, you need to create a _Kubernetes 
+pull secret_. The steps below for Azure are 
+[extracted from the Azure documentation](https://docs.microsoft.com/en-us/azure/container-registry/container-registry-auth-kubernetes), 
+and repeated here for convenience.
+
+### Create a service principal and assign a role in Azure
+
+Below is a bash script that will create a service principal for pulling images for 
+the registry. Replace `<container-registry-name>` with `mycontainerregistry007`. 
+
+```bash
+#!/bin/bash
+
+# Modify for your environment.
+# ACR_NAME: The name of your Azure Container Registry
+# SERVICE_PRINCIPAL_NAME: Must be unique within your AD tenant
+ACR_NAME=<container-registry-name>
+SERVICE_PRINCIPAL_NAME=acr-service-principal
+
+# Obtain the full registry ID for subsequent command args
+ACR_REGISTRY_ID=$(az acr show --name $ACR_NAME --query id --output tsv)
+
+# Create the service principal with rights scoped to the registry.
+# Default permissions are for docker pull access. Modify the '--role'
+# argument value as desired:
+# acrpull:     pull only
+# acrpush:     push and pull
+# owner:       push, pull, and assign roles
+SP_PASSWD=$(az ad sp create-for-rbac --name http://$SERVICE_PRINCIPAL_NAME --scopes $ACR_REGISTRY_ID --role acrpull --query password --output tsv)
+SP_APP_ID=$(az ad sp show --id http://$SERVICE_PRINCIPAL_NAME --query appId --output tsv)
+
+# Output the service principal's credentials; use these in your services and
+# applications to authenticate to the container registry.
+echo "Service principal ID: $SP_APP_ID"
+echo "Service principal password: $SP_PASSWD"
+```
+
+If you do not want to create a service principal in Azure, you can also use the 
+registry `Admin` username and password which gives full access to the registry and 
+is not generally recommended. This is not enabled by default. Go to the Azure portal 
+and the settings for your registry and the `Access keys` menu. There you can enable 
+`Admin` access and use the associated username instead of hte service principal ID 
+and the password when creating the pull secret below.
+
+### Use the service principal
+
+Create an image pull secret in Kubernetes:
+
+```console
+kubectl create secret docker-registry <acr-secret-name> \
+    --namespace <namespace> \
+    --docker-server=mycontainerregistry007.azurecr.io \
+    --docker-username=<service-principal-ID> \
+    --docker-password=<service-principal-password>
+```
+
+where `<acr-secret-name>` is a name you give this secret, `<service-principal-ID>` 
+and `<service-principal-password>` are taken from the output of the bash script 
+above. The `--namespace` can be omitted if you are using the default Kubernetes 
+namespace. 
+
+## Next steps
+
 When you’re comfortable with publishing your application with wasm-to-oci, read
 [part 3 of this tutorial](tutorial03.md) to install your application.
 
