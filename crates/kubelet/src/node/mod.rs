@@ -221,11 +221,10 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
                     }
                 }
             );
-            let data = serde_json::to_vec(&patch)?;
             api.patch_status(
                 &pod.name(),
                 &PatchParams::default(),
-                &kube::api::Patch::Strategic(data),
+                &kube::api::Patch::Strategic(patch),
             )
             .await?;
 
@@ -316,7 +315,7 @@ async fn update_status(node_name: &str, client: &kube::Client) -> anyhow::Result
         .patch_status(
             node_name,
             &PatchParams::default(),
-            &kube::api::Patch::Strategic(serde_json::to_vec(&status_patch)?),
+            &kube::api::Patch::Strategic(status_patch),
         )
         .await
         .map_err(|e| anyhow::anyhow!("Unable to patch node status: {}", e))?;
@@ -378,14 +377,12 @@ async fn update_lease(
     let leases: Api<Lease> = Api::namespaced(client.clone(), "kube-node-lease");
 
     let lease = lease_definition(node_uid, node_name);
-    let lease_data =
-        serde_json::to_vec(&lease).expect("Lease should always be serializable to JSON");
 
     let resp = leases
         .patch(
             node_name,
             &PatchParams::default(),
-            &kube::api::Patch::Strategic(lease_data),
+            &kube::api::Patch::Strategic(lease),
         )
         .await;
     match &resp {

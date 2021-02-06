@@ -172,28 +172,18 @@ pub async fn patch_status<R: Resource + Clone + DeserializeOwned, S: ObjectStatu
     status: S,
 ) {
     let patch = status.json_patch();
-    match serde_json::to_string(&patch) {
-        Ok(s) => {
-            debug!("Applying status patch to object {}: '{}'", &name, &s);
-            match api
-                .patch_status(
-                    &name,
-                    &PatchParams::default(),
-                    &kube::api::Patch::Strategic(s.as_bytes()),
-                )
-                .await
-            {
-                Ok(_) => (),
-                Err(e) => {
-                    warn!("Object {} error patching status: {:?}", name, e);
-                }
-            }
-        }
+    debug!("Applying status patch to object {}: '{:?}'", &name, &patch);
+    match api
+        .patch_status(
+            &name,
+            &PatchParams::default(),
+            &kube::api::Patch::Strategic(patch),
+        )
+        .await
+    {
+        Ok(_) => (),
         Err(e) => {
-            warn!(
-                "Object {} error serializing status patch {:?}: {:?}",
-                name, &patch, e
-            );
+            warn!("Object {} error patching status: {:?}", name, e);
         }
     }
 }
