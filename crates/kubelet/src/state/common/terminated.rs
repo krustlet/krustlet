@@ -1,9 +1,7 @@
 //! Pod was deleted.
-use log::error;
 
 use super::{GenericProvider, GenericProviderState};
 use crate::pod::state::prelude::*;
-use crate::volume::Ref;
 
 /// Pod was deleted.
 pub struct Terminated<P: GenericProvider> {
@@ -35,24 +33,6 @@ impl<P: GenericProvider> State<P::PodState> for Terminated<P> {
         let pod = pod.latest();
 
         let state_reader = provider_state.read().await;
-        // TODO: move this out of the state machine and into krator via a
-        // deregistration hook
-        //
-        // https://github.com/deislabs/krustlet/issues/504
-        match Ref::unmount_volumes_from_pod(
-            &state_reader.volume_path(),
-            &pod,
-            &state_reader.client(),
-            state_reader.plugin_registry(),
-        )
-        .await
-        {
-            Ok(_) => {}
-            Err(e) => {
-                // report the error, but carry on. Volume unmount failures should not result in a panic()
-                error!("{:?}", e);
-            }
-        };
         // TODO: In original code, pod key was stored in state rather than
         // re-derived.  Is this important e.g. could pod mutate in ways
         // that invalidate the key assigned on startup?

@@ -291,7 +291,12 @@ async fn run_object_task<O: Operator>(
         match operator.registration_hook(manifest.clone()).await {
             Ok(()) => debug!("Running hook complete."),
             Err(e) => {
-                error!("Operator registration hook failed: {:?}", e);
+                error!(
+                    "Operator registration hook for object {} in namespace {:?} failed: {:?}",
+                    m.name(),
+                    m.namespace(),
+                    e
+                );
                 return;
             }
         }
@@ -315,6 +320,14 @@ async fn run_object_task<O: Operator>(
     {
         let mut state_writer = shared.write().await;
         object_state.async_drop(&mut state_writer).await;
+    }
+
+    match operator.deregistration_hook(manifest).await {
+        Ok(()) => (),
+        Err(e) => warn!(
+            "Operator deregistration hook for object {} in namespace {:?} failed: {:?}",
+            name, namespace, e
+        ),
     }
 
     let api_client: Api<O::Manifest> = match namespace {
