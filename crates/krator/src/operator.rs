@@ -1,4 +1,5 @@
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::fmt::Debug;
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
@@ -15,6 +16,7 @@ pub trait Operator: 'static + Sync + Send {
     type Manifest: Metadata<Ty = ObjectMeta>
         + Clone
         + DeserializeOwned
+        + Serialize
         + Send
         + 'static
         + Debug
@@ -49,4 +51,11 @@ pub trait Operator: 'static + Sync + Send {
     ) -> anyhow::Result<()> {
         Ok(())
     }
+
+    #[cfg(feature = "admission-webhook")]
+    /// Invoked when object is created or modified. Can mutate the and / or deny the request.
+    async fn admission_hook(
+        &self,
+        manifest: Self::Manifest,
+    ) -> crate::admission::AdmissionResult<Self::Manifest>;
 }

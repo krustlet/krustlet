@@ -1,0 +1,10 @@
+apiVersion: animals.com/v1
+kind: Moose
+metadata:
+  name: george
+  labels:
+    nps.gov/park: glacier
+spec:
+  height: 2.1
+  weight: 680
+  antlers: true

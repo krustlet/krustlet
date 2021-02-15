@@ -223,7 +223,7 @@ impl<O: Operator> OperatorRuntime<O> {
     }
 
     /// Listens for updates to objects and forwards them to queue.
-    pub async fn start(&mut self) {
+    pub async fn main_loop(&mut self) {
         let api = Api::<O::Manifest>::all(self.client.clone());
         let mut informer = watcher(api, self.list_params.clone()).boxed();
         loop {
@@ -256,6 +256,23 @@ impl<O: Operator> OperatorRuntime<O> {
                 Err(e) => warn!("Error streaming object events: {:?}", e),
             }
         }
+    }
+
+    /// Start Operator (blocks forever).
+    #[cfg(not(feature = "admission-webhook"))]
+    pub async fn start(&mut self) {
+        self.main_loop().await;
+    }
+
+    /// Start Operator (blocks forever).
+    #[cfg(feature = "admission-webhook")]
+    pub async fn start(&mut self) {
+        let hook = crate::admission::endpoint(Arc::clone(&self.operator));
+        let main = self.main_loop();
+        tokio::select!(
+            _ = main => warn!("Main loop exited"),
+            _ = hook => warn!("Admission hook exited."),
+        )
     }
 }
 

@@ -1481,6 +1481,7 @@ dependencies = [
  "chrono",
  "env_logger 0.8.2",
  "futures",
+ "json-patch",
  "k8s-openapi",
  "krator-derive",
  "kube",
@@ -1491,6 +1492,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "warp",
 ]
 
 [[package]]
