@@ -10,7 +10,10 @@ impl ClientConfigSource for Config {
             None => ClientProtocol::default(),
             Some(registries) => ClientProtocol::HttpsExcept(registries.clone()),
         };
-        ClientConfig { protocol }
+        ClientConfig {
+            protocol,
+            ..Default::default()
+        }
     }
 }
 
