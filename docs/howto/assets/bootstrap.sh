@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export LC_CTYPE=C
+export LC_ALL=C
 
 token_id="$(</dev/urandom tr -dc a-z0-9 | head -c "${1:-6}";echo;)"
 token_secret="$(< /dev/urandom tr -dc a-z0-9 | head -c "${1:-16}";echo;)"
