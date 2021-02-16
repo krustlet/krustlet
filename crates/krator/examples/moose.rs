@@ -7,12 +7,13 @@ use kube_derive::CustomResource;
 use log::info;
 use rand::seq::IteratorRandom;
 use rand::Rng;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-#[derive(CustomResource, Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(CustomResource, Debug, Serialize, Deserialize, Clone, Default, JsonSchema)]
 #[kube(
     group = "animals.com",
     version = "v1",
@@ -27,14 +28,14 @@ struct MooseSpec {
     antlers: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 enum MoosePhase {
     Asleep,
     Hungry,
     Roaming,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 struct MooseStatus {
     phase: Option<MoosePhase>,
     message: Option<String>,
@@ -336,6 +337,8 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
     let kubeconfig = kube::Config::infer().await?;
     let tracker = MooseTracker::new();
+
+    info!("crd:\n{}", serde_yaml::to_string(&Moose::crd()).unwrap());
 
     // Only track mooses in Glacier NP
     let params = ListParams::default().labels("nps.gov/park=glacier");

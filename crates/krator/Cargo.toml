@@ -49,7 +49,9 @@ warp = { version = "0.2", optional = true, features = ["tls"] }
 json-patch = { version = "0.2", optional = true }
 
 [dev-dependencies]
-kube-derive = "0.42"
+kube-derive = "0.48"
+schemars = "0.8.0"
+serde_yaml = "0.8"
 chrono = "0.4"
 env_logger = "0.8"
 rand = "0.8"
