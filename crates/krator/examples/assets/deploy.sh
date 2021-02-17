@@ -30,6 +30,4 @@ cat webhook.yaml | envsubst | kubectl apply -f -
 rm server.req
 rm ca.srl
 rm ca.key
-#rm server.crt
-#rm server.key
 rm ca.crt

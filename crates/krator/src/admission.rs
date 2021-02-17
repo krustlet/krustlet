@@ -97,13 +97,11 @@ pub(crate) async fn endpoint<O: Operator>(operator: Arc<O>) {
                         patch_type: None,
                     },
                 };
-                Ok::<warp::reply::Json, std::convert::Infallible>(warp::reply::json(
-                    &AdmissionReviewResponse {
-                        api_version: request.api_version,
-                        kind: request.kind,
-                        response,
-                    },
-                ))
+                Ok::<_, std::convert::Infallible>(warp::reply::json(&AdmissionReviewResponse {
+                    api_version: request.api_version,
+                    kind: request.kind,
+                    response,
+                }))
             }
         });
     warp::serve(routes)
