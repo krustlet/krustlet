@@ -18,12 +18,13 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::Meta;
 use serde::Deserialize;
+use serde::Serialize;
 
 /// A Kubernetes Pod
 ///
 /// This is a new type around the k8s_openapi Pod definition
 /// providing convenient accessor methods
-#[derive(Default, Debug, Clone, Deserialize)]
+#[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Pod {
     #[serde(flatten)]
     kube_pod: KubePod,

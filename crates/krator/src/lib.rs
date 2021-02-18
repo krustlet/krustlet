@@ -7,6 +7,9 @@ mod object;
 mod operator;
 mod runtime;
 
+#[cfg(feature = "admission-webhook")]
+pub mod admission;
+
 pub mod state;
 
 pub use manifest::Manifest;

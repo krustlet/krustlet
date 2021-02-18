@@ -30,6 +30,7 @@ default = ["kube-native-tls"]
 kube-native-tls = ["kube/native-tls", "kube-runtime/native-tls"]
 rustls-tls = ["kube/rustls-tls", "kube-runtime/rustls-tls"]
 derive = ["krator-derive"]
+admission-webhook = ["warp", "json-patch"]
 
 [dependencies]
 async-trait = "0.1"
@@ -43,6 +44,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures = { version = "0.3", default-features = false }
 krator-derive = { version = "0.1", path = "../krator-derive", optional = true }
+warp = { version = "0.2", optional = true, features = ["tls"] }
+json-patch = { version = "0.2", optional = true }
 
 [dev-dependencies]
 kube-derive = "0.42"
