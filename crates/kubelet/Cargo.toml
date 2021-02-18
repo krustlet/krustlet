@@ -82,6 +82,8 @@ kernel32-sys = "0.2.2"
 miow = "0.2.1"
 winapi = "0.2.8"
 ws2_32-sys = "0.2.1"
+tokio-compat-02 = "0.2"
+tokio_02 = { package = "tokio", version = "0.2", features = ["fs", "macros", "signal", "net"] }
 
 [target.'cfg(target_family = "windows")'.dev-dependencies]
 bytes = "0.3"

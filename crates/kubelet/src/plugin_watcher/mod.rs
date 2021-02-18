@@ -380,6 +380,8 @@ mod test {
     use tokio::sync::mpsc::{self, Receiver, Sender};
     use tokio::sync::Mutex;
     use tokio::time::timeout;
+    #[cfg(target_family = "windows")]
+    use tokio_compat_02::FutureExt;
     use tonic::{transport::Server, Request, Response, Status};
 
     const FAKE_ENDPOINT: &str = "/tmp/foo.sock";
@@ -470,16 +472,18 @@ mod test {
         (tempdir, Arc::new(registrar))
     }
 
-    fn setup_server(plugin: impl Registration, path: impl AsRef<Path>) {
+    async fn setup_server(plugin: impl Registration, path: impl AsRef<Path>) {
         let socket = grpc_sock::server::Socket::new(&path)
+            .await
             .expect("unable to setup server listening on socket");
 
         tokio::spawn(async move {
-            Server::builder()
+            let serv = Server::builder()
                 .add_service(RegistrationServer::new(plugin))
-                .serve_with_incoming(socket)
-                .await
-                .expect("Unable to serve test plugin");
+                .serve_with_incoming(socket);
+            #[cfg(target_family = "windows")]
+            let serv = serv.compat();
+            serv.await.expect("Unable to serve test plugin");
             // Print this out in case of failure for ease of debugging
             println!("server exited");
         });
@@ -524,7 +528,7 @@ mod test {
 
         start_registrar(registrar.clone()).await;
 
-        setup_server(plugin, tempdir.path().join("foo.sock"));
+        setup_server(plugin, tempdir.path().join("foo.sock")).await;
 
         let registration_status = get_registration_response(rx).await;
 
@@ -562,7 +566,7 @@ mod test {
 
         start_registrar(registrar.clone()).await;
 
-        setup_server(plugin, tempdir.path().join("foo.sock"));
+        setup_server(plugin, tempdir.path().join("foo.sock")).await;
 
         let registration_status = get_registration_response(rx).await;
 
@@ -594,7 +598,7 @@ mod test {
         };
 
         // Make sure the plugin is running first so we can test that the registrar picks it up
-        setup_server(plugin, tempdir.path().join("foo.sock"));
+        setup_server(plugin, tempdir.path().join("foo.sock")).await;
 
         // Delay to give it time to start
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -638,6 +642,7 @@ mod test {
         // Manual server setup so we can kill the server
         let sock_path = tempdir.path().join("foo.sock");
         let socket = grpc_sock::server::Socket::new(&sock_path)
+            .await
             .expect("unable to setup server listening on socket");
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();

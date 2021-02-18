@@ -92,7 +92,7 @@ pub(crate) mod plugin_registration_api {
 pub(crate) mod fs_watch;
 pub(crate) mod grpc_sock;
 #[cfg(target_family = "windows")]
-#[allow(dead_code)]
+#[allow(dead_code, clippy::all)]
 pub(crate) mod mio_uds_windows;
 
 pub mod backoff;

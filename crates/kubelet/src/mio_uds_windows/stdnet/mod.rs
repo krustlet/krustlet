@@ -120,15 +120,6 @@ enum AddressKind<'a> {
 }
 
 /// An address associated with a Unix socket
-///
-/// # Examples
-///
-/// ```no_run
-/// use mio_uds_windows::net::UnixListener;
-///
-/// let l = UnixListener::bind("/tmp/sock").unwrap();
-/// let addr = l.local_addr().expect("Couldn't get local address");
-/// ```
 #[derive(Copy, Clone)]
 pub struct SocketAddr {
     addr: c::sockaddr_un,
@@ -164,18 +155,6 @@ impl SocketAddr {
     }
 
     /// Returns true if and only if the address is unnamed.
-    ///
-    /// # Examples
-    ///
-    /// A named address:
-    ///
-    /// ```no_run
-    /// use mio_uds_windows::net::UnixListener;
-    ///
-    /// let socket = UnixListener::bind("/tmp/sock").unwrap();
-    /// let addr = socket.local_addr().expect("Couldn't get local address");
-    /// assert_eq!(addr.is_unnamed(), false);
-    /// ```
 
     // TODO: Is this following section relevant on Windows? Removed from the
     //       docs for now...
@@ -197,31 +176,6 @@ impl SocketAddr {
     }
 
     /// Returns the contents of this address if it is a `pathname` address.
-    ///
-    /// # Examples
-    ///
-    /// With a pathname:
-    ///
-    /// ```no_run
-    /// use mio_uds_windows::net::UnixListener;
-    /// use std::path::Path;
-    ///
-    /// let socket = UnixListener::bind("/tmp/sock").unwrap();
-    /// let addr = socket.local_addr().expect("Couldn't get local address");
-    /// assert_eq!(addr.as_pathname(), Some(Path::new("/tmp/sock")));
-    /// ```
-
-    // TODO: Is this following section relevant on Windows? Removed from the
-    //       docs for now...
-    // Without a pathname:
-    //
-    // ```ignore
-    // use std::os::windows::net::UnixDatagram;
-    //
-    // let socket = UnixDatagram::unbound().unwrap();
-    // let addr = socket.local_addr().expect("Couldn't get local address");
-    // assert_eq!(addr.as_pathname(), None);
-    // ```
     pub fn as_pathname(&self) -> Option<&Path> {
         if let AddressKind::Pathname(path) = self.address() {
             Some(path)

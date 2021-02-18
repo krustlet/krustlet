@@ -7,23 +7,26 @@ export CONFIG_DIR := env_var_or_default('CONFIG_DIR', '$HOME\.krustlet\config')
 # For backward compatibility with those running `just run-wasi`
 run-wasi: run
 
-build +FLAGS='--no-default-features --features rustls-tls':
+build +FLAGS='--no-default-features --features rustls-tls,kubelet/derive':
     cargo build {{FLAGS}}
 
-test +FLAGS='--no-default-features --features rustls-tls':
+test:
     cargo fmt --all -- --check
-    cargo clippy {{FLAGS}}
+    cargo clippy --no-default-features --features rustls-tls
     @# You can't pass in features with the --workspace flag, so we need to
     @# change directory into each crate for testing. This will result in some
     @# "not_used" errors as it isn't checking the whole workspace, but it should be
     @# sufficient for now. We may want to consider improving things using `cfg`
     @# directives to always pull in rustls-tls on windows machines
-    Get-ChildItem crates -Name | ForEach-Object -Process { Push-Location .\crates\$_; cargo test {{FLAGS}}; Pop-Location }
+    Push-Location .\crates\krator; cargo test --no-default-features --features rustls-tls; Pop-Location
+    Push-Location .\crates\kubelet; cargo test --no-default-features --features rustls-tls,derive; Pop-Location
+    Push-Location .\crates\oci-distribution; cargo test --no-default-features --features rustls-tls; Pop-Location
+    Push-Location .\crates\wasi-provider; cargo test --no-default-features --features rustls-tls,kubelet/derive; Pop-Location
 
-test-e2e +FLAGS='--no-default-features --features rustls-tls':
+test-e2e +FLAGS='--no-default-features --features rustls-tls,kubelet/derive':
     cargo test --test integration_tests {{FLAGS}}
 
-run +FLAGS='--no-default-features --features rustls-tls': bootstrap
+run +FLAGS='--no-default-features --features rustls-tls,kubelet/derive': bootstrap
     $env:KUBECONFIG = "$(Invoke-Expression "echo $env:CONFIG_DIR")\kubeconfig-wasi"; cargo run --bin krustlet-wasi {{FLAGS}} -- --node-name krustlet-wasi --port 3001 --bootstrap-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\bootstrap.conf" --cert-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wasi.crt" --private-key-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wasi.key"
 
 bootstrap:

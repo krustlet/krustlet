@@ -24,46 +24,6 @@ use super::sys;
 ///
 /// Note that the `read` and `write` methods may return an error with the kind
 /// of `WouldBlock`, indicating that it's not ready to read/write just yet.
-///
-/// # Examples
-///
-/// ```
-/// # extern crate mio;
-/// # extern crate mio_uds_windows;
-/// # extern crate tempdir;
-/// #
-/// # use mio_uds_windows::UnixListener;
-/// # use std::error::Error;
-/// # use tempdir::TempDir;
-/// use mio::{Events, Ready, Poll, PollOpt, Token};
-/// use mio_uds_windows::UnixStream;
-/// use std::time::Duration;
-/// #
-/// # fn try_main() -> Result<(), Box<Error>> {
-///
-/// let path = "/tmp/sock";
-/// # let path = TempDir::new("uds").unwrap();
-/// # let path = path.path().join("sock");
-/// # let _listener = UnixListener::bind(&path)?;
-/// let stream = UnixStream::connect(&path)?;
-///
-/// let poll = Poll::new()?;
-/// let mut events = Events::with_capacity(128);
-///
-/// // Register the socket with `Poll`
-/// poll.register(&stream, Token(0), Ready::writable(),
-///               PollOpt::edge())?;
-///
-/// poll.poll(&mut events, Some(Duration::from_millis(100)))?;
-///
-/// // The socket might be ready at this point
-/// #     Ok(())
-/// # }
-/// #
-/// # fn main() {
-/// #     try_main().unwrap();
-/// # }
-/// ```
 pub struct UnixStream {
     sys: sys::UnixStream,
     selector_id: SelectorId,
