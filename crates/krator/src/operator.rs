@@ -58,4 +58,12 @@ pub trait Operator: 'static + Sync + Send {
         &self,
         manifest: Self::Manifest,
     ) -> crate::admission::AdmissionResult<Self::Manifest>;
+
+    /// Called before the state machine is run.
+    async fn deregistration_hook(
+        &self,
+        mut _manifest: Manifest<Self::Manifest>,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
 }

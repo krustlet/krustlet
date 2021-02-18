@@ -127,6 +127,11 @@ pub trait Provider: Sized + Send + Sync + 'static {
         Err(NotImplementedError.into())
     }
 
+    /// Gets the path at which to construct temporary directories for volumes.
+    fn volume_path(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+
     /// Fetch the CSI driver plugin registry.
     fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
         None

@@ -177,6 +177,10 @@ impl Provider for WasiProvider {
     fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
         Some(self.shared.plugin_registry.clone())
     }
+
+    fn volume_path(&self) -> Option<PathBuf> {
+        Some(self.shared.volume_path())
+    }
 }
 
 impl GenericProvider for WasiProvider {
