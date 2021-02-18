@@ -1,6 +1,7 @@
 // This is heavily adapted from https://github.com/hyperium/tonic/blob/f1275b611e38ec5fe992b2f10552bf95e8448b17/examples/src/uds/client.rs
 
 #[cfg_attr(target_family = "windows", path = "windows/mod.rs")]
+#[cfg(target_family = "windows")]
 pub mod windows;
 
 use std::path::Path;
