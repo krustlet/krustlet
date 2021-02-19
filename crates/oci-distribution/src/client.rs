@@ -1100,15 +1100,22 @@ mod test {
         let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
         assert!(res.is_ok());
 
+        // Note: tokens should always be strings. The next two tests ensure that if one field
+        // is invalid (integer), then parse can still succeed if the other field is a string.
+        //
         // numeric 'access_token' field, but string 'token' field does not in parse error
         let text = r#"{"access_token": 300, "token": "abc"}"#;
         let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
         assert!(res.is_ok());
+        let rt = res.unwrap();
+        assert_eq!(rt.token, "abc");
 
         // numeric 'token' field, but string 'accesss_token' field does not in parse error
         let text = r#"{"access_token": "xyz", "token": 300}"#;
         let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
         assert!(res.is_ok());
+        let rt = res.unwrap();
+        assert_eq!(rt.token, "xyz");
 
         // numeric 'token' field results in parse error
         let text = r#"{"token": 300}"#;
