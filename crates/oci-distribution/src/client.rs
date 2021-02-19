@@ -762,7 +762,6 @@ const REGISTRY_TOKEN_JSON_PRIMARY_FIELD: &str = "token";
 const REGISTRY_TOKEN_JSON_SECONDARY_FIELD: &str = "access_token";
 
 impl<'de> de::Deserialize<'de> for RegistryToken {
-
     /// Custom deserialize implementation for RegistryToken.
     ///
     /// When requesting a scoped authorization token from a registry,
