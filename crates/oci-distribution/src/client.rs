@@ -754,7 +754,7 @@ impl ClientProtocol {
 
 /// A token granted during the OAuth2-like workflow for OCI registries.
 #[derive(Default)]
-pub struct RegistryToken {
+struct RegistryToken {
     token: String,
 }
 
