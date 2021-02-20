@@ -154,6 +154,7 @@ impl State<ContainerState> for Waiting {
                 )
             }
         };
+        debug!("Container {} WASI Runtime started", container.name());
         let pod_key = PodKey::from(&state.pod);
         {
             let provider_state = shared.write().await;

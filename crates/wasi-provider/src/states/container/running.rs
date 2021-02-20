@@ -26,6 +26,7 @@ impl State<ContainerState> for Running {
         _state: &mut ContainerState,
         _container: Manifest<Container>,
     ) -> Transition<ContainerState> {
+        debug!("Awaiting container status updates");
         while let Some(status) = self.rx.recv().await {
             debug!("Got status update from WASI Runtime: {:?}", &status);
             if let Status::Terminated {
