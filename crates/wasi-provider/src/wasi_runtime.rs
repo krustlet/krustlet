@@ -197,14 +197,14 @@ impl WasiRuntime {
                 Err(e) => {
                     let message = "unable to create module";
                     error!("{}: {:?}", message, e);
-                    match status_sender.blocking_send(Status::Terminated {
-                        failed: true,
-                        message: message.into(),
-                        timestamp: chrono::Utc::now(),
-                    }) {
-                        Ok(_) => (),
-                        Err(e) => warn!("Error sending wasi status: {:?}", e),
-                    }
+                    send(
+                        &status_sender,
+                        Status::Terminated {
+                            failed: true,
+                            message: message.into(),
+                            timestamp: chrono::Utc::now(),
+                        },
+                    );
 
                     return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
@@ -236,14 +236,14 @@ impl WasiRuntime {
                 Err(e) => {
                     let message = "unable to load module";
                     error!("{}: {:?}", message, e);
-                    match status_sender.blocking_send(Status::Terminated {
-                        failed: true,
-                        message: message.into(),
-                        timestamp: chrono::Utc::now(),
-                    }) {
-                        Ok(_) => (),
-                        Err(e) => warn!("Error sending wasi status: {:?}", e),
-                    }
+                    send(
+                        &status_sender,
+                        Status::Terminated {
+                            failed: true,
+                            message: message.into(),
+                            timestamp: chrono::Utc::now(),
+                        },
+                    );
 
                     return Err(e);
                 }
@@ -256,14 +256,14 @@ impl WasiRuntime {
                 Err(e) => {
                     let message = "unable to instantiate module";
                     error!("{}: {:?}", message, e);
-                    match status_sender.blocking_send(Status::Terminated {
-                        failed: true,
-                        message: message.into(),
-                        timestamp: chrono::Utc::now(),
-                    }) {
-                        Ok(_) => (),
-                        Err(e) => warn!("Error sending wasi status: {:?}", e),
-                    }
+                    send(
+                        &status_sender,
+                        Status::Terminated {
+                            failed: true,
+                            message: message.into(),
+                            timestamp: chrono::Utc::now(),
+                        },
+                    );
 
                     // Converting from anyhow
                     return Err(anyhow::anyhow!("{}: {}", message, e));
@@ -273,12 +273,12 @@ impl WasiRuntime {
             // NOTE(taylor): In the future, if we want to pass args directly, we'll
             // need to do a bit more to pass them in here.
             info!("starting run of module");
-            match status_sender.blocking_send(Status::Running {
-                timestamp: chrono::Utc::now(),
-            }) {
-                Ok(_) => (),
-                Err(e) => warn!("Error sending wasi status: {:?}", e),
-            }
+            send(
+                &status_sender,
+                Status::Running {
+                    timestamp: chrono::Utc::now(),
+                },
+            );
 
             let export = instance
                 .get_export("_start")
@@ -288,14 +288,14 @@ impl WasiRuntime {
                 _ => {
                     let message = "_start import was not a function. This is likely a problem with the module";
                     error!("{}", message);
-                    match status_sender.blocking_send(Status::Terminated {
-                        failed: true,
-                        message: message.into(),
-                        timestamp: chrono::Utc::now(),
-                    }) {
-                        Ok(_) => (),
-                        Err(e) => warn!("Error sending wasi status: {:?}", e),
-                    }
+                    send(
+                        &status_sender,
+                        Status::Terminated {
+                            failed: true,
+                            message: message.into(),
+                            timestamp: chrono::Utc::now(),
+                        },
+                    );
 
                     return Err(anyhow::anyhow!(message));
                 }
@@ -307,32 +307,40 @@ impl WasiRuntime {
                 Err(e) => {
                     let message = "unable to run module";
                     error!("{}: {:?}", message, e);
-                    match status_sender.blocking_send(Status::Terminated {
-                        failed: true,
-                        message: message.into(),
-                        timestamp: chrono::Utc::now(),
-                    }) {
-                        Ok(_) => (),
-                        Err(e) => warn!("Error sending wasi status: {:?}", e),
-                    }
+                    send(
+                        &status_sender,
+                        Status::Terminated {
+                            failed: true,
+                            message: message.into(),
+                            timestamp: chrono::Utc::now(),
+                        },
+                    );
 
                     return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
             };
 
             info!("module run complete");
-            match status_sender.blocking_send(Status::Terminated {
-                failed: false,
-                message: "Module run completed".into(),
-                timestamp: chrono::Utc::now(),
-            }) {
-                Ok(_) => (),
-                Err(e) => warn!("Error sending wasi status: {:?}", e),
-            }
+            send(
+                &status_sender,
+                Status::Terminated {
+                    failed: false,
+                    message: "Module run completed".into(),
+                    timestamp: chrono::Utc::now(),
+                },
+            );
             Ok(())
         });
         // Wait for the interrupt to be sent back to us
         let interrupt = rx.await?;
         Ok((interrupt, handle))
+    }
+}
+
+fn send(sender: &Sender<Status>, status: Status) {
+    debug!("Sending status: {:?}", &status);
+    match sender.blocking_send(status) {
+        Err(e) => warn!("Error sending wasi status: {:?}", e),
+        Ok(_) => debug!("Send completed."),
     }
 }

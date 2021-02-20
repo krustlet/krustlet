@@ -490,17 +490,14 @@ fn run_test_suite(krustlet_process: &mut OwnedChildProcess) -> anyhow::Result<()
     println!("Integration tests running");
     let start = std::time::Instant::now();
     loop {
-        match test_process.try_wait()? {
-            Some(result) => {
-                if result.success() {
-                    println!("Integration tests PASSED");
-                    return Ok(());
-                } else {
-                    println!("Integration tests FAILED");
-                    anyhow::bail!("Integration tests FAILED");
-                }
+        if let Some(result) = test_process.try_wait()? {
+            if result.success() {
+                println!("Integration tests PASSED");
+                return Ok(());
+            } else {
+                println!("Integration tests FAILED");
+                anyhow::bail!("Integration tests FAILED");
             }
-            None => (),
         }
         let now = std::time::Instant::now();
         if now.duration_since(start).as_secs() > 600 {
