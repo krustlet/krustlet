@@ -39,6 +39,8 @@ impl StopHandler for Runtime {
 /// WasiRuntime provides a WASI compatible runtime. A runtime should be used for
 /// each "instance" of a process and can be passed to a thread pool for running
 pub struct WasiRuntime {
+    // name of the process
+    name: String,
     /// Data needed for the runtime
     data: Arc<Data>,
     /// The tempfile that output from the wasmtime process writes to
@@ -85,6 +87,7 @@ impl WasiRuntime {
     ///     the same path will be allowed in the runtime
     /// * `log_dir` - location for storing logs
     pub async fn new<L: AsRef<Path> + Send + Sync + 'static>(
+        name: String,
         module_data: Vec<u8>,
         env: HashMap<String, String>,
         args: Vec<String>,
@@ -104,6 +107,7 @@ impl WasiRuntime {
         // loop that runs elsewhere. These will get deleted when the reference
         // is dropped
         Ok(WasiRuntime {
+            name,
             data: Arc::new(Data {
                 module_data,
                 env,
@@ -151,6 +155,7 @@ impl WasiRuntime {
         let status_sender = self.status_sender.clone();
         let (tx, rx) = oneshot::channel();
 
+        let name = self.name.clone();
         let handle = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
             // Build the WASI instance and then generate a list of WASI modules
             let mut ctx_builder_snapshot = WasiCtxBuilder::new();
@@ -169,7 +174,8 @@ impl WasiRuntime {
             for (key, value) in data.dirs.iter() {
                 let guest_dir = value.as_ref().unwrap_or(key);
                 debug!(
-                    "mounting hostpath {} as guestpath {}",
+                    "{} mounting hostpath {} as guestpath {}",
+                    &name,
                     key.display(),
                     guest_dir.display()
                 );
@@ -196,9 +202,10 @@ impl WasiRuntime {
                 Ok(m) => m,
                 Err(e) => {
                     let message = "unable to create module";
-                    error!("{}: {:?}", message, e);
+                    error!("{} {}: {:?}", &name, message, e);
                     send(
                         &status_sender,
+                        &name,
                         Status::Terminated {
                             failed: true,
                             message: message.into(),
@@ -235,9 +242,10 @@ impl WasiRuntime {
                 Ok(m) => m,
                 Err(e) => {
                     let message = "unable to load module";
-                    error!("{}: {:?}", message, e);
+                    error!("{} {}: {:?}", &name, message, e);
                     send(
                         &status_sender,
+                        &name,
                         Status::Terminated {
                             failed: true,
                             message: message.into(),
@@ -255,9 +263,10 @@ impl WasiRuntime {
                 Ok(m) => m,
                 Err(e) => {
                     let message = "unable to instantiate module";
-                    error!("{}: {:?}", message, e);
+                    error!("{} {}: {:?}", &name, message, e);
                     send(
                         &status_sender,
+                        &name,
                         Status::Terminated {
                             failed: true,
                             message: message.into(),
@@ -272,9 +281,10 @@ impl WasiRuntime {
 
             // NOTE(taylor): In the future, if we want to pass args directly, we'll
             // need to do a bit more to pass them in here.
-            info!("starting run of module");
+            info!("{} starting run of module", &name);
             send(
                 &status_sender,
+                &name,
                 Status::Running {
                     timestamp: chrono::Utc::now(),
                 },
@@ -287,9 +297,10 @@ impl WasiRuntime {
                 wasmtime::Extern::Func(f) => f,
                 _ => {
                     let message = "_start import was not a function. This is likely a problem with the module";
-                    error!("{}", message);
+                    error!("{} {}", &name, message);
                     send(
                         &status_sender,
+                        &name,
                         Status::Terminated {
                             failed: true,
                             message: message.into(),
@@ -306,9 +317,10 @@ impl WasiRuntime {
                 Ok(_) => {}
                 Err(e) => {
                     let message = "unable to run module";
-                    error!("{}: {:?}", message, e);
+                    error!("{} {}: {:?}", &name, message, e);
                     send(
                         &status_sender,
+                        &name,
                         Status::Terminated {
                             failed: true,
                             message: message.into(),
@@ -320,9 +332,10 @@ impl WasiRuntime {
                 }
             };
 
-            info!("module run complete");
+            info!("{} module run complete", &name);
             send(
                 &status_sender,
+                &name,
                 Status::Terminated {
                     failed: false,
                     message: "Module run completed".into(),
@@ -337,10 +350,27 @@ impl WasiRuntime {
     }
 }
 
-fn send(sender: &Sender<Status>, status: Status) {
-    debug!("Sending status: {:?}", &status);
-    match sender.blocking_send(status) {
-        Err(e) => warn!("Error sending wasi status: {:?}", e),
-        Ok(_) => debug!("Send completed."),
+fn send(sender: &Sender<Status>, name: &str, status: Status) {
+    use tokio::sync::mpsc::error::TrySendError;
+    debug!("{} sending status: {:?}", name, &status);
+    // match sender.blocking_send(status) {
+    //     Err(e) => warn!("{} error sending wasi status: {:?}", name, e),
+    //     Ok(_) => debug!("{} send completed.", name),
+    // }
+    loop {
+        match sender.try_send(status.clone()) {
+            Ok(()) => {
+                debug!("{} send completed.", name);
+                return;
+            }
+            Err(TrySendError::Full(_)) => {
+                debug!("{} status channel full.", name);
+            }
+            Err(TrySendError::Closed(_)) => {
+                warn!("{} status channel closed.", name);
+                return;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
