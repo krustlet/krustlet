@@ -1,4 +1,5 @@
 use std::io::BufRead;
+use std::path::Path;
 
 enum BootstrapReadiness {
     AlreadyBootstrapped,
@@ -10,6 +11,7 @@ const EXIT_CODE_TESTS_PASSED: i32 = 0;
 const EXIT_CODE_TESTS_FAILED: i32 = 1;
 const EXIT_CODE_NEED_MANUAL_CLEANUP: i32 = 2;
 const EXIT_CODE_BUILD_FAILED: i32 = 3;
+const LOG_DIR: &str = "oneclick-logs";
 
 fn main() {
     println!("Ensuring all binaries are built...");
@@ -265,6 +267,8 @@ fn launch_kubelet(
     let repo_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let bin_path = repo_root.join("target/debug").join(name);
 
+    let stderr = std::fs::File::create(Path::new(LOG_DIR).join(format!("{}.stderr", name)))?;
+
     let mut launch_kubelet_process = std::process::Command::new(bin_path)
         .args(&[
             "--node-name",
@@ -281,9 +285,12 @@ fn launch_kubelet(
             "true",
         ])
         .env("KUBECONFIG", kubeconfig)
-        .env("RUST_LOG", "wasi_provider=debug,main=debug")
+        .env(
+            "RUST_LOG",
+            "wasi_provider=debug,main=debug,krator::state=debug",
+        )
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stderr(stderr)
         .spawn()?;
 
     println!("Kubelet process {} launched", name);
@@ -402,6 +409,7 @@ impl Drop for OwnedChildProcess {
 }
 
 fn run_tests(readiness: BootstrapReadiness) -> anyhow::Result<()> {
+    std::fs::create_dir_all(LOG_DIR)?;
     let wasi_process_result = launch_kubelet(
         "krustlet-wasi",
         "wasi",
@@ -457,26 +465,33 @@ fn warn_if_premature_exit(process: &mut OwnedChildProcess, name: &str) {
 
 fn run_test_suite() -> anyhow::Result<()> {
     println!("Launching integration tests");
-    let test_process = std::process::Command::new("cargo")
+    let stdout = std::fs::File::create(Path::new(LOG_DIR).join("integration_tests.stdout"))?;
+    let stderr = std::fs::File::create(Path::new(LOG_DIR).join("integration_tests.stderr"))?;
+
+    let mut test_process = std::process::Command::new("cargo")
         .args(&["test", "--test", "integration_tests"])
-        .stderr(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
+        .stderr(stdout)
+        .stdout(stderr)
         .spawn()?;
     println!("Integration tests running");
-    // TODO: consider streaming progress
-    // TODO: capture pod logs: probably requires cooperation from the test
-    // process
-    let test_process_result = test_process.wait_with_output()?;
-    if test_process_result.status.success() {
-        println!("Integration tests PASSED");
-        Ok(())
-    } else {
-        let stdout = String::from_utf8(test_process_result.stdout)?;
-        eprintln!("{}", stdout);
-        let stderr = String::from_utf8(test_process_result.stderr)?;
-        eprintln!("{}", stderr);
-        eprintln!("Integration tests FAILED");
-        Err(anyhow::anyhow!(stderr))
+    let start = std::time::Instant::now();
+    loop {
+        match test_process.try_wait()? {
+            Some(result) => {
+                if result.success() {
+                    println!("Integration tests PASSED");
+                    return Ok(());
+                } else {
+                    println!("Integration tests FAILED");
+                    anyhow::bail!("Integration tests FAILED");
+                }
+            }
+            None => (),
+        }
+        let now = std::time::Instant::now();
+        if now.duration_since(start).as_secs() > 600 {
+            anyhow::bail!("Integration tests TIMED OUT");
+        }
     }
 }
 
