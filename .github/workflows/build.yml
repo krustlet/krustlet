@@ -131,6 +131,7 @@ jobs:
         if: ${{ failure() }}
         run: cat *.txt
       - uses: actions/upload-artifact@v2
+        if: ${{ always() }}
         with:
           name: e2e-logs
           path: oneclick-logs/

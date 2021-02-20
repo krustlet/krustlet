@@ -379,6 +379,14 @@ struct OwnedChildProcess {
 
 impl OwnedChildProcess {
     fn terminate(&mut self) -> anyhow::Result<()> {
+        match self.exited() {
+            Ok(true) | Err(_) => {
+                eprintln!("Krutlet already exited.");
+                return Ok(());
+            }
+            Ok(false) => (),
+        }
+
         match self.child.kill().and_then(|_| self.child.wait()) {
             Ok(_) => {
                 self.terminated = true;
@@ -417,36 +425,42 @@ fn run_tests(readiness: BootstrapReadiness) -> anyhow::Result<()> {
         matches!(readiness, BootstrapReadiness::NeedBootstrapAndApprove),
     );
 
-    match wasi_process_result {
+    let mut wasi_process = match wasi_process_result {
         Err(e) => {
             eprintln!("Error running kubelet process: {}", e);
             return Err(anyhow::anyhow!("Error running kubelet process: {}", e));
         }
-        Ok(_) => println!("Running kubelet process"),
-    }
+        Ok(process) => {
+            println!("Running kubelet process");
+            process
+        }
+    };
 
-    let test_result = run_test_suite();
-
-    let mut wasi_process = wasi_process_result.unwrap();
+    let test_result = run_test_suite(&mut wasi_process);
 
     if matches!(test_result, Err(_)) {
         warn_if_premature_exit(&mut wasi_process, "krustlet-wasi");
         // TODO: ideally we shouldn't have to wait for termination before getting logs
-        let terminate_result = wasi_process.terminate();
-        match terminate_result {
-            Ok(_) => {
-                let wasi_log_destination = std::path::PathBuf::from("./krustlet-wasi-e2e");
-                capture_kubelet_logs(
-                    "krustlet-wasi",
-                    &mut wasi_process.child,
-                    wasi_log_destination,
-                );
-            }
-            Err(e) => {
-                eprintln!("{}", e);
-                eprintln!("Can't capture kubelet logs as they didn't terminate");
+        match wasi_process.exited() {
+            Ok(true) | Err(_) => (),
+            Ok(false) => {
+                let terminate_result = wasi_process.terminate();
+                match terminate_result {
+                    Ok(_) => (),
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        eprintln!("Can't capture kubelet logs as they didn't terminate");
+                        anyhow::bail!("Error terminating Krustlet process.");
+                    }
+                }
             }
         }
+        let wasi_log_destination = std::path::PathBuf::from(LOG_DIR);
+        capture_kubelet_logs(
+            "krustlet-wasi",
+            &mut wasi_process.child,
+            wasi_log_destination,
+        );
     }
 
     test_result
@@ -463,7 +477,7 @@ fn warn_if_premature_exit(process: &mut OwnedChildProcess, name: &str) {
     };
 }
 
-fn run_test_suite() -> anyhow::Result<()> {
+fn run_test_suite(krustlet_process: &mut OwnedChildProcess) -> anyhow::Result<()> {
     println!("Launching integration tests");
     let stdout = std::fs::File::create(Path::new(LOG_DIR).join("integration_tests.stdout"))?;
     let stderr = std::fs::File::create(Path::new(LOG_DIR).join("integration_tests.stderr"))?;
@@ -492,6 +506,13 @@ fn run_test_suite() -> anyhow::Result<()> {
         if now.duration_since(start).as_secs() > 600 {
             anyhow::bail!("Integration tests TIMED OUT");
         }
+        match krustlet_process.exited() {
+            Ok(true) | Err(_) => {
+                eprintln!("Detected Krustlet exited.");
+                anyhow::bail!("Detected Krustlet exited.")
+            }
+            Ok(false) => (),
+        }
     }
 }
 
@@ -501,12 +522,8 @@ fn capture_kubelet_logs(
     destination: std::path::PathBuf,
 ) {
     let stdout = kubelet_process.stdout.as_mut().unwrap();
-    let stdout_path = destination.with_extension("stdout.txt");
+    let stdout_path = destination.join(format!("{}.stdout", kubelet_name));
     write_kubelet_log_to_file(kubelet_name, stdout, stdout_path);
-
-    let stderr = kubelet_process.stderr.as_mut().unwrap();
-    let stderr_path = destination.with_extension("stderr.txt");
-    write_kubelet_log_to_file(kubelet_name, stderr, stderr_path);
 }
 
 fn write_kubelet_log_to_file(
