@@ -19,7 +19,7 @@ use crate::kubeconfig::KUBECONFIG;
 
 const APPROVED_TYPE: &str = "Approved";
 
-/// bootstrap the cluster with TLS certificates
+/// Bootstrap the cluster with TLS certificates but only if no existing kubeconfig can be found.
 pub async fn bootstrap<K: AsRef<Path>>(
     config: &KubeletConfig,
     bootstrap_file: K,
