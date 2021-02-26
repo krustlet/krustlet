@@ -26,11 +26,13 @@ impl<T: Clone> Manifest<T> {
 impl<T: Clone> Stream for Manifest<T> {
     type Item = T;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         use futures::Future;
-        let mut rx = self.rx.clone();
-        let mut fut = Box::pin(rx.changed());
-        match Pin::new(&mut fut).poll(cx) {
+        let pending = {
+            let mut fut = Box::pin(self.rx.changed());
+            Pin::new(&mut fut).poll(cx)
+        };
+        match pending {
             Poll::Pending => Poll::Pending,
             Poll::Ready(result) => match result {
                 Ok(()) => Poll::Ready(Some(self.rx.borrow().clone())),

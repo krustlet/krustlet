@@ -351,26 +351,8 @@ impl WasiRuntime {
 }
 
 fn send(sender: &Sender<Status>, name: &str, status: Status) {
-    use tokio::sync::mpsc::error::TrySendError;
-    debug!("{} sending status: {:?}", name, &status);
-    // match sender.blocking_send(status) {
-    //     Err(e) => warn!("{} error sending wasi status: {:?}", name, e),
-    //     Ok(_) => debug!("{} send completed.", name),
-    // }
-    loop {
-        match sender.try_send(status.clone()) {
-            Ok(()) => {
-                debug!("{} send completed.", name);
-                return;
-            }
-            Err(TrySendError::Full(_)) => {
-                debug!("{} status channel full.", name);
-            }
-            Err(TrySendError::Closed(_)) => {
-                warn!("{} status channel closed.", name);
-                return;
-            }
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
+    match sender.blocking_send(status) {
+        Err(e) => warn!("{} error sending wasi status: {:?}", name, e),
+        Ok(_) => debug!("{} send completed.", name),
     }
 }
