@@ -94,7 +94,7 @@ impl<O: Operator> OperatorRuntime<O> {
             }
             Event::Deleted(object) => {
                 let key: ObjectKey = object.into();
-                if let Some(mut sender) = self.handlers.remove(&key) {
+                if let Some(sender) = self.handlers.remove(&key) {
                     debug!(
                         "Removed event handler for object {} in namespace {:?}.",
                         key.name(),
@@ -151,9 +151,9 @@ impl<O: Operator> OperatorRuntime<O> {
                         );
                         let meta = manifest.meta();
                         if meta.deletion_timestamp.is_some() {
-                            reflector_deleted.notify();
+                            reflector_deleted.notify_one();
                         }
-                        match manifest_tx.broadcast(manifest) {
+                        match manifest_tx.send(manifest) {
                             Ok(()) => (),
                             Err(e) => {
                                 warn!("Unable to broadcast manifest update: {:?}", e);
@@ -171,8 +171,8 @@ impl<O: Operator> OperatorRuntime<O> {
                             manifest.name(),
                             manifest.namespace()
                         );
-                        reflector_deleted.notify();
-                        match manifest_tx.broadcast(manifest) {
+                        reflector_deleted.notify_one();
+                        match manifest_tx.send(manifest) {
                             Ok(()) => (),
                             Err(e) => {
                                 warn!("Unable to broadcast manifest update: {:?}", e);

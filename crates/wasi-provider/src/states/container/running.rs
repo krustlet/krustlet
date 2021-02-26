@@ -2,6 +2,7 @@ use super::terminated::Terminated;
 use super::ContainerState;
 use crate::ProviderState;
 use kubelet::container::state::prelude::*;
+use log::{debug, warn};
 use tokio::sync::mpsc::Receiver;
 
 /// The container is starting.
@@ -25,7 +26,9 @@ impl State<ContainerState> for Running {
         _state: &mut ContainerState,
         _container: Manifest<Container>,
     ) -> Transition<ContainerState> {
+        debug!("Awaiting container status updates");
         while let Some(status) = self.rx.recv().await {
+            debug!("Got status update from WASI Runtime: {:?}", &status);
             if let Status::Terminated {
                 failed, message, ..
             } = status
@@ -33,6 +36,7 @@ impl State<ContainerState> for Running {
                 return Transition::next(self, Terminated::new(message, failed));
             }
         }
+        warn!("WASI Runtime hung up channel.");
         Transition::next(
             self,
             Terminated::new("WASI Runtime hung up channel.".to_string(), true),

@@ -1,5 +1,9 @@
 // This is heavily adapted from https://github.com/hyperium/tonic/blob/f1275b611e38ec5fe992b2f10552bf95e8448b17/examples/src/uds/client.rs
 
+#[cfg_attr(target_family = "windows", path = "windows/mod.rs")]
+#[cfg(target_family = "windows")]
+pub mod windows;
+
 use std::path::Path;
 
 #[cfg(target_family = "windows")]
@@ -33,9 +37,8 @@ pub async fn socket_channel<P: AsRef<Path>>(path: P) -> Result<Channel, tonic::t
             // Connect to a Uds socket
             async move {
                 let stream =
-                    tokio::task::spawn_blocking(move || UnixStream::connect(path_copy.clone()))
-                        .await??;
-                tokio::io::PollEvented::new(stream)
+                    tokio::task::spawn_blocking(move || UnixStream::connect(path_copy)).await??;
+                windows::UnixStream::new(stream).await
             }
         }))
         .await;

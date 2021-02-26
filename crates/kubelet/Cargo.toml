@@ -43,14 +43,15 @@ futures = { version = "0.3", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.8"
-hyper = { version = "0.13", default-features = false, features = ["stream"] }
+hyper = { version = "0.14", default-features = false, features = ["stream"] }
 log = "0.4"
-reqwest = { version = "0.10", default-features = false, features = ["json", "stream"]}
-tokio  = { version = "0.2", features = ["fs", "stream", "macros", "signal", "uds"] }
-kube = { version = "0.42", default-features = false }
-kube-runtime = { version= "0.42", default-features = false }
-k8s-openapi = { version = "0.9", default-features = false, features = ["v1_18"] }
-k8s-csi = "0.2"
+reqwest = { version = "0.11", default-features = false, features = ["json", "stream"]}
+tokio  = { version = "1.0", features = ["fs", "macros", "signal", "net"] }
+tokio-stream = { version="0.1", features = ["fs", "net"] }
+kube = { version = "0.48", default-features = false, features = ["jsonpatch"] }
+kube-runtime = { version= "0.48", default-features = false }
+k8s-openapi = { version = "0.11", default-features = false, features = ["v1_18"] }
+k8s-csi = "0.3" 
 chrono = { version = "0.4", features = ["serde"] }
 structopt = { version = "0.3", features = ["wrap_help"], optional = true }
 hostname = "0.3"
@@ -58,20 +59,20 @@ thiserror = "1.0"
 lazy_static = "1.4"
 oci-distribution = { path = "../oci-distribution", version = "0.5", default-features = false }
 url = "2.1"
-warp = { version = "0.2", features = ['tls'] }
+warp = { version = "0.3", features = ['tls'] }
 http = "0.2"
 rcgen = "0.8"
 uuid = { version = "0.8.1", features = ["v4"] }
 krator = { path = "../krator", version = "0.1", default-features = false }
 json-patch = "0.2"
 tempdir = "0.3"
-tonic = "0.3"
+tonic = "0.4"
 # prost is needed for the files built by the protobuf
-prost = "0.6"
-prost-types = "0.6"
+prost = "0.7"
+prost-types = "0.7"
 notify = "5.0.0-pre.3"
 async-stream = "0.3"
-tower = "0.3"
+tower = { version = "0.4.2", features = ["util"] }
 
 [target.'cfg(target_family = "windows")'.dependencies]
 mio = "0.6"
@@ -81,6 +82,8 @@ kernel32-sys = "0.2.2"
 miow = "0.2.1"
 winapi = "0.2.8"
 ws2_32-sys = "0.2.1"
+tokio-compat-02 = "0.2"
+tokio_02 = { package = "tokio", version = "0.2", features = ["fs", "macros", "signal", "net"] }
 
 [target.'cfg(target_family = "windows")'.dev-dependencies]
 bytes = "0.3"
@@ -89,11 +92,11 @@ slab = "0.4"
 version-sync = "0.5"
 
 [dev-dependencies]
-reqwest = { version = "0.10", default-features = false }
+reqwest = { version = "0.11", default-features = false }
 tempfile = "3.1"
 
 [build-dependencies]
-tonic-build = "0.3"
+tonic-build = "0.4"
 
 [package.metadata.docs.rs]
 features = ["docs"]

@@ -14,43 +14,6 @@ use super::sys;
 /// This listener can be used to accept new streams connected to a remote
 /// endpoint, through which the `read` and `write` methods can be used to
 /// communicate.
-///
-/// # Examples
-///
-/// ```
-/// # extern crate mio;
-/// # extern crate mio_uds_windows;
-/// # extern crate tempdir;
-/// # use std::error::Error;
-/// # use tempdir::TempDir;
-/// #
-/// # fn try_main() -> Result<(), Box<Error>> {
-/// use mio::{Events, Ready, Poll, PollOpt, Token};
-/// use mio_uds_windows::UnixListener;
-/// use std::time::Duration;
-///
-/// let path = "/tmp/sock";
-/// # let path = TempDir::new("uds").unwrap();
-/// # let path = path.path().join("sock");
-/// let listener = UnixListener::bind(&path)?;
-///
-/// let poll = Poll::new()?;
-/// let mut events = Events::with_capacity(128);
-///
-/// // Register the socket with `Poll`
-/// poll.register(&listener, Token(0), Ready::writable(),
-///               PollOpt::edge())?;
-///
-/// poll.poll(&mut events, Some(Duration::from_millis(100)))?;
-///
-/// // There may be a socket ready to be accepted
-/// #     Ok(())
-/// # }
-/// #
-/// # fn main() {
-/// #     try_main().unwrap();
-/// # }
-/// ```
 pub struct UnixListener {
     sys: sys::UnixListener,
     selector_id: SelectorId,

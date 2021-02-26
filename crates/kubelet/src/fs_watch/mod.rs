@@ -27,7 +27,7 @@ impl Stream for FileSystemWatcher {
     type Item = NotifyResult<Event>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.recv).poll_next(cx)
+        self.recv.poll_recv(cx)
     }
 }
 
@@ -68,9 +68,10 @@ mod mac {
     use notify::event::{CreateKind, EventKind, RemoveKind};
     use notify::Error as NotifyError;
     use tokio::fs::DirEntry;
-    use tokio::stream::StreamExt;
     use tokio::sync::mpsc::UnboundedSender;
     use tokio::time::{self, Duration};
+    use tokio_stream::wrappers::ReadDirStream;
+    use tokio_stream::StreamExt;
 
     const WAIT_TIME: u64 = 2;
 
@@ -115,7 +116,7 @@ mod mac {
                 // Now we can set current to cached
                 path_cache = current_paths;
 
-                time::delay_for(Duration::from_secs(WAIT_TIME)).await;
+                time::sleep(Duration::from_secs(WAIT_TIME)).await;
             }
         });
         rx
@@ -127,8 +128,7 @@ mod mac {
         // 1. Reads the directory as a stream
         // 2. Maps the stream to a Vec of entries and handles any errors
         // 3. Converts the entries to PathBufs and puts them in a HashSet
-        tokio::fs::read_dir(path)
-            .await?
+        ReadDirStream::new(tokio::fs::read_dir(path).await?)
             .collect::<Result<Vec<DirEntry>, _>>()
             .await
             .map(|entries| {
@@ -266,7 +266,7 @@ mod mac {
 
         async fn create_files(base: PathBuf) {
             // Wait for a bit to make sure things are started
-            tokio::time::delay_for(Duration::from_secs(1)).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
             let first = tokio::fs::write(base.join("new_foo.txt"), "");
             let second = tokio::fs::write(base.join("new_bar.txt"), "");
             let third = tokio::fs::remove_file(base.join("old_foo.txt"));

@@ -13,25 +13,18 @@ use log::{debug, warn};
 /// Patch Pod status with Kubernetes API.
 pub async fn patch_status(api: &Api<KubePod>, name: &str, status: Status) {
     let patch = status.json_patch();
-    match serde_json::to_vec(&patch) {
-        Ok(data) => {
-            debug!(
-                "Applying status patch to Pod {}: '{}'",
-                &name,
-                std::str::from_utf8(&data).unwrap()
-            );
-            match api.patch_status(&name, &PatchParams::default(), data).await {
-                Ok(_) => (),
-                Err(e) => {
-                    warn!("Pod {} error patching status: {:?}", name, e);
-                }
-            }
-        }
+    debug!("Applying status patch to Pod {}: '{:?}'", &name, patch);
+    match api
+        .patch_status(
+            &name,
+            &PatchParams::default(),
+            &kube::api::Patch::Strategic(patch),
+        )
+        .await
+    {
+        Ok(_) => (),
         Err(e) => {
-            warn!(
-                "Pod {} error serializing status patch {:?}: {:?}",
-                name, &patch, e
-            );
+            warn!("Pod {} error patching status: {:?}", name, e);
         }
     }
 }
@@ -95,7 +88,7 @@ pub async fn initialize_pod_container_statuses(
                 break 'main Ok(());
             } else {
                 debug!("Pod {} waiting for status to populate: {:?}", &name, status);
-                tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
         }
         retries += 1;

@@ -63,7 +63,7 @@ impl Drop for TestResourceManager {
         let resources = self.resources.clone();
         let namespace = self.namespace.clone();
         let t = std::thread::spawn(move || {
-            let mut rt =
+            let rt =
                 tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime for cleanup");
             rt.block_on(clean_up_resources(resources, namespace))
         });
@@ -93,7 +93,7 @@ impl TestResourceManager {
 
         // k8s seems to need a bit of time for namespace permissions to flow
         // through the system.  TODO: make this less worse
-        tokio::time::delay_for(tokio::time::Duration::from_millis(1000)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
         let image_pull_secret_opt = std::env::var("KRUSTLET_E2E_IMAGE_PULL_SECRET");
 

@@ -1,11 +1,9 @@
 use anyhow::bail;
-use futures::task;
-use log::{debug, error, info, trace};
+use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::task::{Context, Poll};
 
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc::Sender;
@@ -154,13 +152,11 @@ impl WasiRuntime {
     ) -> anyhow::Result<(InterruptHandle, JoinHandle<anyhow::Result<()>>)> {
         // Clone the module data Arc so it can be moved
         let data = self.data.clone();
-        let name = self.name.clone();
         let status_sender = self.status_sender.clone();
         let (tx, rx) = oneshot::channel();
 
+        let name = self.name.clone();
         let handle = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-            let waker = task::noop_waker();
-            let mut cx = Context::from_waker(&waker);
             // Build the WASI instance and then generate a list of WASI modules
             let mut ctx_builder_snapshot = WasiCtxBuilder::new();
             let mut ctx_builder_snapshot = ctx_builder_snapshot
@@ -178,7 +174,8 @@ impl WasiRuntime {
             for (key, value) in data.dirs.iter() {
                 let guest_dir = value.as_ref().unwrap_or(key);
                 debug!(
-                    "mounting hostpath {} as guestpath {}",
+                    "{} mounting hostpath {} as guestpath {}",
+                    &name,
                     key.display(),
                     guest_dir.display()
                 );
@@ -205,17 +202,17 @@ impl WasiRuntime {
                 Ok(m) => m,
                 Err(e) => {
                     let message = "unable to create module";
-                    error!("{}: {:?}", message, e);
+                    error!("{} {}: {:?}", &name, message, e);
                     send(
-                        status_sender.clone(),
-                        name.clone(),
+                        &status_sender,
+                        &name,
                         Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
                         },
-                        &mut cx,
                     );
+
                     return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
             };
@@ -245,17 +242,17 @@ impl WasiRuntime {
                 Ok(m) => m,
                 Err(e) => {
                     let message = "unable to load module";
-                    error!("{}: {:?}", message, e);
+                    error!("{} {}: {:?}", &name, message, e);
                     send(
-                        status_sender.clone(),
-                        name,
+                        &status_sender,
+                        &name,
                         Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
                         },
-                        &mut cx,
                     );
+
                     return Err(e);
                 }
             };
@@ -266,17 +263,17 @@ impl WasiRuntime {
                 Ok(m) => m,
                 Err(e) => {
                     let message = "unable to instantiate module";
-                    error!("{}: {:?}", message, e);
+                    error!("{} {}: {:?}", &name, message, e);
                     send(
-                        status_sender.clone(),
-                        name,
+                        &status_sender,
+                        &name,
                         Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
                         },
-                        &mut cx,
                     );
+
                     // Converting from anyhow
                     return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
@@ -284,15 +281,15 @@ impl WasiRuntime {
 
             // NOTE(taylor): In the future, if we want to pass args directly, we'll
             // need to do a bit more to pass them in here.
-            info!("starting run of module");
+            info!("{} starting run of module", &name);
             send(
-                status_sender.clone(),
-                name.clone(),
+                &status_sender,
+                &name,
                 Status::Running {
                     timestamp: chrono::Utc::now(),
                 },
-                &mut cx,
             );
+
             let export = instance
                 .get_export("_start")
                 .ok_or_else(|| anyhow::anyhow!("_start import doesn't exist in wasm module"))?;
@@ -300,16 +297,15 @@ impl WasiRuntime {
                 wasmtime::Extern::Func(f) => f,
                 _ => {
                     let message = "_start import was not a function. This is likely a problem with the module";
-                    error!("{}", message);
+                    error!("{} {}", &name, message);
                     send(
-                        status_sender.clone(),
-                        name.clone(),
+                        &status_sender,
+                        &name,
                         Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
                         },
-                        &mut cx,
                     );
 
                     return Err(anyhow::anyhow!(message));
@@ -321,31 +317,30 @@ impl WasiRuntime {
                 Ok(_) => {}
                 Err(e) => {
                     let message = "unable to run module";
-                    error!("{}: {:?}", message, e);
+                    error!("{} {}: {:?}", &name, message, e);
                     send(
-                        status_sender.clone(),
-                        name.clone(),
+                        &status_sender,
+                        &name,
                         Status::Terminated {
                             failed: true,
                             message: message.into(),
                             timestamp: chrono::Utc::now(),
                         },
-                        &mut cx,
                     );
+
                     return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
             };
 
-            info!("module run complete");
+            info!("{} module run complete", &name);
             send(
-                status_sender.clone(),
-                name,
+                &status_sender,
+                &name,
                 Status::Terminated {
                     failed: false,
                     message: "Module run completed".into(),
                     timestamp: chrono::Utc::now(),
                 },
-                &mut cx,
             );
             Ok(())
         });
@@ -355,18 +350,9 @@ impl WasiRuntime {
     }
 }
 
-fn send(mut sender: Sender<Status>, name: String, status: Status, cx: &mut Context<'_>) {
-    loop {
-        if let Poll::Ready(r) = sender.poll_ready(cx) {
-            if r.is_ok() {
-                sender.try_send(status).expect("Possible deadlock, exiting");
-                return;
-            }
-            trace!("Receiver for status showing as closed: {:?}", r);
-        }
-        trace!(
-            "Channel for container {} not ready for send. Attempting again",
-            name
-        );
+fn send(sender: &Sender<Status>, name: &str, status: Status) {
+    match sender.blocking_send(status) {
+        Err(e) => warn!("{} error sending wasi status: {:?}", name, e),
+        Ok(_) => debug!("{} send completed.", name),
     }
 }

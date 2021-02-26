@@ -41,7 +41,7 @@ impl State<PodState> for Starting {
                 Arc::clone(&pod_state.run_context),
             );
             let task_provider = Arc::clone(&provider_state);
-            let mut task_tx = tx.clone();
+            let task_tx = tx.clone();
             let task_pod = pod_rx.clone();
             tokio::task::spawn(async move {
                 let client = {

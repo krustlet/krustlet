@@ -33,7 +33,7 @@ macro_rules! retry {
                     if $on_err(e, n) {
                         break result;
                     };
-                    tokio::time::delay_for(duration).await;
+                    tokio::time::sleep(duration).await;
                     duration *= (n + 1) as u32;
                     if n == $num_times {
                         break result;
@@ -221,9 +221,12 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
                     }
                 }
             );
-            let data = serde_json::to_vec(&patch)?;
-            api.patch_status(&pod.name(), &PatchParams::default(), data)
-                .await?;
+            api.patch_status(
+                &pod.name(),
+                &PatchParams::default(),
+                &kube::api::Patch::Strategic(patch),
+            )
+            .await?;
 
             info!("Marked static pod as terminated.");
             continue;
@@ -312,7 +315,7 @@ async fn update_status(node_name: &str, client: &kube::Client) -> anyhow::Result
         .patch_status(
             node_name,
             &PatchParams::default(),
-            serde_json::to_vec(&status_patch)?,
+            &kube::api::Patch::Strategic(status_patch),
         )
         .await
         .map_err(|e| anyhow::anyhow!("Unable to patch node status: {}", e))?;
@@ -374,11 +377,13 @@ async fn update_lease(
     let leases: Api<Lease> = Api::namespaced(client.clone(), "kube-node-lease");
 
     let lease = lease_definition(node_uid, node_name);
-    let lease_data =
-        serde_json::to_vec(&lease).expect("Lease should always be serializable to JSON");
 
     let resp = leases
-        .patch(node_name, &PatchParams::default(), lease_data)
+        .patch(
+            node_name,
+            &PatchParams::default(),
+            &kube::api::Patch::Strategic(lease),
+        )
         .await;
     match &resp {
         Ok(_) => debug!("Lease updated for '{}'", node_name),

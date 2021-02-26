@@ -118,8 +118,14 @@ impl State<ContainerState> for Waiting {
         // TODO: ~magic~ number
         let (tx, rx) = mpsc::channel(8);
 
+        let name = format!(
+            "{}:{}:{}",
+            state.pod.namespace(),
+            state.pod.name(),
+            container.name()
+        );
         let runtime = match WasiRuntime::new(
-            container.name().to_owned(),
+            name,
             module_data,
             env,
             args,
@@ -163,6 +169,7 @@ impl State<ContainerState> for Waiting {
                 )
             }
         };
+        debug!("Container {} WASI Runtime started", container.name());
         let pod_key = PodKey::from(&state.pod);
         {
             let provider_state = shared.write().await;
