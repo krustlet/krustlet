@@ -74,15 +74,15 @@ async fn get_container_logs<T: Provider>(
         Err(e) => {
             error!("Error fetching logs: {}", e);
             if e.is::<NotImplementedError>() {
-                return_with_code(
+                Ok(return_with_code(
                     StatusCode::NOT_IMPLEMENTED,
                     "Logs not implemented in provider.".to_owned(),
-                )
+                ))
             } else {
-                return_with_code(
+                Ok(return_with_code(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Server error: {}", e),
-                )
+                ))
             }
         }
     }
@@ -97,14 +97,14 @@ async fn post_exec<T: Provider>(
     _pod: String,
     _container: String,
 ) -> Result<Response<Body>, Infallible> {
-    return_with_code(
+    Ok(return_with_code(
         StatusCode::NOT_IMPLEMENTED,
         "Exec not implemented.".to_string(),
-    )
+    ))
 }
 
-fn return_with_code(code: StatusCode, body: String) -> Result<Response<Body>, Infallible> {
+fn return_with_code(code: StatusCode, body: String) -> Response<Body> {
     let mut response = Response::new(body.into());
     *response.status_mut() = code;
-    Ok(response)
+    response
 }
