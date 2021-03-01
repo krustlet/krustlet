@@ -8,20 +8,19 @@ use std::{
 
 use futures::Stream;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::server::Connected;
 
 #[derive(Debug)]
 pub struct UnixStream(tokio::net::UnixStream);
 
 pub struct Socket {
-    listener_stream: UnixListenerStream,
+    listener: tokio::net::UnixListener,
 }
 
 impl Socket {
     pub async fn new<P: AsRef<Path>>(path: &P) -> anyhow::Result<Self> {
-        let listener_stream = UnixListenerStream::new(tokio::net::UnixListener::bind(path)?);
-        Ok(Socket { listener_stream })
+        let listener = tokio::net::UnixListener::bind(path)?;
+        Ok(Socket { listener })
     }
 }
 
@@ -29,9 +28,10 @@ impl Stream for Socket {
     type Item = Result<UnixStream, std::io::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.listener_stream)
-            .poll_next(cx)
-            .map(|opt| opt.map(|res| res.map(UnixStream)))
+        match Pin::new(&mut self.listener).poll_accept(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(res) => Poll::Ready(Some(res.map(|(stream, _)| UnixStream(stream)))),
+        }
     }
 }
 
