@@ -177,7 +177,7 @@ pub async fn patch_status<R: Resource + Clone + DeserializeOwned, S: ObjectStatu
         .patch_status(
             &name,
             &PatchParams::default(),
-            &kube::api::Patch::Strategic(patch),
+            &kube::api::Patch::Merge(patch),
         )
         .await
     {
