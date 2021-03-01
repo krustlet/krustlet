@@ -178,6 +178,8 @@ pub(crate) fn validate(spec: &PersistentVolumeClaimSpec) -> anyhow::Result<()> {
     Ok(())
 }
 
+// TODO: remove this allow once failing validations are added.
+#[allow(clippy::unnecessary_wraps)]
 fn validate_label_selector(_selector: &LabelSelector) -> anyhow::Result<()> {
     // TODO: validate label selectors
     Ok(())

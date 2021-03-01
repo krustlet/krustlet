@@ -387,6 +387,8 @@ where
     Ok(Some(addr))
 }
 
+// This type signature is required by Serde `deserialize_with`.
+#[allow(clippy::unnecessary_wraps)]
 fn try_deserialize_u16<'de, D>(d: D) -> Result<Option<anyhow::Result<u16>>, D::Error>
 where
     D: serde::Deserializer<'de>,
