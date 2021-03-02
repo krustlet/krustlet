@@ -1481,6 +1481,7 @@ dependencies = [
  "anyhow",
  "compiletest_rs",
  "dirs 3.0.1",
+ "env_logger 0.7.1",
  "futures",
  "hostname",
  "k8s-openapi",
@@ -1496,7 +1497,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio 1.2.0",
- "tracing-subscriber",
  "wasi-provider",
 ]
 
