@@ -11,11 +11,11 @@ use std::{
 };
 
 use futures::Stream;
-use log::error;
 #[cfg(not(target_os = "macos"))]
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use notify::{Event, Result as NotifyResult};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use tracing::error;
 
 pub struct FileSystemWatcher {
     recv: UnboundedReceiver<NotifyResult<Event>>,

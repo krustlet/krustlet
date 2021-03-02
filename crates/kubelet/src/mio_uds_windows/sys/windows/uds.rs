@@ -7,10 +7,10 @@ use std::os::windows::prelude::*;
 use std::sync::{Mutex, MutexGuard};
 
 use iovec::IoVec;
-use log::trace;
 use mio::windows::Overlapped;
 use mio::{Evented, Poll, PollOpt, Ready, Registration, Token};
 use miow::iocp::CompletionStatus;
+use tracing::trace;
 use winapi::{HANDLE, OVERLAPPED_ENTRY};
 
 use super::from_raw_arc::FromRawArc;

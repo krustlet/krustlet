@@ -7,7 +7,7 @@ use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use krator::{Manifest, ObjectState, SharedState, State, Transition};
 use kube::api::Api;
-use log::{debug, error, warn};
+use tracing::{debug, error, warn};
 
 /// Prelude for Pod state machines.
 pub mod prelude {

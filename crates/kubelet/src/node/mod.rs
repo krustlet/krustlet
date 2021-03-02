@@ -14,9 +14,9 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 use kube::api::{Api, ListParams, ObjectMeta, PatchParams, PostParams};
 use kube::error::ErrorResponse;
 use kube::Error;
-use log::{debug, error, info, warn};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use tracing::{debug, error, info, warn};
 
 const KUBELET_VERSION: &str = env!("CARGO_PKG_VERSION");
 

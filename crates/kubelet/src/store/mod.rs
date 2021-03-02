@@ -11,8 +11,8 @@ use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 
 use async_trait::async_trait;
-use log::debug;
 use oci_distribution::Reference;
+use tracing::debug;
 
 use crate::container::PullPolicy;
 use crate::pod::Pod;

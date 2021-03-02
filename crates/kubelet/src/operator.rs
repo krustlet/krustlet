@@ -7,8 +7,8 @@ use krator::state::SharedState;
 use krator::ObjectState;
 use krator::{Manifest, Operator};
 use kube::Api;
-use log::error;
 use std::sync::Arc;
+use tracing::error;
 
 pub(crate) struct PodOperator<P: Provider> {
     provider: Arc<P>,

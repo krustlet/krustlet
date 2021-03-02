@@ -9,7 +9,7 @@ use std::sync::Arc;
 use k8s_openapi::api::core::v1::KeyToPath;
 use k8s_openapi::api::core::v1::{ConfigMap, PersistentVolumeClaim, Secret, Volume as KubeVolume};
 use kube::api::Api;
-use log::{debug, error};
+use tracing::{debug, error};
 
 use crate::plugin_watcher::PluginRegistry;
 use crate::pod::Pod;

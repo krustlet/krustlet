@@ -5,7 +5,7 @@ use super::volume_mount::VolumeMount;
 use super::{BackoffSequence, GenericPodState, GenericProvider, GenericProviderState};
 use crate::pod::state::prelude::*;
 
-use log::error;
+use tracing::error;
 
 /// Kubelet is pulling container images.
 pub struct ImagePull<P: GenericProvider> {

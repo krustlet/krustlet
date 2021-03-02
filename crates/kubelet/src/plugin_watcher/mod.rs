@@ -7,13 +7,13 @@ use crate::plugin_registration_api::v1::{
 };
 
 use anyhow::Context;
-use log::{debug, error, trace, warn};
 use notify::Event;
 use tokio::fs::{create_dir_all, read_dir};
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use tokio_stream::wrappers::ReadDirStream;
 use tokio_stream::StreamExt;
 use tonic::Request;
+use tracing::{debug, error, trace, warn};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;

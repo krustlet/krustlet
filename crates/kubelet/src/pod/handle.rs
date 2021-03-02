@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use log::{debug, error, info};
 use tokio::io::{AsyncRead, AsyncSeek};
 use tokio::sync::RwLock;
+use tracing::{debug, error, info};
 
 use crate::container::{
     ContainerKey, ContainerMapByName, Handle as ContainerHandle, HandleMap as ContainerHandleMap,
