@@ -4,7 +4,6 @@ use krator::{
 };
 use kube::api::ListParams;
 use kube_derive::CustomResource;
-use log::info;
 use rand::seq::IteratorRandom;
 use rand::Rng;
 use schemars::JsonSchema;
@@ -12,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::info;
 
 #[derive(CustomResource, Debug, Serialize, Deserialize, Clone, Default, JsonSchema)]
 #[kube(
