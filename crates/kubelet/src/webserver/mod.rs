@@ -1,3 +1,7 @@
+//! Server is an HTTP(S) server for answering Kubelet callbacks.
+//!
+//! Logs and exec calls are the main things that a server should handle.
+
 use crate::config::ServerConfig;
 use crate::log::{Options, Sender};
 use crate::provider::{NotImplementedError, Provider};
@@ -6,9 +10,6 @@ use http::Response;
 use hyper::Body;
 use std::convert::Infallible;
 use std::sync::Arc;
-/// Server is an HTTP(S) server for answering Kubelet callbacks.
-///
-/// Logs and exec calls are the main things that a server should handle.
 use tracing::{debug, error};
 use warp::Filter;
 
