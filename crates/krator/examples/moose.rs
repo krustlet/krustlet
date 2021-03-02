@@ -154,7 +154,7 @@ impl State<MooseState> for Roam {
         _manifest: Manifest<Moose>,
     ) -> Transition<MooseState> {
         loop {
-            tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             state.food -= 5.0;
             if state.food <= 10.0 {
                 return Transition::next(self, Eat);
@@ -198,7 +198,7 @@ impl State<MooseState> for Eat {
     ) -> Transition<MooseState> {
         let moose = manifest.latest();
         state.food = moose.spec.weight / 10.0;
-        tokio::time::delay_for(std::time::Duration::from_secs((state.food / 10.0) as u64)).await;
+        tokio::time::sleep(std::time::Duration::from_secs((state.food / 10.0) as u64)).await;
         Transition::next(self, Sleep)
     }
 
@@ -227,7 +227,7 @@ impl State<MooseState> for Sleep {
         _state: &mut MooseState,
         _manifest: Manifest<Moose>,
     ) -> Transition<MooseState> {
-        tokio::time::delay_for(std::time::Duration::from_secs(20)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
         Transition::next(self, Roam)
     }
 
@@ -332,9 +332,11 @@ impl Operator for MooseTracker {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
-    env_logger::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
     let kubeconfig = kube::Config::infer().await?;
     let tracker = MooseTracker::new();
 
