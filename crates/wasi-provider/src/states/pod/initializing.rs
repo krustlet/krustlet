@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use log::{error, info};
+use tracing::{error, info};
 
 use kubelet::backoff::BackoffStrategy;
 use kubelet::container::state::run_to_completion;

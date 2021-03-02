@@ -1,9 +1,9 @@
 use anyhow::bail;
-use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tracing::{debug, error, info, warn};
 
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc::Sender;

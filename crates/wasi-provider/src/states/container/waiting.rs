@@ -3,8 +3,8 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use log::{debug, info};
 use tokio::sync::mpsc;
+use tracing::{debug, info};
 
 use kubelet::container::state::prelude::*;
 use kubelet::pod::{Handle as PodHandle, PodKey};
