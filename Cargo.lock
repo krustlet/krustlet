@@ -1465,7 +1465,6 @@ dependencies = [
  "kube",
  "kube-derive",
  "kube-runtime",
- "log 0.4.14",
  "rand 0.8.3",
  "schemars",
  "serde",
@@ -1473,6 +1472,7 @@ dependencies = [
  "serde_yaml",
  "tokio 1.2.0",
  "tokio-stream",
+ "tracing",
  "warp",
 ]
 

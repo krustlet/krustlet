@@ -3,8 +3,8 @@
 use k8s_openapi::Resource;
 use kube::api::{Meta, PatchParams};
 use kube::Api;
-use log::{debug, error, trace, warn};
 use serde::de::DeserializeOwned;
+use tracing::{debug, error, trace, warn};
 
 use crate::object::ObjectStatus;
 use crate::Manifest;

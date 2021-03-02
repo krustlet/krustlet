@@ -3,9 +3,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use futures::{StreamExt, TryStreamExt};
-use log::{debug, error, info, warn};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Notify;
+use tracing::{debug, error, info, warn};
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::Metadata;
