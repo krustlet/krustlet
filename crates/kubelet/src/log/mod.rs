@@ -1,8 +1,8 @@
 //! `log` contains convenient wrappers around fetching logs from the Kubernetes API.
 use anyhow::bail;
-use log::{debug, error};
 use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, AsyncRead};
+use tracing::{debug, error};
 
 /// Possible errors sending log data.
 #[derive(Debug)]

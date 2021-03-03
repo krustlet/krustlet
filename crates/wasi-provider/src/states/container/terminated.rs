@@ -1,5 +1,5 @@
 use kubelet::container::state::prelude::*;
-use log::error;
+use tracing::error;
 
 use crate::ProviderState;
 

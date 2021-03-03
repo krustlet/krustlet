@@ -2,8 +2,8 @@ use super::terminated::Terminated;
 use super::ContainerState;
 use crate::ProviderState;
 use kubelet::container::state::prelude::*;
-use log::{debug, warn};
 use tokio::sync::mpsc::Receiver;
+use tracing::{debug, warn};
 
 /// The container is starting.
 #[derive(Debug, TransitionTo)]

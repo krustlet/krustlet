@@ -4,9 +4,9 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use k8s_openapi::api::core::v1::{ConfigMap, EnvVarSource, Secret};
 use kube::api::Api;
-use log::{error, info};
 use std::sync::Arc;
 use thiserror::Error;
+use tracing::{error, info};
 
 use crate::container::Container;
 use crate::log::Sender;

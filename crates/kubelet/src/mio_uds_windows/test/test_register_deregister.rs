@@ -1,6 +1,6 @@
 use crate::mio_uds_windows::{UnixListener, UnixStream};
 use bytes::SliceBuf;
-use log::trace;
+use tracing::trace;
 use mio::event::Event;
 use mio::{Events, Poll, PollOpt, Ready, Token};
 use std::time::Duration;

@@ -16,11 +16,11 @@ use anyhow::Context;
 use futures_util::future;
 use futures_util::stream::StreamExt;
 use hyperx::header::Header;
-use log::debug;
 use reqwest::header::HeaderMap;
 use sha2::Digest;
 use std::collections::HashMap;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
+use tracing::debug;
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
 
 /// The data for an image or module.

@@ -3,9 +3,9 @@ use std::os::windows::prelude::*;
 use std::sync::Mutex;
 
 use crate::mio_uds_windows::poll;
-use log::trace;
 use mio::windows::Binding;
 use mio::{Evented, Poll, PollOpt, Ready, Registration, SetReadiness, Token};
+use tracing::trace;
 
 /// Helper struct used for TCP and UDP which bundles a `binding` with a
 /// `SetReadiness` handle.

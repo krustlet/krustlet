@@ -9,11 +9,11 @@ use crate::webserver::start as start_webserver;
 
 use futures::future::{FutureExt, TryFutureExt};
 use kube::api::ListParams;
-use log::{error, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::signal::ctrl_c;
 use tokio::task;
+use tracing::{error, info, warn};
 
 use krator::OperatorRuntime;
 

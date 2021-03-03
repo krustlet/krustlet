@@ -24,7 +24,6 @@ anyhow = "1.0"
 async-trait = "0.1"
 backtrace = "0.3"
 kube = { version= "0.48", default-features = false }
-log = "0.4"
 wasmtime = "0.19"
 wasmtime-wasi = "0.19"
 wasi-common = "0.19"
@@ -38,6 +37,7 @@ wat = "1.0"
 tokio = { version = "1.0", features = ["fs", "macros", "io-util", "sync"] }
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
+tracing = { version = "0.1", features = ['log'] }
 
 [dev-dependencies]
 oci-distribution = { path = "../oci-distribution", version = "0.5" }

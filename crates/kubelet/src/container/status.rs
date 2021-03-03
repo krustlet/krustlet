@@ -6,7 +6,7 @@ use k8s_openapi::api::core::v1::{
     ContainerStatus as KubeContainerStatus, Pod as KubePod,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
-use log::{debug, warn};
+use tracing::{debug, warn};
 
 /// Status is a simplified version of the Kubernetes container status
 /// for use in providers. It allows for simple creation of the current status of

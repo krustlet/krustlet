@@ -6,12 +6,12 @@ use kube::api::{Api, ListParams, PostParams};
 use kube::config::Kubeconfig;
 use kube::Config;
 use kube_runtime::watcher::{watcher, Event};
-use log::{debug, info};
 use rcgen::{
     Certificate, CertificateParams, DistinguishedName, DnType, KeyPair, SanType,
     PKCS_ECDSA_P256_SHA256,
 };
 use tokio::fs::{read, write};
+use tracing::{debug, info};
 
 use crate::config::Config as KubeletConfig;
 use crate::kubeconfig::exists as kubeconfig_exists;

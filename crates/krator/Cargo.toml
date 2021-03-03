@@ -40,21 +40,22 @@ tokio-stream = "0.1"
 k8s-openapi = { version = "0.11", default-features = false, features = ["v1_18"] }
 kube = { version = "0.48", default-features = false }
 kube-runtime = { version= "0.48", default-features = false }
-log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures = { version = "0.3", default-features = false }
 krator-derive = { version = "0.1", path = "../krator-derive", optional = true }
 warp = { version = "0.3", optional = true, features = ["tls"] }
 json-patch = { version = "0.2", optional = true }
+tracing = { version = "0.1", features = ['log'] }
 
 [dev-dependencies]
 kube-derive = "0.48"
 schemars = "0.8.0"
 serde_yaml = "0.8"
 chrono = "0.4"
-env_logger = "0.8"
 rand = "0.8"
+tracing-subscriber = "0.2"
+tokio  = { version = "1.0", features = ["fs", "macros", "signal", "rt-multi-thread"] }
 
 [[example]]
 name = "moose"

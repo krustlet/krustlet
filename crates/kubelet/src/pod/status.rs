@@ -8,7 +8,7 @@ use k8s_openapi::api::core::v1::PodStatus as KubePodStatus;
 use krator::{Manifest, ObjectStatus};
 use kube::api::PatchParams;
 use kube::Api;
-use log::{debug, warn};
+use tracing::{debug, warn};
 
 /// Patch Pod status with Kubernetes API.
 pub async fn patch_status(api: &Api<KubePod>, name: &str, status: Status) {

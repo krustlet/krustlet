@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use log::info;
+use tracing::info;
 
 use kubelet::container::state::run_to_completion;
 use kubelet::container::ContainerKey;

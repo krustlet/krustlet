@@ -1,6 +1,6 @@
 //! Kubelet is pulling container images.
 
-use log::error;
+use tracing::error;
 
 use super::{GenericPodState, GenericProvider, GenericProviderState};
 use crate::pod::state::prelude::*;

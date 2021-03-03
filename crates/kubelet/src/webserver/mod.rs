@@ -1,15 +1,16 @@
+//! Server is an HTTP(S) server for answering Kubelet callbacks.
+//!
+//! Logs and exec calls are the main things that a server should handle.
+
 use crate::config::ServerConfig;
 use crate::log::{Options, Sender};
 use crate::provider::{NotImplementedError, Provider};
 use http::status::StatusCode;
 use http::Response;
 use hyper::Body;
-/// Server is an HTTP(S) server for answering Kubelet callbacks.
-///
-/// Logs and exec calls are the main things that a server should handle.
-use log::{debug, error};
 use std::convert::Infallible;
 use std::sync::Arc;
+use tracing::{debug, error};
 use warp::Filter;
 
 const PING: &str = "this is the Krustlet HTTP server";

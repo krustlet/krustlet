@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use log::debug;
 use oci_distribution::Reference;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
+use tracing::debug;
 
 use super::client::Client;
 use crate::store::LocalStore;
