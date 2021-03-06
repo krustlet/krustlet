@@ -36,7 +36,7 @@ admission-webhook = ["warp", "json-patch"]
 async-trait = "0.1"
 anyhow = "1.0"
 tokio  = { version = "1.0", features = ["fs", "macros", "signal"] }
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ['sync'] }
 k8s-openapi = { version = "0.11", default-features = false, features = ["v1_18"] }
 kube = { version = "0.48", default-features = false }
 kube-runtime = { version= "0.48", default-features = false }

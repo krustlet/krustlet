@@ -33,7 +33,7 @@ pub trait ObjectState: 'static + Sync + Send {
     /// This does not need to implement `Resource` or `Meta`, but if it does
     /// not then you will not be able to use it with `Operator` and will have
     /// to write your own `state::run_to_completion` method.
-    type Manifest: Clone;
+    type Manifest: Clone + Sync + Send + std::marker::Unpin + 'static;
     /// The status type of the state machine.
     type Status;
     /// A type representing data shared between all state machines.

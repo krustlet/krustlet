@@ -60,8 +60,8 @@ pub async fn run_to_completion<S: ObjectState<Manifest = Container, Status = Sta
 
             match container_tx.send(latest_container) {
                 Ok(()) => (),
-                Err(e) => {
-                    warn!("Unable to broadcast container update: {:?}", e);
+                Err(_) => {
+                    debug!("Container update receiver hung up, exiting.");
                     return;
                 }
             }

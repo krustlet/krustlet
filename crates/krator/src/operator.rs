@@ -21,7 +21,8 @@ pub trait Operator: 'static + Sync + Send {
         + 'static
         + Debug
         + Sync
-        + Default;
+        + Default
+        + std::marker::Unpin;
 
     /// Type describing the status of the object.
     type Status: ObjectStatus + Send;

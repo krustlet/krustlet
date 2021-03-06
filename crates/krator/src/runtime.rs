@@ -155,8 +155,8 @@ impl<O: Operator> OperatorRuntime<O> {
                         }
                         match manifest_tx.send(manifest) {
                             Ok(()) => (),
-                            Err(e) => {
-                                warn!("Unable to broadcast manifest update: {:?}", e);
+                            Err(_) => {
+                                debug!("Manifest receiver hung up, exiting.");
                                 return;
                             }
                         }
@@ -174,8 +174,8 @@ impl<O: Operator> OperatorRuntime<O> {
                         reflector_deleted.notify_one();
                         match manifest_tx.send(manifest) {
                             Ok(()) => (),
-                            Err(e) => {
-                                warn!("Unable to broadcast manifest update: {:?}", e);
+                            Err(_) => {
+                                debug!("Manifest receiver hung up, exiting.");
                                 return;
                             }
                         }
