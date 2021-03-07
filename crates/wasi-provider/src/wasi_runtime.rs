@@ -1,6 +1,5 @@
 use anyhow::bail;
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -9,10 +8,10 @@ use tempfile::NamedTempFile;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use wasi_common::preopen_dir;
+use wasi_cap_std_sync::WasiCtxBuilder;
 use wasmtime::InterruptHandle;
-use wasmtime_wasi::old::snapshot_0::Wasi as WasiUnstable;
-use wasmtime_wasi::{Wasi, WasiCtxBuilder};
+use wasmtime_wasi::snapshots::preview_0::Wasi as WasiUnstable;
+use wasmtime_wasi::snapshots::preview_1::Wasi;
 
 use kubelet::container::Handle as ContainerHandle;
 use kubelet::container::Status;
@@ -157,19 +156,35 @@ impl WasiRuntime {
 
         let name = self.name.clone();
         let handle = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+            let env: Vec<(String, String)> = data
+                .env
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            let stdout = unsafe { cap_std::fs::File::from_std(output_write.try_clone()?) };
+            let stdout = wasi_cap_std_sync::file::File::from_cap_std(stdout);
+            let stderr = unsafe { cap_std::fs::File::from_std(output_write.try_clone()?) };
+            let stderr = wasi_cap_std_sync::file::File::from_cap_std(stderr);
+
             // Build the WASI instance and then generate a list of WASI modules
-            let mut ctx_builder_snapshot = WasiCtxBuilder::new();
+            let ctx_builder_snapshot = WasiCtxBuilder::new();
             let mut ctx_builder_snapshot = ctx_builder_snapshot
-                .args(&data.args)
-                .envs(&data.env)
-                .stdout(wasi_common::OsFile::try_from(output_write.try_clone()?)?)
-                .stderr(wasi_common::OsFile::try_from(output_write.try_clone()?)?);
-            let mut ctx_builder_unstable = wasi_common::WasiCtxBuilder::new();
+                .args(&data.args)?
+                .envs(&env)?
+                .stdout(Box::new(stdout))
+                .stderr(Box::new(stderr));
+
+            let stdout = unsafe { cap_std::fs::File::from_std(output_write.try_clone()?) };
+            let stdout = wasi_cap_std_sync::file::File::from_cap_std(stdout);
+            let stderr = unsafe { cap_std::fs::File::from_std(output_write.try_clone()?) };
+            let stderr = wasi_cap_std_sync::file::File::from_cap_std(stderr);
+
+            let ctx_builder_unstable = WasiCtxBuilder::new();
             let mut ctx_builder_unstable = ctx_builder_unstable
-                .args(&data.args)
-                .envs(&data.env)
-                .stdout(wasi_common::OsFile::try_from(output_write.try_clone()?)?)
-                .stderr(wasi_common::OsFile::try_from(output_write.try_clone()?)?);
+                .args(&data.args)?
+                .envs(&env)?
+                .stdout(Box::new(stdout))
+                .stderr(Box::new(stderr));
 
             for (key, value) in data.dirs.iter() {
                 let guest_dir = value.as_ref().unwrap_or(key);
@@ -179,10 +194,12 @@ impl WasiRuntime {
                     key.display(),
                     guest_dir.display()
                 );
+                let preopen_dir = unsafe { cap_std::fs::Dir::open_ambient_dir(key) }?;
                 ctx_builder_snapshot =
-                    ctx_builder_snapshot.preopened_dir(preopen_dir(key)?, guest_dir);
+                    ctx_builder_snapshot.preopened_dir(preopen_dir, guest_dir)?;
+                let preopen_dir = unsafe { cap_std::fs::Dir::open_ambient_dir(key) }?;
                 ctx_builder_unstable =
-                    ctx_builder_unstable.preopened_dir(preopen_dir(key)?, guest_dir);
+                    ctx_builder_unstable.preopened_dir(preopen_dir, guest_dir)?;
             }
             let wasi_ctx_snapshot = ctx_builder_snapshot.build()?;
             let wasi_ctx_unstable = ctx_builder_unstable.build()?;
@@ -194,8 +211,14 @@ impl WasiRuntime {
             tx.send(interrupt)
                 .map_err(|_| anyhow::anyhow!("Unable to send interrupt back to main thread"))?;
 
-            let wasi_snapshot = Wasi::new(&store, wasi_ctx_snapshot);
-            let wasi_unstable = WasiUnstable::new(&store, wasi_ctx_unstable);
+            let wasi_snapshot = Wasi::new(
+                &store,
+                std::rc::Rc::new(std::cell::RefCell::new(wasi_ctx_snapshot)),
+            );
+            let wasi_unstable = WasiUnstable::new(
+                &store,
+                std::rc::Rc::new(std::cell::RefCell::new(wasi_ctx_unstable)),
+            );
             let module = match wasmtime::Module::new(&engine, &data.module_data) {
                 // We can't map errors here or it moves the send channel, so we
                 // do it in a match
