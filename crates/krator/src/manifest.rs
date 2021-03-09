@@ -5,12 +5,23 @@ use tokio_stream::{wrappers::WatchStream, Stream};
 
 /// Wrapper for `ObjectState::Manifest` type which reflects
 /// the latest version of the object's manifest.
-pub struct Manifest<T: Clone + Sync + Send + std::marker::Unpin + 'static> {
+pub struct Manifest<T>
+where
+    T: Clone + Sync + Send + std::marker::Unpin + 'static,
+{
+    // This looks super hacky, but there does not appear to be a way to get the
+    // `latest()` value from a `WatchStream` because the `Receiver` is stored
+    // in a private field. `Receiver` should be pretty lightweight to clone,
+    // and calling `borrow()` does not appear to update the version stored, so
+    // there shouldn't be any issue with these two being "out of sync".
     rx: Receiver<T>,
     stream: WatchStream<T>,
 }
 
-impl<T: Clone + Sync + Send + std::marker::Unpin + 'static> Clone for Manifest<T> {
+impl<T> Clone for Manifest<T>
+where
+    T: Clone + Sync + Send + std::marker::Unpin + 'static,
+{
     fn clone(self: &Manifest<T>) -> Manifest<T> {
         Manifest {
             rx: self.rx.clone(),
@@ -19,7 +30,10 @@ impl<T: Clone + Sync + Send + std::marker::Unpin + 'static> Clone for Manifest<T
     }
 }
 
-impl<T: Clone + Sync + Send + std::marker::Unpin + 'static> Manifest<T> {
+impl<T> Manifest<T>
+where
+    T: Clone + Sync + Send + std::marker::Unpin + 'static,
+{
     /// Create a new Manifest wrapper from the initial object manifest.
     pub fn new(inner: T) -> (Sender<T>, Self) {
         let (tx, rx) = channel(inner);
@@ -33,8 +47,9 @@ impl<T: Clone + Sync + Send + std::marker::Unpin + 'static> Manifest<T> {
     }
 }
 
-impl<T: Clone + Sync + Send + std::marker::Unpin + 'static + std::fmt::Debug> Stream
-    for Manifest<T>
+impl<T> Stream for Manifest<T>
+where
+    T: Clone + Sync + Send + std::marker::Unpin + 'static,
 {
     type Item = T;
 
