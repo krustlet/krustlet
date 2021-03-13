@@ -1,3 +1,7 @@
+// TODO: This is needed due to this PR not being merged:
+// https://github.com/GREsau/schemars/pull/65
+#![allow(clippy::field_reassign_with_default)]
+
 use k8s_openapi::Metadata;
 use krator::{
     Manifest, ObjectState, ObjectStatus, Operator, OperatorRuntime, State, Transition, TransitionTo,
@@ -10,6 +14,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use structopt::StructOpt;
 use tokio::sync::RwLock;
 use tracing::info;
 
@@ -332,11 +337,72 @@ impl Operator for MooseTracker {
     }
 }
 
+#[derive(Debug, StructOpt)]
+#[structopt(
+    name = "moose",
+    about = "An example Operator for `Moose` custom resources."
+)]
+struct Opt {
+    /// Send traces to Jaeger.
+    /// Configure with the standard environment variables:
+    /// https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/sdk-environment-variables.md#jaeger-exporter
+    #[structopt(long)]
+    jaeger: bool,
+    /// Configure logger to emit JSON output.
+    #[structopt(long)]
+    json: bool,
+}
+
+fn init_logger() -> anyhow::Result<Option<opentelemetry_jaeger::Uninstall>> {
+    // This isn't very DRY, but all of these combinations have different types,
+    // and Boxing them doesn't seem to work.
+    let opt = Opt::from_args();
+    let guard = if opt.json {
+        let subscriber = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .json()
+            .finish();
+        if opt.jaeger {
+            use tracing_subscriber::layer::SubscriberExt;
+            let (tracer, _uninstall) = opentelemetry_jaeger::new_pipeline()
+                .from_env()
+                .with_service_name("moose_operator")
+                .install()?;
+            let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+            let subscriber = subscriber.with(telemetry);
+            tracing::subscriber::set_global_default(subscriber)?;
+            Some(_uninstall)
+        } else {
+            tracing::subscriber::set_global_default(subscriber)?;
+            None
+        }
+    } else {
+        let subscriber = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .pretty()
+            .finish();
+        if opt.jaeger {
+            use tracing_subscriber::layer::SubscriberExt;
+            let (tracer, _uninstall) = opentelemetry_jaeger::new_pipeline()
+                .from_env()
+                .with_service_name("moose_operator")
+                .install()?;
+            let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+            let subscriber = subscriber.with(telemetry);
+            tracing::subscriber::set_global_default(subscriber)?;
+            Some(_uninstall)
+        } else {
+            tracing::subscriber::set_global_default(subscriber)?;
+            None
+        }
+    };
+    Ok(guard)
+}
+
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    let _guard = init_logger()?;
+
     let kubeconfig = kube::Config::infer().await?;
     let tracker = MooseTracker::new();
 
