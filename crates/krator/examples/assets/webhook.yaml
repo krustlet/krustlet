@@ -27,7 +27,7 @@ webhooks:
   rules:
   - apiGroups:   ["animals.com"]
     apiVersions: ["v1"]
-    operations:  ["CREATE"]
+    operations:  ["*"]
     resources:   ["mooses"]
     scope:       "Namespaced"
   clientConfig:
