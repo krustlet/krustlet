@@ -18,7 +18,7 @@ pub struct Socket {
 }
 
 impl Socket {
-    pub async fn new<P: AsRef<Path>>(path: &P) -> anyhow::Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: &P) -> anyhow::Result<Self> {
         let listener = tokio::net::UnixListener::bind(path)?;
         Ok(Socket { listener })
     }
