@@ -474,7 +474,6 @@ mod test {
 
     async fn setup_server(plugin: impl Registration, path: impl AsRef<Path>) {
         let socket = grpc_sock::server::Socket::new(&path)
-            .await
             .expect("unable to setup server listening on socket");
 
         tokio::spawn(async move {
@@ -642,7 +641,6 @@ mod test {
         // Manual server setup so we can kill the server
         let sock_path = tempdir.path().join("foo.sock");
         let socket = grpc_sock::server::Socket::new(&sock_path)
-            .await
             .expect("unable to setup server listening on socket");
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();

@@ -36,9 +36,11 @@ pub async fn socket_channel<P: AsRef<Path>>(path: P) -> Result<Channel, tonic::t
             let path_copy = p.to_owned();
             // Connect to a Uds socket
             async move {
-                let stream =
-                    tokio::task::spawn_blocking(move || UnixStream::connect(path_copy)).await??;
-                windows::UnixStream::new(stream).await
+                tokio::task::spawn_blocking(move || {
+                    let stream = UnixStream::connect(path_copy)?;
+                    windows::UnixStream::new(stream)
+                })
+                .await?
             }
         }))
         .await;

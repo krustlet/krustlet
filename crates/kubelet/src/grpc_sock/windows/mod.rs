@@ -17,16 +17,23 @@ pub struct UnixStream {
 }
 
 impl UnixStream {
-    pub async fn new(
-        stream: crate::mio_uds_windows::UnixStream,
-    ) -> Result<UnixStream, std::io::Error> {
-        let inner = async {
+    pub fn new(stream: crate::mio_uds_windows::UnixStream) -> Result<UnixStream, std::io::Error> {
+        let inner = match async {
             Ok::<_, std::io::Error>(tokio_compat_02::IoCompat::new(
                 tokio_02::io::PollEvented::new(stream)?,
             ))
         }
         .compat()
-        .await?;
+        .now_or_never()
+        {
+            Some(res) => res?,
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Unable to start IO poll",
+                ))
+            }
+        };
         Ok(UnixStream { inner })
     }
 }
@@ -37,13 +44,16 @@ pub struct Socket {
 
 impl Socket {
     #[allow(dead_code)]
-    pub async fn new<P: AsRef<Path>>(path: &P) -> anyhow::Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: &P) -> anyhow::Result<Self> {
         let p = path.as_ref().to_owned();
-        let listener =
-            tokio::task::spawn_blocking(|| crate::mio_uds_windows::UnixListener::bind(p)).await??;
-        let listener = async { tokio_02::io::PollEvented::new(listener) }
+        let listener = crate::mio_uds_windows::UnixListener::bind(p)?;
+        let listener = match async { tokio_02::io::PollEvented::new(listener) }
             .compat()
-            .await?;
+            .now_or_never()
+        {
+            Some(res) => res?,
+            None => return Err(anyhow::anyhow!("Unable to poll IO")),
+        };
         Ok(Socket { listener })
     }
 }
@@ -67,17 +77,7 @@ impl Stream for Socket {
                 return Poll::Pending;
             }
         };
-        // The `new` function for a UnixStream is async so it can run on the
-        // right runtime version. All it needs is the handle, so there is no
-        // actual awaiting, so it is fine to loop here until the poll is ready
-        let mut fut = UnixStream::new(stream).boxed();
-        let stream = loop {
-            match fut.poll_unpin(cx) {
-                Poll::Ready(res) => break res,
-                Poll::Pending => continue,
-            }
-        };
-        Poll::Ready(Some(stream))
+        Poll::Ready(Some(UnixStream::new(stream)))
     }
 }
 
