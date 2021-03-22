@@ -4,6 +4,7 @@ use super::Pod;
 use crate::container::make_initial_container_status;
 use k8s_openapi::api::core::v1::ContainerStatus as KubeContainerStatus;
 use k8s_openapi::api::core::v1::Pod as KubePod;
+use k8s_openapi::api::core::v1::PodCondition as KubePodCondition;
 use k8s_openapi::api::core::v1::PodStatus as KubePodStatus;
 use krator::{Manifest, ObjectStatus};
 use kube::api::PatchParams;
@@ -191,6 +192,12 @@ impl StatusBuilder {
         self
     }
 
+    /// Set Pod conditions.
+    pub fn conditions(mut self, conditions: Vec<KubePodCondition>) -> StatusBuilder {
+        self.0.conditions = Some(conditions);
+        self
+    }
+
     /// Finalize Pod Status from builder.
     pub fn build(self) -> Status {
         Status(self.0)
@@ -247,6 +254,10 @@ impl ObjectStatus for Status {
 
         if let Some(s) = self.0.init_container_statuses.clone() {
             status.insert("initContainerStatuses".to_string(), serde_json::json!(s));
+        };
+
+        if let Some(s) = self.0.conditions.clone() {
+            status.insert("conditions".to_string(), serde_json::json!(s));
         };
 
         serde_json::json!(
