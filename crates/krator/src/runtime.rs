@@ -269,39 +269,42 @@ impl<O: Operator> OperatorRuntime<O> {
         Ok(())
     }
 
+    #[tracing::instrument(
+        level="trace",
+        skip(self, event),
+        fields(event=?PrettyEvent::from(&event))
+    )]
+    async fn handle_event(&mut self, event: Event<O::Manifest>) {
+        if let Some(ref signal) = self.signal {
+            if matches!(event, kube_runtime::watcher::Event::Applied(_))
+                && signal.load(Ordering::Relaxed)
+            {
+                warn!("Controller is shutting down (got signal). Dropping Add event.");
+                return;
+            }
+        }
+        if let Event::Restarted(objects) = event {
+            info!("Got a watch restart. Resyncing queue...");
+            // If we got a restart, we need to requeue an applied event for all objects
+            match self.resync(objects).await {
+                Ok(()) => info!("Finished resync of objects."),
+                Err(error) => warn!(?error, "Error resyncing objects."),
+            };
+        } else {
+            match self.dispatch(event).await {
+                Ok(()) => debug!("Dispatched event for processing."),
+                Err(error) => warn!(?error, "Error dispatching object event."),
+            };
+        }
+    }
+
     /// Listens for updates to objects and forwards them to queue.
     pub async fn main_loop(&mut self) {
         let api = Api::<O::Manifest>::all(self.client.clone());
         let mut informer = watcher(api, self.list_params.clone()).boxed();
         loop {
             match informer.try_next().await {
-                Ok(Some(event)) => {
-                    if let Some(ref signal) = self.signal {
-                        if matches!(event, kube_runtime::watcher::Event::Applied(_))
-                            && signal.load(Ordering::Relaxed)
-                        {
-                            warn!("Controller is shutting down (got signal). Dropping Add event.");
-                            continue;
-                        }
-                    }
-                    debug!(
-                        event=?PrettyEvent::from(&event),
-                        "Handling Kubernetes object event."
-                    );
-                    if let Event::Restarted(objects) = event {
-                        info!("Got a watch restart. Resyncing queue...");
-                        // If we got a restart, we need to requeue an applied event for all objects
-                        match self.resync(objects).await {
-                            Ok(()) => info!("Finished resync of objects"),
-                            Err(error) => warn!(?error, "Error resyncing objects."),
-                        };
-                    } else {
-                        match self.dispatch(event).await {
-                            Ok(()) => debug!("Dispatched event for processing"),
-                            Err(error) => warn!(?error, "Error dispatching object event."),
-                        };
-                    }
-                }
+                Ok(Some(event)) => self.handle_event(event).await,
                 Ok(None) => break,
                 Err(error) => warn!(?error, "Error streaming object events."),
             }
