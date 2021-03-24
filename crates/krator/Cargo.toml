@@ -1,6 +1,6 @@
 [package]
 name = "krator"
-version = "0.1.0"
+version = "0.2.0"
 authors = [
     "Matt Butcher <matt.butcher@microsoft.com>",
     "Matthew Fisher <matt.fisher@microsoft.com>",
