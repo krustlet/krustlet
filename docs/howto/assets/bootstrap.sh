@@ -6,9 +6,10 @@ export LC_ALL=C
 token_id="$(</dev/urandom tr -dc a-z0-9 | head -c "${1:-6}";echo;)"
 token_secret="$(< /dev/urandom tr -dc a-z0-9 | head -c "${1:-16}";echo;)"
 
-# support gnu and BSD date command
+# support gnu, BSD and busybox date command
 expiration=$(date -u "+%Y-%m-%dT%H:%M:%SZ" --date "1 hour" 2>/dev/null ||
-  date -v+1H -u "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+  date -v+1H -u "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null ||
+  date -u "+%Y-%m-%dT%H:%M:%SZ" -D "%s" -d "$(( `date +%s`+3600 ))")
 
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
