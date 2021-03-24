@@ -5,7 +5,7 @@ use std::sync::Arc;
 use futures::{StreamExt, TryStreamExt};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Notify;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::Metadata;
@@ -21,6 +21,39 @@ use crate::object::ObjectKey;
 use crate::object::ObjectState;
 use crate::operator::Operator;
 use crate::state::{run_to_completion, SharedState};
+
+#[derive(Debug)]
+enum PrettyEvent {
+    Applied {
+        name: String,
+        namespace: Option<String>,
+    },
+    Deleted {
+        name: String,
+        namespace: Option<String>,
+    },
+    Restarted {
+        count: usize,
+    },
+}
+
+impl<R: Meta> From<&Event<R>> for PrettyEvent {
+    fn from(event: &Event<R>) -> Self {
+        match event {
+            Event::Applied(object) => PrettyEvent::Applied {
+                name: object.name(),
+                namespace: object.namespace(),
+            },
+            Event::Deleted(object) => PrettyEvent::Deleted {
+                name: object.name(),
+                namespace: object.namespace(),
+            },
+            Event::Restarted(objects) => PrettyEvent::Restarted {
+                count: objects.len(),
+            },
+        }
+    }
+}
 
 /// Accepts a type implementing the `Operator` trait and watches
 /// for resources of the associated `Manifest` type, running the
@@ -51,6 +84,11 @@ impl<O: Operator> OperatorRuntime<O> {
     /// Dispatch event to the matching resource's task.
     /// If no task is found, `self.start_object` is called to start a task for
     /// the new object.
+    #[tracing::instrument(
+      level="trace",
+      skip(self, event),
+      fields(event = ?PrettyEvent::from(&event))
+    )]
     async fn dispatch(&mut self, event: Event<O::Manifest>) -> anyhow::Result<()> {
         match &event {
             Event::Applied(object) => {
@@ -59,28 +97,22 @@ impl<O: Operator> OperatorRuntime<O> {
                 // mutex
                 match self.handlers.get_mut(&key) {
                     Some(sender) => {
-                        debug!(
-                            "Found existing event handler for object {} in namespace {:?}.",
-                            key.name(),
-                            key.namespace()
-                        );
+                        trace!("Found existing event handler for object.");
                         match sender.send(event).await {
-                            Ok(_) => debug!(
-                                "successfully sent event to handler for object {} in namespace {:?}.",
-                                key.name(),
-                                key.namespace()
-                            ),
-                            Err(e) => error!(
-                                "error while sending event. Will retry on next event: {:?}.",
-                                e
+                            Ok(_) => trace!("Successfully sent event to handler for object."),
+                            Err(error) => error!(
+                                name=key.name(),
+                                namespace=?key.namespace(),
+                                ?error,
+                                "Error while sending event. Will retry on next event.",
                             ),
                         }
                     }
                     None => {
                         debug!(
-                            "Creating event handler for object {} in namespace {:?}.",
-                            key.name(),
-                            key.namespace()
+                            name=key.name(),
+                            namespace=?key.namespace(),
+                            "Creating event handler for object.",
                         );
                         self.handlers.insert(
                             key.clone(),
@@ -144,7 +176,7 @@ impl<O: Operator> OperatorRuntime<O> {
                 // an object
                 match event {
                     Event::Applied(manifest) => {
-                        debug!(
+                        trace!(
                             "Resource {} in namespace {:?} applied.",
                             manifest.name(),
                             manifest.namespace()
@@ -200,6 +232,11 @@ impl<O: Operator> OperatorRuntime<O> {
 
     /// Resyncs the queue given the list of objects. Objects that exist in
     /// the queue but no longer exist in the list will be deleted
+    #[tracing::instrument(
+      level="trace",
+      skip(self, objects),
+      fields(count=objects.len())
+    )]
     async fn resync(&mut self, objects: Vec<O::Manifest>) -> anyhow::Result<()> {
         // First reconcile any deleted items we might have missed (if it exists
         // in our map, but not in the list)
@@ -212,14 +249,53 @@ impl<O: Operator> OperatorRuntime<O> {
                 meta.name = Some(key.name().to_string());
                 meta.namespace = key.namespace().cloned();
             }
+            trace!(
+                name=key.name(),
+                namespace=?key.namespace(),
+                "object_deleted"
+            );
             self.dispatch(Event::Deleted(manifest)).await?;
         }
 
         // Now that we've sent off deletes, queue an apply event for all pods
         for object in objects.into_iter() {
+            trace!(
+                name=%object.name(),
+                namespace=?object.namespace(),
+                "object_applied"
+            );
             self.dispatch(Event::Applied(object)).await?
         }
         Ok(())
+    }
+
+    #[tracing::instrument(
+        level="trace",
+        skip(self, event),
+        fields(event=?PrettyEvent::from(&event))
+    )]
+    async fn handle_event(&mut self, event: Event<O::Manifest>) {
+        if let Some(ref signal) = self.signal {
+            if matches!(event, kube_runtime::watcher::Event::Applied(_))
+                && signal.load(Ordering::Relaxed)
+            {
+                warn!("Controller is shutting down (got signal). Dropping Add event.");
+                return;
+            }
+        }
+        if let Event::Restarted(objects) = event {
+            info!("Got a watch restart. Resyncing queue...");
+            // If we got a restart, we need to requeue an applied event for all objects
+            match self.resync(objects).await {
+                Ok(()) => info!("Finished resync of objects."),
+                Err(error) => warn!(?error, "Error resyncing objects."),
+            };
+        } else {
+            match self.dispatch(event).await {
+                Ok(()) => debug!("Dispatched event for processing."),
+                Err(error) => warn!(?error, "Error dispatching object event."),
+            };
+        }
     }
 
     /// Listens for updates to objects and forwards them to queue.
@@ -228,32 +304,9 @@ impl<O: Operator> OperatorRuntime<O> {
         let mut informer = watcher(api, self.list_params.clone()).boxed();
         loop {
             match informer.try_next().await {
-                Ok(Some(event)) => {
-                    if let Some(ref signal) = self.signal {
-                        if matches!(event, kube_runtime::watcher::Event::Applied(_))
-                            && signal.load(Ordering::Relaxed)
-                        {
-                            warn!("Controller is shutting down (got signal). Dropping Add event.");
-                            continue;
-                        }
-                    }
-                    debug!("Handling Kubernetes object event: {:?}", event);
-                    if let Event::Restarted(objects) = event {
-                        info!("Got a watch restart. Resyncing queue...");
-                        // If we got a restart, we need to requeue an applied event for all objects
-                        match self.resync(objects).await {
-                            Ok(()) => info!("Finished resync of objects"),
-                            Err(e) => warn!("Error resyncing objects: {}", e),
-                        };
-                    } else {
-                        match self.dispatch(event).await {
-                            Ok(()) => debug!("Dispatched event for processing"),
-                            Err(e) => warn!("Error dispatching object event: {}", e),
-                        };
-                    }
-                }
+                Ok(Some(event)) => self.handle_event(event).await,
                 Ok(None) => break,
-                Err(e) => warn!("Error streaming object events: {:?}", e),
+                Err(error) => warn!(?error, "Error streaming object events."),
             }
         }
     }

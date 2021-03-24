@@ -4,6 +4,7 @@ use k8s_openapi::Resource;
 use kube::api::{Meta, PatchParams};
 use kube::Api;
 use serde::de::DeserializeOwned;
+use tracing::Instrument;
 use tracing::{debug, error, trace, warn};
 
 use crate::object::ObjectStatus;
@@ -101,78 +102,94 @@ pub async fn run_to_completion<S: ResourceState>(
     let mut state: Box<dyn State<S>> = Box::new(state);
 
     loop {
-        debug!(
-            "Object {} in namespace {:?} entering state {:?}",
-            &name, &namespace, state
-        );
-
-        let latest_manifest = manifest.latest();
-
-        match state.status(object_state, &latest_manifest).await {
-            Ok(status) => {
-                patch_status(&api, &name, status).await;
-            }
-            Err(e) => {
-                warn!(
-                    "Object {} in namespace {:?} status patch returned error: {:?}",
-                    &name, &namespace, e
-                );
-            }
-        }
-
-        trace!(
-            "Object {} in namespace {:?} executing state handler {:?}",
+        state = match execute_object_state(
             &name,
             &namespace,
-            state
-        );
-        let transition = {
-            state
-                .next(shared.clone(), object_state, manifest.clone())
-                .await
-        };
+            state,
+            &api,
+            &shared,
+            object_state,
+            &manifest,
+        )
+        .await
+        {
+            Some(state) => state,
+            None => break,
+        }
+    }
+}
 
-        state = match transition {
-            Transition::Next(s) => {
-                let state = s.into();
-                trace!(
-                    "Object {} in namespace {:?} transitioning to {:?}.",
-                    &name,
-                    &namespace,
-                    state
-                );
-                state
+#[tracing::instrument(level = "trace", skip(object_state, manifest, api, shared))]
+async fn execute_object_state<S: ResourceState>(
+    name: &str,
+    namespace: &Option<String>,
+    state: Box<dyn State<S>>,
+    api: &Api<S::Manifest>,
+    shared: &SharedState<S::SharedState>,
+    object_state: &mut S,
+    manifest: &Manifest<S::Manifest>,
+) -> Option<Box<dyn State<S>>>
+where
+    S::Manifest: Resource + Meta + DeserializeOwned,
+    S::Status: ObjectStatus,
+{
+    let latest_manifest = manifest.latest();
+    let span = tracing::debug_span!("State::status");
+    match state
+        .status(object_state, &latest_manifest)
+        .instrument(span)
+        .await
+    {
+        Ok(status) => {
+            patch_status(&api, &name, status).await;
+        }
+        Err(error) => {
+            warn!(?error, "Object status patch returned error.",);
+        }
+    }
+
+    let transition = {
+        let span = tracing::trace_span!("State::next",);
+        state
+            .next(shared.clone(), object_state, manifest.clone())
+            .instrument(span)
+            .await
+    };
+
+    match transition {
+        Transition::Next(s) => {
+            let next_state = s.into();
+            trace!(?next_state, "Object transitioning to new state",);
+            Some(next_state)
+        }
+        Transition::Complete(result) => match result {
+            Ok(()) => {
+                debug!("Object state machine exited without error.",);
+                None
             }
-            Transition::Complete(result) => match result {
-                Ok(()) => {
-                    debug!(
-                        "Object {} in namespace {:?} state machine exited without error",
-                        &name, &namespace
-                    );
-                    break;
-                }
-                Err(e) => {
-                    error!(
-                        "Object {} in namespace {:?} state machine exited with error: {:?}",
-                        &name, &namespace, e
-                    );
-                    let status = S::Status::failed(&format!("{:?}", e));
-                    patch_status(&api, &name, status).await;
-                    break;
-                }
-            },
-        };
+            Err(error) => {
+                error!(?error, "Object state machine exited with error.",);
+                let status = S::Status::failed(&format!("{:?}", error));
+                patch_status(&api, &name, status).await;
+                None
+            }
+        },
     }
 }
 
 /// Patch object status with Kubernetes API.
+#[tracing::instrument(level = "trace", skip(api, name, status))]
 pub async fn patch_status<R: Resource + Clone + DeserializeOwned, S: ObjectStatus>(
     api: &Api<R>,
     name: &str,
     status: S,
 ) {
     let patch = status.json_patch();
-    debug!("Applying status patch to object {}: '{:?}'", &name, &patch);
+    debug!(
+        %name,
+        %patch,
+        "Applying status patch to object."
+    );
     match api
         .patch_status(
             &name,
@@ -182,8 +199,12 @@ pub async fn patch_status<R: Resource + Clone + DeserializeOwned, S: ObjectStatu
         .await
     {
         Ok(_) => (),
-        Err(e) => {
-            warn!("Object {} error patching status: {:?}", name, e);
+        Err(error) => {
+            warn!(
+                %name,
+                ?error,
+                "Object error patching status."
+            );
         }
     }
 }
