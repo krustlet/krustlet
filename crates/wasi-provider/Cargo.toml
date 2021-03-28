@@ -23,7 +23,7 @@ rustls-tls = ["kube/rustls-tls", "kubelet/rustls-tls", "krator/rustls-tls"]
 anyhow = "1.0"
 async-trait = "0.1"
 backtrace = "0.3"
-kube = { version = "0.48", default-features = false }
+kube = { version = "0.51", default-features = false }
 wasmtime = "0.24"
 wasmtime-wasi = "0.24"
 wasi-common = "0.24"

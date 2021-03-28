@@ -35,6 +35,7 @@
 mod wasi_runtime;
 
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -74,7 +75,7 @@ pub struct ProviderState {
     handles: PodHandleMap,
     store: Arc<dyn Store + Sync + Send>,
     log_path: PathBuf,
-    kubeconfig: kube::Config,
+    client: kube::Client,
     volume_path: PathBuf,
     plugin_registry: Arc<PluginRegistry>,
 }
@@ -82,7 +83,7 @@ pub struct ProviderState {
 #[async_trait]
 impl GenericProviderState for ProviderState {
     fn client(&self) -> kube::client::Client {
-        kube::Client::new(self.kubeconfig.clone())
+        self.client.clone()
     }
     fn store(&self) -> std::sync::Arc<(dyn Store + Send + Sync + 'static)> {
         self.store.clone()
@@ -116,13 +117,14 @@ impl WasiProvider {
         let volume_path = config.data_dir.join(VOLUME_DIR);
         tokio::fs::create_dir_all(&log_path).await?;
         tokio::fs::create_dir_all(&volume_path).await?;
+        let client = kube::Client::try_from(kubeconfig)?;
         Ok(Self {
             shared: ProviderState {
                 handles: Default::default(),
                 store,
                 log_path,
                 volume_path,
-                kubeconfig,
+                client,
                 plugin_registry,
             },
         })
