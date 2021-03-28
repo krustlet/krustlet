@@ -25,13 +25,13 @@ const DEFAULT_PLUGIN_PATH: &str = "/var/lib/kubelet/plugins_registry/";
 const DEFAULT_PLUGIN_PATH: &str = "c:\\ProgramData\\kubelet\\plugins_registry";
 
 const SOCKET_EXTENSION: &str = "sock";
-const ALLOWED_PLUGIN_TYPES: &[PluginType] = &[PluginType::CSIPlugin];
+const ALLOWED_PLUGIN_TYPES: &[PluginType] = &[PluginType::CsiPlugin];
 
 /// An enum for capturing possible plugin types. This is purely for clarity and capturing this
 /// information is a compiled type as the information we get from gRPC is a string
 #[derive(Debug, PartialEq)]
 enum PluginType {
-    CSIPlugin,
+    CsiPlugin,
     DevicePlugin,
 }
 
@@ -40,7 +40,7 @@ impl TryFrom<&str> for PluginType {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "CSIPlugin" => Ok(PluginType::CSIPlugin),
+            "CSIPlugin" => Ok(PluginType::CsiPlugin),
             "DevicePlugin" => Ok(PluginType::DevicePlugin),
             _ => Err(anyhow::anyhow!(
                 "Unknown plugin type {}. Allowed types are 'CSIPlugin' and 'DevicePlugin'",
@@ -185,7 +185,7 @@ impl PluginRegistry {
     }
 
     /// Registers the plugin in our HashMap
-    async fn register(&self, info: &PluginInfo, discovered_path: &PathBuf) {
+    async fn register(&self, info: &PluginInfo, discovered_path: &Path) {
         let mut lock = self.plugins.write().await;
         lock.insert(
             info.name.clone(),
@@ -207,7 +207,7 @@ impl PluginRegistry {
     /// 2. Does the list of supported versions contain the version we expect?
     /// 3. Is the plugin name available? 3a. If the name is already registered, is the endpoint the
     ///    exact same? If it is, we allow it to reregister
-    async fn validate(&self, info: &PluginInfo, discovered_path: &PathBuf) -> anyhow::Result<()> {
+    async fn validate(&self, info: &PluginInfo, discovered_path: &Path) -> anyhow::Result<()> {
         trace!(
             "Starting validation for plugin {:?} discovered at path {}",
             info,
@@ -256,7 +256,7 @@ impl PluginRegistry {
     async fn validate_is_unique(
         &self,
         info: &PluginInfo,
-        discovered_path: &PathBuf,
+        discovered_path: &Path,
     ) -> anyhow::Result<()> {
         let plugins = self.plugins.read().await;
 
@@ -307,7 +307,7 @@ fn is_allowed_plugin_type(t: PluginType) -> bool {
 }
 
 /// Attempts a `GetInfo` gRPC call to the endpoint to the path given
-async fn get_plugin_info(path: &PathBuf) -> anyhow::Result<PluginInfo> {
+async fn get_plugin_info(path: &Path) -> anyhow::Result<PluginInfo> {
     trace!("Connecting to plugin at {:?} for GetInfo", path);
     let chan = grpc_sock::client::socket_channel(path).await?;
     let mut client = RegistrationClient::new(chan);
@@ -332,7 +332,7 @@ async fn get_plugin_info(path: &PathBuf) -> anyhow::Result<PluginInfo> {
 /// Informs the plugin at the given path of registration success or error. If the error parameter is
 /// `None`, it will report as successful, otherwise the error message contained in the `Option` will
 /// be sent to the plugin and it will be marked as failed
-async fn inform_plugin(path: &PathBuf, error: Option<String>) -> anyhow::Result<()> {
+async fn inform_plugin(path: &Path, error: Option<String>) -> anyhow::Result<()> {
     trace!(
         "Connecting to plugin at {:?} for NotifyRegistrationStatus",
         path

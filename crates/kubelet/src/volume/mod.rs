@@ -3,7 +3,7 @@
 //! logic for supported volume providers.
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use k8s_openapi::api::core::v1::KeyToPath;
@@ -48,7 +48,7 @@ impl Ref {
     /// HashMap of volume names to a PathBuf for the directory where the volume
     /// is mounted
     pub async fn volumes_from_pod(
-        volume_dir: &PathBuf,
+        volume_dir: &Path,
         pod: &Pod,
         client: &kube::Client,
         plugin_registry: Option<Arc<PluginRegistry>>,
@@ -92,7 +92,7 @@ impl Ref {
     /// Unmounts any volumes mounted to the pod. Usually called when dropping
     /// the pod out of scope.
     pub async fn unmount_volumes_from_pod(
-        volume_dir: &PathBuf,
+        volume_dir: &Path,
         pod: &Pod,
         client: &kube::Client,
         plugin_registry: Option<Arc<PluginRegistry>>,
@@ -188,7 +188,7 @@ async fn configure(
     namespace: &str,
     client: &kube::Client,
     plugin_registry: Option<Arc<PluginRegistry>>,
-    path: &PathBuf,
+    path: &Path,
 ) -> anyhow::Result<VolumeType> {
     if let Some(cm) = &vol.config_map {
         let name = &cm

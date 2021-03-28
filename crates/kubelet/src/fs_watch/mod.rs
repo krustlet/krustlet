@@ -122,7 +122,7 @@ mod mac {
         rx
     }
 
-    async fn get_dir_list(path: &PathBuf) -> Result<HashSet<PathBuf>, std::io::Error> {
+    async fn get_dir_list(path: &Path) -> Result<HashSet<PathBuf>, std::io::Error> {
         // What does this monstrosity do? Well, due to async and all the random streaming involved
         // this:
         // 1. Reads the directory as a stream

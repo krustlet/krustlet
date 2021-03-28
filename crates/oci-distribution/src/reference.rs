@@ -1,4 +1,4 @@
-use std::convert::{Into, TryFrom};
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
@@ -207,9 +207,9 @@ impl TryFrom<&str> for Reference {
     }
 }
 
-impl Into<String> for Reference {
-    fn into(self) -> String {
-        self.whole()
+impl From<Reference> for String {
+    fn from(reference: Reference) -> Self {
+        reference.whole()
     }
 }
 

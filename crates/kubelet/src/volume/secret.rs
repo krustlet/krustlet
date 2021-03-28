@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use k8s_openapi::api::core::v1::{KeyToPath, Secret};
 use k8s_openapi::ByteString;
@@ -7,7 +7,7 @@ use super::*;
 
 pub(crate) async fn populate(
     secret: Secret,
-    path: &PathBuf,
+    path: &Path,
     items: &Option<Vec<KeyToPath>>,
 ) -> anyhow::Result<VolumeType> {
     tokio::fs::create_dir_all(path).await?;
