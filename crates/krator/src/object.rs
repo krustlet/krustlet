@@ -7,11 +7,8 @@ pub struct ObjectKey {
 }
 
 impl ObjectKey {
-    pub fn new(name: &str, namespace: &Option<String>) -> Self {
-        ObjectKey {
-            name: name.to_string(),
-            namespace: namespace.clone(),
-        }
+    pub fn new(namespace: Option<String>, name: String) -> Self {
+        ObjectKey { namespace, name }
     }
 
     pub fn name(&self) -> &str {

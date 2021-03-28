@@ -2,10 +2,12 @@
 
 #![deny(missing_docs)]
 
+pub mod manager;
 mod manifest;
 mod object;
 mod operator;
 mod runtime;
+pub mod store;
 
 #[cfg(feature = "admission-webhook")]
 pub mod admission;

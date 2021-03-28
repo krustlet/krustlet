@@ -149,7 +149,7 @@ impl<O: Operator> OperatorRuntime<O> {
                 Ok(())
             }
             ObjectEvent::Deleted { name, namespace } => {
-                let key = ObjectKey::new(&name, &namespace);
+                let key = ObjectKey::new(namespace.clone(), name.clone());
                 if let Some(sender) = self.handlers.remove(&key) {
                     debug!(
                         "Removed event handler for object {} in namespace {:?}.",
