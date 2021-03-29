@@ -12,7 +12,7 @@
 //!   (requires you to turn on the "cli" feature)
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[cfg(any(feature = "cli", feature = "docs"))]
 use std::iter::FromIterator;
@@ -127,9 +127,9 @@ struct ConfigBuilderFallbacks {
     hostname: fn() -> String,
     data_dir: fn() -> PathBuf,
     bootstrap_file: fn() -> PathBuf,
-    cert_path: fn(data_dir: &PathBuf) -> PathBuf,
-    key_path: fn(data_dir: &PathBuf) -> PathBuf,
-    plugins_dir: fn(data_dir: &PathBuf) -> PathBuf,
+    cert_path: fn(data_dir: &Path) -> PathBuf,
+    key_path: fn(data_dir: &Path) -> PathBuf,
+    plugins_dir: fn(data_dir: &Path) -> PathBuf,
     node_ip: fn(hostname: &mut String, preferred_ip_family: &IpAddr) -> IpAddr,
 }
 
@@ -521,9 +521,9 @@ pub struct Opts {
 }
 
 fn default_hostname() -> anyhow::Result<String> {
-    Ok(hostname::get()?
+    hostname::get()?
         .into_string()
-        .map_err(|_| anyhow::anyhow!("invalid utf-8 hostname string"))?)
+        .map_err(|_| anyhow::anyhow!("invalid utf-8 hostname string"))
 }
 
 fn default_data_dir() -> anyhow::Result<PathBuf> {
@@ -568,15 +568,15 @@ fn default_node_ip(hostname: &mut String, preferred_ip_family: &IpAddr) -> anyho
         .ip())
 }
 
-fn default_key_path(data_dir: &PathBuf) -> PathBuf {
+fn default_key_path(data_dir: &Path) -> PathBuf {
     data_dir.join("config/krustlet.key")
 }
 
-fn default_cert_path(data_dir: &PathBuf) -> PathBuf {
+fn default_cert_path(data_dir: &Path) -> PathBuf {
     data_dir.join("config/krustlet.crt")
 }
 
-fn default_plugins_path(data_dir: &PathBuf) -> PathBuf {
+fn default_plugins_path(data_dir: &Path) -> PathBuf {
     data_dir.join("plugins")
 }
 

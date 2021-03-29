@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::FromStr;
 
 use k8s_csi::v1_3_0::node_client::NodeClient;
@@ -190,7 +190,7 @@ pub(crate) async fn populate(
     client: &kube::Client,
     namespace: &str,
     pr: Option<Arc<PluginRegistry>>,
-    path: &PathBuf,
+    path: &Path,
 ) -> anyhow::Result<VolumeType> {
     if pr.is_none() {
         return Err(anyhow::anyhow!(format!(
@@ -231,7 +231,7 @@ pub(crate) async fn unpopulate(
     client: &kube::Client,
     namespace: &str,
     pr: Option<Arc<PluginRegistry>>,
-    path: &PathBuf,
+    path: &Path,
 ) -> anyhow::Result<()> {
     if pr.is_none() {
         return Err(anyhow::anyhow!(format!(
@@ -309,7 +309,7 @@ async fn publish_volume(
     csi: &CSIPersistentVolumeSource,
     staging_path: &Path,
     stage_unstage_volume: bool,
-    path: &PathBuf,
+    path: &Path,
 ) -> anyhow::Result<()> {
     let mut req = NodePublishVolumeRequest {
         volume_id: csi.volume_handle.clone(),
@@ -344,7 +344,7 @@ async fn publish_volume(
 async fn unpublish_volume(
     csi_client: &mut NodeClient<tonic::transport::Channel>,
     csi: &CSIPersistentVolumeSource,
-    path: &PathBuf,
+    path: &Path,
 ) -> anyhow::Result<()> {
     let req = NodeUnpublishVolumeRequest {
         volume_id: csi.volume_handle.clone(),
