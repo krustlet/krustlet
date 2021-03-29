@@ -51,7 +51,7 @@ tracing-futures = "0.2"
 
 [dev-dependencies]
 kube-derive = "0.51"
-schemars = "0.8.2"
+schemars = "0.8"
 serde_yaml = "0.8"
 chrono = "0.4"
 rand = "0.8"
