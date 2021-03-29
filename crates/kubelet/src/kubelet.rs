@@ -9,6 +9,7 @@ use crate::webserver::start as start_webserver;
 
 use futures::future::{FutureExt, TryFutureExt};
 use kube::api::ListParams;
+use std::convert::TryFrom;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::signal::ctrl_c;
@@ -57,7 +58,7 @@ impl<P: Provider> Kubelet<P> {
     /// This will listen on the given address, and will also begin watching for Pod
     /// events, which it will handle.
     pub async fn start(&self) -> anyhow::Result<()> {
-        let client = kube::Client::new(self.kube_config.clone());
+        let client = kube::Client::try_from(self.kube_config.clone())?;
 
         // Create the node. If it already exists, this will exit
         node::create(&client, &self.config, self.provider.clone()).await;
@@ -218,9 +219,10 @@ mod test {
     use tokio::sync::RwLock;
 
     fn mock_client() -> kube::Client {
-        kube::Client::new(kube::Config::new(
+        kube::Client::try_from(kube::Config::new(
             reqwest::Url::parse("http://127.0.0.1:8080").unwrap(),
         ))
+        .unwrap()
     }
 
     struct MockProvider;

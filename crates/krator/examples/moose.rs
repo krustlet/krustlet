@@ -1,7 +1,3 @@
-// TODO: This is needed due to this PR not being merged:
-// https://github.com/GREsau/schemars/pull/65
-#![allow(clippy::field_reassign_with_default)]
-
 use k8s_openapi::Metadata;
 use krator::{
     Manifest, ObjectState, ObjectStatus, Operator, OperatorRuntime, State, Transition, TransitionTo,

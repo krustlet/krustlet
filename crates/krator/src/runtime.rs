@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -70,7 +71,8 @@ pub struct OperatorRuntime<O: Operator> {
 impl<O: Operator> OperatorRuntime<O> {
     /// Create new runtime with optional ListParams.
     pub fn new(kubeconfig: &kube::Config, operator: O, params: Option<ListParams>) -> Self {
-        let client = Client::new(kubeconfig.clone());
+        let client = Client::try_from(kubeconfig.clone())
+            .expect("Unable to create kube::Client from kubeconfig.");
         let list_params = params.unwrap_or_default();
         OperatorRuntime {
             client,
