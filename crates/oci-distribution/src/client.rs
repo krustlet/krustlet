@@ -17,10 +17,9 @@ use futures_util::future;
 use futures_util::stream::StreamExt;
 use hyperx::header::Header;
 use reqwest::header::HeaderMap;
-use serde::de;
+use serde::Deserialize;
 use sha2::Digest;
 use std::collections::HashMap;
-use std::fmt;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tracing::debug;
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
@@ -753,91 +752,24 @@ impl ClientProtocol {
 }
 
 /// A token granted during the OAuth2-like workflow for OCI registries.
-#[derive(Default)]
-struct RegistryToken {
-    token: String,
-}
-
-const REGISTRY_TOKEN_JSON_PRIMARY_FIELD: &str = "token";
-const REGISTRY_TOKEN_JSON_SECONDARY_FIELD: &str = "access_token";
-
-impl<'de> de::Deserialize<'de> for RegistryToken {
-    /// Custom deserialize implementation for RegistryToken.
-    ///
-    /// When requesting a scoped authorization token from a registry,
-    /// an opaque token (typically JWT) is returned in a JSON response.
-    /// Some registries place this token in the 'token' field, whereas
-    /// other registries place this token in the 'access_token' field.
-    /// In rare cases, both 'token' and 'access_token' are provided
-    /// with identical values for compatibility purposes. In this
-    /// scenario, the 'access_token' field can be safely ignored.
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: de::Deserializer<'de>,
-    {
-        struct RegistryTokenVisitor;
-
-        impl<'de> de::Visitor<'de> for RegistryTokenVisitor {
-            type Value = RegistryToken;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("RegistryToken")
-            }
-
-            fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
-            where
-                V: de::MapAccess<'de>,
-            {
-                let mut token = String::new();
-                loop {
-                    let next_key_result = map.next_key::<String>();
-                    if next_key_result.is_err() {
-                        return Err(de::Error::custom("Unable to parse JSON"));
-                    }
-                    let next_key_option = next_key_result.unwrap();
-                    if next_key_option.is_none() {
-                        break; // done reading the map
-                    }
-                    let next_value_result = map.next_value::<String>();
-                    if next_value_result.is_err() {
-                        continue; // does not parse as string-to-string (e.g. 'expires_in' field)
-                    }
-                    let key = next_key_option.unwrap();
-                    let val = next_value_result.unwrap();
-                    let is_primary_field = key == REGISTRY_TOKEN_JSON_PRIMARY_FIELD;
-                    let is_secondary_field = key == REGISTRY_TOKEN_JSON_SECONDARY_FIELD;
-                    if is_primary_field || is_secondary_field {
-                        if !token.is_empty() {
-                            debug!(
-                                "Warning: Auth response JSON body contained both a '{}' field \
-                                and a '{}' field (ignoring the latter)",
-                                REGISTRY_TOKEN_JSON_PRIMARY_FIELD,
-                                REGISTRY_TOKEN_JSON_SECONDARY_FIELD
-                            );
-                            if is_secondary_field {
-                                continue; // do not overwrite value from primary with secondary
-                            }
-                        }
-                        token = val;
-                    }
-                }
-                if token.is_empty() {
-                    return Err(de::Error::custom(format!(
-                        "Neither of '{}' or '{}' fields found in JSON",
-                        REGISTRY_TOKEN_JSON_PRIMARY_FIELD, REGISTRY_TOKEN_JSON_SECONDARY_FIELD
-                    )));
-                }
-                Ok(Self::Value { token })
-            }
-        }
-
-        deserializer.deserialize_map(RegistryTokenVisitor {})
-    }
+#[derive(Deserialize)]
+#[serde(untagged)]
+#[serde(rename_all = "snake_case")]
+enum RegistryToken {
+    Token { token: String },
+    AccessToken { access_token: String },
 }
 
 impl RegistryToken {
     fn bearer_token(&self) -> String {
-        format!("Bearer {}", self.token)
+        format!("Bearer {}", self.token())
+    }
+
+    fn token(&self) -> &str {
+        match self {
+            RegistryToken::Token { token } => token,
+            RegistryToken::AccessToken { access_token } => access_token,
+        }
     }
 }
 
@@ -1072,28 +1004,28 @@ mod test {
         let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
         assert!(res.is_ok());
         let rt = res.unwrap();
-        assert_eq!(rt.token, "abc");
+        assert_eq!(rt.token(), "abc");
 
         // 'access_token' field, standalone
         let text = r#"{"access_token": "xyz"}"#;
         let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
         assert!(res.is_ok());
         let rt = res.unwrap();
-        assert_eq!(rt.token, "xyz");
+        assert_eq!(rt.token(), "xyz");
 
         // both 'token' and 'access_token' fields, 'token' field takes precedence
         let text = r#"{"access_token": "xyz", "token": "abc"}"#;
         let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
         assert!(res.is_ok());
         let rt = res.unwrap();
-        assert_eq!(rt.token, "abc");
+        assert_eq!(rt.token(), "abc");
 
         // both 'token' and 'access_token' fields, 'token' field takes precedence (reverse order)
         let text = r#"{"token": "abc", "access_token": "xyz"}"#;
         let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
         assert!(res.is_ok());
         let rt = res.unwrap();
-        assert_eq!(rt.token, "abc");
+        assert_eq!(rt.token(), "abc");
 
         // non-string fields do not break parsing
         let text = r#"{"aaa": 300, "access_token": "xyz", "token": "abc", "zzz": 600}"#;
@@ -1108,14 +1040,14 @@ mod test {
         let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
         assert!(res.is_ok());
         let rt = res.unwrap();
-        assert_eq!(rt.token, "abc");
+        assert_eq!(rt.token(), "abc");
 
         // numeric 'token' field, but string 'accesss_token' field does not in parse error
         let text = r#"{"access_token": "xyz", "token": 300}"#;
         let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
         assert!(res.is_ok());
         let rt = res.unwrap();
-        assert_eq!(rt.token, "xyz");
+        assert_eq!(rt.token(), "xyz");
 
         // numeric 'token' field results in parse error
         let text = r#"{"token": 300}"#;
@@ -1171,7 +1103,7 @@ mod test {
                 .get(reference.registry())
                 .expect("token is available");
             // We test that the token is longer than a minimal hash.
-            assert!(tok.token.len() > 64);
+            assert!(tok.token().len() > 64);
         }
     }
 
