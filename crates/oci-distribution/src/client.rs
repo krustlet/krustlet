@@ -230,7 +230,7 @@ impl Client {
     ///
     /// This performs authorization and then stores the token internally to be used
     /// on other requests.
-    async fn auth(
+    pub async fn auth(
         &mut self,
         image: &Reference,
         authentication: &RegistryAuth,
@@ -367,7 +367,7 @@ impl Client {
     ///
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
-    async fn pull_manifest(&self, image: &Reference) -> anyhow::Result<(OciManifest, String)> {
+    pub async fn pull_manifest(&self, image: &Reference) -> anyhow::Result<(OciManifest, String)> {
         let url = self.to_v2_manifest_url(image);
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
@@ -455,6 +455,22 @@ impl Client {
         }
 
         Ok(())
+    }
+
+    /// Stream the contents of a single layer from an OCI registry.
+    ///
+    /// This is a streaming version of [`Client::pull_layer`].
+    pub async fn request_layer(
+        &self,
+        image: &Reference,
+        digest: &str,
+    ) -> reqwest::Result<reqwest::Response> {
+        let url = self.to_v2_blob_url(image.registry(), image.repository(), digest);
+        self.client
+            .get(&url)
+            .headers(self.auth_headers(image))
+            .send()
+            .await
     }
 
     /// Begins a session to push an image to registry
