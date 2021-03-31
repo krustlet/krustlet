@@ -57,7 +57,7 @@ rustls-tls = [
 anyhow = "1.0"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "time"] }
 kube = { version= "0.51", default-features = false }
-k8s-openapi = { version = "0.11", default-features = false, features = ["v1_18"] }
+k8s-openapi = { version = "0.11", default-features = false, features = ["v1_20"] }
 futures = "0.3"
 krator = { path = "./crates/krator", version = "0.2", default-features = false }
 kubelet = { path = "./crates/kubelet", version = "0.7", default-features = false, features = ["cli"] }
