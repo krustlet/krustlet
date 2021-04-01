@@ -205,7 +205,7 @@ impl WasiRuntime {
             let wasi_ctx_unstable = ctx_builder_unstable.build()?;
             let mut config = wasmtime::Config::new();
             config.interruptable(true);
-            let engine = wasmtime::Engine::new(&config);
+            let engine = wasmtime::Engine::new(&config)?;
             let store = wasmtime::Store::new(&engine);
             let interrupt = store.interrupt_handle()?;
             tx.send(interrupt)

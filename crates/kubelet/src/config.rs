@@ -922,7 +922,8 @@ mod test {
             .expect_err("Expected config error but was okay");
         assert!(
             error.to_string().contains("invalid type"),
-            format!("Expected 'invalid type' but got '{}'", error.to_string())
+            "Expected 'invalid type' but got '{}'",
+            error.to_string()
         );
     }
 
@@ -939,7 +940,7 @@ mod test {
             .unwrap()
             .build(fallbacks())
             .expect_err("Expected config error but was okay");
-        assert!(error.to_string().contains("server port"), error.to_string());
+        assert!(error.to_string().contains("server port"), "{:?}", error);
     }
 
     #[test]
@@ -957,7 +958,8 @@ mod test {
             .expect_err("Expected config error but was okay");
         assert!(
             error.to_string().contains("invalid value"),
-            format!("Expected 'invalid value' but got '{}'", error.to_string())
+            "Expected 'invalid value' but got '{}'",
+            error.to_string()
         );
     }
 
@@ -979,7 +981,8 @@ mod test {
         let config = config_builder.build(fallbacks());
         assert!(
             config.is_ok(),
-            format!("Merged config had error {}", config.unwrap_err())
+            "Merged config had error {}",
+            config.unwrap_err()
         );
         assert_eq!(config.unwrap().server_config.port, 1234);
     }
@@ -1004,7 +1007,8 @@ mod test {
             .expect_err("Expected config error but was okay");
         assert!(
             error.to_string().contains("invalid type"),
-            format!("Expected 'invalid type' but got '{}'", error.to_string())
+            "Expected 'invalid type' but got '{}'",
+            error.to_string()
         );
     }
 }
