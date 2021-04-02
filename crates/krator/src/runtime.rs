@@ -156,6 +156,7 @@ impl<O: Operator> OperatorRuntime<O> {
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<Event<O::Manifest>>(128);
 
         let deleted = Arc::new(Notify::new());
+        let deleted_event = Arc::new(Notify::new());
 
         let (manifest, object_state) = match initial_event {
             Event::Applied(manifest) => {
@@ -167,6 +168,7 @@ impl<O: Operator> OperatorRuntime<O> {
 
         let (manifest_tx, manifest_rx) = Manifest::new(manifest);
         let reflector_deleted = Arc::clone(&deleted);
+        let reflector_deleted_event = Arc::clone(&deleted);
 
         // Two tasks are spawned for each resource. The first updates shared state (manifest and
         // deleted flag) while the second awaits on the actual state machine, interrupts it on
@@ -206,6 +208,7 @@ impl<O: Operator> OperatorRuntime<O> {
                             manifest.namespace()
                         );
                         reflector_deleted.notify_one();
+                        reflector_deleted_event.notify_one();
                         match manifest_tx.send(manifest) {
                             Ok(()) => (),
                             Err(_) => {
@@ -226,6 +229,7 @@ impl<O: Operator> OperatorRuntime<O> {
             self.operator.shared_state().await,
             object_state,
             deleted,
+            deleted_event,
             Arc::clone(&self.operator),
         ));
 
@@ -337,6 +341,7 @@ async fn run_object_task<O: Operator>(
     shared: SharedState<<O::ObjectState as ObjectState>::SharedState>,
     mut object_state: O::ObjectState,
     deleted: Arc<Notify>,
+    deleted_event: Arc<Notify>,
     operator: Arc<O>,
 ) {
     debug!("Running registration hook.");
@@ -413,4 +418,5 @@ async fn run_object_task<O: Operator>(
             }
         },
     }
+    deleted_event.notified().await;
 }
