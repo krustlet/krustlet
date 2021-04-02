@@ -11,7 +11,7 @@ use tracing::{debug, error, info, trace, warn};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::Metadata;
 use kube::{
-    api::{Api, ListParams, Meta},
+    api::{Api, ListParams, Resource},
     Client,
 };
 use kube_runtime::watcher;
@@ -38,7 +38,7 @@ enum PrettyEvent {
     },
 }
 
-impl<R: Meta> From<&Event<R>> for PrettyEvent {
+impl<R: Resource> From<&Event<R>> for PrettyEvent {
     fn from(event: &Event<R>) -> Self {
         match event {
             Event::Applied(object) => PrettyEvent::Applied {
