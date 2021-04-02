@@ -3,48 +3,34 @@
 #[cfg(feature = "admission-webhook")]
 use crate::admission::WebhookFn;
 use crate::operator::Operator;
-use crate::store::ResourceKey;
-use futures::Stream;
-use futures::StreamExt;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::Metadata;
 use k8s_openapi::Resource;
-use kube::api::ListParams;
-use std::any::Any;
+use kube::api::{GroupVersionKind, ListParams};
 
 /// Captures configuration needed to configure a watcher.
 struct Watch {
-    /// Kubernetes Resource information (group, version, kind, and optionally namespace).
-    _resource: ResourceKey,
+    /// The (group, version, kind) tuple of the resource to be watched.
+    _gvk: GroupVersionKind,
+    /// Optionally restrict watching to namespace.
+    _namespace: Option<String>,
     /// Restrict to objects matching list params (default watches everything).
     _list_params: ListParams,
-    /// Actual stream of watched types.
-    _stream: Box<dyn Stream<Item = Box<dyn Any>>>,
 }
 
 impl Watch {
     fn new<
         R: Resource + serde::de::DeserializeOwned + Clone + Metadata<Ty = ObjectMeta> + Send + 'static,
     >(
-        client: kube::Client,
-        namespace: Option<String>,
-        list_params: ListParams,
+        _client: kube::Client,
+        _namespace: Option<String>,
+        _list_params: ListParams,
     ) -> Self {
-        let (resource, api) = match namespace {
-            Some(ns) => (
-                kube::api::Resource::namespaced::<R>(&ns),
-                kube::api::Api::<R>::namespaced(client, &ns),
-            ),
-            None => (
-                kube::api::Resource::all::<R>(),
-                kube::api::Api::<R>::all(client),
-            ),
-        };
-        let stream = kube_runtime::watcher::watcher(api, list_params.clone()).map(|_| todo!());
+        let _gvk = GroupVersionKind::gvk(R::GROUP, R::VERSION, R::KIND).unwrap();
         Watch {
-            _resource: resource.into(),
-            _list_params: list_params,
-            _stream: Box::new(stream),
+            _gvk,
+            _namespace,
+            _list_params,
         }
     }
 }
