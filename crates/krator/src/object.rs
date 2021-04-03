@@ -1,4 +1,4 @@
-use kube::api::Meta;
+use kube::api::Resource;
 
 #[derive(Hash, Eq, PartialEq, Clone)]
 pub struct ObjectKey {
@@ -16,7 +16,7 @@ impl ObjectKey {
     }
 }
 
-impl<R: Meta> From<&R> for ObjectKey {
+impl<R: Resource> From<&R> for ObjectKey {
     fn from(object: &R) -> ObjectKey {
         ObjectKey {
             namespace: object.namespace(),
