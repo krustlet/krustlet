@@ -1,6 +1,5 @@
 //! Used to define a state machine.
 
-// use k8s_openapi::Resource;
 use kube::api::{PatchParams, Resource};
 use kube::Api;
 use serde::de::DeserializeOwned;
