@@ -36,7 +36,7 @@ derive = ["krator/derive"]
 
 [dependencies]
 async-trait = "0.1"
-base64 = "0.12"
+base64 = "0.13"
 dirs = "3.0"
 anyhow = "1.0"
 futures = { version = "0.3", default-features = false }
