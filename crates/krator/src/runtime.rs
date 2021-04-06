@@ -168,7 +168,7 @@ impl<O: Operator> OperatorRuntime<O> {
 
         let (manifest_tx, manifest_rx) = Manifest::new(manifest);
         let reflector_deleted = Arc::clone(&deleted);
-        let reflector_deleted_event = Arc::clone(&deleted);
+        let reflector_deleted_event = Arc::clone(&deleted_event);
 
         // Two tasks are spawned for each resource. The first updates shared state (manifest and
         // deleted flag) while the second awaits on the actual state machine, interrupts it on
@@ -208,7 +208,6 @@ impl<O: Operator> OperatorRuntime<O> {
                             manifest.namespace()
                         );
                         reflector_deleted.notify_one();
-                        reflector_deleted_event.notify_one();
                         match manifest_tx.send(manifest) {
                             Ok(()) => (),
                             Err(_) => {
@@ -216,6 +215,7 @@ impl<O: Operator> OperatorRuntime<O> {
                                 return;
                             }
                         }
+                        reflector_deleted_event.notify_one();
                         break;
                     }
                     _ => warn!("Resource got unexpected event, ignoring: {:?}", &event),
