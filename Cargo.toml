@@ -63,7 +63,7 @@ krator = { path = "./crates/krator", version = "0.2", default-features = false }
 kubelet = { path = "./crates/kubelet", version = "0.7", default-features = false, features = ["cli"] }
 wasi-provider = { path = "./crates/wasi-provider", version = "0.7", default-features = false }
 oci-distribution = { path = "./crates/oci-distribution", version = "0.6", default-features = false }
-dirs = "3.0"
+dirs = { package = "dirs-next", version = "2.0.0" }
 hostname = "0.3"
 regex = "1.3"
 env_logger = "0.7"
