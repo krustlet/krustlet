@@ -1,10 +1,10 @@
 use crate::mio_uds_windows::{UnixListener, UnixStream};
 use bytes::SliceBuf;
-use tracing::trace;
 use mio::event::Event;
 use mio::{Events, Poll, PollOpt, Ready, Token};
 use std::time::Duration;
-use tempdir::TempDir;
+use tempfile::Builder;
+use tracing::trace;
 use {expect_events, TryWrite};
 
 const SERVER: Token = Token(0);
@@ -63,7 +63,7 @@ pub fn test_register_deregister() {
     debug!("Starting TEST_REGISTER_DEREGISTER");
     let mut poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     let server = UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = server.local_addr().unwrap();
@@ -104,7 +104,7 @@ pub fn test_register_deregister() {
 pub fn test_register_empty_interest() {
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     let sock = UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = sock.local_addr().unwrap();

@@ -3,12 +3,12 @@ use std::io::{Read, Write};
 use crate::mio_uds_windows::{UnixListener, UnixStream};
 use mio::event::Evented;
 use mio::{Events, Poll, PollOpt, Ready, Token};
-use tempdir::TempDir;
+use tempfile::Builder;
 
 #[test]
 fn write_then_drop() {
     drop(::env_logger::init());
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     let a = UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = a.local_addr().unwrap();
@@ -60,7 +60,7 @@ fn write_then_drop() {
 #[test]
 fn write_then_deregister() {
     drop(::env_logger::init());
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     let a = UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = a.local_addr().unwrap();

@@ -2,7 +2,8 @@ use crate::mio_uds_windows::{UnixListener, UnixStream};
 use mio::*;
 use std::io::*;
 use std::time::Duration;
-use tempdir::TempDir;
+use tempfile::Builder;
+use tempfile::
 
 const MS: u64 = 1_000;
 
@@ -12,7 +13,7 @@ pub fn test_uds_edge_oneshot() {
 
     let mut poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     // Create the listener
     let l = UnixListener::bind(dir.path().join("foo")).unwrap();

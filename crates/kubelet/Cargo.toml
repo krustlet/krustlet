@@ -64,7 +64,7 @@ rcgen = "0.8"
 uuid = { version = "0.8.1", features = ["v4"] }
 krator = { path = "../krator", version = "0.2", default-features = false }
 json-patch = "0.2"
-tempdir = "0.3"
+tempfile = "3.2"
 tonic = "0.4"
 # prost is needed for the files built by the protobuf
 prost = "0.7"

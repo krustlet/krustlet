@@ -5,10 +5,10 @@
 pub fn test_double_register() {
     use crate::mio_uds_windows::UnixListener;
     use mio::*;
-    use tempdir::TempDir;
+    use tempfile::Builder;
 
     let poll = Poll::new().unwrap();
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     // Create the listener
     let l = UnixListener::bind(dir.path().join("foo")).unwrap();

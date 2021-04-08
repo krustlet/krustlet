@@ -4,7 +4,7 @@ use std::io::prelude::*;
 use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;
-use tempdir::TempDir;
+use tempfile::Builder;
 
 use crate::mio_uds_windows::{net, UnixListener, UnixStream};
 use iovec::IoVec;
@@ -18,7 +18,7 @@ fn accept() {
         listener: UnixListener,
         shutdown: bool,
     }
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     let l = UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = l.local_addr().unwrap();
@@ -61,7 +61,7 @@ fn connect() {
         hit: u32,
         shutdown: bool,
     }
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     let l = net::UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = l.local_addr().unwrap();
@@ -136,7 +136,7 @@ fn read() {
         socket: UnixStream,
         shutdown: bool,
     }
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     let l = net::UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = l.local_addr().unwrap();
@@ -188,7 +188,7 @@ fn read() {
 #[test]
 fn read_bufs() {
     const N: usize = 16 * 1024 * 1024;
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     let l = net::UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = l.local_addr().unwrap();
@@ -261,7 +261,7 @@ fn write() {
         socket: UnixStream,
         shutdown: bool,
     }
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     let l = net::UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = l.local_addr().unwrap();
@@ -313,7 +313,7 @@ fn write() {
 #[test]
 fn write_bufs() {
     const N: usize = 16 * 1024 * 1024;
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     let l = net::UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = l.local_addr().unwrap();
@@ -366,7 +366,7 @@ fn connect_then_close() {
         listener: UnixListener,
         shutdown: bool,
     }
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     let poll = Poll::new().unwrap();
     let l = UnixListener::bind(dir.path().join("foo")).unwrap();
@@ -408,7 +408,7 @@ fn connect_then_close() {
 #[test]
 fn listen_then_close() {
     let poll = Poll::new().unwrap();
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
     let l = UnixListener::bind(dir.path().join("foo")).unwrap();
 
     poll.register(&l, Token(1), Ready::readable(), PollOpt::edge())
@@ -441,7 +441,7 @@ fn test_uds_sockets_are_send() {
 
 #[test]
 fn bind_twice_bad() {
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
     let l1 = UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = l1.local_addr().unwrap();
     assert!(UnixListener::bind(&addr.as_pathname().unwrap()).is_err());
@@ -450,7 +450,7 @@ fn bind_twice_bad() {
 #[test]
 fn multiple_writes_immediate_success() {
     const N: usize = 16;
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
     let l = net::UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = l.local_addr().unwrap();
 
@@ -498,7 +498,7 @@ fn connection_reset_by_peer() {
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(16);
     let mut buf = [0u8; 16];
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     // Create listener
     let l = UnixListener::bind(dir.path().join("foo")).unwrap();
@@ -574,7 +574,7 @@ fn connection_reset_by_peer() {
 #[test]
 fn connect_error() {
     let poll = Poll::new().unwrap();
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     // This test is structured differently from the test
     // 'test_tcp::connect_error' in the mio codebase because
@@ -594,7 +594,7 @@ fn write_error() {
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(16);
     let (tx, rx) = channel();
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     let listener = net::UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = listener.local_addr().unwrap();
