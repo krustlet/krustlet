@@ -210,7 +210,7 @@ pub(crate) async fn populate(
     // TODO(bacongobbler): implement node_unstage_volume(). We'll need to
     // persist the staging_path somewhere so we can recall that information
     // during unpopulate()
-    let staging_path = Builder::new().prefix("&csi.volume_handle").tempdir()?;
+    let staging_path = Builder::new().prefix(&csi.volume_handle).tempdir()?;
     if stage_unstage_volume {
         stage_volume(&mut csi_client, &csi, staging_path.path()).await?;
     }
