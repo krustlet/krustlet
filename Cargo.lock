@@ -705,15 +705,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dirs"
-version = "3.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "142995ed02755914747cc6ca76fc7e4583cd18578746716d0508ea6ed558b9ff"
-dependencies = [
- "dirs-sys",
-]
-
-[[package]]
 name = "dirs-next"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1570,7 +1561,7 @@ version = "0.7.0"
 dependencies = [
  "anyhow",
  "compiletest_rs",
- "dirs 3.0.1",
+ "dirs-next",
  "env_logger 0.7.1",
  "futures",
  "hostname",
@@ -1670,7 +1661,7 @@ dependencies = [
  "base64 0.13.0",
  "bytes 0.3.0",
  "chrono",
- "dirs 3.0.1",
+ "dirs-next",
  "env_logger 0.4.3",
  "futures",
  "hostname",
@@ -3301,7 +3292,7 @@ version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0863a3345e70f61d613eab32ee046ccd1bcc5f9105fe402c61fcd0c13eeb8b5"
 dependencies = [
- "dirs 2.0.2",
+ "dirs",
  "winapi 0.3.9",
 ]
 
