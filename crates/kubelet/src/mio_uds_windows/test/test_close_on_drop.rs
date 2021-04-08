@@ -1,7 +1,7 @@
 use crate::mio_uds_windows::{UnixListener, UnixStream};
 use bytes::ByteBuf;
 use mio::{Events, Poll, PollOpt, Ready, Token};
-use tempdir::TempDir;
+use tempfile::Builder;
 use TryRead;
 
 use self::TestState::{AfterRead, Initial};
@@ -84,7 +84,7 @@ pub fn test_close_on_drop() {
     let _ = ::env_logger::init();
     debug!("Starting TEST_CLOSE_ON_DROP");
     let mut poll = Poll::new().unwrap();
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     // == Create & setup server socket
     let srv = UnixListener::bind(dir.path().join("foo")).unwrap();

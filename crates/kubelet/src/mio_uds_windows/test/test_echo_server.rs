@@ -3,7 +3,7 @@ use bytes::{Buf, ByteBuf, MutByteBuf, SliceBuf};
 use mio::{Events, Poll, PollOpt, Ready, Token};
 use slab::Slab;
 use std::io;
-use tempdir::TempDir;
+use tempfile::Builder;
 use {TryRead, TryWrite};
 
 const SERVER: Token = Token(10_000_000);
@@ -293,7 +293,7 @@ impl Echo {
 pub fn test_echo_server() {
     debug!("Starting TEST_ECHO_SERVER");
     let mut poll = Poll::new().unwrap();
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     let srv = UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = srv.local_addr().unwrap();

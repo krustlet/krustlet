@@ -1,6 +1,6 @@
 use crate::mio_uds_windows::{UnixListener, UnixStream};
 use mio::{Events, Poll, PollOpt, Ready, Token};
-use tempdir::TempDir;
+use tempfile::Builder;
 use TryWrite;
 
 const LISTEN: Token = Token(0);
@@ -16,7 +16,7 @@ struct MyHandler {
 
 #[test]
 fn local_addr_ready() {
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     let server = UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = server.local_addr().unwrap();

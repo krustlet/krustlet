@@ -19,7 +19,7 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::api::storage::v1::StorageClass;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
 
-use tempdir::TempDir;
+use tempfile::Builder;
 use thiserror::Error;
 
 use crate::grpc_sock;
@@ -210,7 +210,7 @@ pub(crate) async fn populate(
     // TODO(bacongobbler): implement node_unstage_volume(). We'll need to
     // persist the staging_path somewhere so we can recall that information
     // during unpopulate()
-    let staging_path = TempDir::new(&csi.volume_handle)?;
+    let staging_path = Builder::new().prefix(&csi.volume_handle).tempdir()?;
     if stage_unstage_volume {
         stage_volume(&mut csi_client, &csi, staging_path.path()).await?;
     }

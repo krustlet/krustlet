@@ -1,11 +1,11 @@
 use crate::mio_uds_windows::{UnixListener, UnixStream};
 use mio::*;
 use std::io::ErrorKind;
-use tempdir::TempDir;
+use tempfile::Builder;
 
 #[test]
 fn test_uds_register_multiple_event_loops() {
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
     let listener = UnixListener::bind(dir.path().join("foo")).unwrap();
     let addr = listener.local_addr().unwrap();
 

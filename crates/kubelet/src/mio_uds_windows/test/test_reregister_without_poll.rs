@@ -2,7 +2,7 @@ use crate::mio_uds_windows::{UnixListener, UnixStream};
 use mio::*;
 use sleep_ms;
 use std::time::Duration;
-use tempdir::TempDir;
+use tempfile::Builder;
 
 const MS: u64 = 1_000;
 
@@ -10,7 +10,7 @@ const MS: u64 = 1_000;
 pub fn test_reregister_different_without_poll() {
     let mut events = Events::with_capacity(1024);
     let poll = Poll::new().unwrap();
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     // Create the listener
     let l = UnixListener::bind(dir.path().join("foo")).unwrap();

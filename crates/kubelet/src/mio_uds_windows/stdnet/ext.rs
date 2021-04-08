@@ -685,16 +685,14 @@ impl WsaExtension {
 
 #[cfg(test)]
 mod tests {
-    extern crate tempdir;
-
     use std::io;
     use std::io::prelude::*;
     use std::os::windows::io::{FromRawSocket, IntoRawSocket};
     use std::path::PathBuf;
     use std::thread;
 
-    use self::tempdir::TempDir;
     use miow::{iocp::CompletionPort, Overlapped};
+    use tempfile::{Builder, TempDir};
 
     use crate::mio_uds_windows::net::{self, AcceptAddrsBuf, UnixListenerExt, UnixStreamExt};
     use crate::mio_uds_windows::stdnet::Socket;
@@ -709,7 +707,7 @@ mod tests {
     }
 
     fn tmpdir() -> Result<(TempDir, PathBuf), io::Error> {
-        let dir = TempDir::new("mio-uds-windows")?;
+        let dir = Builder::new().prefix("mio-uds-windows").tempdir()?;
         let path = dir.path().join("sock");
         Ok((dir, path))
     }

@@ -3,7 +3,7 @@ use mio::event::Event;
 use mio::{Events, Poll, PollOpt, Ready, Token};
 use std::io::Write;
 use std::time::Duration;
-use tempdir::TempDir;
+use tempfile::Builder;
 use {expect_events, sleep_ms, TryRead};
 
 const MS: u64 = 1_000;
@@ -12,7 +12,7 @@ const MS: u64 = 1_000;
 pub fn test_uds_listener_level_triggered() {
     let poll = Poll::new().unwrap();
     let mut pevents = Events::with_capacity(1024);
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     // Create the listener
     let l = UnixListener::bind(dir.path().join("foo")).unwrap();
@@ -75,7 +75,7 @@ pub fn test_uds_stream_level_triggered() {
     drop(::env_logger::init());
     let poll = Poll::new().unwrap();
     let mut pevents = Events::with_capacity(1024);
-    let dir = TempDir::new("uds").unwrap();
+    let dir = Builder::new().prefix("uds").tempdir().unwrap();
 
     // Create the listener
     let l = UnixListener::bind(dir.path().join("foo")).unwrap();

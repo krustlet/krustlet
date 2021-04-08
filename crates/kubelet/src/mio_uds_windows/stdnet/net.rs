@@ -277,13 +277,11 @@ impl<'a> Iterator for Incoming<'a> {
 
 #[cfg(test)]
 mod test {
-    extern crate tempdir;
-
     use std::io::{self, Read, Write};
     use std::path::PathBuf;
     use std::thread;
 
-    use self::tempdir::TempDir;
+    use tempfile::{Builder, TempDir};
 
     use super::*;
 
@@ -297,7 +295,7 @@ mod test {
     }
 
     fn tmpdir() -> Result<(TempDir, PathBuf), io::Error> {
-        let dir = TempDir::new("mio-uds-windows")?;
+        let dir = Builder::new().prefix("mio-uds-windows").tempdir()?;
         let path = dir.path().join("sock");
         Ok((dir, path))
     }
@@ -384,7 +382,7 @@ mod test {
 
     #[test]
     fn long_path() {
-        let dir = or_panic!(TempDir::new("mio-uds-windows"));
+        let dir = or_panic!(Builder::new().prefix("mio-uds-windows").tempdir());
         let socket_path = dir.path().join(
             "asdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfa\
                                     sasdfasdfasdasdfasdfasdfadfasdfasdfasdfasdfasdf",
