@@ -210,7 +210,14 @@ pub(crate) async fn populate(
     // TODO(bacongobbler): implement node_unstage_volume(). We'll need to
     // persist the staging_path somewhere so we can recall that information
     // during unpopulate()
-    let staging_path = Builder::new().prefix(&csi.volume_handle).tempdir()?;
+
+    // The call to .tempdir() includes blocking IO operations, so this is wrapped here
+    // in order to spawn it on a separate thread pool so that we do not block this thread
+    let staging_path_prefix = csi.volume_handle.to_owned();
+    let staging_path =
+        tokio::task::spawn_blocking(move || Builder::new().prefix(&staging_path_prefix).tempdir())
+            .await??;
+
     if stage_unstage_volume {
         stage_volume(&mut csi_client, &csi, staging_path.path()).await?;
     }
