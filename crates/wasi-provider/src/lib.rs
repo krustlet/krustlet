@@ -54,6 +54,7 @@ use tokio::sync::RwLock;
 use wasi_runtime::Runtime;
 
 mod states;
+use kubelet::node;
 use states::pod::PodState;
 
 const TARGET_WASM32_WASI: &str = "wasm32-wasi";
@@ -182,6 +183,11 @@ impl Provider for WasiProvider {
 
     fn volume_path(&self) -> Option<PathBuf> {
         Some(self.shared.volume_path())
+    }
+
+    async fn shutdown(&self, node_name: &str) -> anyhow::Result<()> {
+        node::drain(&self.shared.client, &node_name).await?;
+        Ok(())
     }
 }
 

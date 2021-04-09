@@ -117,14 +117,16 @@ impl<P: Provider> Kubelet<P> {
         };
         let mut operator_runtime = OperatorRuntime::new(&self.kube_config, operator, Some(params));
         let operator_task = operator_runtime.start().fuse().boxed();
-
         // These must all be running for graceful shutdown. An error here exits ungracefully.
         let core = Box::pin(async {
             tokio::select! {
-                res = signal_handler => res.map_err(|e| {
-                    error!("Signal handler task joined with error {:?}", &e);
-                    e
-                }),
+                res = signal_handler => match res {
+                    Ok(()) => self.provider.shutdown(&self.config.node_name).await,
+                    Err(e) => {
+                        error!("Signal handler task joined with error {:?}", &e);
+                        Err(e)
+                    }
+                },
                 _ = operator_task => {
                     warn!("Pod operator has completed");
                     Ok(())
@@ -196,7 +198,10 @@ async fn start_signal_handler(
     loop {
         if signal.load(Ordering::Relaxed) {
             info!("Signal caught.");
-            node::drain(&client, &node_name).await?;
+            //node::drain(&client, &node_name).await?;
+            // When the signal was caught we simply exit the loop here,
+            // handling is done outside of this task to avoid having to
+            // pass a reference to the provider here
             break Ok(());
         }
         tokio::time::sleep(duration).await;

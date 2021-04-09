@@ -110,6 +110,12 @@ pub trait Provider: Sized + Send + Sync + 'static {
     // TODO: Is there a way to provide a default implementation of this if Self::PodState: Default?
     async fn initialize_pod_state(&self, pod: &Pod) -> anyhow::Result<Self::PodState>;
 
+    /// Hook to allow the provider to react to the Kubelet being shut down
+    async fn shutdown(&self, node_name: &str) -> anyhow::Result<()> {
+        info!("Shutdown triggered for node {}, since no custom shutdown behavior was implemented Kubelet will simply shut down now.", node_name);
+        Ok(())
+    }
+
     /// Given a Pod, get back the logs for the associated workload.
     async fn logs(
         &self,
