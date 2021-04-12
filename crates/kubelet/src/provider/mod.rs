@@ -124,16 +124,6 @@ pub trait Provider: Sized + Send + Sync + 'static {
     ///
     /// * `node_name` - The name of the node object that was created by this Kubelet instance
     ///
-    /// # Examples
-    /// This code has been taken from the wasi provider and evicts all currently running pods
-    /// from this node upon shutdown.
-    ///
-    /// ```no_run
-    /// async fn shutdown(&self, node_name: &str) -> anyhow::Result<()> {
-    //     node::drain(&self.shared.client, &node_name).await?;
-    //     Ok(())
-    //  }
-    /// ```
     async fn shutdown(&self, node_name: &str) -> anyhow::Result<()> {
         info!("Shutdown triggered for node {}, since no custom shutdown behavior was implemented Kubelet will simply shut down now.", node_name);
         Ok(())
