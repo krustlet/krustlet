@@ -185,6 +185,7 @@ impl Provider for WasiProvider {
         Some(self.shared.volume_path())
     }
 
+    // Evict all pods upon shutdown
     async fn shutdown(&self, node_name: &str) -> anyhow::Result<()> {
         node::drain(&self.shared.client, &node_name).await?;
         Ok(())

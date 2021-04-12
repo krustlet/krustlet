@@ -111,6 +111,29 @@ pub trait Provider: Sized + Send + Sync + 'static {
     async fn initialize_pod_state(&self, pod: &Pod) -> anyhow::Result<Self::PodState>;
 
     /// Hook to allow the provider to react to the Kubelet being shut down
+    ///
+    /// It receives only the node name as a parameter in case the provider wants to set a condition
+    /// on the object - for example to to signify that it did not crash but performed an orderly
+    /// shutdown.
+    ///
+    /// There are currently no mechanisms in place to propagate the shutdown trigger to the state
+    /// machine, providers will have to implement this themselves via a [`std::sync::mpsc::channel`]
+    /// or the shared state or something similar.
+    ///
+    /// # Arguments
+    ///
+    /// * `node_name` - The name of the node object that was created by this Kubelet instance
+    ///
+    /// # Examples
+    /// This code has been taken from the wasi provider and evicts all currently running pods
+    /// from this node upon shutdown.
+    ///
+    /// ```no_run
+    /// async fn shutdown(&self, node_name: &str) -> anyhow::Result<()> {
+    //     node::drain(&self.shared.client, &node_name).await?;
+    //     Ok(())
+    //  }
+    /// ```
     async fn shutdown(&self, node_name: &str) -> anyhow::Result<()> {
         info!("Shutdown triggered for node {}, since no custom shutdown behavior was implemented Kubelet will simply shut down now.", node_name);
         Ok(())
