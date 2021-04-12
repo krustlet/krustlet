@@ -1,9 +1,7 @@
+use kube::Resource;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::fmt::Debug;
-
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-use k8s_openapi::Metadata;
 
 use crate::object::{ObjectState, ObjectStatus};
 use crate::state::{SharedState, State};
@@ -13,7 +11,7 @@ use crate::Manifest;
 /// Interface for creating an operator.
 pub trait Operator: 'static + Sync + Send {
     /// Type representing the specification of the object in the Kubernetes API.
-    type Manifest: Metadata<Ty = ObjectMeta>
+    type Manifest: Resource<DynamicType = ()>
         + Clone
         + DeserializeOwned
         + Serialize

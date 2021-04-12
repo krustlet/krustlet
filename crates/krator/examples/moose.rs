@@ -1,8 +1,8 @@
-use k8s_openapi::Metadata;
 use krator::{
     Manifest, ObjectState, ObjectStatus, Operator, OperatorRuntime, State, Transition, TransitionTo,
 };
 use kube::api::ListParams;
+use kube::Resource;
 use kube_derive::CustomResource;
 use rand::seq::IteratorRandom;
 use rand::Rng;
@@ -301,7 +301,7 @@ impl Operator for MooseTracker {
         &self,
         manifest: &Self::Manifest,
     ) -> anyhow::Result<Self::ObjectState> {
-        let name = manifest.metadata().name.clone().unwrap();
+        let name = manifest.meta().name.clone().unwrap();
         Ok(MooseState {
             name,
             food: manifest.spec.weight / 10.0,
@@ -319,7 +319,7 @@ impl Operator for MooseTracker {
     ) -> krator::admission::AdmissionResult<Self::Manifest> {
         use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
         // All moose names start with "M"
-        let name = manifest.metadata().name.clone().unwrap();
+        let name = manifest.meta().name.clone().unwrap();
         info!("Processing admission hook for moose named {}", name);
         match name.chars().next() {
             Some('m') | Some('M') => krator::admission::AdmissionResult::Allow(manifest),

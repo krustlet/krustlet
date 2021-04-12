@@ -9,7 +9,6 @@ use tokio::sync::Notify;
 use tracing::{debug, error, info, trace, warn};
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-use k8s_openapi::Metadata;
 use kube::{
     api::{Api, ListParams, Resource},
     Client,
