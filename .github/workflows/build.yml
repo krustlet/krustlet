@@ -12,7 +12,7 @@ jobs:
       - uses: engineerd/configurator@v0.0.5
         with:
           name: "just"
-          url: "https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-unknown-linux-musl.tar.gz" 
+          url: "https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-unknown-linux-musl.tar.gz"
           pathInArchive: "just"
       - name: UI Test
         run: |
@@ -40,9 +40,7 @@ jobs:
               url: "https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-unknown-linux-musl.tar.gz",
               name: "just",
               pathInArchive: "just",
-              env: {
-                OPENSSL_DIR: "/usr/local/openssl-aarch64",
-              },
+              env: { OPENSSL_DIR: "/usr/local/openssl-aarch64" },
             }
           - {
               os: "macos-latest",
@@ -127,9 +125,6 @@ jobs:
       - name: Run e2e tests (PR)
         if: ${{ github.event_name == 'pull_request' }}
         run: just test-e2e-standalone
-      - name: Output krustlet logs (on error)
-        if: ${{ failure() }}
-        run: cat *.txt
       - uses: actions/upload-artifact@v2
         if: ${{ always() }}
         with:
