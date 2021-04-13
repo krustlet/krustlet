@@ -107,12 +107,20 @@ impl PluginRegistry {
             .collect::<Result<Vec<PathBuf>, _>>()
             .await?;
 
-        // Manually assemble an event and call handle_event to reconfigure sockets properly on restart
-        self.handle_create(Event {
-            paths: dir_entries,
-            ..Default::default()
-        })
-        .await?;
+        // Manually assemble an event and call handle_event to reconfigure sockets properly on
+        // restart. We are looping again here so we can just log an error and continue processing if
+        // there was a failure loading a plugin
+        for dir in dir_entries.into_iter() {
+            if let Err(e) = self
+                .handle_create(Event {
+                    paths: vec![dir.clone()],
+                    ..Default::default()
+                })
+                .await
+            {
+                error!("Unable to load plugin at {}: {}", dir.display(), e)
+            }
+        }
 
         let mut event_stream = FileSystemWatcher::new(&self.plugin_dir)?;
 
@@ -133,9 +141,6 @@ impl PluginRegistry {
     }
 
     async fn handle_create(&self, event: Event) -> anyhow::Result<()> {
-        // Filter paths, checking if it is a socket and not a directory. Why not check if it is a
-        // file? Because it isn't technically a regular file and so the `is_file` check returns
-        // false
         for discovered_path in plugin_paths(event.paths) {
             debug!(
                 "Beginning plugin registration for plugin discovered at {}",
@@ -361,6 +366,9 @@ async fn inform_plugin(path: &Path, error: Option<String>) -> anyhow::Result<()>
 }
 
 fn plugin_paths(paths: Vec<PathBuf>) -> impl Iterator<Item = PathBuf> {
+    // Filter paths, checking if it is a socket and not a directory. Why not check if it is a
+    // file? Because it isn't technically a regular file and so the `is_file` check returns
+    // false
     paths
         .into_iter()
         .filter(|p| !p.is_dir() && p.extension().unwrap_or_default() == SOCKET_EXTENSION)
