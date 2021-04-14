@@ -42,7 +42,7 @@ async fn bootstrap_auth<K: AsRef<Path>>(
             .map_err(|e| anyhow::anyhow!("Unable to load config from host: {}", e))
     } else {
         // TODO: if configured, kubelet automatically requests renewal of the certificate when it is close to expiry
-        let original_kubeconfig = env::var(KUBECONFIG)?;
+        let original_kubeconfig = std::path::PathBuf::from(env::var(KUBECONFIG)?);
         debug!(
             "No existing kubeconfig found, loading bootstrap config from {:?}",
             bootstrap_file.as_ref()
@@ -144,10 +144,15 @@ async fn bootstrap_auth<K: AsRef<Path>>(
             ));
         }
 
+        // Make sure the directory where the certs should live exists
+        if let Some(p) = original_kubeconfig.parent() {
+            tokio::fs::create_dir_all(p).await?;
+        }
+
         write(&original_kubeconfig, &generated_kubeconfig).await?;
         // Set environment variable back to original value
         // so that infer will now pick up the file we generated
-        env::set_var(KUBECONFIG, original_kubeconfig);
+        env::set_var(KUBECONFIG, original_kubeconfig.as_os_str());
 
         Config::infer()
             .await
@@ -244,6 +249,10 @@ async fn bootstrap_tls(
         "Got certificate from API, writing cert to {:?} and private key to {:?}",
         config.server_config.cert_file, config.server_config.private_key_file
     );
+    // Make sure the directory where the certs should live exists
+    if let Some(p) = config.server_config.cert_file.parent() {
+        tokio::fs::create_dir_all(p).await?;
+    }
     write(&config.server_config.cert_file, &certificate).await?;
     write(&config.server_config.private_key_file, &private_key).await?;
 
