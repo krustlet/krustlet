@@ -17,6 +17,7 @@ use futures_util::future;
 use futures_util::stream::StreamExt;
 use hyperx::header::Header;
 use reqwest::header::HeaderMap;
+use serde::Deserialize;
 use sha2::Digest;
 use std::collections::HashMap;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
@@ -751,15 +752,24 @@ impl ClientProtocol {
 }
 
 /// A token granted during the OAuth2-like workflow for OCI registries.
-#[derive(serde::Deserialize, Default)]
-struct RegistryToken {
-    #[serde(alias = "access_token")]
-    token: String,
+#[derive(Deserialize)]
+#[serde(untagged)]
+#[serde(rename_all = "snake_case")]
+enum RegistryToken {
+    Token { token: String },
+    AccessToken { access_token: String },
 }
 
 impl RegistryToken {
     fn bearer_token(&self) -> String {
-        format!("Bearer {}", self.token)
+        format!("Bearer {}", self.token())
+    }
+
+    fn token(&self) -> &str {
+        match self {
+            RegistryToken::Token { token } => token,
+            RegistryToken::AccessToken { access_token } => access_token,
+        }
     }
 }
 
@@ -987,6 +997,94 @@ mod test {
         );
     }
 
+    #[test]
+    fn test_registry_token_deserialize() {
+        // 'token' field, standalone
+        let text = r#"{"token": "abc"}"#;
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        assert!(res.is_ok());
+        let rt = res.unwrap();
+        assert_eq!(rt.token(), "abc");
+
+        // 'access_token' field, standalone
+        let text = r#"{"access_token": "xyz"}"#;
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        assert!(res.is_ok());
+        let rt = res.unwrap();
+        assert_eq!(rt.token(), "xyz");
+
+        // both 'token' and 'access_token' fields, 'token' field takes precedence
+        let text = r#"{"access_token": "xyz", "token": "abc"}"#;
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        assert!(res.is_ok());
+        let rt = res.unwrap();
+        assert_eq!(rt.token(), "abc");
+
+        // both 'token' and 'access_token' fields, 'token' field takes precedence (reverse order)
+        let text = r#"{"token": "abc", "access_token": "xyz"}"#;
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        assert!(res.is_ok());
+        let rt = res.unwrap();
+        assert_eq!(rt.token(), "abc");
+
+        // non-string fields do not break parsing
+        let text = r#"{"aaa": 300, "access_token": "xyz", "token": "abc", "zzz": 600}"#;
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        assert!(res.is_ok());
+
+        // Note: tokens should always be strings. The next two tests ensure that if one field
+        // is invalid (integer), then parse can still succeed if the other field is a string.
+        //
+        // numeric 'access_token' field, but string 'token' field does not in parse error
+        let text = r#"{"access_token": 300, "token": "abc"}"#;
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        assert!(res.is_ok());
+        let rt = res.unwrap();
+        assert_eq!(rt.token(), "abc");
+
+        // numeric 'token' field, but string 'accesss_token' field does not in parse error
+        let text = r#"{"access_token": "xyz", "token": 300}"#;
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        assert!(res.is_ok());
+        let rt = res.unwrap();
+        assert_eq!(rt.token(), "xyz");
+
+        // numeric 'token' field results in parse error
+        let text = r#"{"token": 300}"#;
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        assert!(res.is_err());
+
+        // numeric 'access_token' field results in parse error
+        let text = r#"{"access_token": 300}"#;
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        assert!(res.is_err());
+
+        // object 'token' field results in parse error
+        let text = r#"{"token": {"some": "thing"}}"#;
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        assert!(res.is_err());
+
+        // object 'access_token' field results in parse error
+        let text = r#"{"access_token": {"some": "thing"}}"#;
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        assert!(res.is_err());
+
+        // missing fields results in parse error
+        let text = r#"{"some": "thing"}"#;
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        assert!(res.is_err());
+
+        // bad JSON results in parse error
+        let text = r#"{"token": "abc""#;
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        assert!(res.is_err());
+
+        // worse JSON results in parse error
+        let text = r#"_ _ _ kjbwef??98{9898 }} }}"#;
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        assert!(res.is_err());
+    }
+
     #[tokio::test]
     async fn test_auth() {
         for &image in TEST_IMAGES {
@@ -1005,7 +1103,7 @@ mod test {
                 .get(reference.registry())
                 .expect("token is available");
             // We test that the token is longer than a minimal hash.
-            assert!(tok.token.len() > 64);
+            assert!(tok.token().len() > 64);
         }
     }
 
