@@ -20,6 +20,7 @@ test:
     cargo clippy --workspace
     cargo test --workspace --lib
     cargo test --doc --all
+    (cd crates/krator-derive && cargo test --features=admission-webhook)
 
 test-e2e:
     cargo test --test integration_tests
