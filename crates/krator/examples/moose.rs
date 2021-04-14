@@ -1,8 +1,9 @@
+use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
+
 use krator::{
     Manifest, ObjectState, ObjectStatus, Operator, OperatorRuntime, State, Transition, TransitionTo,
 };
-use kube::api::ListParams;
-use kube::Resource;
+use kube::api::{ListParams, PostParams, Resource};
 use kube_derive::CustomResource;
 use rand::seq::IteratorRandom;
 use rand::Rng;
@@ -14,7 +15,35 @@ use structopt::StructOpt;
 use tokio::sync::RwLock;
 use tracing::info;
 
+#[cfg(feature = "admission-webhook")]
+use krator_derive::AdmissionWebhook;
+
+#[cfg(feature = "admission-webhook")]
+use krator::admission;
+
+#[cfg(feature = "admission-webhook")]
+use k8s_openapi::api::core::v1::Secret;
+
+#[cfg(not(feature = "admission-webhook"))]
 #[derive(CustomResource, Debug, Serialize, Deserialize, Clone, Default, JsonSchema)]
+#[kube(
+    group = "animals.com",
+    version = "v1",
+    kind = "Moose",
+    derive = "Default",
+    status = "MooseStatus",
+    namespaced
+)]
+struct MooseSpec {
+    height: f64,
+    weight: f64,
+    antlers: bool,
+}
+
+#[cfg(feature = "admission-webhook")]
+#[derive(
+    AdmissionWebhook, CustomResource, Debug, Serialize, Deserialize, Clone, Default, JsonSchema,
+)]
 #[kube(
     group = "animals.com",
     version = "v1",
@@ -274,6 +303,7 @@ impl State<MooseState> for Released {
 
 struct SharedMooseState {
     friends: HashMap<String, HashSet<String>>,
+    client: kube::Client,
 }
 
 struct MooseTracker {
@@ -281,9 +311,10 @@ struct MooseTracker {
 }
 
 impl MooseTracker {
-    fn new() -> Self {
+    fn new(client: &kube::Client) -> Self {
         let shared = Arc::new(RwLock::new(SharedMooseState {
             friends: HashMap::new(),
+            client: client.to_owned(),
         }));
         MooseTracker { shared }
     }
@@ -331,6 +362,70 @@ impl Operator for MooseTracker {
             }),
         }
     }
+
+    #[cfg(feature = "admission-webhook")]
+    async fn admission_hook_tls(&self) -> anyhow::Result<krator::admission::AdmissionTLS> {
+        let client = self.shared.read().await.client.clone();
+        let secret_name = Moose::admission_webhook_secret_name();
+
+        let secret = kube::Api::<Secret>::namespaced(client, "default")
+            .get(&secret_name)
+            .await?;
+
+        Ok(admission::AdmissionTLS::from(&secret)?)
+    }
+}
+
+async fn apply_crd(client: &kube::Client) -> anyhow::Result<CustomResourceDefinition> {
+    info!("installing moose crd");
+    let mut crd = Moose::crd();
+    let crd_name = crd.metadata.name.as_ref().unwrap();
+
+    let api = kube::Api::<CustomResourceDefinition>::all(client.to_owned());
+
+    let created_crd;
+    if let Ok(existing_crd) = api.get(crd_name).await {
+        crd.metadata.resource_version = Some(existing_crd.resource_ver().unwrap());
+        created_crd = api.replace(&crd_name, &PostParams::default(), &crd).await?;
+    } else {
+        created_crd = api.create(&PostParams::default(), &crd).await?;
+    }
+
+    Ok(created_crd)
+}
+
+#[cfg(feature = "admission-webhook")]
+async fn setup_cluster(client: &kube::Client) -> anyhow::Result<()> {
+    let crd = apply_crd(&client).await?;
+
+    info!("installing moose webhook resources");
+    let awh_resources =
+        admission::WebhookResources::from(Moose::admission_webhook_resources("default"));
+    awh_resources.apply_owned(&client, &crd).await?;
+
+    #[cfg(feature = "admission-webhook")]
+    info!(
+        r#"
+
+If you run this example outside of Kubernetes (i.e. with `cargo run`), you need to make the webhook available.
+
+Try the script example/assets/use-external-endpoint.sh to redirect webhook traffic to this process. If this
+operator runs within Kubernetes and you use the webhook resources provided by the admission-webhook macro, 
+make sure your deployment has the following labels set:
+
+app={}
+    
+    "#,
+        Moose::admission_webhook_service_app_selector()
+    );
+    Ok(())
+}
+
+#[cfg(not(feature = "admission-webhook"))]
+async fn setup_cluster(client: &kube::Client) -> anyhow::Result<()> {
+    let _ = apply_crd(&client).await;
+
+    Ok(())
 }
 
 #[derive(Debug, StructOpt)]
@@ -400,14 +495,26 @@ async fn main() -> anyhow::Result<()> {
     let _guard = init_logger()?;
 
     let kubeconfig = kube::Config::infer().await?;
-    let tracker = MooseTracker::new();
+    let client = kube::Client::try_default().await?;
+    let tracker = MooseTracker::new(&client);
 
     info!("crd:\n{}", serde_yaml::to_string(&Moose::crd()).unwrap());
+
+    setup_cluster(&client).await?;
 
     // Only track mooses in Glacier NP
     let params = ListParams::default().labels("nps.gov/park=glacier");
 
     let mut runtime = OperatorRuntime::new(&kubeconfig, tracker, Some(params));
+    info!("starting mooses operator");
+
+    info!(
+        r#"
+    
+Running moose example. Try to install some of the manifests provided in examples/assets
+    
+    "#
+    );
     runtime.start().await;
     Ok(())
 }
