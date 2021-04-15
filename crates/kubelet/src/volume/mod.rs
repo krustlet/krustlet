@@ -26,8 +26,8 @@ pub enum VolumeType {
     ConfigMap,
     /// secret volume
     Secret,
-    /// PVC volume
-    PersistentVolumeClaim,
+    /// PVC volume with an optional staging path if the volume supports stage/unstage
+    PersistentVolumeClaim(Option<PathBuf>),
     /// hostpath volume
     HostPath,
 }

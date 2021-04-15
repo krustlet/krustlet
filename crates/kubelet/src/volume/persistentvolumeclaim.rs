@@ -1,12 +1,13 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::str::FromStr;
 
-use k8s_csi::v1_3_0::node_client::NodeClient;
 use k8s_csi::v1_3_0::node_service_capability::{rpc, Rpc, Type as CapabilityType};
 use k8s_csi::v1_3_0::volume_capability::access_mode::Mode as CSIMode;
 use k8s_csi::v1_3_0::volume_capability::{
     AccessMode as CSIAccessMode, AccessType as CSIAccessType, MountVolume as CSIMountVolume,
 };
+use k8s_csi::v1_3_0::{node_client::NodeClient, volume_capability::BlockVolume};
 use k8s_csi::v1_3_0::{
     NodeGetCapabilitiesRequest, NodePublishVolumeRequest, NodeStageVolumeRequest,
     NodeUnpublishVolumeRequest, VolumeCapability,
@@ -14,13 +15,13 @@ use k8s_csi::v1_3_0::{
 
 use k8s_openapi::api::core::v1::{
     CSIPersistentVolumeSource, PersistentVolume, PersistentVolumeClaimSpec,
-    PersistentVolumeClaimVolumeSource,
+    PersistentVolumeClaimVolumeSource, SecretReference, TypedLocalObjectReference,
 };
 use k8s_openapi::api::storage::v1::StorageClass;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
-
 use tempfile::Builder;
 use thiserror::Error;
+use tracing::log::{info, warn};
 
 use crate::grpc_sock;
 use crate::plugin_watcher::PluginRegistry;
@@ -129,37 +130,60 @@ impl FromStr for AccessMode {
 // Validates a PersistentVolumeClaimSpec.
 // https://github.com/kubernetes/kubernetes/blob/c970a46bc1bcc100bbbfabd5c12bd4c5d87f8aea/pkg/apis/core/validation/validation.go#L1965
 pub(crate) fn validate(spec: &PersistentVolumeClaimSpec) -> anyhow::Result<()> {
-    match &spec.access_modes {
+    validate_access_modes(spec.access_modes.as_ref())?;
+
+    validate_label_selector(spec.selector.as_ref())?;
+
+    validate_storage_class(spec.storage_class_name.as_ref())?;
+
+    validate_volume_mode(spec.volume_mode.as_ref())?;
+
+    validate_data_source(spec.data_source.as_ref())?;
+
+    Ok(())
+}
+
+fn validate_access_modes(modes: Option<&Vec<String>>) -> anyhow::Result<()> {
+    match modes {
         Some(a) => {
             if a.is_empty() {
-                return Err(anyhow::anyhow!("at least 1 access mode is required"));
+                Err(anyhow::anyhow!("at least 1 access mode is required"))
             } else {
                 for access_mode in a {
                     // validate access modes are correct
                     AccessMode::from_str(access_mode)?;
                 }
+                Ok(())
             }
         }
-        None => {
-            return Err(anyhow::anyhow!("at least 1 access mode is required"));
-        }
+        None => Err(anyhow::anyhow!("at least 1 access mode is required")),
     }
+}
 
-    if let Some(selector) = &spec.selector {
-        validate_label_selector(selector)?;
-    }
+// TODO: remove this allow once failing validations are added.
+#[allow(clippy::unnecessary_wraps)]
+fn validate_label_selector(selector: Option<&LabelSelector>) -> anyhow::Result<()> {
+    let _sel = match selector {
+        None => return Ok(()),
+        Some(s) => s,
+    };
 
-    match &spec.storage_class_name {
-        // no storage class name specified or set to the empty string
-        // means the user requested the "default" storage class. there
-        // is no "default" storage class for Krustlet at this time, so
-        // we treat this as an error case.
-        //
-        // TODO: implement a "default" storage class
+    // TODO: validate label selectors as done here:
+    // https://github.com/kubernetes/kubernetes/blob/c970a46bc1bcc100bbbfabd5c12bd4c5d87f8aea/staging/src/k8s.io/apimachinery/pkg/apis/meta/v1/validation/validation.go.
+    // This is a bunch of regex validation, so we may just want to ignore this step and let the API
+    // call fail when we use the selectors instead. It just pushes the error down to the mounting
+    // step
+    Ok(())
+}
+
+fn validate_storage_class(class_name: Option<&String>) -> anyhow::Result<()> {
+    match class_name {
+        // According to the docs, a PVC can have no storage class set, it just means that it can
+        // only bind to PVs with no class:
+        // https://kubernetes.io/docs/concepts/storage/persistent-volumes/#class-1
         None => {
-            return Err(anyhow::anyhow!(
-                "PersistentVolumeClaim must specify a storage class"
-            ));
+            info!("No storage class set. Kubelet may be unable to select a volume");
+            Ok(())
         }
         Some(s) => {
             if s.is_empty() {
@@ -167,21 +191,24 @@ pub(crate) fn validate(spec: &PersistentVolumeClaimSpec) -> anyhow::Result<()> {
                     "PersistentVolumeClaim must specify a storage class"
                 ));
             }
-            s
+            Ok(())
         }
-    };
-
-    // TODO: validate volume mode
-
-    // TODO: validate data source
-
-    Ok(())
+    }
 }
 
-// TODO: remove this allow once failing validations are added.
+fn validate_volume_mode(mode: Option<&String>) -> anyhow::Result<()> {
+    match mode {
+        Some(a) => VolumeMode::from_str(a).map(|_| ()).map_err(|e| e.into()),
+        None => Err(anyhow::anyhow!("at least 1 access mode is required")),
+    }
+}
+
+// TODO: remove this allow once validations are added.
 #[allow(clippy::unnecessary_wraps)]
-fn validate_label_selector(_selector: &LabelSelector) -> anyhow::Result<()> {
-    // TODO: validate label selectors
+fn validate_data_source(source: Option<&TypedLocalObjectReference>) -> anyhow::Result<()> {
+    if source.is_some() {
+        warn!("The `data_source` field is not currently supported in Krustlet. Support will be added once the feature hits beta")
+    }
     Ok(())
 }
 
@@ -205,11 +232,14 @@ pub(crate) async fn populate(
     let csi = get_csi(client, pvc_source, &spec).await?;
     let stage_unstage_volume = supports_stage_unstage(&mut csi_client).await?;
 
-    // we keep this around even if the driver does not support STAGE_UNSTAGE_VOLUME. unmount() still needs it.
+    // we keep this around even if the driver does not support STAGE_UNSTAGE_VOLUME. unmount() still
+    // needs it.
     tokio::fs::create_dir_all(path).await?;
-    // TODO(bacongobbler): implement node_unstage_volume(). We'll need to
-    // persist the staging_path somewhere so we can recall that information
-    // during unpopulate()
+    // TODO(bacongobbler): implement node_unstage_volume(). We'll need to persist the staging_path
+    // somewhere so we can recall that information during unpopulate()
+    // ADDENDUM(thomastaylor312): Basically, it looks like most of the major providers don't support
+    // stage/unstage, so for now we are going to defer implementing unstaging as passing that data
+    // around is a little bit interesting with our current scheme
 
     // The call to .tempdir() includes blocking IO operations, so this is wrapped here
     // in order to spawn it on a separate thread pool so that we do not block this thread
@@ -218,19 +248,39 @@ pub(crate) async fn populate(
         tokio::task::spawn_blocking(move || Builder::new().prefix(&staging_path_prefix).tempdir())
             .await??;
 
+    // We can unwrap safely here as `get_pvc_spec` validates all these fields
+    let access_type = get_access_type(
+        VolumeMode::from_str(&spec.volume_mode.clone().unwrap_or_default()).unwrap(),
+        &csi,
+    );
+
     if stage_unstage_volume {
-        stage_volume(&mut csi_client, &csi, staging_path.path()).await?;
+        let secrets = get_secrets_map(csi.node_stage_secret_ref.clone(), client).await?;
+        stage_volume(
+            &mut csi_client,
+            &csi,
+            staging_path.path(),
+            secrets,
+            access_type.clone(),
+        )
+        .await?;
     }
+
+    let secrets = get_secrets_map(csi.node_publish_secret_ref.clone(), client).await?;
     publish_volume(
         &mut csi_client,
         &csi,
         staging_path.path(),
         stage_unstage_volume,
         path,
+        secrets,
+        access_type,
     )
     .await?;
 
-    Ok(VolumeType::PersistentVolumeClaim)
+    Ok(VolumeType::PersistentVolumeClaim(
+        stage_unstage_volume.then(|| staging_path.into_path()),
+    ))
 }
 
 pub(crate) async fn unpopulate(
@@ -286,8 +336,13 @@ async fn stage_volume(
     csi_client: &mut NodeClient<tonic::transport::Channel>,
     csi: &CSIPersistentVolumeSource,
     staging_path: &Path,
+    secrets: BTreeMap<String, String>,
+    access_type: CSIAccessType,
 ) -> anyhow::Result<()> {
-    // TODO: grab the publish_context and volume_context using the volume attachments API
+    // TODO: grab the publish_context and volume_context using the volume attachments API.
+    // NOTE: The volume attachments API is referenced in Kubelet, but the information it provides
+    // seems to be handled by info on a PVC and calls to the CSI plugin. So we have NO IDEA if this
+    // is even doable or useful
     csi_client
         .node_stage_volume(NodeStageVolumeRequest {
             volume_id: csi.volume_handle.clone(),
@@ -298,12 +353,9 @@ async fn stage_volume(
                 access_mode: Some(CSIAccessMode {
                     mode: CSIMode::SingleNodeWriter as i32,
                 }),
-                access_type: Some(CSIAccessType::Mount(CSIMountVolume {
-                    fs_type: csi.fs_type.as_ref().map_or("".to_owned(), |s| s.clone()),
-                    mount_flags: Default::default(),
-                })),
+                access_type: Some(access_type),
             }),
-            secrets: Default::default(),
+            secrets,
             publish_context: Default::default(),
             volume_context: Default::default(),
         })
@@ -317,6 +369,8 @@ async fn publish_volume(
     staging_path: &Path,
     stage_unstage_volume: bool,
     path: &Path,
+    secrets: BTreeMap<String, String>,
+    access_type: CSIAccessType,
 ) -> anyhow::Result<()> {
     let mut req = NodePublishVolumeRequest {
         volume_id: csi.volume_handle.clone(),
@@ -328,16 +382,10 @@ async fn publish_volume(
             access_mode: Some(CSIAccessMode {
                 mode: CSIMode::SingleNodeWriter as i32,
             }),
-            access_type: Some(CSIAccessType::Mount(CSIMountVolume {
-                fs_type: csi.fs_type.clone().unwrap_or_default(),
-                mount_flags: Default::default(),
-            })),
+            access_type: Some(access_type),
         }),
-        // hardcode to read/write for now
-        // TODO: determine the correct access mode and mount flags from the volume
-        // https://github.com/kubernetes/kubernetes/blob/734889ed822d1a60c6dd61ccd8f1ed0e8ab31ea5/pkg/volume/csi/csi_attacher.go#L325-L333
-        readonly: false,
-        secrets: Default::default(),
+        readonly: csi.read_only.unwrap_or_default(),
+        secrets,
         publish_context: Default::default(),
         volume_context: Default::default(),
     };
@@ -367,17 +415,11 @@ async fn get_csi_client(
     plugin_registry: Arc<PluginRegistry>,
 ) -> anyhow::Result<NodeClient<tonic::transport::Channel>> {
     let storage_class_client: Api<StorageClass> = Api::all(client.clone());
-    // NOTE(bacongobbler): should be safe to unwrap() here after calling
-    // validate(). Storage class names are required as we do not define
-    // a default storage class.
-    //
-    // If we do implement a default storage class, then we'll have to
-    // revisit this assumption (omission of this field implies the
-    // default).
-    //
-    // https://kubernetes.io/docs/concepts/storage/persistent-volumes/#class-1
+    // NOTE(thomastaylor312): Storage class names are not required (see comment in validate
+    // function), so we can just try to find one with an empty string
+    let def = String::default();
     let storage_class = storage_class_client
-        .get(spec.storage_class_name.as_ref().unwrap())
+        .get(spec.storage_class_name.as_ref().unwrap_or(&def))
         .await?;
     let endpoint = plugin_registry
         .get_endpoint(&storage_class.provisioner)
@@ -393,14 +435,10 @@ async fn get_csi(
     spec: &PersistentVolumeClaimSpec,
 ) -> anyhow::Result<CSIPersistentVolumeSource> {
     let volume_name = spec.volume_name.as_ref().ok_or(anyhow::anyhow!(format!(
-        "volume name for PVC {} must exist",
+        "volume name for PVC {} must exist (is the volume bound?)",
         pvc_source.claim_name
     )))?;
-    // TODO(bacongobbler): When a PVC specifies a selector in addition to
-    // requesting a StorageClass, the requirements are ANDed together: only
-    // a PV of the requested class and with the requested labels may be
-    // bound to the PVC.
-    // https://kubernetes.io/docs/concepts/storage/persistent-volumes/#class-1
+
     let pv_client: Api<PersistentVolume> = Api::all(client.clone());
     let pv = pv_client.get(&volume_name).await?;
 
@@ -429,4 +467,53 @@ async fn get_pvc_spec(
     };
     validate(&spec)?;
     Ok(spec)
+}
+
+async fn get_secrets_map(
+    secret_ref: Option<SecretReference>,
+    client: &kube::Client,
+) -> anyhow::Result<BTreeMap<String, String>> {
+    match secret_ref {
+        None => Ok(BTreeMap::default()),
+        Some(reference) => {
+            let name = match reference.name {
+                None => {
+                    warn!("CSI source had a secret reference, but no secret name. Skipping secret fetch");
+                    return Ok(BTreeMap::default());
+                }
+                Some(n) => n,
+            };
+            let namespace = match reference.namespace {
+                None => {
+                    warn!("CSI source had a secret reference, but no secret namespace. Skipping secret fetch");
+                    return Ok(BTreeMap::default());
+                }
+                Some(n) => n,
+            };
+            let secret_client: Api<Secret> = Api::namespaced(client.clone(), &namespace);
+            let secret = secret_client.get(&name).await?;
+            secret
+                .data
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(k, v)| {
+                    // NOTE: So the CSI API wants the secret values as Strings. However, secrets can be
+                    // arbitrary data. So we are blatantly converting this to UTF-8 in a safe way even
+                    // if it isn't a String
+                    let decoded = String::from_utf8_lossy(&base64::decode(v.0)?).into_owned();
+                    Ok((k, decoded))
+                })
+                .collect::<anyhow::Result<BTreeMap<String, String>>>()
+        }
+    }
+}
+
+fn get_access_type(mode: VolumeMode, csi: &CSIPersistentVolumeSource) -> CSIAccessType {
+    match mode {
+        VolumeMode::Block => CSIAccessType::Block(BlockVolume {}),
+        VolumeMode::Filesystem => CSIAccessType::Mount(CSIMountVolume {
+            fs_type: csi.fs_type.clone().unwrap_or_default(),
+            mount_flags: Default::default(),
+        }),
+    }
 }
