@@ -8,7 +8,6 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::Notify;
 use tracing::{debug, error, info, trace, warn};
 
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::{
     api::{Api, ListParams, Resource},
     Client,
@@ -55,13 +54,37 @@ impl<R: Resource> From<&Event<R>> for PrettyEvent {
     }
 }
 
+#[derive(Debug)]
+enum ObjectEvent<R> {
+    Applied(R),
+    Deleted {
+        name: String,
+        namespace: Option<String>,
+    },
+}
+
+impl<R: Resource> From<&ObjectEvent<R>> for PrettyEvent {
+    fn from(event: &ObjectEvent<R>) -> Self {
+        match event {
+            ObjectEvent::Applied(object) => PrettyEvent::Applied {
+                name: object.name(),
+                namespace: object.namespace(),
+            },
+            ObjectEvent::Deleted { name, namespace } => PrettyEvent::Deleted {
+                name: name.to_string(),
+                namespace: namespace.clone(),
+            },
+        }
+    }
+}
+
 /// Accepts a type implementing the `Operator` trait and watches
 /// for resources of the associated `Manifest` type, running the
 /// associated state machine for each. Optionally filter by
 /// `kube::api::ListParams`.
 pub struct OperatorRuntime<O: Operator> {
     client: Client,
-    handlers: HashMap<ObjectKey, Sender<Event<O::Manifest>>>,
+    handlers: HashMap<ObjectKey, Sender<ObjectEvent<O::Manifest>>>,
     operator: Arc<O>,
     list_params: ListParams,
     signal: Option<Arc<AtomicBool>>,
@@ -90,16 +113,16 @@ impl<O: Operator> OperatorRuntime<O> {
       skip(self, event),
       fields(event = ?PrettyEvent::from(&event))
     )]
-    async fn dispatch(&mut self, event: Event<O::Manifest>) -> anyhow::Result<()> {
-        match &event {
-            Event::Applied(object) => {
-                let key: ObjectKey = object.into();
+    async fn dispatch(&mut self, event: ObjectEvent<O::Manifest>) -> anyhow::Result<()> {
+        match event {
+            ObjectEvent::Applied(object) => {
+                let key: ObjectKey = (&object).into();
                 // We are explicitly not using the entry api here to insert to avoid the need for a
                 // mutex
                 match self.handlers.get_mut(&key) {
                     Some(sender) => {
                         trace!("Found existing event handler for object.");
-                        match sender.send(event).await {
+                        match sender.send(ObjectEvent::Applied(object)).await {
                             Ok(_) => trace!("Successfully sent event to handler for object."),
                             Err(error) => error!(
                                 name=key.name(),
@@ -119,27 +142,24 @@ impl<O: Operator> OperatorRuntime<O> {
                             key.clone(),
                             // TODO Do we want to capture join handles? Worker wasnt using them.
                             // TODO How do we drop this sender / handler?
-                            self.start_object(event).await?,
+                            self.start_object(object).await?,
                         );
                     }
                 }
                 Ok(())
             }
-            Event::Deleted(object) => {
-                let key: ObjectKey = object.into();
+            ObjectEvent::Deleted { name, namespace } => {
+                let key = ObjectKey::new(&name, &namespace);
                 if let Some(sender) = self.handlers.remove(&key) {
                     debug!(
                         "Removed event handler for object {} in namespace {:?}.",
                         key.name(),
                         key.namespace()
                     );
-                    sender.send(event).await?;
+                    sender
+                        .send(ObjectEvent::Deleted { name, namespace })
+                        .await?;
                 }
-                Ok(())
-            }
-            // Restarted should not be passed to this function, it should be passed to resync instead
-            Event::Restarted(_) => {
-                warn!("Got a restarted event. Restarted events should be resynced with the queue");
                 Ok(())
             }
         }
@@ -150,20 +170,14 @@ impl<O: Operator> OperatorRuntime<O> {
     // on subsequent events.
     async fn start_object(
         &self,
-        initial_event: Event<O::Manifest>,
-    ) -> anyhow::Result<Sender<Event<O::Manifest>>> {
-        let (sender, mut receiver) = tokio::sync::mpsc::channel::<Event<O::Manifest>>(128);
+        manifest: O::Manifest,
+    ) -> anyhow::Result<Sender<ObjectEvent<O::Manifest>>> {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel::<ObjectEvent<O::Manifest>>(128);
 
         let deleted = Arc::new(Notify::new());
         let deleted_event = Arc::new(Notify::new());
 
-        let (manifest, object_state) = match initial_event {
-            Event::Applied(manifest) => {
-                let object_state = self.operator.initialize_object_state(&manifest).await?;
-                (manifest, object_state)
-            }
-            _ => return Err(anyhow::anyhow!("Got non-apply event when starting pod")),
-        };
+        let object_state = self.operator.initialize_object_state(&manifest).await?;
 
         let (manifest_tx, manifest_rx) = Manifest::new(manifest);
         let reflector_deleted = Arc::clone(&deleted);
@@ -178,11 +192,11 @@ impl<O: Operator> OperatorRuntime<O> {
                 // Watch errors are handled before an event ever gets here, so it should always have
                 // an object
                 match event {
-                    Event::Applied(manifest) => {
+                    ObjectEvent::Applied(manifest) => {
                         trace!(
-                            "Resource {} in namespace {:?} applied.",
-                            manifest.name(),
-                            manifest.namespace()
+                            name=%manifest.name(),
+                            namespace=?manifest.namespace(),
+                            "Resource applied.",
                         );
                         let meta = manifest.meta();
                         if meta.deletion_timestamp.is_some() {
@@ -196,28 +210,20 @@ impl<O: Operator> OperatorRuntime<O> {
                             }
                         }
                     }
-                    Event::Deleted(manifest) => {
+                    ObjectEvent::Deleted { name, namespace } => {
                         // I'm not sure if this matters, we get notified of pod deletion with a
                         // Modified event, and I think we only get this after *we* delete the pod.
                         // There is the case where someone force deletes, but we want to go through
                         // our normal terminate and deregister flow anyway.
                         debug!(
-                            "Resource {} in namespace {:?} deleted.",
-                            manifest.name(),
-                            manifest.namespace()
+                            %name,
+                            ?namespace,
+                            "Resource deleted.",
                         );
                         reflector_deleted.notify_one();
-                        match manifest_tx.send(manifest) {
-                            Ok(()) => (),
-                            Err(_) => {
-                                debug!("Manifest receiver hung up, exiting.");
-                                return;
-                            }
-                        }
                         reflector_deleted_event.notify_one();
                         break;
                     }
-                    _ => warn!("Resource got unexpected event, ignoring: {:?}", &event),
                 }
             }
         });
@@ -248,18 +254,16 @@ impl<O: Operator> OperatorRuntime<O> {
         let current_objects: HashSet<ObjectKey> = objects.iter().map(|obj| obj.into()).collect();
         let objects_in_state: HashSet<ObjectKey> = self.handlers.keys().cloned().collect();
         for key in objects_in_state.difference(&current_objects) {
-            let mut manifest: O::Manifest = Default::default();
-            {
-                let meta: &mut ObjectMeta = manifest.metadata_mut();
-                meta.name = Some(key.name().to_string());
-                meta.namespace = key.namespace().cloned();
-            }
             trace!(
                 name=key.name(),
                 namespace=?key.namespace(),
                 "object_deleted"
             );
-            self.dispatch(Event::Deleted(manifest)).await?;
+            self.dispatch(ObjectEvent::Deleted {
+                name: key.name().to_string(),
+                namespace: key.namespace().cloned(),
+            })
+            .await?;
         }
 
         // Now that we've sent off deletes, queue an apply event for all pods
@@ -269,7 +273,7 @@ impl<O: Operator> OperatorRuntime<O> {
                 namespace=?object.namespace(),
                 "object_applied"
             );
-            self.dispatch(Event::Applied(object)).await?
+            self.dispatch(ObjectEvent::Applied(object)).await?
         }
         Ok(())
     }
@@ -288,18 +292,32 @@ impl<O: Operator> OperatorRuntime<O> {
                 return;
             }
         }
-        if let Event::Restarted(objects) = event {
-            info!("Got a watch restart. Resyncing queue...");
-            // If we got a restart, we need to requeue an applied event for all objects
-            match self.resync(objects).await {
-                Ok(()) => info!("Finished resync of objects."),
-                Err(error) => warn!(?error, "Error resyncing objects."),
-            };
-        } else {
-            match self.dispatch(event).await {
-                Ok(()) => debug!("Dispatched event for processing."),
-                Err(error) => warn!(?error, "Error dispatching object event."),
-            };
+        match event {
+            Event::Restarted(objects) => {
+                info!("Got a watch restart. Resyncing queue...");
+                // If we got a restart, we need to requeue an applied event for all objects
+                match self.resync(objects).await {
+                    Ok(()) => info!("Finished resync of objects."),
+                    Err(error) => warn!(?error, "Error resyncing objects."),
+                };
+            }
+            Event::Applied(object) => {
+                match self.dispatch(ObjectEvent::Applied(object)).await {
+                    Ok(()) => debug!("Dispatched event for processing."),
+                    Err(error) => warn!(?error, "Error dispatching object event."),
+                };
+            }
+            Event::Deleted(object) => {
+                let key: ObjectKey = (&object).into();
+                let event = ObjectEvent::<O::Manifest>::Deleted {
+                    name: key.name().to_string(),
+                    namespace: key.namespace().cloned(),
+                };
+                match self.dispatch(event).await {
+                    Ok(()) => debug!("Dispatched event for processing."),
+                    Err(error) => warn!(?error, "Error dispatching object event."),
+                };
+            }
         }
     }
 
