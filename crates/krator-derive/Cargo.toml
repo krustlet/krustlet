@@ -49,4 +49,4 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.8"
 schemars = "0.8.0"
-krator = { default-features = false, features = ["admission-webhook"], path = "../krator" }
+krator = { default-features = false, path = "../krator" }

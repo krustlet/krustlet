@@ -364,7 +364,7 @@ impl Operator for MooseTracker {
     }
 
     #[cfg(feature = "admission-webhook")]
-    async fn admission_hook_tls(&self) -> anyhow::Result<krator::admission::AdmissionTLS> {
+    async fn admission_hook_tls(&self) -> anyhow::Result<krator::admission::AdmissionTls> {
         let client = self.shared.read().await.client.clone();
         let secret_name = Moose::admission_webhook_secret_name();
 
@@ -372,7 +372,7 @@ impl Operator for MooseTracker {
             .get(&secret_name)
             .await?;
 
-        Ok(admission::AdmissionTLS::from(&secret)?)
+        Ok(admission::AdmissionTls::from(&secret)?)
     }
 }
 

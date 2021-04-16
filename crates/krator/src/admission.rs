@@ -14,7 +14,6 @@ use kube::{
     Client, Resource,
 };
 use serde::{Deserialize, Serialize};
-use serde_yaml;
 use std::{
     fmt::{Display, Formatter},
     sync::Arc,
@@ -147,7 +146,7 @@ impl WebhookResources {
                     .metadata
                     .name
                     .clone()
-                    .unwrap_or("".to_string())
+                    .unwrap_or_else(|| "".to_string())
             )
         })?;
         let service_namespace = self
@@ -248,16 +247,16 @@ impl Display for WebhookResources {
     }
 }
 
-/// AdmissionTLS wraps certificate and private key for the admission webhook server. If you read
-/// the secret from a Kubernets secret, use the convenience function [AdmissionTLS::from()]
-pub struct AdmissionTLS {
+/// AdmissionTls wraps certificate and private key for the admission webhook server. If you read
+/// the secret from a Kubernets secret, use the convenience function [AdmissionTls::from()]
+pub struct AdmissionTls {
     /// tls certificate
     pub cert: String,
     /// tls private key
     pub private_key: String,
 }
 
-impl AdmissionTLS {
+impl AdmissionTls {
     /// Convenience function to extract secret data from a Kubernetes secret of type `tls`. It supports
     /// Secrets that have secrets set via `data` or `string_data`
     pub fn from(s: &Secret) -> anyhow::Result<Self> {
@@ -276,14 +275,14 @@ impl AdmissionTLS {
             )
         };
 
-        const TLS_CRT: &'static str = "tls.crt";
-        const TLS_KEY: &'static str = "tls.key";
+        const TLS_CRT: &str = "tls.crt";
+        const TLS_KEY: &str = "tls.key";
 
         if let Some(data) = &s.data {
             let cert_byte_string = data.get(TLS_CRT).context(error_msg(TLS_CRT))?;
             let key_byte_string = data.get(TLS_KEY).context(error_msg(TLS_KEY))?;
 
-            return Ok(AdmissionTLS {
+            return Ok(AdmissionTls {
                 cert: std::str::from_utf8(&cert_byte_string.0)?.to_string(),
                 private_key: std::str::from_utf8(&key_byte_string.0)?.to_string(),
             });
@@ -293,7 +292,7 @@ impl AdmissionTLS {
             let cert = string_data.get(TLS_CRT).context(error_msg(TLS_CRT))?;
             let key = string_data.get(TLS_KEY).context(error_msg(TLS_KEY))?;
 
-            return Ok(AdmissionTLS {
+            return Ok(AdmissionTls {
                 cert: cert.to_string(),
                 private_key: key.to_string(),
             });
@@ -522,7 +521,7 @@ pub(crate) async fn endpoint<O: Operator>(operator: Arc<O>) {
     let tls = operator
         .admission_hook_tls()
         .await
-        .expect("getting webhook tls AdmissionTLS failed");
+        .expect("getting webhook tls AdmissionTls failed");
 
     use warp::Filter;
     let routes = warp::any()

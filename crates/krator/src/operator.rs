@@ -8,7 +8,7 @@ use crate::state::{SharedState, State};
 use crate::Manifest;
 
 #[cfg(feature = "admission-webhook")]
-use crate::admission::AdmissionTLS;
+use crate::admission::AdmissionTls;
 
 #[async_trait::async_trait]
 /// Interface for creating an operator.
@@ -64,11 +64,11 @@ pub trait Operator: 'static + Sync + Send {
     #[cfg(feature = "admission-webhook")]
     /// Gets called by the operator if the admission-webhook feature is enabled. The function should
     /// return a certificate and a private key that can be used by the admission controller.
-    /// Usually, the key and the certificate will be read from a Kubernetes secret -- use [AdmissionTLS::from()]
-    /// to convert the Kubernetes secret an [AdmissionTLS]
-    async fn admission_hook_tls(&self) -> anyhow::Result<AdmissionTLS>;
+    /// Usually, the key and the certificate will be read from a Kubernetes secret -- use [AdmissionTls::from()]
+    /// to convert the Kubernetes secret an [AdmissionTls]
+    async fn admission_hook_tls(&self) -> anyhow::Result<AdmissionTls>;
 
-   /// Called before the state machine is run.
+    /// Called before the state machine is run.
     async fn deregistration_hook(
         &self,
         mut _manifest: Manifest<Self::Manifest>,
