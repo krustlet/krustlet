@@ -101,13 +101,7 @@ impl<P: Provider> Kubelet<P> {
         });
 
         // Periodically checks for shutdown signal and cleans up resources gracefully if caught.
-        let signal_handler = start_signal_handler(
-            Arc::clone(&signal),
-            client.clone(),
-            self.config.node_name.clone(),
-        )
-        .fuse()
-        .boxed();
+        let signal_handler = start_signal_handler(Arc::clone(&signal)).fuse().boxed();
 
         let operator = PodOperator::new(Arc::clone(&self.provider), client.clone());
         let node_selector = format!("spec.nodeName={}", &self.config.node_name);
@@ -117,14 +111,16 @@ impl<P: Provider> Kubelet<P> {
         };
         let mut operator_runtime = OperatorRuntime::new(&self.kube_config, operator, Some(params));
         let operator_task = operator_runtime.start().fuse().boxed();
-
         // These must all be running for graceful shutdown. An error here exits ungracefully.
         let core = Box::pin(async {
             tokio::select! {
-                res = signal_handler => res.map_err(|e| {
-                    error!("Signal handler task joined with error {:?}", &e);
-                    e
-                }),
+                res = signal_handler => match res {
+                    Ok(()) => self.provider.shutdown(&self.config.node_name).await,
+                    Err(e) => {
+                        error!("Signal handler task joined with error {:?}", &e);
+                        Err(e)
+                    }
+                },
                 _ = operator_task => {
                     warn!("Pod operator has completed");
                     Ok(())
@@ -187,16 +183,14 @@ async fn start_node_updater(client: kube::Client, node_name: String) -> anyhow::
 }
 
 /// Checks for shutdown signal and cleans up resources gracefully.
-async fn start_signal_handler(
-    signal: Arc<AtomicBool>,
-    client: kube::Client,
-    node_name: String,
-) -> anyhow::Result<()> {
+async fn start_signal_handler(signal: Arc<AtomicBool>) -> anyhow::Result<()> {
     let duration = std::time::Duration::from_millis(100);
     loop {
         if signal.load(Ordering::Relaxed) {
             info!("Signal caught.");
-            node::drain(&client, &node_name).await?;
+            // When the signal was caught we simply exit the loop here,
+            // handling is done outside of this task to avoid having to
+            // pass a reference to the provider here
             break Ok(());
         }
         tokio::time::sleep(duration).await;
