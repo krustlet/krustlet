@@ -83,7 +83,7 @@ pub async fn run_to_completion<S: ResourceState>(
     object_state: &mut S,
     manifest: Manifest<S::Manifest>,
 ) where
-    S::Manifest: k8s_openapi::Resource + Resource + DeserializeOwned,
+    S::Manifest: Resource + DeserializeOwned,
     <S::Manifest as kube::Resource>::DynamicType: std::default::Default,
     S::Status: ObjectStatus,
 {
@@ -130,7 +130,7 @@ async fn execute_object_state<S: ResourceState>(
     manifest: &Manifest<S::Manifest>,
 ) -> Option<Box<dyn State<S>>>
 where
-    S::Manifest: k8s_openapi::Resource + Resource + DeserializeOwned,
+    S::Manifest: Resource + DeserializeOwned,
     S::Status: ObjectStatus,
 {
     let latest_manifest = manifest.latest();
@@ -179,7 +179,7 @@ where
 
 /// Patch object status with Kubernetes API.
 #[tracing::instrument(level = "trace", skip(api, name, status))]
-pub async fn patch_status<R: k8s_openapi::Resource + Clone + DeserializeOwned, S: ObjectStatus>(
+pub async fn patch_status<R: Resource + Clone + DeserializeOwned, S: ObjectStatus>(
     api: &Api<R>,
     name: &str,
     status: S,

@@ -1,7 +1,7 @@
 //! Basic implementation of Kubernetes Admission API
 use crate::Operator;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
-use kube::api::Meta;
+use kube::Resource;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{info, trace, warn};
@@ -62,7 +62,7 @@ struct AdmissionRequest<T> {
     operation: AdmissionRequestOperation<T>,
 }
 
-impl<T: Meta> AdmissionRequest<T> {
+impl<T: Resource> AdmissionRequest<T> {
     fn name(&self) -> String {
         match &self.operation {
             AdmissionRequestOperation::Create { object, .. } => object.name(),

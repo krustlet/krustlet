@@ -7,6 +7,7 @@ run-wasi: run
 
 build +FLAGS='':
     cargo build {{FLAGS}}
+    cd crates/krator && cargo build {{FLAGS}} --example=moose --features=admission-webhook,derive
 
 lint-docs:
     markdownlint '**/*.md' -c .markdownlint.json
