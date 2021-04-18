@@ -25,8 +25,7 @@ test-e2e:
     cargo test --test integration_tests
 
 test-e2e-standalone:
-    netstat -tulnp || true
-    curl -vvv localhost:3001 || true
+    ip addr || true
     cargo run --bin oneclick
 
 test-e2e-ci:

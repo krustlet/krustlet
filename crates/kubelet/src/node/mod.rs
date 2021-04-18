@@ -132,6 +132,7 @@ pub async fn create<P: Provider>(client: &kube::Client, config: &Config, provide
     }
 
     let node = builder.build().into_inner();
+    debug!("{:?}", node);
     match retry!(node_client.create(&PostParams::default(), &node).await, times: 4) {
         Ok(node) => {
             let node_uid = node.metadata.uid.unwrap();
