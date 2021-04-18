@@ -287,7 +287,7 @@ fn launch_kubelet(
         .env("KUBECONFIG", kubeconfig)
         .env(
             "RUST_LOG",
-            "wasi_provider=debug,main=debug,krator::state=debug,kubelet::container::state=debug,kubelet::webserver=debug,warp=debug,kubelet::node=debug",
+            "wasi_provider=debug,main=debug,krator::state=debug,kubelet::container::state=debug,kubelet::webserver=debug,warp=debug,kubelet::node=debug,kubelet::config=debug",
         )
         .stdout(std::process::Stdio::piped())
         .stderr(stderr)
