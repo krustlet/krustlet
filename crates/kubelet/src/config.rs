@@ -13,6 +13,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
+use tracing::debug;
 
 #[cfg(any(feature = "cli", feature = "docs"))]
 use std::iter::FromIterator;
@@ -552,7 +553,7 @@ fn default_node_ip(hostname: &mut String, preferred_ip_family: &IpAddr) -> anyho
     // To use the local resolver, we need to add a port to the hostname. Doesn't
     // matter which one, it just needs to be a valid socket address
     hostname.push_str(":80");
-    Ok(hostname
+    let result = hostname
         .to_socket_addrs()?
         .find(|i| {
             !i.ip().is_loopback()
@@ -565,7 +566,9 @@ fn default_node_ip(hostname: &mut String, preferred_ip_family: &IpAddr) -> anyho
                 "unable to find default IP address for node. Please specify a node IP manually"
             )
         })?
-        .ip())
+        .ip();
+    debug!(%hostname, addrs=?hostname.to_socket_addrs(), %result, "Determining IP.");
+    Ok(result)
 }
 
 fn default_key_path(data_dir: &Path) -> PathBuf {

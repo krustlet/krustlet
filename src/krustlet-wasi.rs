@@ -8,12 +8,12 @@ use wasi_provider::WasiProvider;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
+    // Initialize the logger
+    env_logger::init();
+
     // The provider is responsible for all the "back end" logic. If you are creating
     // a new Kubelet, all you need to implement is a provider.
     let config = Config::new_from_file_and_flags(env!("CARGO_PKG_VERSION"), None);
-
-    // Initialize the logger
-    env_logger::init();
 
     let kubeconfig = kubelet::bootstrap(&config, &config.bootstrap_file, notify_bootstrap).await?;
 
