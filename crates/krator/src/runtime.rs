@@ -283,7 +283,7 @@ impl<O: Operator> OperatorRuntime<O> {
         skip(self, event),
         fields(event=?PrettyEvent::from(&event))
     )]
-    async fn handle_event(&mut self, event: Event<O::Manifest>) {
+    pub(crate) async fn handle_event(&mut self, event: Event<O::Manifest>) {
         if let Some(ref signal) = self.signal {
             if matches!(event, kube_runtime::watcher::Event::Applied(_))
                 && signal.load(Ordering::Relaxed)
