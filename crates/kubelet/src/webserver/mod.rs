@@ -24,7 +24,7 @@ pub(crate) async fn start<T: Provider>(
 ) -> anyhow::Result<()> {
     let health = warp::get().and(warp::path("healthz")).map(|| PING);
     let ping = warp::get().and(warp::path::end()).map(|| PING);
-    
+
     let logs_provider = provider.clone();
     let logs = warp::get()
         .and(warp::path!("containerLogs" / String / String / String))
