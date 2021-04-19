@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use k8s_csi::v1_3_0::node_service_capability::{rpc, Rpc, Type as CapabilityType};
 use k8s_csi::v1_3_0::volume_capability::access_mode::Mode as CSIMode;
@@ -127,6 +128,126 @@ impl FromStr for AccessMode {
     }
 }
 
+pub struct PvcVolume {
+    name: String,
+    client: kube::Client,
+    spec: PersistentVolumeClaimSpec,
+    csi_client: NodeClient<tonic::transport::Channel>,
+    csi_pv_source: CSIPersistentVolumeSource,
+}
+
+impl PvcVolume {
+    pub async fn new(
+        source: &PersistentVolumeClaimVolumeSource,
+        client: kube::Client,
+        vol_name: &str,
+        namespace: &str,
+        plugin_registry: Option<Arc<PluginRegistry>>,
+    ) -> anyhow::Result<Self> {
+        let plugin_registry = match plugin_registry {
+            Some(p) => p,
+            None => {
+                return Err(anyhow::anyhow!(
+                    "cannot mount volume {}: CSI driver support not implemented",
+                    source.claim_name
+                ))
+            }
+        };
+
+        let spec = get_pvc_spec(source, &client, namespace).await?;
+        let csi_client = get_csi_client(&client, &spec, plugin_registry).await?;
+        let csi_pv_source = get_csi(&client, source, &spec).await?;
+
+        Ok(PvcVolume {
+            name: vol_name.to_owned(),
+            client,
+            spec,
+            csi_client,
+            csi_pv_source,
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl Mountable for PvcVolume {
+    async fn mount(&mut self, base_path: &Path) -> anyhow::Result<Ref> {
+        let stage_unstage_volume = supports_stage_unstage(&mut self.csi_client).await?;
+
+        let path = base_path.join(&self.name);
+
+        // we keep this around even if the driver does not support STAGE_UNSTAGE_VOLUME. unmount() still
+        // needs it.
+        tokio::fs::create_dir_all(&path).await?;
+        // TODO(bacongobbler): implement node_unstage_volume(). We'll need to persist the staging_path
+        // somewhere so we can recall that information during unpopulate()
+        // ADDENDUM(thomastaylor312): Basically, it looks like most of the major providers don't support
+        // stage/unstage, so for now we are going to defer implementing unstaging as passing that data
+        // around is a little bit interesting with our current scheme
+
+        // The call to .tempdir() includes blocking IO operations, so this is wrapped here
+        // in order to spawn it on a separate thread pool so that we do not block this thread
+        let staging_path_prefix = self.csi_pv_source.volume_handle.to_owned();
+        let staging_path = tokio::task::spawn_blocking(move || {
+            Builder::new().prefix(&staging_path_prefix).tempdir()
+        })
+        .await??;
+
+        // We can unwrap safely here as `get_pvc_spec` validates all these fields
+        let access_type = get_access_type(
+            VolumeMode::from_str(&self.spec.volume_mode.clone().unwrap_or_default()).unwrap(),
+            &self.csi_pv_source,
+        );
+
+        if stage_unstage_volume {
+            let secrets = get_secrets_map(
+                self.csi_pv_source.node_stage_secret_ref.clone(),
+                &self.client,
+            )
+            .await?;
+            stage_volume(
+                &mut self.csi_client,
+                &self.csi_pv_source,
+                staging_path.path(),
+                secrets,
+                access_type.clone(),
+            )
+            .await?;
+        }
+
+        let secrets = get_secrets_map(
+            self.csi_pv_source.node_publish_secret_ref.clone(),
+            &self.client,
+        )
+        .await?;
+        publish_volume(
+            &mut self.csi_client,
+            &self.csi_pv_source,
+            staging_path.path(),
+            stage_unstage_volume,
+            &path,
+            secrets,
+            access_type,
+        )
+        .await?;
+
+        Ok(Ref {
+            host_path: path,
+            volume_type: VolumeType::PersistentVolumeClaim(
+                stage_unstage_volume.then(|| staging_path.into_path()),
+            ),
+        })
+    }
+
+    async fn unmount(&mut self, base_path: &Path) -> anyhow::Result<()> {
+        let path = base_path.join(&self.name);
+        // https://github.com/kubernetes/kubernetes/blob/6d5cb36d36f34cb4f5735b6adcd5ea8ebb4440ba/pkg/volume/csi/csi_mounter.go#L390
+        unpublish_volume(&mut self.csi_client, &self.csi_pv_source, &path).await?;
+        std::fs::remove_dir_all(path)?;
+
+        Ok(())
+    }
+}
+
 // Validates a PersistentVolumeClaimSpec.
 // https://github.com/kubernetes/kubernetes/blob/c970a46bc1bcc100bbbfabd5c12bd4c5d87f8aea/pkg/apis/core/validation/validation.go#L1965
 pub(crate) fn validate(spec: &PersistentVolumeClaimSpec) -> anyhow::Result<()> {
@@ -209,103 +330,6 @@ fn validate_data_source(source: Option<&TypedLocalObjectReference>) -> anyhow::R
     if source.is_some() {
         warn!("The `data_source` field is not currently supported in Krustlet. Support will be added once the feature hits beta")
     }
-    Ok(())
-}
-
-pub(crate) async fn populate(
-    pvc_source: &PersistentVolumeClaimVolumeSource,
-    client: &kube::Client,
-    namespace: &str,
-    pr: Option<Arc<PluginRegistry>>,
-    path: &Path,
-) -> anyhow::Result<VolumeType> {
-    if pr.is_none() {
-        return Err(anyhow::anyhow!(format!(
-            "failed to mount volume {}: CSI driver support not implemented",
-            &pvc_source.claim_name
-        )));
-    }
-    let plugin_registry = pr.unwrap();
-
-    let spec = get_pvc_spec(pvc_source, client, namespace).await?;
-    let mut csi_client = get_csi_client(client, &spec, plugin_registry).await?;
-    let csi = get_csi(client, pvc_source, &spec).await?;
-    let stage_unstage_volume = supports_stage_unstage(&mut csi_client).await?;
-
-    // we keep this around even if the driver does not support STAGE_UNSTAGE_VOLUME. unmount() still
-    // needs it.
-    tokio::fs::create_dir_all(path).await?;
-    // TODO(bacongobbler): implement node_unstage_volume(). We'll need to persist the staging_path
-    // somewhere so we can recall that information during unpopulate()
-    // ADDENDUM(thomastaylor312): Basically, it looks like most of the major providers don't support
-    // stage/unstage, so for now we are going to defer implementing unstaging as passing that data
-    // around is a little bit interesting with our current scheme
-
-    // The call to .tempdir() includes blocking IO operations, so this is wrapped here
-    // in order to spawn it on a separate thread pool so that we do not block this thread
-    let staging_path_prefix = csi.volume_handle.to_owned();
-    let staging_path =
-        tokio::task::spawn_blocking(move || Builder::new().prefix(&staging_path_prefix).tempdir())
-            .await??;
-
-    // We can unwrap safely here as `get_pvc_spec` validates all these fields
-    let access_type = get_access_type(
-        VolumeMode::from_str(&spec.volume_mode.clone().unwrap_or_default()).unwrap(),
-        &csi,
-    );
-
-    if stage_unstage_volume {
-        let secrets = get_secrets_map(csi.node_stage_secret_ref.clone(), client).await?;
-        stage_volume(
-            &mut csi_client,
-            &csi,
-            staging_path.path(),
-            secrets,
-            access_type.clone(),
-        )
-        .await?;
-    }
-
-    let secrets = get_secrets_map(csi.node_publish_secret_ref.clone(), client).await?;
-    publish_volume(
-        &mut csi_client,
-        &csi,
-        staging_path.path(),
-        stage_unstage_volume,
-        path,
-        secrets,
-        access_type,
-    )
-    .await?;
-
-    Ok(VolumeType::PersistentVolumeClaim(
-        stage_unstage_volume.then(|| staging_path.into_path()),
-    ))
-}
-
-pub(crate) async fn unpopulate(
-    pvc_source: &PersistentVolumeClaimVolumeSource,
-    client: &kube::Client,
-    namespace: &str,
-    pr: Option<Arc<PluginRegistry>>,
-    path: &Path,
-) -> anyhow::Result<()> {
-    if pr.is_none() {
-        return Err(anyhow::anyhow!(format!(
-            "failed to unmount volume {}: CSI driver support not implemented",
-            &pvc_source.claim_name
-        )));
-    }
-    let plugin_registry = pr.unwrap();
-
-    let spec = get_pvc_spec(pvc_source, client, namespace).await?;
-    let mut csi_client = get_csi_client(client, &spec, plugin_registry).await?;
-    let csi = get_csi(client, pvc_source, &spec).await?;
-
-    // https://github.com/kubernetes/kubernetes/blob/6d5cb36d36f34cb4f5735b6adcd5ea8ebb4440ba/pkg/volume/csi/csi_mounter.go#L390
-    unpublish_volume(&mut csi_client, &csi, path).await?;
-    std::fs::remove_dir_all(path)?;
-
     Ok(())
 }
 
