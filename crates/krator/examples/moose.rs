@@ -376,36 +376,40 @@ impl Operator for MooseTracker {
     }
 }
 
-async fn apply_crd(client: &kube::Client) -> anyhow::Result<CustomResourceDefinition> {
-    info!("installing moose crd");
-    let mut crd = Moose::crd();
-    let crd_name = crd.metadata.name.as_ref().unwrap();
+impl MooseTracker {
+    async fn apply_crd(&self) -> anyhow::Result<CustomResourceDefinition> {
+        info!("installing moose crd");
+        let client = self.shared.read().await.client.clone();
+        let mut crd = Moose::crd();
+        let crd_name = crd.metadata.name.as_ref().unwrap();
 
-    let api = kube::Api::<CustomResourceDefinition>::all(client.to_owned());
+        let api = kube::Api::<CustomResourceDefinition>::all(client.to_owned());
 
-    let created_crd;
-    if let Ok(existing_crd) = api.get(crd_name).await {
-        crd.metadata.resource_version = Some(existing_crd.resource_ver().unwrap());
-        created_crd = api.replace(&crd_name, &PostParams::default(), &crd).await?;
-    } else {
-        created_crd = api.create(&PostParams::default(), &crd).await?;
+        let created_crd;
+        if let Ok(existing_crd) = api.get(crd_name).await {
+            crd.metadata.resource_version = Some(existing_crd.resource_ver().unwrap());
+            created_crd = api.replace(&crd_name, &PostParams::default(), &crd).await?;
+        } else {
+            created_crd = api.create(&PostParams::default(), &crd).await?;
+        }
+
+        Ok(created_crd)
     }
 
-    Ok(created_crd)
-}
-
-#[cfg(feature = "admission-webhook")]
-async fn setup_cluster(client: &kube::Client) -> anyhow::Result<()> {
-    let crd = apply_crd(&client).await?;
-
-    info!("installing moose webhook resources");
-    let awh_resources =
-        admission::WebhookResources::from(Moose::admission_webhook_resources("default"));
-    awh_resources.apply_owned(&client, &crd).await?;
-
     #[cfg(feature = "admission-webhook")]
-    info!(
-        r#"
+    async fn setup_cluster(&self) -> anyhow::Result<()> {
+        let client = self.shared.read().await.client.clone();
+
+        let crd = self.apply_crd().await?;
+
+        info!("installing moose webhook resources");
+        let awh_resources =
+            admission::WebhookResources::from(Moose::admission_webhook_resources("default"));
+        awh_resources.apply_owned(&client, &crd).await?;
+
+        #[cfg(feature = "admission-webhook")]
+        info!(
+            r#"
 
 If you run this example outside of Kubernetes (i.e. with `cargo run`), you need to make the webhook available.
 
@@ -416,16 +420,17 @@ make sure your deployment has the following labels set:
 app={}
     
     "#,
-        Moose::admission_webhook_service_app_selector()
-    );
-    Ok(())
-}
+            Moose::admission_webhook_service_app_selector()
+        );
+        Ok(())
+    }
 
-#[cfg(not(feature = "admission-webhook"))]
-async fn setup_cluster(client: &kube::Client) -> anyhow::Result<()> {
-    let _ = apply_crd(&client).await;
+    #[cfg(not(feature = "admission-webhook"))]
+    async fn setup_cluster(&self) -> anyhow::Result<()> {
+        let _ = self.apply_crd().await;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 #[derive(Debug, StructOpt)]
@@ -500,7 +505,7 @@ async fn main() -> anyhow::Result<()> {
 
     info!("crd:\n{}", serde_yaml::to_string(&Moose::crd()).unwrap());
 
-    setup_cluster(&client).await?;
+    tracker.setup_cluster().await?;
 
     // Only track mooses in Glacier NP
     let params = ListParams::default().labels("nps.gov/park=glacier");

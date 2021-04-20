@@ -25,7 +25,6 @@ pub struct CrSpec {
 #[test]
 fn it_has_a_function_for_creating_admission_webhook_tls_secret() {
     let secret: k8s_openapi::api::core::v1::Secret = MyCr::admission_webhook_secret("default");
-    // let secret = foo("default");
     let data = secret.string_data.unwrap();
     assert_eq!(
         secret.metadata.name.unwrap(),
