@@ -10,7 +10,7 @@ use k8s_openapi::{
 };
 use k8s_openapi::{apimachinery::pkg::apis::meta::v1::OwnerReference, Metadata};
 use kube::{
-    api::{ObjectMeta, PostParams},
+    api::{ObjectMeta, Patch, PatchParams},
     Client, Resource,
 };
 use serde::{Deserialize, Serialize};
@@ -168,47 +168,47 @@ impl WebhookResources {
         {
             let api: kube::Api<Secret> = kube::Api::namespaced(client.to_owned(), secret_namespace);
             let name = self.secret().metadata.name.as_ref().unwrap();
-            if let Ok(existing_secret) = api.get(name).await {
-                let mut secret = self.secret().to_owned();
-                secret.metadata.resource_version = Some(existing_secret.resource_ver().unwrap());
-                api.replace(name, &PostParams::default(), &secret).await?;
-            } else {
-                api.create(&Default::default(), self.secret()).await?;
-            }
+            api.patch(
+                &name,
+                &PatchParams {
+                    dry_run: false,
+                    force: true,
+                    field_manager: Some("krator".to_string()),
+                },
+                &Patch::Apply(self.secret()),
+            )
+            .await?;
         }
 
         {
             let api: kube::Api<Service> =
                 kube::Api::namespaced(client.to_owned(), service_namespace);
             let name = self.service().metadata.name.as_ref().unwrap();
-            if let Ok(existing_service) = api.get(name).await {
-                let mut service = self.service().to_owned();
-
-                // keep the cluster-ip -- this must not be changed on update
-                let mut service_spec = service.spec.unwrap();
-                service_spec.cluster_ip = existing_service.spec.clone().unwrap().cluster_ip;
-                service.spec = Some(service_spec);
-
-                service.metadata.resource_version = Some(existing_service.resource_ver().unwrap());
-                api.replace(name, &PostParams::default(), &service).await?;
-            } else {
-                api.create(&Default::default(), self.service()).await?;
-            }
+            api.patch(
+                &name,
+                &PatchParams {
+                    dry_run: false,
+                    force: true,
+                    field_manager: Some("krator".to_string()),
+                },
+                &Patch::Apply(self.service()),
+            )
+            .await?;
         }
 
         {
             let api: kube::Api<MutatingWebhookConfiguration> = kube::Api::all(client.to_owned());
             let name = self.webhook_config().metadata.name.as_ref().unwrap();
-            if let Ok(existing_webhook_config) = api.get(name).await {
-                let mut webhook_config = self.webhook_config().to_owned();
-                webhook_config.metadata.resource_version =
-                    Some(existing_webhook_config.resource_ver().unwrap());
-                api.replace(name, &PostParams::default(), &webhook_config)
-                    .await?;
-            } else {
-                api.create(&Default::default(), self.webhook_config())
-                    .await?;
-            }
+            api.patch(
+                &name,
+                &PatchParams {
+                    dry_run: false,
+                    force: true,
+                    field_manager: Some("krator".to_string()),
+                },
+                &Patch::Apply(self.webhook_config()),
+            )
+            .await?;
         }
 
         Ok(())

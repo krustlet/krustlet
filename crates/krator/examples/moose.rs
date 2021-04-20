@@ -3,7 +3,7 @@ use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomRe
 use krator::{
     Manifest, ObjectState, ObjectStatus, Operator, OperatorRuntime, State, Transition, TransitionTo,
 };
-use kube::api::{ListParams, PostParams, Resource};
+use kube::api::{ListParams, Patch, PatchParams, Resource};
 use kube_derive::CustomResource;
 use rand::seq::IteratorRandom;
 use rand::Rng;
@@ -381,18 +381,21 @@ impl MooseTracker {
     async fn apply_crd(&self) -> anyhow::Result<CustomResourceDefinition> {
         info!("installing moose crd");
         let client = self.shared.read().await.client.clone();
-        let mut crd = Moose::crd();
-        let crd_name = crd.metadata.name.as_ref().unwrap();
+        let crd = Moose::crd();
+        let crd_name = crd.metadata.name.clone().unwrap();
 
         let api = kube::Api::<CustomResourceDefinition>::all(client.to_owned());
-
-        let created_crd;
-        if let Ok(existing_crd) = api.get(crd_name).await {
-            crd.metadata.resource_version = Some(existing_crd.resource_ver().unwrap());
-            created_crd = api.replace(&crd_name, &PostParams::default(), &crd).await?;
-        } else {
-            created_crd = api.create(&PostParams::default(), &crd).await?;
-        }
+        let created_crd = api
+            .patch(
+                &crd_name,
+                &PatchParams {
+                    dry_run: false,
+                    force: true,
+                    field_manager: Some("moose-tracker".to_string()),
+                },
+                &Patch::Apply(crd),
+            )
+            .await?;
 
         Ok(created_crd)
     }
