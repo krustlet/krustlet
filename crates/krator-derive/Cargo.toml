@@ -42,7 +42,6 @@ features = ["docs"]
 rustdoc-args = ["--cfg", "feature=\"docs\""]
 
 [dev-dependencies]
-kube = { version = "0.52", default-features = false, features = ["derive"] }
 kube-runtime = { version = "0.52", default-features = false }
 kube-derive = "0.52"
 serde = { version = "1.0", features = ["derive"] }
