@@ -1573,7 +1573,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "k8s-openapi",
- "krator",
  "kube",
  "kube-derive",
  "kube-runtime",
