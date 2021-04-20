@@ -49,7 +49,7 @@ use kubelet::state::common::registered::Registered;
 use kubelet::state::common::terminated::Terminated;
 use kubelet::state::common::{GenericProvider, GenericProviderState};
 use kubelet::store::Store;
-use kubelet::volume::Ref;
+use kubelet::volume::VolumeRef;
 use tokio::sync::RwLock;
 use wasi_runtime::Runtime;
 
@@ -134,7 +134,7 @@ impl WasiProvider {
 
 struct ModuleRunContext {
     modules: HashMap<String, Vec<u8>>,
-    volumes: HashMap<String, Ref>,
+    volumes: HashMap<String, VolumeRef>,
 }
 
 #[async_trait::async_trait]

@@ -1,39 +1,50 @@
 use std::path::Path;
 
-use k8s_openapi::api::core::v1::{ConfigMap, KeyToPath};
+use k8s_openapi::api::core::v1::{ConfigMap, KeyToPath, Volume as KubeVolume};
 use k8s_openapi::ByteString;
+use tracing::warn;
 
 use super::*;
 
+/// A type that can manage a ConfigMap volume with mounting and unmounting support
 pub struct ConfigMapVolume {
     vol_name: String,
     cm_name: String,
     client: kube::Api<ConfigMap>,
     items: Option<Vec<KeyToPath>>,
+    mounted_path: Option<PathBuf>,
 }
 
 impl ConfigMapVolume {
-    pub fn new(
-        vol_name: &str,
-        cm_name: &str,
-        namespace: &str,
-        client: kube::Client,
-        items: Option<Vec<KeyToPath>>,
-    ) -> Self {
-        ConfigMapVolume {
-            vol_name: vol_name.to_owned(),
-            cm_name: cm_name.to_owned(),
+    /// Creates a new ConfigMap volume from a Kubernetes volume object. Passing a non-ConfigMap
+    /// volume type will result in an error
+    pub fn new(vol: &KubeVolume, namespace: &str, client: kube::Client) -> anyhow::Result<Self> {
+        let cm_source = vol.config_map.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("Called a ConfigMap volume constructor with a non-ConfigMap volume")
+        })?;
+        Ok(ConfigMapVolume {
+            vol_name: vol.name.clone(),
+            cm_name: cm_source
+                .name
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("no ConfigMap name was given"))?,
             client: Api::namespaced(client, namespace),
-            items,
-        }
+            items: cm_source.items.clone(),
+            mounted_path: None,
+        })
     }
-}
 
-#[async_trait::async_trait]
-impl Mountable for ConfigMapVolume {
-    async fn mount(&mut self, base_path: &Path) -> anyhow::Result<Ref> {
+    /// Returns the path where the volume is mounted on the host. Will return `None` if the volume
+    /// hasn't been mounted yet
+    pub fn get_path(&self) -> Option<&Path> {
+        self.mounted_path.as_deref()
+    }
+
+    /// Mounts the ConfigMap volume in the given directory. The actual path will be
+    /// $BASE_PATH/$VOLUME_NAME
+    pub async fn mount(&mut self, base_path: impl AsRef<Path>) -> anyhow::Result<()> {
         let config_map = self.client.get(&self.cm_name).await?;
-        let path = base_path.join(&self.vol_name);
+        let path = base_path.as_ref().join(&self.vol_name);
         tokio::fs::create_dir_all(&path).await?;
 
         let binary_data = config_map.binary_data.unwrap_or_default();
@@ -64,14 +75,23 @@ impl Mountable for ConfigMapVolume {
             .chain(data)
             .collect::<tokio::io::Result<_>>()?;
 
-        Ok(Ref {
-            host_path: path,
-            volume_type: VolumeType::ConfigMap,
-        })
+        // Update the mounted directory
+        self.mounted_path = Some(path);
+
+        Ok(())
     }
 
-    async fn unmount(&mut self, _base_path: &Path) -> anyhow::Result<()> {
-        // Unmounting is handled with the external ref type
+    /// Unmounts the directory, which removes all files. Calling `unmount` on a directory that
+    /// hasn't been mounted will log a warning, but otherwise not error
+    pub async fn unmount(&mut self) -> anyhow::Result<()> {
+        match self.mounted_path.take() {
+            Some(p) => {
+                tokio::fs::remove_dir_all(p).await?;
+            }
+            None => {
+                warn!("Attempted to unmount ConfigMap directory that wasn't mounted, this generally shouldn't happen");
+            }
+        }
         Ok(())
     }
 }

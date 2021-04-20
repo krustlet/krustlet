@@ -1,14 +1,12 @@
 use crate::pod::initialize_pod_container_statuses;
 use crate::pod::Pod;
 use crate::provider::Provider;
-use crate::volume::Ref;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use krator::state::SharedState;
 use krator::ObjectState;
 use krator::{Manifest, Operator};
 use kube::Api;
 use std::sync::Arc;
-use tracing::error;
 
 pub(crate) struct PodOperator<P: Provider> {
     provider: Arc<P>,
@@ -46,20 +44,7 @@ impl<P: Provider> Operator for PodOperator<P> {
         initialize_pod_container_statuses(name, manifest, &api).await
     }
 
-    async fn deregistration_hook(&self, manifest: Manifest<Self::Manifest>) -> anyhow::Result<()> {
-        if let Some(volume_path) = self.provider.volume_path() {
-            let pod = manifest.latest();
-            let plugin_registry = self.provider.plugin_registry();
-            match Ref::unmount_volumes_from_pod(&volume_path, &pod, &self.client, plugin_registry)
-                .await
-            {
-                Ok(_) => {}
-                Err(e) => {
-                    // report the error, but carry on. Volume unmount failures should not result in a panic()
-                    error!("{:?}", e);
-                }
-            };
-        }
+    async fn deregistration_hook(&self, _manifest: Manifest<Self::Manifest>) -> anyhow::Result<()> {
         Ok(())
     }
 }

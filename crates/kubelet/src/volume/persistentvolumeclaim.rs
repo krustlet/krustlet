@@ -17,6 +17,7 @@ use k8s_csi::v1_3_0::{
 use k8s_openapi::api::core::v1::{
     CSIPersistentVolumeSource, PersistentVolume, PersistentVolumeClaimSpec,
     PersistentVolumeClaimVolumeSource, SecretReference, TypedLocalObjectReference,
+    Volume as KubeVolume,
 };
 use k8s_openapi::api::storage::v1::StorageClass;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
@@ -128,20 +129,29 @@ impl FromStr for AccessMode {
     }
 }
 
+/// A type that can manage a PVC volume with mounting and unmounting support. This type handles all
+/// the underlying calls to the CSI driver
 pub struct PvcVolume {
     name: String,
     client: kube::Client,
-    spec: PersistentVolumeClaimSpec,
+    // The whole PVC struct is very large, so I am boxing the larger data members to not make it
+    // take up so much space on the stack (and it makes clippy happy)
+    spec: Box<PersistentVolumeClaimSpec>,
     csi_client: NodeClient<tonic::transport::Channel>,
-    csi_pv_source: CSIPersistentVolumeSource,
+    csi_pv_source: Box<CSIPersistentVolumeSource>,
+    mounted_path: Option<PathBuf>,
+    // This allows us to keep a handle to the tempdir used if staging is enabled. When it is
+    // dropped, cleanup of the directory will automatically happen
+    staging_dir: Option<tempfile::TempDir>,
 }
 
 impl PvcVolume {
+    /// Creates a new PVC volume from a Kubernetes volume object. Passing a non-PVC volume type will
+    /// result in an error
     pub async fn new(
-        source: &PersistentVolumeClaimVolumeSource,
-        client: kube::Client,
-        vol_name: &str,
+        vol: &KubeVolume,
         namespace: &str,
+        client: kube::Client,
         plugin_registry: Option<Arc<PluginRegistry>>,
     ) -> anyhow::Result<Self> {
         let plugin_registry = match plugin_registry {
@@ -149,31 +159,42 @@ impl PvcVolume {
             None => {
                 return Err(anyhow::anyhow!(
                     "cannot mount volume {}: CSI driver support not implemented",
-                    source.claim_name
+                    vol.name
                 ))
             }
         };
+
+        let source = vol.persistent_volume_claim.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("Called a PVC volume constructor with a non-PVC volume")
+        })?;
 
         let spec = get_pvc_spec(source, &client, namespace).await?;
         let csi_client = get_csi_client(&client, &spec, plugin_registry).await?;
         let csi_pv_source = get_csi(&client, source, &spec).await?;
 
         Ok(PvcVolume {
-            name: vol_name.to_owned(),
+            name: vol.name.clone(),
             client,
-            spec,
+            spec: Box::new(spec),
             csi_client,
-            csi_pv_source,
+            csi_pv_source: Box::new(csi_pv_source),
+            mounted_path: None,
+            staging_dir: None,
         })
     }
-}
 
-#[async_trait::async_trait]
-impl Mountable for PvcVolume {
-    async fn mount(&mut self, base_path: &Path) -> anyhow::Result<Ref> {
+    /// Returns the path where the volume is mounted on the host. Will return `None` if the volume
+    /// hasn't been mounted yet
+    pub fn get_path(&self) -> Option<&Path> {
+        self.mounted_path.as_deref()
+    }
+
+    /// Mounts the PVC volume in the given directory. The actual path will be
+    /// $BASE_PATH/$VOLUME_NAME
+    pub async fn mount(&mut self, base_path: impl AsRef<Path>) -> anyhow::Result<()> {
         let stage_unstage_volume = supports_stage_unstage(&mut self.csi_client).await?;
 
-        let path = base_path.join(&self.name);
+        let path = base_path.as_ref().join(&self.name);
 
         // we keep this around even if the driver does not support STAGE_UNSTAGE_VOLUME. unmount() still
         // needs it.
@@ -230,19 +251,28 @@ impl Mountable for PvcVolume {
         )
         .await?;
 
-        Ok(Ref {
-            host_path: path,
-            volume_type: VolumeType::PersistentVolumeClaim(
-                stage_unstage_volume.then(|| staging_path.into_path()),
-            ),
-        })
+        self.mounted_path = Some(path);
+        if stage_unstage_volume {
+            self.staging_dir = Some(staging_path);
+        }
+
+        Ok(())
     }
 
-    async fn unmount(&mut self, base_path: &Path) -> anyhow::Result<()> {
-        let path = base_path.join(&self.name);
-        // https://github.com/kubernetes/kubernetes/blob/6d5cb36d36f34cb4f5735b6adcd5ea8ebb4440ba/pkg/volume/csi/csi_mounter.go#L390
-        unpublish_volume(&mut self.csi_client, &self.csi_pv_source, &path).await?;
-        std::fs::remove_dir_all(path)?;
+    /// Unmounts the directory. Calling `unmount` on a directory that hasn't been mounted will log a
+    /// warning, but otherwise not error
+    pub async fn unmount(&mut self) -> anyhow::Result<()> {
+        match self.mounted_path.take() {
+            Some(p) => {
+                // https://github.com/kubernetes/kubernetes/blob/6d5cb36d36f34cb4f5735b6adcd5ea8ebb4440ba/pkg/volume/csi/csi_mounter.go#L390
+                unpublish_volume(&mut self.csi_client, &self.csi_pv_source, &p).await?;
+                // Now remove the empty directory
+                std::fs::remove_dir_all(p)?;
+            }
+            None => {
+                warn!("Attempted to unmount PVC directory that wasn't mounted, this generally shouldn't happen");
+            }
+        }
 
         Ok(())
     }
