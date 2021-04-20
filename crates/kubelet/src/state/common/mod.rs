@@ -63,7 +63,7 @@ pub trait GenericPodState: ObjectState<Manifest = Pod, Status = PodStatus> {
     /// Stores the pod volume references for future mounting into
     /// the provider's execution environment. Typically your
     /// implementation can just move the volumes map into a member field.
-    async fn set_volumes(&mut self, volumes: HashMap<String, crate::volume::Ref>);
+    async fn set_volumes(&mut self, volumes: HashMap<String, crate::volume::VolumeRef>);
     /// Backs off (waits) after an error of the specified kind.
     async fn backoff(&mut self, sequence: BackoffSequence);
     /// Resets the backoff time for the specified kind of error.

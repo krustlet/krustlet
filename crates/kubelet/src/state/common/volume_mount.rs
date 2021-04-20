@@ -5,7 +5,7 @@ use tracing::error;
 use super::{GenericPodState, GenericProvider, GenericProviderState};
 use crate::pod::state::prelude::*;
 use crate::state::common::error::Error;
-use crate::volume::Ref;
+use crate::volume::VolumeRef;
 
 /// Kubelet is pulling container images.
 pub struct VolumeMount<P: GenericProvider> {
@@ -44,15 +44,35 @@ impl<P: GenericProvider> State<P::PodState> for VolumeMount<P> {
                 state_reader.plugin_registry(),
             )
         };
-        let volumes =
-            match Ref::volumes_from_pod(&volume_path, &pod, &client, plugin_registry).await {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("{:?}", e);
-                    let next = Error::<P>::new(e.to_string());
-                    return Transition::next(self, next);
-                }
-            };
+
+        // Get the map of VolumeRefs
+        let mut volumes = match VolumeRef::volumes_from_pod(&pod, &client, plugin_registry).await {
+            Ok(v) => v,
+            Err(e) => {
+                error!("{:?}", e);
+                let next = Error::<P>::new(e.to_string());
+                return Transition::next(self, next);
+            }
+        };
+        // Now mount each volume
+        let base_path = volume_path.join(pod_dir_name(&pod));
+        let mounts = volumes
+            .iter_mut()
+            .map(|(k, v)| (k, v, base_path.clone()))
+            .map(|(k, v, p)| async move {
+                v.mount(p)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Unable to mount volume {}: {}", k, e))
+            });
+        if let Err(e) = futures::future::join_all(mounts)
+            .await
+            .into_iter()
+            .collect::<anyhow::Result<()>>()
+        {
+            error!("{:?}", e);
+            let next = Error::<P>::new(e.to_string());
+            return Transition::next(self, next);
+        }
         pod_state.set_volumes(volumes).await;
         Transition::next_unchecked(self, P::RunState::default())
     }
@@ -63,3 +83,7 @@ impl<P: GenericProvider> State<P::PodState> for VolumeMount<P> {
 }
 
 impl<P: GenericProvider> TransitionTo<Error<P>> for VolumeMount<P> {}
+
+fn pod_dir_name(pod: &Pod) -> String {
+    format!("{}-{}", pod.name(), pod.namespace())
+}

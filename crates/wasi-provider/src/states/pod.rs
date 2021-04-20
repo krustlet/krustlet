@@ -1,5 +1,6 @@
-use crate::ModuleRunContext;
-use crate::ProviderState;
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use krator::{ObjectState, SharedState};
 use kubelet::backoff::BackoffStrategy;
@@ -8,9 +9,11 @@ use kubelet::pod::Pod;
 use kubelet::pod::PodKey;
 use kubelet::pod::Status;
 use kubelet::state::common::{BackoffSequence, GenericPodState, ThresholdTrigger};
-use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::error;
+
+use crate::ModuleRunContext;
+use crate::ProviderState;
 
 pub(crate) mod completed;
 pub(crate) mod initializing;
@@ -33,6 +36,16 @@ impl ObjectState for PodState {
     type SharedState = ProviderState;
     async fn async_drop(self, provider_state: &mut Self::SharedState) {
         {
+            {
+                let mut context = self.run_context.write().await;
+                let unmounts = context.volumes.iter_mut().map(|(k, vol)| async move {
+                    if let Err(e) = vol.unmount().await {
+                        // Just log the error, as there isn't much we can do here
+                        error!("Unable to unmount volume {}: {}", k, e);
+                    }
+                });
+                futures::future::join_all(unmounts).await;
+            }
             let mut handles = provider_state.handles.write().await;
             handles.remove(&self.key);
         }
@@ -62,7 +75,7 @@ impl GenericPodState for PodState {
         let mut run_context = self.run_context.write().await;
         run_context.modules = modules;
     }
-    async fn set_volumes(&mut self, volumes: HashMap<String, kubelet::volume::Ref>) {
+    async fn set_volumes(&mut self, volumes: HashMap<String, kubelet::volume::VolumeRef>) {
         let mut run_context = self.run_context.write().await;
         run_context.volumes = volumes;
     }

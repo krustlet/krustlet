@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -9,7 +8,7 @@ use tracing::{debug, info};
 use kubelet::container::state::prelude::*;
 use kubelet::pod::{Handle as PodHandle, PodKey};
 use kubelet::state::common::GenericProviderState;
-use kubelet::volume::Ref;
+use kubelet::volume::VolumeRef;
 
 use crate::wasi_runtime::WasiRuntime;
 use crate::ProviderState;
@@ -20,7 +19,7 @@ use super::ContainerState;
 
 fn volume_path_map(
     container: &Container,
-    volumes: &HashMap<String, Ref>,
+    volumes: &HashMap<String, VolumeRef>,
 ) -> anyhow::Result<HashMap<PathBuf, Option<PathBuf>>> {
     if let Some(volume_mounts) = container.volume_mounts().as_ref() {
         volume_mounts
@@ -34,13 +33,16 @@ fn volume_path_map(
                         container.name()
                     )
                 })?;
+                let host_path = vol.get_path().map(|p| p.to_owned()).ok_or_else(|| {
+                    anyhow::anyhow!("Volume {} has not been mounted yet", vm.name)
+                })?;
                 let mut guest_path = PathBuf::from(&vm.mount_path);
                 if let Some(sub_path) = &vm.sub_path {
                     guest_path.push(sub_path);
                 }
                 // We can safely assume that this should be valid UTF-8 because it would have
                 // been validated by the k8s API
-                Ok((vol.deref().clone(), Some(guest_path)))
+                Ok((host_path, Some(guest_path)))
             })
             .collect::<anyhow::Result<HashMap<PathBuf, Option<PathBuf>>>>()
     } else {
@@ -174,9 +176,9 @@ impl State<ContainerState> for Waiting {
         {
             let provider_state = shared.write().await;
             let mut handles_writer = provider_state.handles.write().await;
-            let pod_handle = handles_writer.entry(pod_key).or_insert_with(|| {
-                Arc::new(PodHandle::new(HashMap::new(), state.pod.clone(), None))
-            });
+            let pod_handle = handles_writer
+                .entry(pod_key)
+                .or_insert_with(|| Arc::new(PodHandle::new(HashMap::new(), state.pod.clone())));
             pod_handle
                 .insert_container_handle(state.container_key.clone(), container_handle)
                 .await;
