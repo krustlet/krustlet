@@ -212,7 +212,13 @@ impl CustomDerive for CustomResourceInfos {
                    let webhook_name = #name_identifier::admission_webhook_configuration_name() ;
                    let versions: Vec<String> = crd.spec.versions.into_iter().map(|v| v.name).collect();
 
-                   anyhow::ensure!(secret.type_ == Some("tls".to_string()), format!("secret with name {} is not a tls secret", secret.metadata.name.unwrap()));
+                   anyhow::ensure!(service.metadata.name.is_some(), "service does not have a name set");
+                   anyhow::ensure!(service.metadata.namespace.is_some(), "service does not have a namespace set");
+
+                   anyhow::ensure!(secret.metadata.name.is_some(), "secret does not have a name set");
+                   anyhow::ensure!(secret.metadata.namespace.is_some(), "secret does not have a namespace set");
+
+                   anyhow::ensure!(secret.type_ == Some("tls".to_string()), format!("secret {}/{} is not a tls secret", secret.metadata.namespace.as_ref().unwrap(), secret.metadata.name.as_ref().unwrap()));
 
                    const TLS_CRT: &'static str = "tls.crt";
 
@@ -230,7 +236,7 @@ impl CustomDerive for CustomResourceInfos {
                            .data
                            .as_ref()
                            .and_then(|ref data| data.get(TLS_CRT).map(k8s_openapi::ByteString::to_owned)))
-                       .with_context(|| format!("secret with name {} is does not contain data 'tls.crt'", secret.metadata.name.unwrap()))?;
+                       .with_context(|| format!("secret with {} is does not contain data 'tls.crt'", secret.metadata.name.unwrap()))?;
 
                    Ok(k8s_openapi::api::admissionregistration::v1::MutatingWebhookConfiguration{
                        metadata: k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta {
