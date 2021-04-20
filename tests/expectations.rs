@@ -112,8 +112,7 @@ pub async fn assert_container_statuses(
 
     for expectation in expectations {
         if let Err(e) = expectation.verify_against(&status) {
-            assert!(
-                false,
+            panic!(
                 "Pod {} status expectation failed: {}",
                 pod_name,
                 e.to_string()

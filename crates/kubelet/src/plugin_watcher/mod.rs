@@ -399,13 +399,13 @@ mod test {
     ////////////////////////////////////////////////////////////////////////
 
     #[derive(Debug)]
-    struct TestCSIPlugin {
+    struct TestCsiPlugin {
         name: String,
         registration_response: Mutex<Sender<RegistrationStatus>>,
     }
 
     #[tonic::async_trait]
-    impl Registration for TestCSIPlugin {
+    impl Registration for TestCsiPlugin {
         async fn get_info(
             &self,
             _req: Request<InfoRequest>,
@@ -435,13 +435,13 @@ mod test {
 
     #[derive(Debug)]
     // A plugin that always fails GetInfo
-    struct InvalidCSIPlugin {
+    struct InvalidCsiPlugin {
         name: String,
         registration_response: Mutex<Sender<RegistrationStatus>>,
     }
 
     #[tonic::async_trait]
-    impl Registration for InvalidCSIPlugin {
+    impl Registration for InvalidCsiPlugin {
         async fn get_info(
             &self,
             _req: Request<InfoRequest>,
@@ -528,7 +528,7 @@ mod test {
 
         let (tx, rx) = mpsc::channel(1);
 
-        let plugin = TestCSIPlugin {
+        let plugin = TestCsiPlugin {
             name: "foo".to_string(),
             registration_response: Mutex::new(tx),
         };
@@ -566,7 +566,7 @@ mod test {
 
         let (tx, rx) = mpsc::channel(1);
 
-        let plugin = InvalidCSIPlugin {
+        let plugin = InvalidCsiPlugin {
             name: "foo".to_string(),
             registration_response: Mutex::new(tx),
         };
@@ -599,7 +599,7 @@ mod test {
 
         let (tx, rx) = mpsc::channel(1);
 
-        let plugin = TestCSIPlugin {
+        let plugin = TestCsiPlugin {
             name: "foo".to_string(),
             registration_response: Mutex::new(tx),
         };
@@ -641,7 +641,7 @@ mod test {
 
         let (tx, rx) = mpsc::channel(1);
 
-        let plugin = TestCSIPlugin {
+        let plugin = TestCsiPlugin {
             name: "foo".to_string(),
             registration_response: Mutex::new(tx),
         };

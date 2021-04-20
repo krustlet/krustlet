@@ -24,7 +24,9 @@ pub async fn pod_log_contains(
     let logs = pods.logs(pod_name, &LogParams::default()).await?;
     assert!(
         logs.contains(expected_log),
-        format!("Expected log containing {} but got {}", expected_log, logs)
+        "Expected log containing {} but got {}",
+        expected_log,
+        logs,
     );
     Ok(())
 }
@@ -42,7 +44,9 @@ pub async fn pod_container_log_contains(
     let logs = pods.logs(pod_name, &log_params).await?;
     assert!(
         logs.contains(expected_log),
-        format!("Expected log containing {} but got {}", expected_log, logs)
+        "Expected log containing {} but got {}",
+        expected_log,
+        logs
     );
     Ok(())
 }
@@ -85,10 +89,9 @@ pub async fn pod_reason_contains(
     let message = (|| pod.status?.reason)().expect("Could not get pod message.");
     assert!(
         message.contains(expected_message),
-        format!(
-            "Expected pod message containing {} but got {}",
-            expected_message, message
-        )
+        "Expected pod message containing {} but got {}",
+        expected_message,
+        message,
     );
 
     Ok(())
