@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use k8s_openapi::api::core::v1::KeyToPath;
-use k8s_openapi::api::core::v1::{ConfigMap, PersistentVolumeClaim, Secret, Volume as KubeVolume};
+use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Secret, Volume as KubeVolume};
 use kube::api::Api;
 use tracing::{debug, error};
 
@@ -32,6 +32,20 @@ pub enum VolumeType {
     HostPath,
 }
 
+/// A trait that can be implemented for something that can be mounted as a volume inside of a Pod
+#[async_trait::async_trait]
+pub trait Mountable {
+    /// Mounts the object inside of the given base_path directory. Generally it will be mounted at a
+    /// directory that is the base_path + the name of the volume
+    async fn mount(&mut self, base_path: &Path) -> anyhow::Result<Ref>;
+
+    // TODO(thomastaylor312): I don't like having to pass the path again, but that is how the
+    // current system works. Perhaps we should keep the `Mountable` part in memory instead of a Ref,
+    // but that is a separate refactor
+    /// Unmounts the object from the given base_path
+    async fn unmount(&mut self, base_path: &Path) -> anyhow::Result<()>;
+}
+
 /// A smart wrapper around the location of a volume on the host system. If this
 /// is a ConfigMap or Secret volume, dropping this reference will clean up the
 /// temporary volume. [AsRef] and [std::ops::Deref] are implemented for this
@@ -54,39 +68,16 @@ impl Ref {
         plugin_registry: Option<Arc<PluginRegistry>>,
     ) -> anyhow::Result<HashMap<String, Self>> {
         let base_path = volume_dir.join(pod_dir_name(pod));
+        let path: &Path = base_path.as_ref();
         tokio::fs::create_dir_all(&base_path).await?;
-        if let Some(vols) = pod.volumes() {
-            let volumes = vols.iter().map(|v| {
-                let mut host_path = base_path.clone();
-                host_path.push(&v.name);
-                let pr = plugin_registry.clone();
-                async move {
-                    let volume_type = configure(v, pod.namespace(), client, pr, &host_path).await?;
-                    Ok((
-                        v.name.to_owned(),
-                        // Every other volume type should mount to the given
-                        // host_path except for a hostpath volume type. So we
-                        // need to handle that special case here
-                        match &v.host_path {
-                            Some(hostpath) => Ref {
-                                host_path: PathBuf::from(&hostpath.path),
-                                volume_type,
-                            },
-                            None => Ref {
-                                host_path,
-                                volume_type,
-                            },
-                        },
-                    ))
-                }
-            });
-            futures::future::join_all(volumes)
-                .await
-                .into_iter()
-                .collect()
-        } else {
-            Ok(HashMap::default())
-        }
+        let volumes = get_mountable_pod_volumes(pod, client, plugin_registry)
+            .await?
+            .into_iter()
+            .map(|(k, mut m)| async move { Ok((k, m.mount(path).await?)) });
+        futures::future::join_all(volumes)
+            .await
+            .into_iter()
+            .collect::<anyhow::Result<_>>()
     }
 
     /// Unmounts any volumes mounted to the pod. Usually called when dropping
@@ -97,23 +88,16 @@ impl Ref {
         client: &kube::Client,
         plugin_registry: Option<Arc<PluginRegistry>>,
     ) -> anyhow::Result<()> {
-        if let Some(vols) = pod.volumes() {
-            let base_path = volume_dir.join(pod_dir_name(pod));
-            for vol in vols {
-                if let Some(pvc_source) = &vol.persistent_volume_claim {
-                    let vol_path = base_path.join(&vol.name);
-                    persistentvolumeclaim::unpopulate(
-                        pvc_source,
-                        client,
-                        pod.namespace(),
-                        plugin_registry.clone(),
-                        &vol_path,
-                    )
-                    .await?;
-                }
-            }
-        }
-        Ok(())
+        let base_path = volume_dir.join(pod_dir_name(pod));
+        let path: &Path = base_path.as_ref();
+        let volumes = get_mountable_pod_volumes(pod, client, plugin_registry)
+            .await?
+            .into_iter()
+            .map(|(_, mut m)| async move { m.unmount(path).await });
+        futures::future::join_all(volumes)
+            .await
+            .into_iter()
+            .collect::<anyhow::Result<_>>()
     }
 }
 
@@ -180,36 +164,73 @@ impl From<Option<String>> for ItemMount {
     }
 }
 
-/// This is a gnarly function to check all of the supported data members of the
-/// Volume struct. Because it isn't a HashMap, we need to check all fields
-/// individually
-async fn configure(
+/// Converts a Vec of KubeVolumes into a Vec of Mountable Volumes
+async fn get_mountable_pod_volumes(
+    pod: &Pod,
+    client: &kube::Client,
+    plugin_registry: Option<Arc<PluginRegistry>>,
+) -> anyhow::Result<Vec<(String, Box<dyn Mountable + Send>)>> {
+    let zero_vec = Vec::with_capacity(0);
+    let mountables = pod
+        .volumes()
+        .unwrap_or(&zero_vec)
+        .iter()
+        .map(|v| (v, plugin_registry.clone()))
+        .map(|(vol, pr)| async move {
+            Ok((
+                vol.name.clone(),
+                to_mountable(vol, pod.namespace(), client, pr).await?,
+            ))
+        });
+    futures::future::join_all(mountables)
+        .await
+        .into_iter()
+        .collect()
+}
+
+async fn to_mountable(
     vol: &KubeVolume,
     namespace: &str,
     client: &kube::Client,
     plugin_registry: Option<Arc<PluginRegistry>>,
-    path: &Path,
-) -> anyhow::Result<VolumeType> {
+) -> anyhow::Result<Box<dyn Mountable + Send>> {
     if let Some(cm) = &vol.config_map {
         let name = &cm
             .name
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("no configmap name was given"))?;
-        let cm_client: Api<ConfigMap> = Api::namespaced(client.clone(), namespace);
-        let config_map = cm_client.get(name).await?;
-        configmap::populate(config_map, path, &cm.items).await
+        Ok(Box::new(configmap::ConfigMapVolume::new(
+            &vol.name,
+            name,
+            namespace,
+            client.clone(),
+            cm.items.clone(),
+        )))
     } else if let Some(s) = &vol.secret {
         let name = &s
             .secret_name
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("no secret name was given"))?;
-        let secret_client: Api<Secret> = Api::namespaced(client.clone(), namespace);
-        let secret = secret_client.get(name).await?;
-        secret::populate(secret, path, &s.items).await
+        Ok(Box::new(secret::SecretVolume::new(
+            &vol.name,
+            name,
+            namespace,
+            client.clone(),
+            s.items.clone(),
+        )))
     } else if let Some(pvc_source) = &vol.persistent_volume_claim {
-        persistentvolumeclaim::populate(pvc_source, client, namespace, plugin_registry, path).await
+        Ok(Box::new(
+            persistentvolumeclaim::PvcVolume::new(
+                pvc_source,
+                client.clone(),
+                &vol.name,
+                namespace,
+                plugin_registry,
+            )
+            .await?,
+        ))
     } else if let Some(hp) = &vol.host_path {
-        hostpath::populate(hp).await
+        Ok(Box::new(hostpath::HostPathVolume::new(hp)))
     } else {
         Err(anyhow::anyhow!(
             "Unsupported volume type. Currently supported types: ConfigMap, Secret, PersistentVolumeClaim, and HostPath"
