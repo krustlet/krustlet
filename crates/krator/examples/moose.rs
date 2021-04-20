@@ -368,7 +368,8 @@ impl Operator for MooseTracker {
         let client = self.shared.read().await.client.clone();
         let secret_name = Moose::admission_webhook_secret_name();
 
-        let secret = kube::Api::<Secret>::namespaced(client, "default")
+        let opt = Opt::from_args();
+        let secret = kube::Api::<Secret>::namespaced(client, &opt.webhook_namespace)
             .get(&secret_name)
             .await?;
 
@@ -403,8 +404,10 @@ impl MooseTracker {
         let crd = self.apply_crd().await?;
 
         info!("installing moose webhook resources");
-        let awh_resources =
-            admission::WebhookResources::from(Moose::admission_webhook_resources("default"));
+        let opt = Opt::from_args();
+        let awh_resources = admission::WebhookResources::from(Moose::admission_webhook_resources(
+            &opt.webhook_namespace,
+        ));
         awh_resources.apply_owned(&client, &crd).await?;
 
         #[cfg(feature = "admission-webhook")]
@@ -447,12 +450,16 @@ struct Opt {
     /// Configure logger to emit JSON output.
     #[structopt(long)]
     json: bool,
+
+    #[cfg(feature = "admission-webhook")]
+    /// namespace where to install the admission webhook service and secret
+    #[structopt(long, default_value = "default")]
+    webhook_namespace: String,
 }
 
-fn init_logger() -> anyhow::Result<Option<opentelemetry_jaeger::Uninstall>> {
+fn init_logger(opt: Opt) -> anyhow::Result<Option<opentelemetry_jaeger::Uninstall>> {
     // This isn't very DRY, but all of these combinations have different types,
     // and Boxing them doesn't seem to work.
-    let opt = Opt::from_args();
     let guard = if opt.json {
         let subscriber = tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -497,10 +504,12 @@ fn init_logger() -> anyhow::Result<Option<opentelemetry_jaeger::Uninstall>> {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
-    let _guard = init_logger()?;
+    let opt = Opt::from_args();
+    let _guard = init_logger(opt)?;
 
     let kubeconfig = kube::Config::infer().await?;
     let client = kube::Client::try_default().await?;
+
     let tracker = MooseTracker::new(&client);
 
     info!("crd:\n{}", serde_yaml::to_string(&Moose::crd()).unwrap());
