@@ -49,8 +49,7 @@ impl CustomDerive for CustomResourceInfos {
         let _s = match input.data {
             Data::Struct(ref s) => s,
             _ => {
-                return Err(r#"Enums or Unions can not #[derive(AdmisstionWebhook)"#)
-                    .spanning(ident)
+                return Err(r#"Enums or Unions can not #[derive(AdmissionWebhook)"#).spanning(ident)
             }
         };
 
