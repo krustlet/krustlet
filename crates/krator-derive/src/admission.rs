@@ -1,6 +1,12 @@
 use crate::proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{Data, DeriveInput, Result};
+use syn::{
+    parse::{Parse, ParseStream},
+    token::Comma,
+    Attribute, Data, DeriveInput, Path, Result,
+};
+
+const ATTRIBUTE_NAME: &str = "admission_webhook_features";
 
 pub trait CustomDerive: Sized {
     fn parse(input: syn::DeriveInput) -> Result<Self>;
@@ -10,6 +16,7 @@ pub trait CustomDerive: Sized {
 #[derive(Debug)]
 pub struct CustomResourceInfos {
     pub name: String,
+    pub features: Features,
 }
 
 pub(crate) fn run_custom_derive<T>(input: TokenStream) -> TokenStream
@@ -40,6 +47,68 @@ where
         self.map_err(|err| syn::Error::new_spanned(spanned, err))
     }
 }
+#[derive(Default, Debug)]
+pub struct Features {
+    pub secret: bool,
+    pub service: bool,
+    pub admission_webhook_config: bool,
+    pub attributes_found: bool,
+}
+
+impl Parse for Features {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let mut features = Features {
+            ..Default::default()
+        };
+        input
+            .parse_terminated::<Path, Comma>(|i| i.parse::<Path>())?
+            .into_iter()
+            .for_each(|ref path| {
+                if let Some(ident) = path.get_ident() {
+                    features.attributes_found = true;
+                    match &*ident.to_string() {
+                        "secret" => features.secret = true,
+                        "service" => features.service = true,
+                        "admission_webhook_config" => features.admission_webhook_config = true,
+                        _ => {
+                            panic!(format!("WebhookAdmission attribute {} can only contain one or more of the following values: service, secret, admission_webhook_config", ATTRIBUTE_NAME))
+                        }
+                    };
+                }
+            });
+
+        Ok(features)
+    }
+}
+
+fn get_features(attrs: &Vec<Attribute>) -> Features {
+    attrs
+        .into_iter()
+        .fold(Features::default(), |mut acc, ref attr| {
+            match parse_as_features_attr(attr) {
+                Some(features) => {
+                    acc.secret |= features.secret;
+                    acc.service |= features.service;
+                    acc.admission_webhook_config |= features.admission_webhook_config;
+                    acc.attributes_found |= features.attributes_found;
+                }
+                None => {}
+            };
+            acc
+        })
+}
+
+fn parse_as_features_attr(attr: &Attribute) -> Option<Features> {
+    if let Some(id) = attr.path.get_ident() {
+        if id == ATTRIBUTE_NAME {
+            attr.parse_args::<Features>().ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
 
 impl CustomDerive for CustomResourceInfos {
     fn parse(input: DeriveInput) -> Result<Self> {
@@ -53,9 +122,15 @@ impl CustomDerive for CustomResourceInfos {
             }
         };
 
+        let features = get_features(&input.attrs);
+        if !features.attributes_found {
+            panic!("missing AdmissionWebhook attribute 'admission_webhook_features'")
+        }
+
         // Outputs
         let mut cri = CustomResourceInfos {
             name: "".to_string(),
+            features: features,
         };
 
         let mut name: Option<String> = None;
@@ -105,41 +180,17 @@ impl CustomDerive for CustomResourceInfos {
     fn emit(self) -> Result<proc_macro2::TokenStream> {
         let name = self.name;
         let name_identifier = format_ident!("{}", name);
-        let gen = quote! {
-            impl #name_identifier {
-                /// Convenience function that returns all Kubernetes resources necessary to configure an admission webhook
-                /// service. It expects a deployed pod with label `app` having the value returned by `admission_webhook_service_name()`.
-                pub fn admission_webhook_resources(namespace: &str) -> (k8s_openapi::api::core::v1::Service, k8s_openapi::api::core::v1::Secret, k8s_openapi::api::admissionregistration::v1::MutatingWebhookConfiguration){
-                    let service: k8s_openapi::api::core::v1::Service = #name_identifier::admission_webhook_service(namespace);
-                    let secret: k8s_openapi::api::core::v1::Secret = #name_identifier::admission_webhook_secret(namespace);
-                    let admission_webhook_configuration = #name_identifier::admission_webhook_configuration(service.clone(), secret.clone()).unwrap();
 
-                    (service, secret, admission_webhook_configuration)
-                }
+        let mut token_stream = quote! {};
+
+        if self.features.secret {
+            token_stream = quote! {
+                #token_stream
 
                 /// Returns the name of the admission webhook secret that will get created with `admission_webhook_secret()`
                 pub fn admission_webhook_secret_name() -> std::string::String {
                     let crd = #name_identifier::crd();
                     format!("{}-{}-admission-webhook-tls", crd.spec.names.plural, crd.spec.group).to_string().replace(".", "-")
-                }
-
-                /// Returns the selector value for the label `app` that the service created with `admission_webhook_service()`
-                /// uses for selecting the pods that serve the admission webhook
-                pub fn admission_webhook_service_app_selector() -> std::string::String {
-                    let crd = #name_identifier::crd();
-                    format!("{}-{}-operator", crd.spec.names.plural, crd.spec.group).to_string().replace(".", "-")
-                }
-
-                /// Returns the name of the admission webhook service that will get created with `admission_webhook_service()`
-                pub fn admission_webhook_service_name() -> std::string::String {
-                    let crd = #name_identifier::crd();
-                    format!("{}-{}-admission-webhook", crd.spec.names.plural, crd.spec.group).to_string().replace(".", "-")
-                }
-
-                /// Returns the name of the admission webhook configuration that will get created with `admission_webhook_configuration()`
-                pub fn admission_webhook_configuration_name() -> std::string::String {
-                    let crd = #name_identifier::crd();
-                    format!("{}.{}", crd.spec.names.plural, crd.spec.group).to_string()
                 }
 
                 /// Returns a Kubernetes secret of type `tls` that contains a certificate and a private key and
@@ -172,6 +223,25 @@ impl CustomDerive for CustomResourceInfos {
                         ..Default::default()
                     }
                 }
+            };
+        }
+
+        if self.features.service {
+            token_stream = quote! {
+                #token_stream
+
+                /// Returns the selector value for the label `app` that the service created with `admission_webhook_service()`
+                /// uses for selecting the pods that serve the admission webhook
+                pub fn admission_webhook_service_app_selector() -> std::string::String {
+                    let crd = #name_identifier::crd();
+                    format!("{}-{}-operator", crd.spec.names.plural, crd.spec.group).to_string().replace(".", "-")
+                }
+
+                /// Returns the name of the admission webhook service that will get created with `admission_webhook_service()`
+                pub fn admission_webhook_service_name() -> std::string::String {
+                    let crd = #name_identifier::crd();
+                    format!("{}-{}-admission-webhook", crd.spec.names.plural, crd.spec.group).to_string().replace(".", "-")
+                }
 
                 /// Returns a service that forwards to pods where label `app` has the value returned by the function
                 /// `admission_webhook_service_app_selector()`. It exposes port `443` (necessary for webhooks) and
@@ -202,15 +272,27 @@ impl CustomDerive for CustomResourceInfos {
                         status: None
                    }
                 }
+            };
+        }
+
+        if self.features.admission_webhook_config {
+            token_stream = quote! {
+                #token_stream
+
+                /// Returns the name of the admission webhook configuration that will get created with `admission_webhook_configuration()`
+                pub fn admission_webhook_configuration_name() -> std::string::String {
+                    let crd = #name_identifier::crd();
+                    format!("{}.{}", crd.spec.names.plural, crd.spec.group).to_string()
+                }
+
 
                 /// Creates a MutatingWebhookConfiguration using the certificate from the given service and the service
                 /// of the given service as configuration
                 pub fn admission_webhook_configuration(service: k8s_openapi::api::core::v1::Service, secret: k8s_openapi::api::core::v1::Secret) -> anyhow::Result<k8s_openapi::api::admissionregistration::v1::MutatingWebhookConfiguration> {
-                   use anyhow::Context;
                    let crd = #name_identifier::crd();
 
                    let webhook_name = #name_identifier::admission_webhook_configuration_name() ;
-                   let versions: Vec<String> = crd.spec.versions.into_iter().map(|v| v.name).collect();
+                   let versions: std::vec::Vec<std::string::String> = crd.spec.versions.into_iter().map(|v| v.name).collect();
 
                    anyhow::ensure!(service.metadata.name.is_some(), "service does not have a name set");
                    anyhow::ensure!(service.metadata.namespace.is_some(), "service does not have a namespace set");
@@ -235,8 +317,10 @@ impl CustomDerive for CustomResourceInfos {
                        .or(secret
                            .data
                            .as_ref()
-                           .and_then(|ref data| data.get(TLS_CRT).map(k8s_openapi::ByteString::to_owned)))
-                       .with_context(|| format!("secret with {} is does not contain data 'tls.crt'", secret.metadata.name.unwrap()))?;
+                           .and_then(|ref data| data.get(TLS_CRT).map(k8s_openapi::ByteString::to_owned)));
+
+
+                   anyhow::ensure!(ca_bundle.is_some(), format!("secret with {} is does not contain data 'tls.crt'", secret.metadata.name.unwrap()));
 
                    Ok(k8s_openapi::api::admissionregistration::v1::MutatingWebhookConfiguration{
                        metadata: k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta {
@@ -256,7 +340,7 @@ impl CustomDerive for CustomResourceInfos {
                                scope: Some(crd.spec.scope)
                             }]),
                            client_config: k8s_openapi::api::admissionregistration::v1::WebhookClientConfig{
-                               ca_bundle: Some(ca_bundle),
+                               ca_bundle: ca_bundle,
                                service: Some(k8s_openapi::api::admissionregistration::v1::ServiceReference{
                                    name: service.metadata.name.unwrap(),
                                    namespace: service.metadata.namespace.unwrap(),
@@ -270,9 +354,32 @@ impl CustomDerive for CustomResourceInfos {
                       ])
                    })
                 }
+            };
+        }
+
+        if self.features.secret && self.features.service && self.features.admission_webhook_config {
+            token_stream = quote! {
+                #token_stream
+
+                /// Convenience function that returns all Kubernetes resources necessary to configure an admission webhook
+                /// service. It expects a deployed pod with label `app` having the value returned by `admission_webhook_service_name()`.
+                pub fn admission_webhook_resources(namespace: &str) -> (k8s_openapi::api::core::v1::Service, k8s_openapi::api::core::v1::Secret, k8s_openapi::api::admissionregistration::v1::MutatingWebhookConfiguration){
+                    let service: k8s_openapi::api::core::v1::Service = #name_identifier::admission_webhook_service(namespace);
+                    let secret: k8s_openapi::api::core::v1::Secret = #name_identifier::admission_webhook_secret(namespace);
+                    let admission_webhook_configuration = #name_identifier::admission_webhook_configuration(service.clone(), secret.clone()).unwrap();
+
+                    (service, secret, admission_webhook_configuration)
+                }
+            };
+        }
+
+        token_stream = quote! {
+
+            impl #name_identifier {
+                #token_stream
             }
         };
 
-        Ok(gen.into())
+        Ok(token_stream.into())
     }
 }
