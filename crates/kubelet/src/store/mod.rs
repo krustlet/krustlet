@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 
 use async_trait::async_trait;
 use oci_distribution::Reference;
-use tracing::debug;
+use tracing::{debug, instrument};
 
 use crate::container::PullPolicy;
 use crate::pod::Pod;
@@ -67,15 +67,13 @@ pub trait Store: Sync {
     /// # Panics
     ///
     /// This panics if any of the pod's containers do not have an image associated with them
+    #[instrument(level = "info", skip(self, pod, auth), fields(pod_name = pod.name()))]
     async fn fetch_pod_modules(
         &self,
         pod: &Pod,
         auth: &crate::secret::RegistryAuthResolver,
     ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        debug!(
-            "Fetching all the container modules for pod '{}'",
-            pod.name()
-        );
+        debug!("Fetching all the container modules for pod");
         // Fetch all of the container modules in parallel
         let all_containers = pod.all_containers();
         let container_module_futures = all_containers.iter().map(move |container| {
@@ -112,8 +110,9 @@ pub struct LocalStore<S: Storer, C: Client> {
 }
 
 impl<S: Storer, C: Client> LocalStore<S, C> {
+    #[instrument(level = "info", skip(self, auth))]
     async fn pull(&self, image_ref: &Reference, auth: &RegistryAuth) -> anyhow::Result<()> {
-        debug!("Pulling image ref '{:?}' from registry", image_ref);
+        debug!("Pulling image ref from registry");
         let image_data = self.client.lock().await.pull(image_ref, auth).await?;
         self.storer
             .write()

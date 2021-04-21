@@ -1,5 +1,5 @@
 use kubelet::container::state::prelude::*;
-use tracing::error;
+use tracing::{error, instrument};
 
 use crate::ProviderState;
 
@@ -21,6 +21,7 @@ impl Terminated {
 
 #[async_trait::async_trait]
 impl State<ContainerState> for Terminated {
+    #[instrument(level = "info", skip(self, _shared_state, state, container), fields(pod_name = state.pod.name(), container_name))]
     async fn next(
         self: Box<Self>,
         _shared_state: SharedState<ProviderState>,
@@ -29,12 +30,12 @@ impl State<ContainerState> for Terminated {
     ) -> Transition<ContainerState> {
         let container = container.latest();
 
+        tracing::Span::current().record("container_name", &container.name());
+
         if self.failed {
             error!(
-                "Pod {} container {} exited with error: {}",
-                state.pod.name(),
-                container.name(),
-                &self.message
+                error = %self.message,
+                "Pod container exited with error"
             );
             Transition::Complete(Err(anyhow::anyhow!(self.message.clone())))
         } else {

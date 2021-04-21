@@ -6,7 +6,7 @@ use k8s_openapi::api::core::v1::{ConfigMap, EnvVarSource, Secret};
 use kube::api::Api;
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::container::Container;
 use crate::log::Sender;
@@ -125,7 +125,7 @@ pub trait Provider: Sized + Send + Sync + 'static {
     /// * `node_name` - The name of the node object that was created by this Kubelet instance
     ///
     async fn shutdown(&self, node_name: &str) -> anyhow::Result<()> {
-        info!("Shutdown triggered for node {}, since no custom shutdown behavior was implemented Kubelet will simply shut down now.", node_name);
+        info!(node_name, "Shutdown triggered for node, since no custom shutdown behavior was implemented Kubelet will simply shut down now");
         Ok(())
     }
 
@@ -260,7 +260,7 @@ async fn on_missing_env_value(
                     .unwrap_or_default();
             }
             Err(e) => {
-                error!("Error fetching config map {}: {}", name, e);
+                error!(error = %e, name, "Error fetching config map");
                 return "".to_string();
             }
         }
@@ -284,7 +284,7 @@ async fn on_missing_env_value(
                     .unwrap_or_default();
             }
             Err(e) => {
-                error!("Error fetching secret {}: {}", name, e);
+                error!(error = %e, name, "Error fetching secret");
                 return String::new();
             }
         }
@@ -319,7 +319,7 @@ fn field_map(pod: &Pod) -> HashMap<String, String> {
         pod.pod_ip().unwrap_or_default().to_owned(),
     );
     pod.labels().iter().for_each(|(k, v)| {
-        info!("adding {} to labels", k);
+        debug!(item = %k, "adding to labels");
         map.insert(format!("metadata.labels.{}", k), v.clone());
     });
     pod.annotations().iter().for_each(|(k, v)| {

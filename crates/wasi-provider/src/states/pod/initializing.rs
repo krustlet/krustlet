@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tracing::{error, info};
+use tracing::{error, info, instrument};
 
 use kubelet::backoff::BackoffStrategy;
 use kubelet::container::state::run_to_completion;
@@ -21,6 +21,11 @@ pub struct Initializing;
 
 #[async_trait::async_trait]
 impl State<PodState> for Initializing {
+    #[instrument(
+        level = "info",
+        skip(self, provider_state, pod_state, pod),
+        fields(pod_name)
+    )]
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<ProviderState>,
@@ -30,6 +35,8 @@ impl State<PodState> for Initializing {
         let pod_rx = pod.clone();
         let pod = pod.latest();
 
+        tracing::Span::current().record("pod_name", &pod.name());
+
         let client = {
             let provider_state = provider_state.read().await;
             provider_state.client()
@@ -37,9 +44,8 @@ impl State<PodState> for Initializing {
 
         for init_container in pod.init_containers() {
             info!(
-                "Starting init container {:?} for pod {:?}",
-                init_container.name(),
-                pod.name()
+                container_name = init_container.name(),
+                "Starting init container for pod"
             );
 
             // Each new init container resets the CrashLoopBackoff timer.
@@ -67,7 +73,7 @@ impl State<PodState> for Initializing {
             {
                 Ok(_) => (),
                 Err(e) => {
-                    error!("Init container {} failed: {:?}", init_container.name(), e);
+                    error!(error = %e, "Init container failed");
                     return Transition::Complete(Err(anyhow::anyhow!(format!(
                         "Init container {} failed",
                         init_container.name()
@@ -75,7 +81,7 @@ impl State<PodState> for Initializing {
                 }
             }
         }
-        info!("Finished init containers for pod {:?}", pod.name());
+        info!("Finished init containers for pod");
         pod_state.crash_loop_backoff_strategy.reset();
         Transition::next(self, Starting)
     }

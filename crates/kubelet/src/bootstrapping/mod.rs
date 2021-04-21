@@ -11,7 +11,7 @@ use rcgen::{
     PKCS_ECDSA_P256_SHA256,
 };
 use tokio::fs::{read, write};
-use tracing::{debug, info};
+use tracing::{debug, info, instrument, trace};
 
 use crate::config::Config as KubeletConfig;
 use crate::kubeconfig::exists as kubeconfig_exists;
@@ -25,12 +25,13 @@ pub async fn bootstrap<K: AsRef<Path>>(
     bootstrap_file: K,
     notify: impl Fn(String),
 ) -> anyhow::Result<Config> {
-    debug!("Starting bootstrap for {}", config.node_name);
+    debug!(%config.node_name, "Starting bootstrap");
     let kubeconfig = bootstrap_auth(config, bootstrap_file).await?;
     bootstrap_tls(config, kubeconfig.clone(), notify).await?;
     Ok(kubeconfig)
 }
 
+#[instrument(level = "info", skip(config, bootstrap_file))]
 async fn bootstrap_auth<K: AsRef<Path>>(
     config: &KubeletConfig,
     bootstrap_file: K,
@@ -44,14 +45,16 @@ async fn bootstrap_auth<K: AsRef<Path>>(
         // TODO: if configured, kubelet automatically requests renewal of the certificate when it is close to expiry
         let original_kubeconfig = std::path::PathBuf::from(env::var(KUBECONFIG)?);
         debug!(
-            "No existing kubeconfig found, loading bootstrap config from {:?}",
-            bootstrap_file.as_ref()
+            bootstrap_file = %bootstrap_file.as_ref().display(),
+            "No existing kubeconfig found, loading bootstrap config"
         );
         env::set_var(KUBECONFIG, bootstrap_file.as_ref().as_os_str());
         let conf = kube::Config::infer().await?;
         let client = kube::Client::try_from(conf)?;
 
+        trace!("Generating auth certificate");
         let cert_bundle = gen_auth_cert(config)?;
+        trace!("Getting cluster information from bootstrap config");
         let bootstrap_config = read_from(&bootstrap_file).await?;
         let named_cluster = bootstrap_config
             .clusters
@@ -61,6 +64,7 @@ async fn bootstrap_auth<K: AsRef<Path>>(
                 anyhow::anyhow!("Unable to find cluster information in bootstrap config")
             })?;
         let server = named_cluster.cluster.server;
+        trace!(%server, "Identified server information from bootstrap config");
         let ca_data = named_cluster
             .cluster
             .certificate_authority_data
@@ -69,7 +73,7 @@ async fn bootstrap_auth<K: AsRef<Path>>(
                     "Unable to find certificate authority information in bootstrap config"
                 )
             })?;
-
+        trace!(csr_name = %config.node_name, "Generating and sending CSR to Kubernetes API");
         let csrs: Api<CertificateSigningRequest> = Api::all(client);
         let csr_json = serde_json::json!({
           "apiVersion": "certificates.k8s.io/v1beta1",
@@ -93,6 +97,8 @@ async fn bootstrap_auth<K: AsRef<Path>>(
 
         csrs.create(&PostParams::default(), &post_data).await?;
 
+        trace!("CSR creation successful, waiting for certificate approval");
+
         // Wait for CSR signing
         let inf = watcher(
             csrs,
@@ -104,6 +110,7 @@ async fn bootstrap_auth<K: AsRef<Path>>(
         let mut got_cert = false;
         let start = std::time::Instant::now();
         while let Some(event) = watcher.try_next().await? {
+            trace!(?event, "Got event from watcher");
             let status = match event {
                 Event::Applied(m) => m.status.unwrap(),
                 Event::Restarted(mut certs) => {
@@ -123,6 +130,7 @@ async fn bootstrap_auth<K: AsRef<Path>>(
             if let Some(cert) = status.certificate {
                 if let Some(v) = status.conditions {
                     if v.into_iter().any(|c| c.type_.as_str() == APPROVED_TYPE) {
+                        debug!("Certificate has been approved, generating kubeconfig");
                         generated_kubeconfig = gen_kubeconfig(
                             ca_data,
                             server,
@@ -135,7 +143,7 @@ async fn bootstrap_auth<K: AsRef<Path>>(
                 }
             }
 
-            info!("Got modified event, but CSR for authentication certs is not currently approved, {:?} elapsed", start.elapsed());
+            info!(elapsed = ?start.elapsed(), "Got modified event, but CSR for authentication certs is not currently approved");
         }
 
         if !got_cert {
@@ -145,10 +153,12 @@ async fn bootstrap_auth<K: AsRef<Path>>(
         }
 
         // Make sure the directory where the certs should live exists
+        trace!("Ensuring desired kubeconfig directory exists");
         if let Some(p) = original_kubeconfig.parent() {
             tokio::fs::create_dir_all(p).await?;
         }
 
+        debug!(path = %original_kubeconfig.display(), "Writing generated kubeconfig to file");
         write(&original_kubeconfig, &generated_kubeconfig).await?;
         // Set environment variable back to original value
         // so that infer will now pick up the file we generated
@@ -160,6 +170,7 @@ async fn bootstrap_auth<K: AsRef<Path>>(
     }
 }
 
+#[instrument(level = "info", skip(config, kubeconfig, notify))]
 async fn bootstrap_tls(
     config: &KubeletConfig,
     kubeconfig: Config,
@@ -170,9 +181,11 @@ async fn bootstrap_tls(
         return Ok(());
     }
 
+    trace!("Generating TLS certificate");
     let cert_bundle = gen_tls_cert(config)?;
 
     let csr_name = format!("{}-tls", config.hostname);
+    trace!(%csr_name, "Generating and sending CSR to Kubernetes API");
     let client = kube::Client::try_from(kubeconfig)?;
     let csrs: Api<CertificateSigningRequest> = Api::all(client);
     let csr_json = serde_json::json!({
@@ -197,6 +210,8 @@ async fn bootstrap_tls(
 
     csrs.create(&PostParams::default(), &post_data).await?;
 
+    trace!("CSR creation successful, sending notification and waiting for certificate approval");
+
     notify(awaiting_user_csr_approval("TLS", &csr_name));
 
     // Wait for CSR signing
@@ -210,6 +225,7 @@ async fn bootstrap_tls(
     let mut got_cert = false;
     let start = std::time::Instant::now();
     while let Some(event) = watcher.try_next().await? {
+        trace!(?event, "Got event from watcher");
         let status = match event {
             Event::Applied(m) => m.status.unwrap(),
             Event::Restarted(mut certs) => {
@@ -229,13 +245,14 @@ async fn bootstrap_tls(
         if let Some(cert) = status.certificate {
             if let Some(v) = status.conditions {
                 if v.into_iter().any(|c| c.type_.as_str() == APPROVED_TYPE) {
+                    debug!("Certificate has been approved, extracting cert from response");
                     certificate = std::str::from_utf8(&cert.0)?.to_owned();
                     got_cert = true;
                     break;
                 }
             }
         }
-        info!("Got modified event, but CSR for serving certs is not currently approved, {:?} remaining", start.elapsed());
+        info!(remaining = ?start.elapsed(), "Got modified event, but CSR for serving certs is not currently approved");
     }
 
     if !got_cert {
@@ -246,8 +263,9 @@ async fn bootstrap_tls(
 
     let private_key = cert_bundle.serialize_private_key_pem();
     debug!(
-        "Got certificate from API, writing cert to {:?} and private key to {:?}",
-        config.server_config.cert_file, config.server_config.private_key_file
+        cert_file = %config.server_config.cert_file.display(),
+        private_key_file = %config.server_config.private_key_file.display(),
+        "Got certificate from API, writing cert and private key to disk"
     );
     // Make sure the directory where the certs should live exists
     if let Some(p) = config.server_config.cert_file.parent() {

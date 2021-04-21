@@ -13,7 +13,7 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::new_from_file_and_flags(env!("CARGO_PKG_VERSION"), None);
 
     // Initialize the logger
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     let kubeconfig = kubelet::bootstrap(&config, &config.bootstrap_file, notify_bootstrap).await?;
 

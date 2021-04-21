@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tracing::info;
+use tracing::{info, instrument};
 
 use kubelet::container::state::run_to_completion;
 use kubelet::container::ContainerKey;
@@ -20,6 +20,11 @@ pub(crate) struct Starting;
 
 #[async_trait::async_trait]
 impl State<PodState> for Starting {
+    #[instrument(
+        level = "info",
+        skip(self, provider_state, pod_state, pod),
+        fields(pod_name)
+    )]
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<ProviderState>,
@@ -29,7 +34,9 @@ impl State<PodState> for Starting {
         let pod_rx = pod.clone();
         let pod = pod.latest();
 
-        info!("Starting containers for pod {:?}.", pod.name());
+        tracing::Span::current().record("pod_name", &pod.name());
+
+        info!("Starting containers for pod");
         let containers = pod.containers();
         let (tx, rx) = tokio::sync::mpsc::channel(containers.len());
         for container in containers {
@@ -61,7 +68,7 @@ impl State<PodState> for Starting {
                 task_tx.send(result).await
             });
         }
-        info!("All containers started for pod {:?}.", pod.name());
+        info!("All containers started for pod");
         Transition::next(self, Running::new(rx))
     }
 

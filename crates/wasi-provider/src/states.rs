@@ -7,7 +7,7 @@ pub(crate) mod pod;
 macro_rules! transition_to_error {
     ($slf:ident, $err:ident) => {{
         let aerr = anyhow::Error::from($err);
-        tracing::error!("{:?}", aerr);
+        tracing::error!(error = %aerr);
         let error_state =
             kubelet::state::common::error::Error::<crate::WasiProvider>::new(aerr.to_string());
         return Transition::next($slf, error_state);
@@ -20,7 +20,7 @@ macro_rules! transition_to_error {
 macro_rules! fail_fatal {
     ($err:ident) => {{
         let aerr = anyhow::Error::from($err);
-        tracing::error!("{:?}", aerr);
+        tracing::error!(error = %aerr);
         return Transition::Complete(Err(aerr));
     }};
 }

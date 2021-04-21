@@ -13,7 +13,8 @@ use tokio::sync::{RwLock, RwLockWriteGuard};
 use tokio_stream::wrappers::ReadDirStream;
 use tokio_stream::StreamExt;
 use tonic::Request;
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
+use tracing_futures::Instrument;
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -118,7 +119,7 @@ impl PluginRegistry {
                 })
                 .await
             {
-                error!("Unable to load plugin at {}: {}", dir.display(), e)
+                error!(error = %e, path = %dir.display(), "Unable to load plugin")
             }
         }
 
@@ -128,13 +129,13 @@ impl PluginRegistry {
             match res {
                 Ok(event) if event.kind.is_create() => {
                     if let Err(e) = self.handle_create(event).await {
-                        error!("An error occurred while processing a new plugin: {:?}", e);
+                        error!(error = %e, "An error occurred while processing a new plugin");
                     }
                 }
                 Ok(event) if event.kind.is_remove() => self.handle_delete(event).await,
                 // Skip any events that aren't create or delete
                 Ok(_) => continue,
-                Err(e) => error!("An error occurred while watching the plugin directory. Will continue to retry: {:?}", e),
+                Err(e) => error!(error = %e, "An error occurred while watching the plugin directory. Will continue to retry"),
             }
         }
         Ok(())
@@ -142,42 +143,41 @@ impl PluginRegistry {
 
     async fn handle_create(&self, event: Event) -> anyhow::Result<()> {
         for discovered_path in plugin_paths(event.paths) {
-            debug!(
-                "Beginning plugin registration for plugin discovered at {}",
-                discovered_path.display()
-            );
-
-            // Step 1: Attempt to call the socket. If this fails, we don't have any guarantee we'll
-            // be able to inform it we've failed. So just unwrap the error here
-            let plugin_info = get_plugin_info(&discovered_path).await?;
-            debug!(
-                "Successfully retrieved information for plugin discovered at {}:\n {:?}",
-                discovered_path.display(),
-                plugin_info
-            );
-
-            // Step 2: Validate discovered data
-            if let Err(e) = self.validate(&plugin_info, &discovered_path).await {
-                inform_plugin(&discovered_path, Some(e.to_string())).await?;
-                return Err(e).with_context(|| {
-                    format!(
-                        "Validation step failed for plugin discovered at {}",
-                        discovered_path.display()
-                    )
-                });
-            }
-            debug!(
-                "Successfully validated plugin discovered at {}:\n {:?}",
-                discovered_path.display(),
-                plugin_info
-            );
-
-            // Step 3: Register plugin to local storage
-            self.register(&plugin_info, &discovered_path).await;
-
-            // Step 4: Inform plugin
-            inform_plugin(&discovered_path, None).await?;
-            debug!("Plugin registration complete for {:?}", plugin_info)
+            async {
+                debug!(
+                    "Beginning plugin registration for discovered plugin"
+                );
+    
+                // Step 1: Attempt to call the socket. If this fails, we don't have any guarantee we'll
+                // be able to inform it we've failed. So just unwrap the error here
+                let plugin_info = get_plugin_info(&discovered_path).await?;
+                tracing::Span::current().record("plugin_info", &tracing::field::debug(&plugin_info));
+                debug!(
+                    "Successfully retrieved information for discovered plugin"
+                );
+    
+                // Step 2: Validate discovered data
+                if let Err(e) = self.validate(&plugin_info, &discovered_path).await {
+                    inform_plugin(&discovered_path, Some(e.to_string())).await?;
+                    return Err(e).with_context(|| {
+                        format!(
+                            "Validation step failed for plugin discovered at {}",
+                            discovered_path.display()
+                        )
+                    });
+                }
+                debug!(
+                    "Successfully validated discovered plugin"
+                );
+    
+                // Step 3: Register plugin to local storage
+                self.register(&plugin_info, &discovered_path).await;
+    
+                // Step 4: Inform plugin
+                inform_plugin(&discovered_path, None).await?;
+                debug!("Plugin registration complete");
+                Ok(())
+            }.instrument(tracing::trace_span!("plugin_registration", path = %discovered_path.display(), plugin_info = tracing::field::Empty)).await?;
         }
         Ok(())
     }
@@ -212,23 +212,20 @@ impl PluginRegistry {
     /// 2. Does the list of supported versions contain the version we expect?
     /// 3. Is the plugin name available? 3a. If the name is already registered, is the endpoint the
     ///    exact same? If it is, we allow it to reregister
+    #[instrument(level = "info", skip(self))]
     async fn validate(&self, info: &PluginInfo, discovered_path: &Path) -> anyhow::Result<()> {
-        trace!(
-            "Starting validation for plugin {:?} discovered at path {}",
-            info,
-            discovered_path.display()
-        );
+        trace!("Starting validation for plugin");
 
         self.validate_plugin_type(info.r#type.as_str())?;
-        trace!("Type validation complete for plugin {:?}", info);
+        trace!("Type validation complete");
 
-        trace!("Checking supported versions for plugin {:?}", info);
+        trace!("Checking supported versions");
         self.validate_plugin_version(&info.supported_versions)?;
-        trace!("Supported version check complete for plugin {:?}", info);
+        trace!("Supported version check complete");
 
-        trace!("Checking for naming collisions for plugin {:?}", info);
+        trace!("Checking for naming collisions");
         self.validate_is_unique(info, discovered_path).await?;
-        trace!("Naming collision check complete for plugin {:?}", info);
+        trace!("Naming collision check complete");
 
         Ok(())
     }
@@ -312,14 +309,15 @@ fn is_allowed_plugin_type(t: PluginType) -> bool {
 }
 
 /// Attempts a `GetInfo` gRPC call to the endpoint to the path given
+#[instrument(level = "info")]
 async fn get_plugin_info(path: &Path) -> anyhow::Result<PluginInfo> {
-    trace!("Connecting to plugin at {:?} for GetInfo", path);
+    trace!("Connecting to plugin for GetInfo");
     let chan = grpc_sock::client::socket_channel(path).await?;
     let mut client = RegistrationClient::new(chan);
 
     let req = Request::new(InfoRequest {});
 
-    trace!("Calling GetInfo at {:?}", path);
+    trace!("Calling GetInfo");
     client
         .get_info(req)
         .await
@@ -337,11 +335,9 @@ async fn get_plugin_info(path: &Path) -> anyhow::Result<PluginInfo> {
 /// Informs the plugin at the given path of registration success or error. If the error parameter is
 /// `None`, it will report as successful, otherwise the error message contained in the `Option` will
 /// be sent to the plugin and it will be marked as failed
+#[instrument(level = "info")]
 async fn inform_plugin(path: &Path, error: Option<String>) -> anyhow::Result<()> {
-    trace!(
-        "Connecting to plugin at {:?} for NotifyRegistrationStatus",
-        path
-    );
+    trace!("Connecting to plugin for NotifyRegistrationStatus");
     let chan = grpc_sock::client::socket_channel(path).await?;
     let mut client = RegistrationClient::new(chan);
 
@@ -350,7 +346,7 @@ async fn inform_plugin(path: &Path, error: Option<String>) -> anyhow::Result<()>
         error: error.unwrap_or_else(String::new),
     });
 
-    trace!("Calling NotifyRegistrationStatus at {:?}", path);
+    trace!("Calling NotifyRegistrationStatus");
     client
         .notify_registration_status(req)
         .await

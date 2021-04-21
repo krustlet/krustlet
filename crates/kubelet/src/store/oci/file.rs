@@ -70,7 +70,7 @@ impl Storer for FileStorer {
             ));
         }
 
-        debug!("Fetching image ref '{:?}' from disk", image_ref);
+        debug!(?image_ref, "Fetching image ref from disk");
         Ok(tokio::fs::read(path).await?)
     }
     async fn store(&mut self, image_ref: &Reference, image_data: ImageData) -> anyhow::Result<()> {

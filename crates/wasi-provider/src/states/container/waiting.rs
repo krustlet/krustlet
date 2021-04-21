@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use tracing::{debug, info};
+use tracing::{debug, info, instrument};
 
 use kubelet::container::state::prelude::*;
 use kubelet::pod::{Handle as PodHandle, PodKey};
@@ -57,6 +57,11 @@ pub struct Waiting;
 
 #[async_trait::async_trait]
 impl State<ContainerState> for Waiting {
+    #[instrument(
+        level = "info",
+        skip(self, shared, state, container),
+        fields(pod_name = state.pod.name(), container_name)
+    )]
     async fn next(
         self: Box<Self>,
         shared: SharedState<ProviderState>,
@@ -65,11 +70,9 @@ impl State<ContainerState> for Waiting {
     ) -> Transition<ContainerState> {
         let container = container.latest();
 
-        info!(
-            "Starting container {} for pod {}",
-            container.name(),
-            state.pod.name(),
-        );
+        tracing::Span::current().record("container_name", &container.name());
+
+        info!("Starting container for pod");
 
         let (client, log_path) = {
             let provider_state = shared.read().await;
@@ -153,7 +156,7 @@ impl State<ContainerState> for Waiting {
                 )
             }
         };
-        debug!("Starting container {} on thread", container.name());
+        debug!("Starting container on thread");
         let container_handle = match runtime.start().await {
             Ok(handle) => handle,
             Err(e) => {
@@ -171,7 +174,7 @@ impl State<ContainerState> for Waiting {
                 )
             }
         };
-        debug!("Container {} WASI Runtime started", container.name());
+        debug!("WASI Runtime started for container");
         let pod_key = PodKey::from(&state.pod);
         {
             let provider_state = shared.write().await;

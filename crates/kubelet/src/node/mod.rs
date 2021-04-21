@@ -16,7 +16,7 @@ use kube::error::ErrorResponse;
 use kube::Error;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 const KUBELET_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -65,6 +65,7 @@ macro_rules! retry {
 /// A node comes with a lease, and we maintain the lease to tell Kubernetes that the
 /// node remains alive and functional. Note that this will not work in
 /// versions of Kubernetes prior to 1.14.
+#[instrument(level = "info", skip(client, config, provider), fields(node_name = %config.node_name))]
 pub async fn create<P: Provider>(client: &kube::Client, config: &Config, provider: Arc<P>) {
     let node_client: Api<KubeNode> = Api::all(client.clone());
 
@@ -77,8 +78,8 @@ pub async fn create<P: Provider>(client: &kube::Client, config: &Config, provide
         Err(Error::Api(ErrorResponse { code: 404, .. })) => (),
         Err(e) => {
             error!(
-                "Exhausted retries when trying to talk to API: {}. Not retrying.",
-                e
+                error = %e,
+                "Exhausted retries when trying to talk to API. Not retrying"
             );
             return;
         }
@@ -132,42 +133,43 @@ pub async fn create<P: Provider>(client: &kube::Client, config: &Config, provide
     }
 
     let node = builder.build().into_inner();
+    trace!(?node, "attempting to create node");
     match retry!(node_client.create(&PostParams::default(), &node).await, times: 4) {
         Ok(node) => {
             let node_uid = node.metadata.uid.unwrap();
             if let Err(e) = create_lease(&node_uid, &config.node_name, &client).await {
-                error!("Failed to create lease: {}", e);
+                error!(error = %e, "Failed to create lease");
                 return;
             }
         }
         Err(e) => {
             error!(
-                "Exhausted retries creating node after failed create: {}. Not retrying.",
-                e
+                error = %e,
+                "Exhausted retries creating node after failed create. Not retrying"
             );
             return;
         }
     };
 
-    info!("Successfully created node '{}'", &config.node_name);
+    info!("Successfully created node");
 }
 
 /// Fetch the uid of a node by name.
+#[instrument(level = "info", skip(client))]
 pub async fn uid(client: &kube::Client, node_name: &str) -> anyhow::Result<String> {
     let node_client: Api<KubeNode> = Api::all(client.clone());
-    match retry!(node_client.get(node_name).await, times: 4, log_error: |e| error!("Failed to get node to cordon: {:?}", e))
+    match retry!(node_client.get(node_name).await, times: 4, log_error: |e| error!(error = %e, "Failed to get node to cordon"))
     {
         Ok(KubeNode {
             metadata: ObjectMeta { uid: Some(uid), .. },
             ..
         }) => Ok(uid),
         Ok(_) => {
-            let err = format!("Node missing metadata or uid {}.", node_name);
-            error!("{}", &err);
-            anyhow::bail!(err);
+            error!("Node missing metadata or uid");
+            anyhow::bail!("Node missing metadata or uid {}.", node_name);
         }
         Err(e) => {
-            error!("Error fetching node {} id: {:?}.", node_name, e);
+            error!(error = %e, "Error fetching node uid");
             anyhow::bail!(e);
         }
     }
@@ -180,6 +182,7 @@ pub async fn drain(client: &kube::Client, node_name: &str) -> anyhow::Result<()>
 }
 
 /// Fetches list of pods on this node and deletes them.
+#[instrument(level = "info", skip(client))]
 pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
     let pod_client: Api<KubePod> = Api::all(client.clone());
     let node_selector = format!("spec.nodeName={}", node_name);
@@ -194,12 +197,12 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
     // The delete call may return a "pending" response, we must watch for the actual delete event.
     let mut stream = pod_client.watch(&lp, "0").await?.boxed();
 
-    info!("Evicting {} pods.", pods.len());
+    info!(num_pods = pods.len(), "Evicting pods");
 
     for pod in pods {
         let pod = Pod::from(pod);
         if pod.is_daemonset() {
-            info!("Skipping eviction of DaemonSet '{}'", pod.name());
+            info!(pod_name = pod.name(), "Skipping eviction of DaemonSet pod");
             continue;
         } else if pod.is_static() {
             let api: Api<KubePod> = Api::namespaced(client.clone(), pod.namespace());
@@ -228,14 +231,14 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
             )
             .await?;
 
-            info!("Marked static pod as terminated.");
+            info!("Marked static pod as terminated");
             continue;
         } else {
             match evict_pod(&client, pod.name(), pod.namespace(), &mut stream).await {
                 Ok(_) => (),
                 Err(e) => {
                     // Absorb the error and attempt to delete other pods with best effort.
-                    error!("Error evicting pod: {:?}", e)
+                    error!(error = %e, "Error evicting pod")
                 }
             }
         }
@@ -250,6 +253,7 @@ type PodStream = std::pin::Pin<
     >,
 >;
 
+#[instrument(level = "info", skip(client, stream))]
 async fn evict_pod(
     client: &kube::Client,
     name: &str,
@@ -257,24 +261,24 @@ async fn evict_pod(
     stream: &mut PodStream,
 ) -> anyhow::Result<()> {
     let ns_client: Api<KubePod> = Api::namespaced(client.clone(), namespace);
-    info!("Evicting namespace '{}' pod '{}'", namespace, name);
+    info!("Evicting pod");
     let params = Default::default();
     let response = ns_client.delete(name, &params).await?;
 
     if response.is_left() {
         // TODO Timeout?
-        info!("Waiting for pod '{}' eviction.", name);
+        info!("Waiting for pod eviction");
         while let Some(event) = stream.try_next().await? {
             if let kube::api::WatchEvent::Deleted(s) = event {
                 let pod = Pod::from(s);
                 if name == pod.name() && namespace == pod.namespace() {
-                    info!("Pod '{}' evicted.", name);
+                    info!("Pod evicted");
                     break;
                 }
             }
         }
     } else {
-        info!("Pod '{}' evicted.", name);
+        info!("Pod evicted");
     }
     Ok(())
 }
@@ -284,10 +288,11 @@ async fn evict_pod(
 /// This is how we report liveness to the upstream.
 /// If we are unable to update the node after several retries we panic, as we could be in an
 /// inconsistent state
+#[instrument(level = "info", skip(client))]
 pub async fn update(client: &kube::Client, node_name: &str) {
-    debug!("Updating node '{}'", node_name);
+    debug!("Updating node");
     if let Ok(uid) = uid(client, node_name).await {
-        debug!("Node to update '{}' fetched.", node_name);
+        trace!("Fetched current node object to update");
         retry!(update_lease(&uid, node_name, client).await, times: 4)
             .expect("Could not update lease");
         retry!(update_status(node_name, client).await, times: 4)
@@ -330,8 +335,9 @@ async fn update_status(node_name: &str, client: &kube::Client) -> anyhow::Result
 ///
 /// As far as I can tell, leases ALWAYS go in the 'kube-node-lease'
 /// namespace, no exceptions.
+#[instrument(level = "info", err, skip(client))]
 async fn create_lease(node_uid: &str, node_name: &str, client: &kube::Client) -> Result<(), Error> {
-    debug!("Creating lease for node '{}'", node_name);
+    debug!("Creating lease for node");
     let leases: Api<Lease> = Api::namespaced(client.clone(), "kube-node-lease");
 
     let lease = lease_definition(node_uid, node_name);
@@ -341,23 +347,20 @@ async fn create_lease(node_uid: &str, node_name: &str, client: &kube::Client) ->
     let resp = retry!(
         leases.create(&PostParams::default(), &lease).await,
         times: 4,
-        log_error: |e| debug!("Lease could not be created: {}. Retrying...", e),
+        log_error: |e| debug!(error = %e, "Lease could not be created. Retrying..."),
         break_on: &Error::Api(ErrorResponse { code: 409, .. })
     );
     match resp {
         Ok(_) => {
-            debug!("Created lease for node '{}'", node_name);
+            debug!("Created lease for node");
             Ok(())
         }
         Err(Error::Api(ErrorResponse { code: 409, .. })) => {
-            debug!("Lease already existed for node '{}'", node_name);
+            debug!("Lease already exists for node");
             Ok(())
         }
         Err(e) => {
-            error!(
-                "Exhausted retries creating lease for node '{}': {}",
-                node_name, e
-            );
+            error!("Exhausted retries creating lease for node");
             Err(e)
         }
     }
@@ -368,12 +371,13 @@ async fn create_lease(node_uid: &str, node_name: &str, client: &kube::Client) ->
 ///
 /// TODO: Our patch is overzealous right now. We just need to update the
 /// timestamp.
+#[instrument(level = "info", err, skip(client))]
 async fn update_lease(
     node_uid: &str,
     node_name: &str,
     client: &kube::Client,
 ) -> Result<Lease, Error> {
-    debug!("Updating lease for node '{}'...", node_name);
+    debug!("Updating lease for node");
     let leases: Api<Lease> = Api::namespaced(client.clone(), "kube-node-lease");
 
     let lease = lease_definition(node_uid, node_name);
@@ -386,8 +390,8 @@ async fn update_lease(
         )
         .await;
     match &resp {
-        Ok(_) => debug!("Lease updated for '{}'", node_name),
-        Err(e) => error!("Failed to update lease for '{}': {}", node_name, e),
+        Ok(_) => debug!("Lease updated"),
+        Err(_) => error!("Failed to update lease"),
     }
     resp
 }

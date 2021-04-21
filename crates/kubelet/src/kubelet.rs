@@ -85,14 +85,14 @@ impl<P: Provider> Kubelet<P> {
         let services = Box::pin(async {
             tokio::select! {
                 res = signal_task => if let Err(e) = res {
-                    error!("Signal task completed with error {:?}", &e);
+                    error!(error = %e, "Signal task completed with error");
                 },
-                res = webserver => error!("Webserver task completed with result {:?}", &res),
+                res = webserver => error!(result = ?res, "Webserver task completed with result"),
                 res = node_updater => if let Err(e) = res {
-                    error!("Node updater task completed with error {:?}", &e);
+                    error!(error = %e, "Node updater task completed with error");
                 },
                 res = plugin_registrar => if let Err(e) = res {
-                    error!("Plugin registrar task completed with error {:?}", &e);
+                    error!(error = %e, "Plugin registrar task completed with error");
                 }
             };
             // Use relaxed ordering because we just need other tasks to eventually catch the signal.
@@ -117,7 +117,7 @@ impl<P: Provider> Kubelet<P> {
                 res = signal_handler => match res {
                     Ok(()) => self.provider.shutdown(&self.config.node_name).await,
                     Err(e) => {
-                        error!("Signal handler task joined with error {:?}", &e);
+                        error!(error = %e, "Signal handler task joined with error");
                         Err(e)
                     }
                 },
@@ -187,7 +187,7 @@ async fn start_signal_handler(signal: Arc<AtomicBool>) -> anyhow::Result<()> {
     let duration = std::time::Duration::from_millis(100);
     loop {
         if signal.load(Ordering::Relaxed) {
-            info!("Signal caught.");
+            info!("Signal caught");
             // When the signal was caught we simply exit the loop here,
             // handling is done outside of this task to avoid having to
             // pass a reference to the provider here

@@ -5,7 +5,7 @@ use super::volume_mount::VolumeMount;
 use super::{BackoffSequence, GenericPodState, GenericProvider, GenericProviderState};
 use crate::pod::state::prelude::*;
 
-use tracing::error;
+use tracing::{error, instrument};
 
 /// Kubelet is pulling container images.
 pub struct ImagePull<P: GenericProvider> {
@@ -28,6 +28,11 @@ impl<P: GenericProvider> Default for ImagePull<P> {
 
 #[async_trait::async_trait]
 impl<P: GenericProvider> State<P::PodState> for ImagePull<P> {
+    #[instrument(
+        level = "info",
+        skip(self, provider_state, pod_state, pod),
+        fields(pod_name)
+    )]
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<P::ProviderState>,
@@ -35,6 +40,8 @@ impl<P: GenericProvider> State<P::PodState> for ImagePull<P> {
         pod: Manifest<Pod>,
     ) -> Transition<P::PodState> {
         let pod = pod.latest();
+
+        tracing::Span::current().record("pod_name", &pod.name());
 
         let (client, store) = {
             // Minimise the amount of time we hold any locks
@@ -45,7 +52,7 @@ impl<P: GenericProvider> State<P::PodState> for ImagePull<P> {
         let modules = match store.fetch_pod_modules(&pod, &auth_resolver).await {
             Ok(m) => m,
             Err(e) => {
-                error!("{:?}", e);
+                error!(error = %e);
                 return Transition::next(self, ImagePullBackoff::<P>::default());
             }
         };
