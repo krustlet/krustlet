@@ -45,6 +45,7 @@ use tracing_futures::Instrument;
 ///   Clone,
 ///   JsonSchema,
 /// )]
+/// #[admission_webhook_features(secret, service, admission_webhook_config)]
 /// #[kube(
 /// group = "example.com",
 /// version = "v1",

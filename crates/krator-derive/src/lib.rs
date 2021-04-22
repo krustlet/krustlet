@@ -62,7 +62,7 @@ mod admission;
 /// - `admission_webhook_configuration_name() -> String`:Returns the name of the admission webhook configuration that will get
 ///    created with `admission_webhook_configuration()`
 ///
-///  requires the following crate: **`k8s_openapi`**, **`anyhow`**
+///  requires the following crate: **`k8s_openapi`**
 ///
 /// ### `#[admission_webhook_features(secret,service,admission_webhook_config)]`
 ///

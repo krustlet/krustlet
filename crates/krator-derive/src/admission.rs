@@ -288,19 +288,19 @@ impl CustomDerive for CustomResourceInfos {
 
                 /// Creates a MutatingWebhookConfiguration using the certificate from the given service and the service
                 /// of the given service as configuration
-                pub fn admission_webhook_configuration(service: k8s_openapi::api::core::v1::Service, secret: k8s_openapi::api::core::v1::Secret) -> anyhow::Result<k8s_openapi::api::admissionregistration::v1::MutatingWebhookConfiguration> {
+                pub fn admission_webhook_configuration(service: k8s_openapi::api::core::v1::Service, secret: k8s_openapi::api::core::v1::Secret) -> Result<k8s_openapi::api::admissionregistration::v1::MutatingWebhookConfiguration, Box<dyn std::error::Error + Send + Sync>> {
                    let crd = #name_identifier::crd();
 
                    let webhook_name = #name_identifier::admission_webhook_configuration_name() ;
                    let versions: std::vec::Vec<std::string::String> = crd.spec.versions.into_iter().map(|v| v.name).collect();
 
-                   anyhow::ensure!(service.metadata.name.is_some(), "service does not have a name set");
-                   anyhow::ensure!(service.metadata.namespace.is_some(), "service does not have a namespace set");
+                   if service.metadata.name.is_none() { return Err("service does not have a name set".into()) };
+                   if service.metadata.namespace.is_none() { return Err("service does not have a namespace set".into()) };
 
-                   anyhow::ensure!(secret.metadata.name.is_some(), "secret does not have a name set");
-                   anyhow::ensure!(secret.metadata.namespace.is_some(), "secret does not have a namespace set");
+                   if secret.metadata.name.is_none() { return Err("secret does not have a name set".into()) };
+                   if secret.metadata.namespace.is_none() { return Err("secret does not have a namespace set".into()) };
 
-                   anyhow::ensure!(secret.type_ == Some("tls".to_string()), format!("secret {}/{} is not a tls secret", secret.metadata.namespace.as_ref().unwrap(), secret.metadata.name.as_ref().unwrap()));
+                   if secret.type_ != Some("tls".to_string()) { return Err(format!("secret {}/{} is not a tls secret", secret.metadata.namespace.as_ref().unwrap(), secret.metadata.name.as_ref().unwrap()).into()) };
 
                    const TLS_CRT: &'static str = "tls.crt";
 
@@ -320,7 +320,7 @@ impl CustomDerive for CustomResourceInfos {
                            .and_then(|ref data| data.get(TLS_CRT).map(k8s_openapi::ByteString::to_owned)));
 
 
-                   anyhow::ensure!(ca_bundle.is_some(), format!("secret with {} is does not contain data 'tls.crt'", secret.metadata.name.unwrap()));
+                   if ca_bundle.is_none() { return Err(format!("secret with {} is does not contain data 'tls.crt'", secret.metadata.name.unwrap()).into())}
 
                    Ok(k8s_openapi::api::admissionregistration::v1::MutatingWebhookConfiguration{
                        metadata: k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta {

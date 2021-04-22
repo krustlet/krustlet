@@ -44,6 +44,7 @@ struct MooseSpec {
 #[derive(
     AdmissionWebhook, CustomResource, Debug, Serialize, Deserialize, Clone, Default, JsonSchema,
 )]
+#[admission_webhook_features(secret, service, admission_webhook_config)]
 #[kube(
     group = "animals.com",
     version = "v1",
