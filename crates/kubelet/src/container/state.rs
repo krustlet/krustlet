@@ -7,7 +7,7 @@ use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use krator::{Manifest, ObjectState, SharedState, State, Transition};
 use kube::api::Api;
-use tracing::{debug, error, warn, instrument};
+use tracing::{debug, error, instrument, warn};
 use tracing_futures::Instrument;
 
 /// Prelude for Pod state machines.
@@ -26,7 +26,7 @@ pub mod prelude {
         container_state,
         pod,
         container_name
-    ), 
+    ),
     fields(
         pod_name,
         namespace,
@@ -112,10 +112,7 @@ pub async fn run_to_completion<S: ObjectState<Manifest = Container, Status = Sta
             }
         }
 
-        debug!(
-            ?state,
-            "Pod container executing state handler"
-        );
+        debug!(?state, "Pod container executing state handler");
         let transition = {
             state
                 .next(shared.clone(), &mut container_state, container_rx.clone())

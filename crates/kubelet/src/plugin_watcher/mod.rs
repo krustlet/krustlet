@@ -135,7 +135,9 @@ impl PluginRegistry {
                 Ok(event) if event.kind.is_remove() => self.handle_delete(event).await,
                 // Skip any events that aren't create or delete
                 Ok(_) => continue,
-                Err(e) => error!(error = %e, "An error occurred while watching the plugin directory. Will continue to retry"),
+                Err(e) => {
+                    error!(error = %e, "An error occurred while watching the plugin directory. Will continue to retry")
+                }
             }
         }
         Ok(())
@@ -147,7 +149,7 @@ impl PluginRegistry {
                 debug!(
                     "Beginning plugin registration for discovered plugin"
                 );
-    
+
                 // Step 1: Attempt to call the socket. If this fails, we don't have any guarantee we'll
                 // be able to inform it we've failed. So just unwrap the error here
                 let plugin_info = get_plugin_info(&discovered_path).await?;
@@ -155,7 +157,7 @@ impl PluginRegistry {
                 debug!(
                     "Successfully retrieved information for discovered plugin"
                 );
-    
+
                 // Step 2: Validate discovered data
                 if let Err(e) = self.validate(&plugin_info, &discovered_path).await {
                     inform_plugin(&discovered_path, Some(e.to_string())).await?;
@@ -169,10 +171,10 @@ impl PluginRegistry {
                 debug!(
                     "Successfully validated discovered plugin"
                 );
-    
+
                 // Step 3: Register plugin to local storage
                 self.register(&plugin_info, &discovered_path).await;
-    
+
                 // Step 4: Inform plugin
                 inform_plugin(&discovered_path, None).await?;
                 debug!("Plugin registration complete");
