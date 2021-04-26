@@ -120,8 +120,17 @@ impl TryFrom<ClientConfig> for Client {
 
     fn try_from(config: ClientConfig) -> Result<Self, Self::Error> {
         let mut client_builder = reqwest::Client::builder()
-            .danger_accept_invalid_certs(config.accept_invalid_certificates)
-            .danger_accept_invalid_hostnames(config.accept_invalid_hostnames);
+            .danger_accept_invalid_certs(config.accept_invalid_certificates);
+
+        client_builder = match () {
+            #[cfg(feature = "native-tls")]
+            () => client_builder.danger_accept_invalid_hostnames(config.accept_invalid_hostnames),
+            #[cfg(not(feature = "native-tls"))]
+            () => {
+                warn!("Cannot change value of `accept_invalid_hostnames`: missing 'native-tls' feature");
+                client_builder
+            }
+        };
 
         for c in &config.extra_root_certificates {
             let cert = match c.encoding {
