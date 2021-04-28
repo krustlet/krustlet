@@ -1,6 +1,8 @@
 //! `log` contains convenient wrappers around fetching logs from the Kubernetes API.
 use anyhow::bail;
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncRead};
 use tracing::{debug, error};
 
@@ -39,6 +41,8 @@ impl std::error::Error for SendError {
 
 #[derive(Debug, Deserialize)]
 /// Client options for fetching logs.
+/// For more details on what the parameters mean please refer to
+/// https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#logs
 pub struct Options {
     /// the number of lines to stream back to the client.
     #[serde(rename = "tailLines")]
@@ -46,6 +50,21 @@ pub struct Options {
     /// determines whether the stream should stay open after tailing until the channel has closed.
     #[serde(default)]
     pub follow: bool,
+    /// determines whether the stream should stay open after tailing until the channel has closed.
+    #[serde(default)]
+    pub previous: bool,
+    /// determines whether the returned log messages should include a timestamp or just the message
+    #[serde(default)]
+    pub timestamps: bool,
+    /// specifies how far back logs should be retrieved in seconds
+    #[serde(rename = "sinceSeconds")]
+    pub since: Option<u64>,
+    /// specifies a point in time up to which logs should be retrieved
+    #[serde(rename = "sinceTime")]
+    pub since_time: Option<DateTime<Utc>>,
+    /// specifies a size limit of how many logs should be returned in bytes
+    #[serde(rename = "limitBytes")]
+    pub limit_bytes: Option<u64>,
 }
 
 /// Sender for streaming logs to client.
@@ -68,6 +87,31 @@ impl Sender {
     /// The follow flag indicated by the request, or `false` if absent.
     pub fn follow(&self) -> bool {
         self.opts.follow
+    }
+
+    /// The previous flag indicated by the request, or `false` if absent.
+    pub fn previous(&self) -> bool {
+        self.opts.previous
+    }
+
+    /// The timestamps flag indicated by the request, or `false` if absent.
+    pub fn timestamps(&self) -> bool {
+        self.opts.timestamps
+    }
+
+    /// The duration in seconds indicated by the request, or `None` if absent.
+    pub fn since(&self) -> Option<Duration> {
+        self.opts.since.map(Duration::from_secs)
+    }
+
+    /// The since_time indicated by the request, or `None` if absent.
+    pub fn since_time(&self) -> Option<DateTime<Utc>> {
+        self.opts.since_time
+    }
+
+    /// The limit_bytes indicated by the request, or `None` if absent.
+    pub fn limit_bytes(&self) -> Option<u64> {
+        self.opts.limit_bytes
     }
 
     /// Async send some data to a client.
