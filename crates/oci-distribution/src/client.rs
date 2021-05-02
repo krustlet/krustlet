@@ -20,8 +20,9 @@ use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use sha2::Digest;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
-use tracing::debug;
+use tracing::{debug, warn};
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
 
 /// The data for an image or module.
@@ -115,14 +116,51 @@ pub trait ClientConfigSource {
     fn client_config(&self) -> ClientConfig;
 }
 
+impl TryFrom<ClientConfig> for Client {
+    type Error = anyhow::Error;
+
+    fn try_from(config: ClientConfig) -> Result<Self, Self::Error> {
+        let mut client_builder = reqwest::Client::builder()
+            .danger_accept_invalid_certs(config.accept_invalid_certificates);
+
+        client_builder = match () {
+            #[cfg(feature = "native-tls")]
+            () => client_builder.danger_accept_invalid_hostnames(config.accept_invalid_hostnames),
+            #[cfg(not(feature = "native-tls"))]
+            () => {
+                warn!("Cannot change value of `accept_invalid_hostnames`: missing 'native-tls' feature");
+                client_builder
+            }
+        };
+
+        for c in &config.extra_root_certificates {
+            let cert = match c.encoding {
+                CertificateEncoding::Der => reqwest::Certificate::from_der(c.data.as_slice())?,
+                CertificateEncoding::Pem => reqwest::Certificate::from_pem(c.data.as_slice())?,
+            };
+            client_builder = client_builder.add_root_certificate(cert);
+        }
+
+        Ok(Self {
+            config,
+            tokens: HashMap::new(),
+            client: client_builder.build()?,
+        })
+    }
+}
+
 impl Client {
     /// Create a new client with the supplied config
     pub fn new(config: ClientConfig) -> Self {
-        Self {
-            config,
-            tokens: HashMap::new(),
-            client: reqwest::Client::new(),
-        }
+        Client::try_from(config.clone()).unwrap_or_else(|err| {
+            warn!("Cannot create OCI client from config: {:?}", err);
+            warn!("Creating client with default configuration");
+            Self {
+                config,
+                tokens: HashMap::new(),
+                client: reqwest::Client::new(),
+            }
+        })
     }
 
     /// Create a new client with the supplied config
@@ -711,11 +749,40 @@ impl Client {
     }
 }
 
+/// The encoding of the certificate
+#[derive(Debug, Clone)]
+pub enum CertificateEncoding {
+    #[allow(missing_docs)]
+    Der,
+    #[allow(missing_docs)]
+    Pem,
+}
+
+/// A x509 certificate
+#[derive(Debug, Clone)]
+pub struct Certificate {
+    /// Which encoding is used by the certificate
+    pub encoding: CertificateEncoding,
+
+    /// Actual certificate
+    pub data: Vec<u8>,
+}
+
 /// A client configuration
 #[derive(Debug, Clone, Default)]
 pub struct ClientConfig {
     /// Which protocol the client should use
     pub protocol: ClientProtocol,
+
+    /// Accept invalid hostname. Defaults to false
+    pub accept_invalid_hostnames: bool,
+
+    /// Accept invalid certificates. Defaults to false
+    pub accept_invalid_certificates: bool,
+
+    /// A list of extra root certificate to trust. This can be used to connect
+    /// to servers using self-signed certificates
+    pub extra_root_certificates: Vec<Certificate>,
 }
 
 /// The protocol that the client should use to connect
@@ -892,6 +959,7 @@ mod test {
     fn manifest_url_generation_respects_http_protocol() {
         let c = Client::new(ClientConfig {
             protocol: ClientProtocol::Http,
+            ..Default::default()
         });
         let reference = Reference::try_from("webassembly.azurecr.io/hello:v1".to_owned())
             .expect("Could not parse reference");
@@ -905,6 +973,7 @@ mod test {
     fn blob_url_generation_respects_http_protocol() {
         let c = Client::new(ClientConfig {
             protocol: ClientProtocol::Http,
+            ..Default::default()
         });
         let reference = Reference::try_from("webassembly.azurecr.io/hello@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_owned())
             .expect("Could not parse reference");
@@ -922,7 +991,10 @@ mod test {
     fn manifest_url_generation_uses_https_if_not_on_exception_list() {
         let insecure_registries = vec!["localhost".to_owned(), "oci.registry.local".to_owned()];
         let protocol = ClientProtocol::HttpsExcept(insecure_registries);
-        let c = Client::new(ClientConfig { protocol });
+        let c = Client::new(ClientConfig {
+            protocol,
+            ..Default::default()
+        });
         let reference = Reference::try_from("webassembly.azurecr.io/hello:v1".to_owned())
             .expect("Could not parse reference");
         assert_eq!(
@@ -935,7 +1007,10 @@ mod test {
     fn manifest_url_generation_uses_http_if_on_exception_list() {
         let insecure_registries = vec!["localhost".to_owned(), "oci.registry.local".to_owned()];
         let protocol = ClientProtocol::HttpsExcept(insecure_registries);
-        let c = Client::new(ClientConfig { protocol });
+        let c = Client::new(ClientConfig {
+            protocol,
+            ..Default::default()
+        });
         let reference = Reference::try_from("oci.registry.local/hello:v1".to_owned())
             .expect("Could not parse reference");
         assert_eq!(
@@ -948,7 +1023,10 @@ mod test {
     fn blob_url_generation_uses_https_if_not_on_exception_list() {
         let insecure_registries = vec!["localhost".to_owned(), "oci.registry.local".to_owned()];
         let protocol = ClientProtocol::HttpsExcept(insecure_registries);
-        let c = Client::new(ClientConfig { protocol });
+        let c = Client::new(ClientConfig {
+            protocol,
+            ..Default::default()
+        });
         let reference = Reference::try_from("webassembly.azurecr.io/hello@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_owned())
             .expect("Could not parse reference");
         assert_eq!(
@@ -965,7 +1043,10 @@ mod test {
     fn blob_url_generation_uses_http_if_on_exception_list() {
         let insecure_registries = vec!["localhost".to_owned(), "oci.registry.local".to_owned()];
         let protocol = ClientProtocol::HttpsExcept(insecure_registries);
-        let c = Client::new(ClientConfig { protocol });
+        let c = Client::new(ClientConfig {
+            protocol,
+            ..Default::default()
+        });
         let reference = Reference::try_from("oci.registry.local/hello@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_owned())
             .expect("Could not parse reference");
         assert_eq!(
@@ -1291,6 +1372,7 @@ mod test {
     async fn can_push_layer() {
         let mut c = Client::new(ClientConfig {
             protocol: ClientProtocol::Http,
+            ..Default::default()
         });
         let url = "oci.registry.local/hello-wasm:v1";
         let image: Reference = url.parse().unwrap();
@@ -1332,6 +1414,7 @@ mod test {
     async fn can_push_multiple_layers() {
         let mut c = Client::new(ClientConfig {
             protocol: ClientProtocol::Http,
+            ..Default::default()
         });
         let sample_uuid = "6987887f-0196-45ee-91a1-2dfad901bea0";
         let url = "oci.registry.local/hello-wasm:v1";
@@ -1393,6 +1476,7 @@ mod test {
     async fn test_image_roundtrip() {
         let mut c = Client::new(ClientConfig {
             protocol: ClientProtocol::HttpsExcept(vec!["oci.registry.local".to_string()]),
+            ..Default::default()
         });
 
         let image: Reference = HELLO_IMAGE_TAG_AND_DIGEST.parse().unwrap();
