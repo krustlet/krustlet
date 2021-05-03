@@ -45,7 +45,7 @@ pub async fn wait_for_pod_complete(
         }
     }
 
-    assert!(went_ready, format!("pod {} never went ready", pod_name));
+    assert!(went_ready, "pod {} never went ready", pod_name);
 
     Ok(())
 }
