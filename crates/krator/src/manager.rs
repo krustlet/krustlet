@@ -3,45 +3,43 @@
 #[cfg(feature = "admission-webhook")]
 use crate::admission::WebhookFn;
 use crate::operator::Operator;
+use crate::store::Store;
 use futures::FutureExt;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::Metadata;
 use kube::api::{GroupVersionKind, ListParams, Resource};
 use kube_runtime::watcher::Event;
 use std::future::Future;
+use std::sync::Arc;
+use tracing::{info, warn};
 
 /// Captures configuration needed to configure a watcher.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Watch {
     /// The (group, version, kind) tuple of the resource to be watched.
-    _gvk: GroupVersionKind,
+    gvk: GroupVersionKind,
     /// Optionally restrict watching to namespace.
-    _namespace: Option<String>,
+    namespace: Option<String>,
     /// Restrict to objects matching list params (default watches everything).
-    _list_params: ListParams,
+    list_params: ListParams,
 }
 
 impl Watch {
     fn new<
         R: Resource + serde::de::DeserializeOwned + Clone + Metadata<Ty = ObjectMeta> + Send + 'static,
     >(
-        _namespace: Option<String>,
-        _list_params: ListParams,
+        namespace: Option<String>,
+        list_params: ListParams,
     ) -> Self {
-        let _gvk = GroupVersionKind::gvk(R::GROUP, R::VERSION, R::KIND).unwrap();
+        let gvk = GroupVersionKind::gvk(R::GROUP, R::VERSION, R::KIND).unwrap();
         Watch {
-            _gvk,
-            _namespace,
-            _list_params,
+            gvk,
+            namespace,
+            list_params,
         }
     }
 
-    fn handle(
-        self,
-    ) -> (
-        WatchHandle,
-        tokio::sync::mpsc::Receiver<Box<dyn std::any::Any + Send>>,
-    ) {
+    fn handle(self) -> (WatchHandle, tokio::sync::mpsc::Receiver<DynamicEvent>) {
         let (tx, rx) = tokio::sync::mpsc::channel(16);
         let handle = WatchHandle { watch: self, tx };
         (handle, rx)
@@ -267,7 +265,7 @@ where
 #[derive(Clone)]
 struct WatchHandle {
     watch: Watch,
-    tx: tokio::sync::mpsc::Sender<Box<dyn std::any::Any + Send>>,
+    tx: tokio::sync::mpsc::Sender<DynamicEvent>,
 }
 
 #[derive(Clone)]
@@ -277,49 +275,81 @@ struct Controller {
     watches: Vec<WatchHandle>,
 }
 
-type OperatorTask = std::pin::Pin<Box<dyn Future<Output = ()>>>;
+type OperatorTask = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
 
-fn launch_controller<C: Operator>(
-    kubeconfig: &kube::Config,
-    controller: ControllerBuilder<C>,
-) -> (Controller, OperatorTask)
-where
-    C::Manifest: Metadata<Ty = ObjectMeta>,
-{
-    let (manages, mut rx) = controller.manages().handle();
+async fn launch_runtime<O: Operator>(
+    kubeconfig: kube::Config,
+    controller: O,
+    mut rx: tokio::sync::mpsc::Receiver<DynamicEvent>,
+) {
+    let mut runtime = crate::OperatorRuntime::new(&kubeconfig, controller, Default::default());
+    while let Some(dynamic_event) = rx.recv().await {
+        let event: Event<O::Manifest> = dynamic_event.into();
+        runtime.handle_event(event).await;
+    }
+    println!("Sender dropped.");
+}
 
-    // Create main Operator task.
-    let runtime =
-        crate::OperatorRuntime::new(kubeconfig, controller.controller, Default::default());
-    let task = async move {
-        let mut runtime = runtime;
-        while let Some(object) = rx.recv().await {
-            match object.downcast::<C::Manifest>() {
-                Ok(manifest) => {
-                    runtime.handle_event(Event::Applied(*manifest)).await;
-                }
-                Err(_) => {
-                    println!("Could not cast object to manifest type.");
+async fn launch_watches(
+    mut rx: tokio::sync::mpsc::Receiver<DynamicEvent>,
+    gvk: GroupVersionKind,
+    store: Arc<Store>,
+) {
+    while let Some(dynamic_event) = rx.recv().await {
+        match dynamic_event {
+            DynamicEvent::Applied { object } => {
+                store
+                    .insert_any(object.namespace, object.name, &gvk, object.data)
+                    .await;
+            }
+            DynamicEvent::Deleted {
+                name, namespace, ..
+            } => {
+                store.delete_any(namespace, name, &gvk).await;
+            }
+            DynamicEvent::Restarted { objects } => {
+                store.reset(&gvk).await;
+                for object in objects {
+                    store
+                        .insert_any(object.namespace, object.name, &gvk, object.data)
+                        .await;
                 }
             }
         }
-        println!("Sender dropped.");
     }
-    .boxed();
+}
 
-    let watches = controller
-        .watches
-        .into_iter()
-        .map(Watch::handle)
-        .map(|(handle, _)| handle)
-        .collect();
+fn launch_controller<C: Operator>(
+    kubeconfig: kube::Config,
+    controller: ControllerBuilder<C>,
+    store: Arc<Store>,
+) -> (Controller, Vec<OperatorTask>)
+where
+    C::Manifest: Metadata<Ty = ObjectMeta>,
+{
+    let mut watches = Vec::new();
+    let mut owns = Vec::new();
+    let mut tasks = Vec::new();
+
+    // Create main Operator task.
+    let (manages, rx) = controller.manages().handle();
+    let task = launch_runtime(kubeconfig, controller.controller, rx).boxed();
+    tasks.push(task);
+
+    for watch in controller.watches {
+        let (handle, rx) = watch.handle();
+        let task = launch_watches(rx, handle.watch.gvk.clone(), Arc::clone(&store)).boxed();
+        watches.push(handle);
+        tasks.push(task);
+    }
+
     // TODO: This will eventually spawn notification tasks.
-    let owns = controller
-        .owns
-        .into_iter()
-        .map(Watch::handle)
-        .map(|(handle, _)| handle)
-        .collect();
+    for own in controller.owns {
+        let (handle, rx) = own.handle();
+        let task = launch_watches(rx, handle.watch.gvk.clone(), Arc::clone(&store)).boxed();
+        owns.push(handle);
+        tasks.push(task);
+    }
 
     (
         Controller {
@@ -327,8 +357,113 @@ where
             owns,
             watches,
         },
-        task,
+        tasks,
     )
+}
+
+async fn launch_watcher(client: kube::Client, handle: WatchHandle) {
+    use futures::StreamExt;
+    use futures::TryStreamExt;
+
+    info!(
+        watch=?handle.watch,
+        "Starting Watcher."
+    );
+    let api: kube::Api<kube::api::DynamicObject> = match handle.watch.namespace {
+        Some(namespace) => kube::Api::namespaced_with(client, &namespace, &handle.watch.gvk),
+        None => kube::Api::all_with(client, &handle.watch.gvk),
+    };
+    let mut watcher = kube_runtime::watcher(api, handle.watch.list_params).boxed();
+    loop {
+        match watcher.try_next().await {
+            Ok(Some(event)) => handle.tx.send(event.into()).await.unwrap(),
+            Ok(None) => break,
+            Err(error) => warn!(?error, "Error streaming object events."),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct DynamicObject {
+    name: String,
+    namespace: Option<String>,
+    data: Box<dyn std::any::Any + Sync + Send>,
+}
+
+#[derive(Debug)]
+enum DynamicEvent {
+    Applied {
+        object: DynamicObject,
+    },
+    Deleted {
+        name: String,
+        namespace: Option<String>,
+        object: DynamicObject,
+    },
+    Restarted {
+        objects: Vec<DynamicObject>,
+    },
+}
+
+impl<R: kube::Resource + 'static + Sync + Send> From<R> for DynamicObject {
+    fn from(object: R) -> Self {
+        DynamicObject {
+            name: object.name(),
+            namespace: object.namespace(),
+            data: Box::new(object),
+        }
+    }
+}
+
+impl<R: kube::Resource + 'static + Sync + Send> From<DynamicEvent> for Event<R> {
+    fn from(event: DynamicEvent) -> Self {
+        match event {
+            DynamicEvent::Applied { object } => match object.data.downcast::<R>() {
+                Ok(object) => Event::Applied(*object),
+                Err(e) => panic!("{:?}", e),
+            },
+            DynamicEvent::Deleted { object, .. } => match object.data.downcast::<R>() {
+                Ok(object) => Event::Applied(*object),
+                Err(e) => panic!("{:?}", e),
+            },
+            DynamicEvent::Restarted {
+                objects: dynamic_objects,
+            } => {
+                let mut objects: Vec<R> = Vec::new();
+                for object in dynamic_objects {
+                    match object.data.downcast::<R>() {
+                        Ok(object) => objects.push(*object),
+                        Err(e) => panic!("{:?}", e),
+                    }
+                }
+                Event::Restarted(objects)
+            }
+        }
+    }
+}
+
+impl<R: kube::Resource + 'static + Sync + Send> From<Event<R>> for DynamicEvent {
+    fn from(event: Event<R>) -> Self {
+        match event {
+            Event::Applied(object) => DynamicEvent::Applied {
+                object: object.into(),
+            },
+            Event::Deleted(object) => DynamicEvent::Deleted {
+                name: object.name(),
+                namespace: object.namespace(),
+                object: object.into(),
+            },
+            Event::Restarted(objects) => {
+                let mut dynamic_objects = Vec::with_capacity(objects.len());
+                for object in objects {
+                    dynamic_objects.push(object.into());
+                }
+                DynamicEvent::Restarted {
+                    objects: dynamic_objects,
+                }
+            }
+        }
+    }
 }
 
 /// Coordinates one or more controllers and the main entrypoint for starting
@@ -338,6 +473,7 @@ pub struct Manager {
     kubeconfig: kube::Config,
     controllers: Vec<Controller>,
     controller_tasks: Vec<OperatorTask>,
+    store: Arc<Store>,
 }
 
 impl Manager {
@@ -347,6 +483,7 @@ impl Manager {
             controllers: vec![],
             controller_tasks: vec![],
             kubeconfig,
+            store: Arc::new(Store::new()),
         }
     }
 
@@ -355,15 +492,31 @@ impl Manager {
     where
         C::Manifest: Metadata<Ty = ObjectMeta>,
     {
-        let (controller, task) = launch_controller(&self.kubeconfig, builder);
+        let (controller, tasks) =
+            launch_controller(self.kubeconfig.clone(), builder, Arc::clone(&self.store));
         self.controllers.push(controller);
-        self.controller_tasks.push(task);
+        self.controller_tasks.extend(tasks);
     }
 
     /// Start the manager, blocking forever.
-    pub async fn start(&mut self) {
+    pub async fn start(self) {
+        use std::convert::TryFrom;
+
+        let mut tasks = self.controller_tasks;
+        let client = kube::Client::try_from(self.kubeconfig)
+            .expect("Unable to create kube::Client from kubeconfig.");
+
         // TODO: Deduplicate Watchers
-        // TODO: Create Watcher Tasks
-        // TODO: Await Watchers and Controllers
+        for controller in self.controllers {
+            tasks.push(launch_watcher(client.clone(), controller.manages).boxed());
+            for handle in controller.owns {
+                tasks.push(launch_watcher(client.clone(), handle).boxed());
+            }
+            for handle in controller.watches {
+                tasks.push(launch_watcher(client.clone(), handle).boxed());
+            }
+        }
+
+        futures::future::join_all(tasks).await;
     }
 }
