@@ -1,6 +1,6 @@
+use super::watch::{Watch, WatchHandle};
 #[cfg(feature = "admission-webhook")]
 use crate::admission::WebhookFn;
-use super::watch::{Watch, WatchHandle};
 use crate::Operator;
 use k8s_openapi::Metadata;
 use kube::api::ListParams;
