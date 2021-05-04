@@ -1,3 +1,5 @@
+#[cfg(feature = "admission-webhook")]
+use crate::admission::WebhookFn;
 use super::watch::{Watch, WatchHandle};
 use crate::Operator;
 use k8s_openapi::Metadata;
@@ -197,26 +199,26 @@ where
     /// Registers a validating webhook at the path "/$GROUP/$VERSION/$KIND".
     /// Multiple webhooks can be registered, but must be at different paths.
     #[cfg(feature = "admission-webhook")]
-    pub fn validates(mut self, _f: &WebhookFn<C>) -> Self {
+    pub fn validates(self, _f: &WebhookFn<C>) -> Self {
         todo!()
     }
 
     /// Registers a validating webhook at the supplied path.
     #[cfg(feature = "admission-webhook")]
-    pub fn validates_at_path(mut self, _path: &str, _f: &WebhookFn<C>) -> Self {
+    pub fn validates_at_path(self, _path: &str, _f: &WebhookFn<C>) -> Self {
         todo!()
     }
 
     /// Registers a mutating webhook at the path "/$GROUP/$VERSION/$KIND".
     /// Multiple webhooks can be registered, but must be at different paths.
     #[cfg(feature = "admission-webhook")]
-    pub fn mutates(mut self, _f: &WebhookFn<C>) -> Self {
+    pub fn mutates(self, _f: &WebhookFn<C>) -> Self {
         todo!()
     }
 
     /// Registers a mutating webhook at the supplied path.
     #[cfg(feature = "admission-webhook")]
-    pub fn mutates_at_path(mut self, _path: &str, _f: &WebhookFn<C>) -> Self {
+    pub fn mutates_at_path(self, _path: &str, _f: &WebhookFn<C>) -> Self {
         todo!()
     }
 }

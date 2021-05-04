@@ -1,7 +1,5 @@
 //! Defines types for registring controllers with runtime.
 
-#[cfg(feature = "admission-webhook")]
-use crate::admission::WebhookFn;
 use crate::operator::Operator;
 use crate::store::Store;
 use futures::FutureExt;
