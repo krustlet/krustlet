@@ -1,9 +1,10 @@
 //! Kubelet is pulling container images.
 
-use tracing::{error, instrument};
+use tracing::{error, info, instrument};
 
 use super::{GenericPodState, GenericProvider, GenericProviderState};
 use crate::pod::state::prelude::*;
+use crate::provider::{PluginSupport, VolumeSupport};
 use crate::state::common::error::Error;
 use crate::volume::VolumeRef;
 
@@ -45,9 +46,16 @@ impl<P: GenericProvider> State<P::PodState> for VolumeMount<P> {
 
         let (client, volume_path, plugin_registry) = {
             let state_reader = provider_state.read().await;
+            let vol_path = match state_reader.volume_path() {
+                Some(p) => p.to_owned(),
+                None => {
+                    info!("No volume directory found for pod. Assuming no volume support");
+                    return Transition::next_unchecked(self, P::RunState::default());
+                }
+            };
             (
                 state_reader.client(),
-                state_reader.volume_path(),
+                vol_path,
                 state_reader.plugin_registry(),
             )
         };

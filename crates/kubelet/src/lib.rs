@@ -10,7 +10,7 @@
 //! use kubelet::config::Config;
 //! use kubelet::plugin_watcher::PluginRegistry;
 //! use kubelet::pod::Pod;
-//! use kubelet::provider::Provider;
+//! use kubelet::provider::{Provider, PluginSupport};
 //! use std::sync::Arc;
 //! use tokio::sync::RwLock;
 //! use kubelet::pod::state::prelude::*;
@@ -45,15 +45,17 @@
 //!         Arc::new(RwLock::new(ProviderState {}))
 //!     }
 //!
-//!     fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
-//!         Some(Arc::new(Default::default()))
-//!     }
-//!
 //!     async fn initialize_pod_state(&self, _pod: &Pod) -> anyhow::Result<Self::PodState> {
 //!         Ok(PodState)
 //!     }
 //!
 //!     async fn logs(&self, namespace: String, pod: String, container: String, sender: kubelet::log::Sender) -> anyhow::Result<()> { todo!() }
+//! }
+//!
+//! impl PluginSupport for ProviderState {
+//!     fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
+//!         None
+//!     }
 //! }
 //!
 //! async {

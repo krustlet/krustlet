@@ -34,7 +34,7 @@ use krator::{ObjectState, State};
 /// use async_trait::async_trait;
 /// use kubelet::plugin_watcher::PluginRegistry;
 /// use kubelet::pod::{Pod, Status};
-/// use kubelet::provider::Provider;
+/// use kubelet::provider::{Provider, PluginSupport};
 /// use kubelet::pod::state::Stub;
 /// use kubelet::pod::state::prelude::*;
 /// use std::sync::Arc;
@@ -66,21 +66,23 @@ use krator::{ObjectState, State};
 ///         Arc::new(RwLock::new(ProviderState {}))
 ///     }
 ///
-///     fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
-///         Some(Arc::new(Default::default()))
-///     }
-///
 ///     async fn initialize_pod_state(&self, _pod: &Pod) -> anyhow::Result<Self::PodState> {
 ///         Ok(PodState)
 ///     }
 ///
 ///     async fn logs(&self, namespace: String, pod: String, container: String, sender: kubelet::log::Sender) -> anyhow::Result<()> { todo!() }
 /// }
+///
+/// impl PluginSupport for ProviderState {
+///     fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
+///         None
+///     }
+/// }
 /// ```
 #[async_trait]
 pub trait Provider: Sized + Send + Sync + 'static {
     /// The state of the provider itself.
-    type ProviderState: 'static + Send + Sync;
+    type ProviderState: 'static + Send + Sync + PluginSupport;
 
     /// The state that is passed between Pod state handlers.
     type PodState: ObjectState<
@@ -146,16 +148,6 @@ pub trait Provider: Sized + Send + Sync + 'static {
         Err(NotImplementedError.into())
     }
 
-    /// Gets the path at which to construct temporary directories for volumes.
-    fn volume_path(&self) -> Option<std::path::PathBuf> {
-        None
-    }
-
-    /// Fetch the CSI driver plugin registry.
-    fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
-        None
-    }
-
     /// Resolve the environment variables for a container.
     ///
     /// This generally should not be overwritten unless you need to handle
@@ -194,6 +186,21 @@ pub trait Provider: Sized + Send + Sync + 'static {
     }
 }
 
+/// A trait for specifying where the volume path is located. Defaults to `None`
+pub trait VolumeSupport {
+    /// Gets the path at which to construct temporary directories for volumes.
+    fn volume_path(&self) -> Option<&std::path::Path> {
+        None
+    }
+}
+
+/// A trait for specifying whether plugins are supported. Defaults to `None`
+pub trait PluginSupport {
+    /// Gets the plugin registry used to fetch volume plugins
+    fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
+        None
+    }
+}
 /// Resolve the environment variables for a container.
 ///
 /// This generally should not be overwritten unless you need to handle
