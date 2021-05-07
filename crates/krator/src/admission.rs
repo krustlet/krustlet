@@ -101,14 +101,8 @@ impl WebhookResources {
     pub fn webhook_config(&self) -> &MutatingWebhookConfiguration {
         &self.2
     }
-
-    /// applies the webhook resources and makes them owned by the object
-    /// that the `owner` resource belongs to -- this way the resource will get deleted
-    /// automatically, when the owner gets deleted.
-    ///
-    /// it will create the resources if they
-    /// are not present yet or replace them if they already exist
-    pub async fn apply_owned<T>(&self, client: &Client, owner: &T) -> anyhow::Result<()>
+    /// adds an owner to the webhook resources
+    pub fn add_owner<T>(&self, owner: &T) -> Self
     where
         T: Resource + Metadata<Ty = ObjectMeta>,
     {
@@ -133,12 +127,29 @@ impl WebhookResources {
         webhook_config.metadata.owner_references = owner_references;
 
         WebhookResources(service, secret, webhook_config)
-            .apply(client)
-            .await
+    }
+
+    /// applies the webhook resources and makes them owned by the object
+    /// that the `owner` resource belongs to -- this way the resource will get deleted
+    /// automatically, when the owner gets deleted.
+    ///
+    /// it will create the resources if they
+    /// are not present yet or replace them if they already exist
+    ///
+    /// due to the necessary permissions (create/update permission for secrets, services and admission-config),
+    /// this should not automatically be executed when the operator starts
+    pub async fn apply_owned<T>(&self, client: &Client, owner: &T) -> anyhow::Result<()>
+    where
+        T: Resource + Metadata<Ty = ObjectMeta>,
+    {
+        self.add_owner(owner).apply(client).await
     }
 
     /// applies the webhook resources to the cluster, i.e. it will create the resources if they
     /// are not present yet or replace them if they already exist
+    ///
+    /// due to the necessary permissions (create/update permission for secrets, services and admission-config),
+    /// this should not automatically be executed when the operator starts
     pub async fn apply(&self, client: &Client) -> anyhow::Result<()> {
         let secret_namespace = self.secret().metadata.namespace.as_ref().with_context(|| {
             format!(

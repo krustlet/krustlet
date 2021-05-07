@@ -1,9 +1,7 @@
-use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
-
 use krator::{
     Manifest, ObjectState, ObjectStatus, Operator, OperatorRuntime, State, Transition, TransitionTo,
 };
-use kube::api::{ListParams, Patch, PatchParams, Resource};
+use kube::api::{ListParams, Resource};
 use kube_derive::CustomResource;
 use rand::seq::IteratorRandom;
 use rand::Rng;
@@ -304,6 +302,8 @@ impl State<MooseState> for Released {
 
 struct SharedMooseState {
     friends: HashMap<String, HashSet<String>>,
+
+    #[cfg(feature = "admission-webhook")]
     client: kube::Client,
 }
 
@@ -312,10 +312,19 @@ struct MooseTracker {
 }
 
 impl MooseTracker {
+    #[cfg(feature = "admission-webhook")]
     fn new(client: &kube::Client) -> Self {
         let shared = Arc::new(RwLock::new(SharedMooseState {
             friends: HashMap::new(),
             client: client.to_owned(),
+        }));
+        MooseTracker { shared }
+    }
+
+    #[cfg(not(feature = "admission-webhook"))]
+    fn new() -> Self {
+        let shared = Arc::new(RwLock::new(SharedMooseState {
+            friends: HashMap::new(),
         }));
         MooseTracker { shared }
     }
@@ -378,68 +387,6 @@ impl Operator for MooseTracker {
     }
 }
 
-impl MooseTracker {
-    async fn apply_crd(&self) -> anyhow::Result<CustomResourceDefinition> {
-        info!("installing moose crd");
-        let client = self.shared.read().await.client.clone();
-        let crd = Moose::crd();
-        let crd_name = crd.metadata.name.clone().unwrap();
-
-        let api = kube::Api::<CustomResourceDefinition>::all(client.to_owned());
-        let created_crd = api
-            .patch(
-                &crd_name,
-                &PatchParams {
-                    dry_run: false,
-                    force: true,
-                    field_manager: Some("moose-tracker".to_string()),
-                },
-                &Patch::Apply(crd),
-            )
-            .await?;
-
-        Ok(created_crd)
-    }
-
-    #[cfg(feature = "admission-webhook")]
-    async fn setup_cluster(&self) -> anyhow::Result<()> {
-        let client = self.shared.read().await.client.clone();
-
-        let crd = self.apply_crd().await?;
-
-        info!("installing moose webhook resources");
-        let opt = Opt::from_args();
-        let awh_resources = admission::WebhookResources::from(Moose::admission_webhook_resources(
-            &opt.webhook_namespace,
-        ));
-        awh_resources.apply_owned(&client, &crd).await?;
-
-        #[cfg(feature = "admission-webhook")]
-        info!(
-            r#"
-
-If you run this example outside of Kubernetes (i.e. with `cargo run`), you need to make the webhook available.
-
-Try the script example/assets/use-external-endpoint.sh to redirect webhook traffic to this process. If this
-operator runs within Kubernetes and you use the webhook resources provided by the admission-webhook macro, 
-make sure your deployment has the following labels set:
-
-app={}
-    
-    "#,
-            Moose::admission_webhook_service_app_selector()
-        );
-        Ok(())
-    }
-
-    #[cfg(not(feature = "admission-webhook"))]
-    async fn setup_cluster(&self) -> anyhow::Result<()> {
-        let _ = self.apply_crd().await;
-
-        Ok(())
-    }
-}
-
 #[derive(Debug, StructOpt)]
 #[structopt(
     name = "moose",
@@ -455,13 +402,22 @@ struct Opt {
     #[structopt(long)]
     json: bool,
 
+    /// output moose crd manifest
+    #[structopt(long)]
+    output_crd: bool,
+
+    #[cfg(feature = "admission-webhook")]
+    /// output webhook resources manifests for the given namespace
+    #[structopt(long)]
+    output_webhook_resources_for_namespace: Option<String>,
+
     #[cfg(feature = "admission-webhook")]
     /// namespace where to install the admission webhook service and secret
     #[structopt(long, default_value = "default")]
     webhook_namespace: String,
 }
 
-fn init_logger(opt: Opt) -> anyhow::Result<Option<opentelemetry_jaeger::Uninstall>> {
+fn init_logger(opt: &Opt) -> anyhow::Result<Option<opentelemetry_jaeger::Uninstall>> {
     // This isn't very DRY, but all of these combinations have different types,
     // and Boxing them doesn't seem to work.
     let guard = if opt.json {
@@ -509,22 +465,61 @@ fn init_logger(opt: Opt) -> anyhow::Result<Option<opentelemetry_jaeger::Uninstal
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
-    let _guard = init_logger(opt)?;
+    let _guard = init_logger(&opt)?;
+
+    if opt.output_crd {
+        println!("{}", serde_yaml::to_string(&Moose::crd()).unwrap());
+        return Ok(());
+    }
 
     let kubeconfig = kube::Config::infer().await?;
-    let client = kube::Client::try_default().await?;
 
-    let tracker = MooseTracker::new(&client);
+    let tracker;
 
-    info!("crd:\n{}", serde_yaml::to_string(&Moose::crd()).unwrap());
+    #[cfg(feature = "admission-webhook")]
+    {
+        use anyhow::Context;
 
-    tracker.setup_cluster().await?;
+        let client = kube::Client::try_default().await?;
+        let api = kube::Api::<k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition>::all(client.to_owned());
+        let crd = api.get(&Moose::crd().name()).await.context("moose crd needs to be installed first -- generate the necessary manifests with --output-crd")?;
+        if let Some(namespace) = opt.output_webhook_resources_for_namespace {
+            let resources = krator::admission::WebhookResources::from(
+                Moose::admission_webhook_resources(&namespace),
+            )
+            .add_owner(&crd);
+            println!("{}", resources);
+            return Ok(());
+        }
+        tracker = MooseTracker::new(&client);
+    }
+
+    #[cfg(not(feature = "admission-webhook"))]
+    {
+        tracker = MooseTracker::new();
+    }
 
     // Only track mooses in Glacier NP
     let params = ListParams::default().labels("nps.gov/park=glacier");
 
     let mut runtime = OperatorRuntime::new(&kubeconfig, tracker, Some(params));
     info!("starting mooses operator");
+
+    #[cfg(feature = "admission-webhook")]
+    info!(
+        r#"
+
+If you run this example outside of Kubernetes (i.e. with `cargo run`), you need to make the webhook available.
+
+Try the script example/assets/use-external-endpoint.sh to redirect webhook traffic to this process. If this
+operator runs within Kubernetes and you use the webhook resources provided by the admission-webhook macro, 
+make sure your deployment has the following labels set:
+
+app={}
+    
+    "#,
+        Moose::admission_webhook_service_app_selector()
+    );
 
     info!(
         r#"
