@@ -1,6 +1,6 @@
 //! Kubelet is pulling container images.
 
-use tracing::error;
+use tracing::{error, instrument};
 
 use super::{GenericPodState, GenericProvider, GenericProviderState};
 use crate::pod::state::prelude::*;
@@ -28,6 +28,11 @@ impl<P: GenericProvider> Default for VolumeMount<P> {
 
 #[async_trait::async_trait]
 impl<P: GenericProvider> State<P::PodState> for VolumeMount<P> {
+    #[instrument(
+        level = "info",
+        skip(self, provider_state, pod_state, pod),
+        fields(pod_name)
+    )]
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<P::ProviderState>,
@@ -35,6 +40,8 @@ impl<P: GenericProvider> State<P::PodState> for VolumeMount<P> {
         pod: Manifest<Pod>,
     ) -> Transition<P::PodState> {
         let pod = pod.latest();
+
+        tracing::Span::current().record("pod_name", &pod.name());
 
         let (client, volume_path, plugin_registry) = {
             let state_reader = provider_state.read().await;
@@ -49,7 +56,7 @@ impl<P: GenericProvider> State<P::PodState> for VolumeMount<P> {
         let mut volumes = match VolumeRef::volumes_from_pod(&pod, &client, plugin_registry).await {
             Ok(v) => v,
             Err(e) => {
-                error!("{:?}", e);
+                error!(error = %e);
                 let next = Error::<P>::new(e.to_string());
                 return Transition::next(self, next);
             }
@@ -69,7 +76,7 @@ impl<P: GenericProvider> State<P::PodState> for VolumeMount<P> {
             .into_iter()
             .collect::<anyhow::Result<()>>()
         {
-            error!("{:?}", e);
+            error!(error = %e);
             let next = Error::<P>::new(e.to_string());
             return Transition::next(self, next);
         }

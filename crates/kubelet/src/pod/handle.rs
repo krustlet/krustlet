@@ -66,13 +66,15 @@ impl<H: StopHandler, F> Handle<H, F> {
         {
             let mut handles = self.container_handles.write().await;
             for (key, handle) in handles.iter_mut() {
-                info!("Stopping container: {}", key);
+                info!(container_name = %key, "Stopping container");
                 match handle.stop().await {
-                    Ok(_) => debug!("Successfully stopped container {}", key),
+                    Ok(_) => debug!(container_name = %key, "Successfully stopped container"),
                     // NOTE: I am not sure what recovery or retry steps should be
                     // done here, but we should definitely continue and try to stop
                     // the other containers
-                    Err(e) => error!("Error while trying to stop pod {}: {:?}", key, e),
+                    Err(e) => {
+                        error!(container_name = %key, error = %e, "Error while trying to stop pod")
+                    }
                 }
             }
         }

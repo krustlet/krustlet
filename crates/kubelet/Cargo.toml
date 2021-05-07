@@ -72,7 +72,8 @@ prost-types = "0.7"
 notify = "5.0.0-pre.3"
 async-stream = "0.3"
 tower = { version = "0.4.2", features = ["util"] }
-tracing = { version = "0.1", features = ['log'] }
+tracing = { version = "0.1", features = ["log"] }
+tracing-futures = "0.2"
 
 [target.'cfg(target_family = "windows")'.dependencies]
 mio = "0.6"

@@ -6,7 +6,7 @@ use k8s_openapi::api::core::v1::{
     ContainerStatus as KubeContainerStatus, Pod as KubePod,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 /// Status is a simplified version of the Kubernetes container status
 /// for use in providers. It allows for simple creation of the current status of
@@ -111,6 +111,7 @@ impl Status {
 }
 
 /// Patch a single container's status
+#[instrument(level = "info", skip(client, pod, key, status), fields(pod_name = %pod.name(), namespace = %pod.namespace(), container_name = %key))]
 pub async fn patch_container_status(
     client: &kube::Api<KubePod>,
     pod: &Pod,
@@ -160,12 +161,7 @@ pub async fn patch_container_status(
 
             let patch = json_patch::Patch(patches);
             let params = kube::api::PatchParams::default();
-            debug!(
-                "Patching container status {} {}: '{:?}'",
-                pod.name(),
-                container.name(),
-                patch
-            );
+            debug!(?patch, "Patching container status");
             client
                 .patch_status(pod.name(), &params, &kube::api::Patch::<()>::Json(patch))
                 .await?;

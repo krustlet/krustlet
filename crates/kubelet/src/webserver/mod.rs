@@ -10,7 +10,7 @@ use http::Response;
 use hyper::Body;
 use std::convert::Infallible;
 use std::sync::Arc;
-use tracing::{debug, error};
+use tracing::{debug, error, instrument};
 use warp::Filter;
 
 const PING: &str = "this is the Krustlet HTTP server";
@@ -56,6 +56,7 @@ pub(crate) async fn start<T: Provider>(
 /// Get the logs from the running container.
 ///
 /// Implements the kubelet path /containerLogs/{namespace}/{pod}/{container}
+#[instrument(level = "info", skip(provider))]
 async fn get_container_logs<T: Provider>(
     provider: Arc<T>,
     namespace: String,
@@ -63,17 +64,14 @@ async fn get_container_logs<T: Provider>(
     container: String,
     opts: Options,
 ) -> Result<Response<Body>, Infallible> {
-    debug!(
-        "Got container log request for container {} in pod {} in namespace {}. Options: {:?}.",
-        container, pod, namespace, opts
-    );
+    debug!("Got container log request");
     let (sender, log_body) = Body::channel();
     let log_sender = Sender::new(sender, opts);
 
     match provider.logs(namespace, pod, container, log_sender).await {
         Ok(()) => Ok(Response::new(log_body)),
         Err(e) => {
-            error!("Error fetching logs: {}", e);
+            error!(error = %e, "Error fetching logs");
             if e.is::<NotImplementedError>() {
                 Ok(return_with_code(
                     StatusCode::NOT_IMPLEMENTED,

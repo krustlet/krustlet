@@ -119,10 +119,10 @@ impl Sender {
         let b: hyper::body::Bytes = data.into();
         self.sender.send_data(b).await.map_err(|e| {
             if e.is_closed() {
-                debug!("channel closed.");
+                debug!("channel closed");
                 SendError::ChannelClosed
             } else {
-                error!("channel error: {}", e);
+                error!(error = %e, "channel error");
                 SendError::Abnormal(anyhow::Error::new(e))
             }
         })
@@ -140,9 +140,10 @@ async fn tail<R: AsyncRead + std::marker::Unpin>(
     while let Some(line) = match lines.next_line().await {
         Ok(line) => line,
         Err(e) => {
-            let err = format!("Error reading from log: {:?}", e);
-            error!("{}", &err);
-            sender.send(err).await?;
+            error!(error = %e, "Error reading from log");
+            sender
+                .send(format!("Error reading from log: {:?}", e))
+                .await?;
             return Err(e.into());
         }
     } {
@@ -167,9 +168,10 @@ async fn stream_to_end<R: AsyncRead + std::marker::Unpin>(
     while let Some(mut line) = match lines.next_line().await {
         Ok(line) => line,
         Err(e) => {
-            let err = format!("Error reading from log: {:?}", e);
-            error!("{}", &err);
-            sender.send(err).await?;
+            error!(error = %e, "Error reading from log");
+            sender
+                .send(format!("Error reading from log: {:?}", e))
+                .await?;
             return Err(e.into());
         }
     } {

@@ -1,7 +1,7 @@
 //! The Kubelet is aware of the Pod.
 
 use crate::pod::state::prelude::*;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 
 use super::error::Error;
 use super::image_pull::ImagePull;
@@ -28,6 +28,11 @@ impl<P: GenericProvider> Default for Registered<P> {
 
 #[async_trait::async_trait]
 impl<P: GenericProvider> State<P::PodState> for Registered<P> {
+    #[instrument(
+        level = "info",
+        skip(self, _provider_state, _pod_state, pod),
+        fields(pod_name)
+    )]
     async fn next(
         self: Box<Self>,
         _provider_state: SharedState<P::ProviderState>,
@@ -36,16 +41,18 @@ impl<P: GenericProvider> State<P::PodState> for Registered<P> {
     ) -> Transition<P::PodState> {
         let pod = pod.latest();
 
-        debug!("Preparing to register pod: {}", pod.name());
+        tracing::Span::current().record("pod_name", &pod.name());
+
+        debug!("Preparing to register pod");
         match P::validate_pod_and_containers_runnable(&pod) {
             Ok(_) => (),
             Err(e) => {
-                error!("{:?}", e);
+                error!(error = %e);
                 let next = Error::<P>::new(e.to_string());
                 return Transition::next(self, next);
             }
         }
-        info!("Pod registered: {}", pod.name());
+        info!("Pod registered");
         let next = ImagePull::<P>::default();
         Transition::next(self, next)
     }

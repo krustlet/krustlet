@@ -3,7 +3,7 @@ use super::ContainerState;
 use crate::ProviderState;
 use kubelet::container::state::prelude::*;
 use tokio::sync::mpsc::Receiver;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 /// The container is starting.
 #[derive(Debug, TransitionTo)]
@@ -20,6 +20,7 @@ impl Running {
 
 #[async_trait::async_trait]
 impl State<ContainerState> for Running {
+    #[instrument(level = "info", skip(self, _shared_state, _state, _container))]
     async fn next(
         mut self: Box<Self>,
         _shared_state: SharedState<ProviderState>,
@@ -28,7 +29,7 @@ impl State<ContainerState> for Running {
     ) -> Transition<ContainerState> {
         debug!("Awaiting container status updates");
         while let Some(status) = self.rx.recv().await {
-            debug!("Got status update from WASI Runtime: {:?}", &status);
+            debug!(?status, "Got status update from WASI Runtime");
             if let Status::Terminated {
                 failed, message, ..
             } = status
@@ -36,10 +37,10 @@ impl State<ContainerState> for Running {
                 return Transition::next(self, Terminated::new(message, failed));
             }
         }
-        warn!("WASI Runtime hung up channel.");
+        warn!("WASI Runtime channel hung up");
         Transition::next(
             self,
-            Terminated::new("WASI Runtime hung up channel.".to_string(), true),
+            Terminated::new("WASI Runtime channel hung up".to_string(), true),
         )
     }
 

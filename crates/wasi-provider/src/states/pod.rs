@@ -41,7 +41,7 @@ impl ObjectState for PodState {
                 let unmounts = context.volumes.iter_mut().map(|(k, vol)| async move {
                     if let Err(e) = vol.unmount().await {
                         // Just log the error, as there isn't much we can do here
-                        error!("Unable to unmount volume {}: {}", k, e);
+                        error!(error = %e, volume_name = %k, "Unable to unmount volume");
                     }
                 });
                 futures::future::join_all(unmounts).await;

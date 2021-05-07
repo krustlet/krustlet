@@ -2,7 +2,7 @@ use anyhow::bail;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc::Sender;
@@ -156,6 +156,10 @@ impl WasiRuntime {
 
         let name = self.name.clone();
         let handle = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+            let span = tracing::trace_span!("wasmtime_module_run", %name);
+            let _enter = span.enter();
+            // Log this info here so it isn't on _every_ log line
+            trace!(env = ?data.env, args = ?data.args, dirs = ?data.dirs, "Starting setup of wasmtime module");
             let env: Vec<(String, String)> = data
                 .env
                 .iter()
@@ -189,10 +193,9 @@ impl WasiRuntime {
             for (key, value) in data.dirs.iter() {
                 let guest_dir = value.as_ref().unwrap_or(key);
                 debug!(
-                    "{} mounting hostpath {} as guestpath {}",
-                    &name,
-                    key.display(),
-                    guest_dir.display()
+                    hostpath = %key.display(),
+                    guestpath = %guest_dir.display(),
+                    "mounting hostpath in modules"
                 );
                 let preopen_dir = unsafe { cap_std::fs::Dir::open_ambient_dir(key) }?;
                 ctx_builder_snapshot =
@@ -225,7 +228,7 @@ impl WasiRuntime {
                 Ok(m) => m,
                 Err(e) => {
                     let message = "unable to create module";
-                    error!("{} {}: {:?}", &name, message, e);
+                    error!(error = %e, "{}", message);
                     send(
                         &status_sender,
                         &name,
@@ -262,7 +265,7 @@ impl WasiRuntime {
                 Ok(m) => m,
                 Err(e) => {
                     let message = "unable to load module";
-                    error!("{} {}: {:?}", &name, message, e);
+                    error!(error = %e, "{}", message);
                     send(
                         &status_sender,
                         &name,
@@ -283,7 +286,7 @@ impl WasiRuntime {
                 Ok(m) => m,
                 Err(e) => {
                     let message = "unable to instantiate module";
-                    error!("{} {}: {:?}", &name, message, e);
+                    error!(error = %e, "{}", message);
                     send(
                         &status_sender,
                         &name,
@@ -301,7 +304,7 @@ impl WasiRuntime {
 
             // NOTE(taylor): In the future, if we want to pass args directly, we'll
             // need to do a bit more to pass them in here.
-            info!("{} starting run of module", &name);
+            info!("starting run of module");
             send(
                 &status_sender,
                 &name,
@@ -317,7 +320,7 @@ impl WasiRuntime {
                 wasmtime::Extern::Func(f) => f,
                 _ => {
                     let message = "_start import was not a function. This is likely a problem with the module";
-                    error!("{} {}", &name, message);
+                    error!(error = message);
                     send(
                         &status_sender,
                         &name,
@@ -337,7 +340,7 @@ impl WasiRuntime {
                 Ok(_) => {}
                 Err(e) => {
                     let message = "unable to run module";
-                    error!("{} {}: {:?}", &name, message, e);
+                    error!(error = %e, "{}", message);
                     send(
                         &status_sender,
                         &name,
@@ -352,7 +355,7 @@ impl WasiRuntime {
                 }
             };
 
-            info!("{} module run complete", &name);
+            info!("module run complete");
             send(
                 &status_sender,
                 &name,
@@ -370,9 +373,10 @@ impl WasiRuntime {
     }
 }
 
+#[instrument(level = "info", skip(sender, status))]
 fn send(sender: &Sender<Status>, name: &str, status: Status) {
     match sender.blocking_send(status) {
-        Err(e) => warn!("{} error sending wasi status: {:?}", name, e),
-        Ok(_) => debug!("{} send completed.", name),
+        Err(e) => warn!(error = %e, "error sending wasi status"),
+        Ok(_) => debug!("send completed"),
     }
 }

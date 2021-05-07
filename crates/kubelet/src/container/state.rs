@@ -7,7 +7,8 @@ use futures::StreamExt;
 use k8s_openapi::api::core::v1::Pod as KubePod;
 use krator::{Manifest, ObjectState, SharedState, State, Transition};
 use kube::api::Api;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, instrument, warn};
+use tracing_futures::Instrument;
 
 /// Prelude for Pod state machines.
 pub mod prelude {
@@ -16,6 +17,22 @@ pub mod prelude {
 }
 
 /// Iteratively evaluate state machine until it returns Complete.
+#[instrument(
+    level = "info", 
+    skip(
+        client,
+        initial_state,
+        shared,
+        container_state,
+        pod,
+        container_name
+    ),
+    fields(
+        pod_name,
+        namespace,
+        container = %container_name
+    )
+)]
 pub async fn run_to_completion<S: ObjectState<Manifest = Container, Status = Status>>(
     client: &kube::Client,
     initial_state: impl State<S>,
@@ -44,35 +61,33 @@ pub async fn run_to_completion<S: ObjectState<Manifest = Container, Status = Sta
     let (container_tx, container_rx) = Manifest::new(initial_container);
     let mut task_pod = pod.clone();
     let task_container_name = container_name.clone();
-    tokio::spawn(async move {
-        while let Some(latest_pod) = task_pod.next().await {
-            let latest_container = match latest_pod.find_container(&task_container_name) {
-                Some(container) => container,
-                None => {
-                    error!(
-                        "Unable to locate container {} in pod {} manifest.",
-                        &task_container_name,
-                        latest_pod.name()
-                    );
-                    continue;
-                }
-            };
+    tokio::spawn(
+        async move {
+            while let Some(latest_pod) = task_pod.next().await {
+                let latest_container = match latest_pod.find_container(&task_container_name) {
+                    Some(container) => container,
+                    None => {
+                        error!("Unable to locate container in pod manifest");
+                        continue;
+                    }
+                };
 
-            match container_tx.send(latest_container) {
-                Ok(()) => (),
-                Err(_) => {
-                    debug!("Container update receiver hung up, exiting.");
-                    return;
+                match container_tx.send(latest_container) {
+                    Ok(()) => (),
+                    Err(_) => {
+                        debug!("Container update receiver hung up, exiting");
+                        return;
+                    }
                 }
             }
         }
-    });
+        .instrument(
+            tracing::trace_span!("manifest_updater", %pod_name, %namespace, %container_name),
+        ),
+    );
 
     loop {
-        debug!(
-            "Pod {} container {} entering state {:?}",
-            &pod_name, container_name, state
-        );
+        debug!(?state, "Pod container entering state");
 
         let latest_pod = pod.latest();
         let latest_container = latest_pod.find_container(&container_name).unwrap();
@@ -83,24 +98,21 @@ pub async fn run_to_completion<S: ObjectState<Manifest = Container, Status = Sta
                     Ok(_) => (),
                     Err(e) => {
                         warn!(
-                            "Pod {} container {} status patch request returned error: {:?}",
-                            &pod_name, container_name, e
+                            error = %e,
+                            "Pod containerstatus patch request returned error"
                         );
                     }
                 }
             }
             Err(e) => {
                 warn!(
-                    "Pod {} container {} status patch returned error: {:?}",
-                    &pod_name, container_name, e
+                    error = %e,
+                    "Pod container status patch returned error"
                 );
             }
         }
 
-        debug!(
-            "Pod {} container {} executing state handler {:?}",
-            &pod_name, container_name, state
-        );
+        debug!(?state, "Pod container executing state handler");
         let transition = {
             state
                 .next(shared.clone(), &mut container_state, container_rx.clone())
@@ -110,24 +122,18 @@ pub async fn run_to_completion<S: ObjectState<Manifest = Container, Status = Sta
         state = match transition {
             Transition::Next(s) => {
                 let state = s.into();
-                debug!(
-                    "Pod {} container {} transitioning to {:?}.",
-                    &pod_name, container_name, state
-                );
+                debug!(?state, "Pod container transitioning to state");
                 state
             }
             Transition::Complete(result) => match result {
                 Ok(()) => {
-                    debug!(
-                        "Pod {} container {} state machine exited without error",
-                        &pod_name, container_name
-                    );
+                    debug!("Pod container state machine exited without error");
                     break result;
                 }
                 Err(ref e) => {
                     error!(
-                        "Pod {} container {} state machine exited with error: {:?}",
-                        &pod_name, container_name, e
+                        error = %e,
+                        "Pod container state machine exited with error"
                     );
                     let status = Status::Terminated {
                         timestamp: Utc::now(),

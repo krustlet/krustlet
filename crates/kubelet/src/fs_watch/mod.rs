@@ -38,7 +38,7 @@ impl FileSystemWatcher {
         let (stream_tx, stream_rx) = unbounded_channel::<NotifyResult<Event>>();
         let mut watcher: RecommendedWatcher = Watcher::new_immediate(move |res| {
             if let Err(e) = stream_tx.send(res) {
-                error!("Unable to send inotify event into stream: {:?}", e)
+                error!(error = %e, "Unable to send inotify event into stream")
             }
         })?;
         watcher.configure(Config::PreciseEvents(true))?;
@@ -83,9 +83,9 @@ mod mac {
                 Ok(set) => set,
                 Err(e) => {
                     error!(
-                        "Unable to refresh directory {}, will attempt again: {:?}",
-                        path.display(),
-                        e
+                        error = %e,
+                        path = %path.display(),
+                        "Unable to refresh directory, will attempt again"
                     );
                     HashSet::new()
                 }
@@ -96,12 +96,12 @@ mod mac {
                     Ok(set) => set,
                     Err(e) => {
                         error!(
-                            "Unable to refresh directory {}, will attempt again: {:?}",
-                            path.display(),
-                            e
+                            error = %e,
+                            path = %path.display(),
+                            "Unable to refresh directory, will attempt again"
                         );
                         if let Err(e) = tx.send(Err(NotifyError::io(e))) {
-                            error!("Unable to send error {:?} due to channel being closed", e.0);
+                            error!(result = ?e.0, "Unable to send error due to channel being closed");
                         }
                         continue;
                     }
@@ -172,8 +172,8 @@ mod mac {
             // At this point there isn't much we can do as the channel is closed. So just log an
             // error
             error!(
-                "Unable to send event {:?} due to the channel being closed",
-                e.0
+                result = ?e.0,
+                "Unable to send event due to the channel being closed"
             );
         }
     }

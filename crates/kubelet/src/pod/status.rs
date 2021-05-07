@@ -9,12 +9,13 @@ use k8s_openapi::api::core::v1::PodStatus as KubePodStatus;
 use krator::{Manifest, ObjectStatus};
 use kube::api::PatchParams;
 use kube::Api;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 /// Patch Pod status with Kubernetes API.
+#[instrument(level = "info", skip(api, name, status), fields(pod_name = name))]
 pub async fn patch_status(api: &Api<KubePod>, name: &str, status: Status) {
     let patch = status.json_patch();
-    debug!("Applying status patch to Pod {}: '{:?}'", &name, patch);
+    debug!(?patch, "Applying status patch to pod");
     match api
         .patch_status(
             &name,
@@ -25,7 +26,7 @@ pub async fn patch_status(api: &Api<KubePod>, name: &str, status: Status) {
     {
         Ok(_) => (),
         Err(e) => {
-            warn!("Pod {} error patching status: {:?}", name, e);
+            warn!(error = %e, "Error patching pod status");
         }
     }
 }
@@ -88,7 +89,7 @@ pub async fn initialize_pod_container_statuses(
             if (num_statuses == num_containers) && (num_init_statuses == num_init_containers) {
                 break 'main Ok(());
             } else {
-                debug!("Pod {} waiting for status to populate: {:?}", &name, status);
+                debug!(pod_name = %name, ?status, "Pod waiting for status to populate");
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
         }
