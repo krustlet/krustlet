@@ -1,12 +1,13 @@
 //! Defines Store type for caching Kubernetes objects locally.
 
 use crate::object::ObjectKey;
+use kube::api::DynamicObject;
 use kube::api::GroupVersionKind;
-use std::any::Any;
+use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 
-type ResourceMap = HashMap<GroupVersionKind, HashMap<ObjectKey, Box<dyn Any + Send + Sync>>>;
+type ResourceMap = HashMap<GroupVersionKind, HashMap<ObjectKey, serde_json::Value>>;
 
 /// Stores or caches arbitrary Kubernetes objects.
 pub struct Store {
@@ -28,7 +29,7 @@ impl Store {
     }
 
     /// Insert a new object.
-    pub async fn insert<R: 'static + k8s_openapi::Resource + Sync + Send>(
+    pub async fn insert<R: 'static + k8s_openapi::Resource + Sync + Send + serde::Serialize>(
         &self,
         namespace: Option<String>,
         name: String,
@@ -38,7 +39,7 @@ impl Store {
         let key = GroupVersionKind::gvk(R::GROUP, R::VERSION, R::KIND).unwrap();
         let resource_objects = (*objects).entry(key).or_insert_with(HashMap::new);
         let object_key = ObjectKey::new(namespace, name);
-        resource_objects.insert(object_key, Box::new(object));
+        resource_objects.insert(object_key, serde_json::to_value(&object).unwrap());
     }
 
     /// Clear cache for specified object kind.
@@ -69,17 +70,17 @@ impl Store {
         namespace: Option<String>,
         name: String,
         gvk: &GroupVersionKind,
-        object: Box<dyn Any + Send + Sync>,
+        dynamic_object: DynamicObject,
     ) {
         let mut objects = self.objects.write().await;
         let key = gvk.clone();
         let resource_objects = (*objects).entry(key).or_insert_with(HashMap::new);
         let object_key = ObjectKey::new(namespace, name);
-        resource_objects.insert(object_key, object);
+        resource_objects.insert(object_key, serde_json::to_value(&dynamic_object).unwrap());
     }
 
     /// Fetch an object.
-    pub async fn get<R: 'static + k8s_openapi::Resource + Clone>(
+    pub async fn get<R: 'static + k8s_openapi::Resource + Clone + DeserializeOwned>(
         &self,
         namespace: Option<String>,
         name: String,
@@ -89,14 +90,15 @@ impl Store {
         let object_key = ObjectKey::new(namespace, name);
         match (*objects).get(&key) {
             Some(resource_objects) => match resource_objects.get(&object_key) {
-                Some(any_object) => match any_object.downcast_ref::<R>() {
-                    Some(object) => Ok(Some(object.clone())),
-                    None => {
+                Some(value) => match serde_json::from_value::<R>(value.clone()) {
+                    Ok(object) => Ok(Some(object)),
+                    Err(e) => {
                         anyhow::bail!(
-                            "Could not interpret interred object as type {}/{} {}",
+                            "Could not interpret interred object as type {}/{} {}: {:?}",
                             R::GROUP,
                             R::VERSION,
-                            R::KIND
+                            R::KIND,
+                            e
                         );
                     }
                 },

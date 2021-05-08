@@ -2,9 +2,7 @@ use super::watch::{Watch, WatchHandle};
 #[cfg(feature = "admission-webhook")]
 use crate::admission::WebhookFn;
 use crate::Operator;
-use k8s_openapi::Metadata;
 use kube::api::ListParams;
-use kube::api::ObjectMeta;
 use kube::Resource;
 
 /// Builder pattern for registering a controller or operator.
@@ -24,10 +22,7 @@ pub struct ControllerBuilder<C: Operator> {
     list_params: ListParams,
 }
 
-impl<C: Operator> ControllerBuilder<C>
-where
-    C::Manifest: Metadata<Ty = ObjectMeta>,
-{
+impl<C: Operator> ControllerBuilder<C> {
     /// Create builder from operator singleton.
     pub fn new(controller: C) -> Self {
         ControllerBuilder {
@@ -40,7 +35,7 @@ where
     }
 
     /// Create watcher definition for the configured managed resource.
-    pub fn manages(&self) -> Watch {
+    pub fn manages(&self) -> Watch where {
         Watch::new::<C::Manifest>(self.namespace.clone(), self.list_params.clone())
     }
 
@@ -61,12 +56,7 @@ where
     /// restrictions.
     pub fn watches<R>(mut self) -> Self
     where
-        R: Resource
-            + serde::de::DeserializeOwned
-            + Clone
-            + Metadata<Ty = ObjectMeta>
-            + Send
-            + 'static,
+        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
     {
         self.watches.push(Watch::new::<R>(None, Default::default()));
         self
@@ -76,12 +66,7 @@ where
     /// matching supplied list params.
     pub fn watches_with_params<R>(mut self, list_params: ListParams) -> Self
     where
-        R: Resource
-            + serde::de::DeserializeOwned
-            + Clone
-            + Metadata<Ty = ObjectMeta>
-            + Send
-            + 'static,
+        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
     {
         self.watches.push(Watch::new::<R>(None, list_params));
         self
@@ -91,12 +76,7 @@ where
     /// param restrictions.
     pub fn watches_namespaced<R>(mut self, namespace: &str) -> Self
     where
-        R: Resource
-            + serde::de::DeserializeOwned
-            + Clone
-            + Metadata<Ty = ObjectMeta>
-            + Send
-            + 'static,
+        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
     {
         self.watches.push(Watch::new::<R>(
             Some(namespace.to_string()),
@@ -113,12 +93,7 @@ where
         list_params: ListParams,
     ) -> Self
     where
-        R: Resource
-            + serde::de::DeserializeOwned
-            + Clone
-            + Metadata<Ty = ObjectMeta>
-            + Send
-            + 'static,
+        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
     {
         self.watches
             .push(Watch::new::<R>(Some(namespace.to_string()), list_params));
@@ -129,12 +104,7 @@ where
     /// objects of kind R. Cluster scoped and no list param restrictions.
     pub fn owns<R>(mut self) -> Self
     where
-        R: Resource
-            + serde::de::DeserializeOwned
-            + Clone
-            + Metadata<Ty = ObjectMeta>
-            + Send
-            + 'static,
+        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
     {
         self.owns.push(Watch::new::<R>(None, Default::default()));
         self
@@ -145,12 +115,7 @@ where
     /// supplied list params.
     pub fn owns_with_params<R>(mut self, list_params: ListParams) -> Self
     where
-        R: Resource
-            + serde::de::DeserializeOwned
-            + Clone
-            + Metadata<Ty = ObjectMeta>
-            + Send
-            + 'static,
+        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
     {
         self.owns.push(Watch::new::<R>(None, list_params));
         self
@@ -161,12 +126,7 @@ where
     /// restrictions.
     pub fn owns_namespaced<R>(mut self, namespace: &str) -> Self
     where
-        R: Resource
-            + serde::de::DeserializeOwned
-            + Clone
-            + Metadata<Ty = ObjectMeta>
-            + Send
-            + 'static,
+        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
     {
         self.owns.push(Watch::new::<R>(
             Some(namespace.to_string()),
@@ -184,12 +144,7 @@ where
         list_params: ListParams,
     ) -> Self
     where
-        R: Resource
-            + serde::de::DeserializeOwned
-            + Clone
-            + Metadata<Ty = ObjectMeta>
-            + Send
-            + 'static,
+        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
     {
         self.owns
             .push(Watch::new::<R>(Some(namespace.to_string()), list_params));

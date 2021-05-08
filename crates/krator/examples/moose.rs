@@ -1,5 +1,6 @@
 use krator::{
-    Manifest, ObjectState, ObjectStatus, Operator, OperatorRuntime, State, Transition, TransitionTo,
+    manager::{ControllerBuilder, Manager},
+    Manifest, ObjectState, ObjectStatus, Operator, State, Transition, TransitionTo,
 };
 use kube::api::{ListParams, Resource};
 use kube_derive::CustomResource;
@@ -502,7 +503,6 @@ async fn main() -> anyhow::Result<()> {
     // Only track mooses in Glacier NP
     let params = ListParams::default().labels("nps.gov/park=glacier");
 
-    let mut runtime = OperatorRuntime::new(&kubeconfig, tracker, Some(params));
     info!("starting mooses operator");
 
     #[cfg(feature = "admission-webhook")]
@@ -528,6 +528,12 @@ Running moose example. Try to install some of the manifests provided in examples
     
     "#
     );
-    runtime.start().await;
+
+    // Build Controller Manager
+    let mut manager = Manager::new(&kubeconfig);
+    let controller = ControllerBuilder::new(tracker).with_params(params);
+    manager.register_controller(controller);
+
+    manager.start().await;
     Ok(())
 }

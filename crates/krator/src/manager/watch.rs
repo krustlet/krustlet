@@ -1,9 +1,9 @@
-use super::DynamicEvent;
-use k8s_openapi::Metadata;
-use kube::api::GroupVersionKind;
-use kube::api::ListParams;
-use kube::api::ObjectMeta;
-use kube::Resource;
+use crate::runtime::PrettyEvent;
+use kube::{
+    api::{DynamicObject, GroupVersionKind, ListParams},
+    Resource,
+};
+use kube_runtime::watcher::Event;
 use tracing::{info, warn};
 
 /// Captures configuration needed to configure a watcher.
@@ -19,12 +19,12 @@ pub struct Watch {
 
 impl Watch {
     pub fn new<
-        R: Resource + serde::de::DeserializeOwned + Clone + Metadata<Ty = ObjectMeta> + Send + 'static,
+        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
     >(
         namespace: Option<String>,
         list_params: ListParams,
     ) -> Self {
-        let gvk = GroupVersionKind::gvk(R::GROUP, R::VERSION, R::KIND).unwrap();
+        let gvk = GroupVersionKind::gvk(&R::group(&()), &R::version(&()), &R::kind(&())).unwrap();
         Watch {
             gvk,
             namespace,
@@ -32,7 +32,12 @@ impl Watch {
         }
     }
 
-    pub fn handle(self) -> (WatchHandle, tokio::sync::mpsc::Receiver<DynamicEvent>) {
+    pub fn handle(
+        self,
+    ) -> (
+        WatchHandle,
+        tokio::sync::mpsc::Receiver<Event<DynamicObject>>,
+    ) {
         let (tx, rx) = tokio::sync::mpsc::channel(16);
         let handle = WatchHandle { watch: self, tx };
         (handle, rx)
@@ -42,7 +47,7 @@ impl Watch {
 #[derive(Clone)]
 pub struct WatchHandle {
     pub watch: Watch,
-    pub tx: tokio::sync::mpsc::Sender<DynamicEvent>,
+    pub tx: tokio::sync::mpsc::Sender<Event<DynamicObject>>,
 }
 
 pub async fn launch_watcher(client: kube::Client, handle: WatchHandle) {
@@ -60,7 +65,13 @@ pub async fn launch_watcher(client: kube::Client, handle: WatchHandle) {
     let mut watcher = kube_runtime::watcher(api, handle.watch.list_params).boxed();
     loop {
         match watcher.try_next().await {
-            Ok(Some(event)) => handle.tx.send(event.into()).await.unwrap(),
+            Ok(Some(event)) => {
+                info!(
+                    event = ?PrettyEvent::from(&event),
+                    "Handling event."
+                );
+                handle.tx.send(event).await.unwrap()
+            }
             Ok(None) => break,
             Err(error) => warn!(?error, "Error streaming object events."),
         }

@@ -22,7 +22,7 @@ use crate::operator::Operator;
 use crate::state::{run_to_completion, SharedState};
 
 #[derive(Debug)]
-enum PrettyEvent {
+pub enum PrettyEvent {
     Applied {
         name: String,
         namespace: Option<String>,
