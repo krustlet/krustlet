@@ -20,39 +20,7 @@ use crate::object::ObjectKey;
 use crate::object::ObjectState;
 use crate::operator::Operator;
 use crate::state::{run_to_completion, SharedState};
-
-#[derive(Debug)]
-pub enum PrettyEvent {
-    Applied {
-        name: String,
-        namespace: Option<String>,
-    },
-    Deleted {
-        name: String,
-        namespace: Option<String>,
-    },
-    Restarted {
-        count: usize,
-    },
-}
-
-impl<R: Resource> From<&Event<R>> for PrettyEvent {
-    fn from(event: &Event<R>) -> Self {
-        match event {
-            Event::Applied(object) => PrettyEvent::Applied {
-                name: object.name(),
-                namespace: object.namespace(),
-            },
-            Event::Deleted(object) => PrettyEvent::Deleted {
-                name: object.name(),
-                namespace: object.namespace(),
-            },
-            Event::Restarted(objects) => PrettyEvent::Restarted {
-                count: objects.len(),
-            },
-        }
-    }
-}
+use crate::util::PrettyEvent;
 
 #[derive(Debug)]
 enum ObjectEvent<R> {

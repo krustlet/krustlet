@@ -1,4 +1,4 @@
-use crate::runtime::PrettyEvent;
+use crate::util::PrettyEvent;
 use kube::{
     api::{DynamicObject, GroupVersionKind, ListParams},
     Resource,

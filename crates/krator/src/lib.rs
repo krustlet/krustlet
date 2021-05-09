@@ -8,6 +8,7 @@ mod object;
 mod operator;
 mod runtime;
 pub mod store;
+pub mod util;
 
 #[cfg(feature = "admission-webhook")]
 pub mod admission;
