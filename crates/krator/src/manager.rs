@@ -4,23 +4,16 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 
-use crate::{
-    operator::Operator,
-    store::Store,
-};
+use crate::{operator::Operator, store::Store};
 
 pub mod tasks;
-use tasks::{
-    controller_tasks,
-    OperatorTask
-};
+use tasks::{controller_tasks, OperatorTask};
 
 mod controller;
 use controller::Controller;
 pub use controller::ControllerBuilder;
 mod watch;
 use watch::launch_watcher;
-
 
 /// Coordinates one or more controllers and the main entrypoint for starting
 /// the application.

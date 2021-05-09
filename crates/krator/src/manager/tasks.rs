@@ -1,29 +1,19 @@
 //! Defines common `async` tasks used by Krator's Controller
 //! [Manager](crate::manager::Manager).
 
-use std::{
-    future::Future,
-    sync::Arc
-};
+use std::{future::Future, sync::Arc};
 
 use futures::FutureExt;
 
-use kube::{
-    Resource,
-    api::GroupVersionKind
-};
+use kube::{api::GroupVersionKind, Resource};
 use kube_runtime::watcher::Event;
-use tracing::{warn, info};
+use tracing::{info, warn};
 
 use crate::{
-    operator::Operator,
-    util::{
-        PrettyEvent,
-        DynamicEvent,
-        concrete_event
-    },
     manager::ControllerBuilder,
-    store::Store
+    operator::Operator,
+    store::Store,
+    util::{concrete_event, DynamicEvent, PrettyEvent},
 };
 
 use super::Controller;
@@ -36,7 +26,7 @@ use super::Controller;
 /// # Errors
 ///
 /// A warning will be logged if a `DynamicEvent` cannot be converted to a
-/// concrete `Event<O::Manifest>`. 
+/// concrete `Event<O::Manifest>`.
 pub async fn launch_runtime<O: Operator>(
     kubeconfig: kube::Config,
     controller: O,
@@ -83,7 +73,7 @@ pub async fn launch_runtime<O: Operator>(
 /// [DynamicEvent](crate::util::DynamicEvent) on a
 /// [channel](tokio::sync::mpsc::channel) and updates
 /// [Store](crate::store::Store).
-/// 
+///
 /// # Errors
 ///
 /// Will warn on and drop objects with no `metadata.name` field set.
@@ -156,14 +146,13 @@ pub async fn launch_watches(
     }
 }
 
-
 /// Shorthand for the opaque Future type of the tasks in this module. These
 /// must be `awaited` in order to execute.
 pub type OperatorTask = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
 
 /// Generates the `async` tasks needed to run a single controller / operator.
 ///
-/// In general, converts a 
+/// In general, converts a
 /// [ControllerBuilder](crate::manager::ControllerBuilder) to a `Vec` of
 /// [OperatorTask](crate::manager::tasks::OperatorTask) which can be
 /// executed using [join_all](futures::future::join_all).
@@ -204,5 +193,3 @@ pub fn controller_tasks<C: Operator>(
         tasks,
     )
 }
-
-
