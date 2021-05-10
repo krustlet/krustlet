@@ -8,9 +8,11 @@
 pub struct OciError {
     /// The error code
     pub code: OciErrorCode,
-    /// A message associated with the error
+    /// An optional message associated with the error
+    #[serde(default)]
     pub message: String,
-    /// Unstructured data associated with the error
+    /// Unstructured optional data associated with the error
+    #[serde(default)]
     pub detail: serde_json::Value,
 }
 
@@ -95,5 +97,32 @@ mod test {
         let e = &envelope.errors[0];
         assert_eq!(OciErrorCode::Unauthorized, e.code);
         assert_eq!("authentication required", e.message);
+        assert_ne!(serde_json::value::Value::Null, e.detail);
+    }
+
+    const EXAMPLE_ERROR_MISSING_MESSAGE: &str = r#"
+      {"errors":[{"code":"UNAUTHORIZED","detail":[{"Type":"repository","Name":"hello-wasm","Action":"pull"}]}]}
+      "#;
+    #[test]
+    fn test_deserialize_without_message_field() {
+        let envelope: OciEnvelope =
+            serde_json::from_str(EXAMPLE_ERROR_MISSING_MESSAGE).expect("parse example error");
+        let e = &envelope.errors[0];
+        assert_eq!(OciErrorCode::Unauthorized, e.code);
+        assert_eq!(String::default(), e.message);
+        assert_ne!(serde_json::value::Value::Null, e.detail);
+    }
+
+    const EXAMPLE_ERROR_MISSING_DETAIL: &str = r#"
+      {"errors":[{"code":"UNAUTHORIZED","message":"authentication required"}]}
+      "#;
+    #[test]
+    fn test_deserialize_without_detail_field() {
+        let envelope: OciEnvelope =
+            serde_json::from_str(EXAMPLE_ERROR_MISSING_DETAIL).expect("parse example error");
+        let e = &envelope.errors[0];
+        assert_eq!(OciErrorCode::Unauthorized, e.code);
+        assert_eq!("authentication required", e.message);
+        assert_eq!(serde_json::value::Value::Null, e.detail);
     }
 }
