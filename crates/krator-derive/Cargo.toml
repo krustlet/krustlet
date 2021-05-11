@@ -16,20 +16,33 @@ license-file = "../../LICENSE"
 description = "Derive macros for the Krator crate"
 repository = "https://github.com/deislabs/krustlet"
 readme = "README.md"
-keywords = [
-    "wasm",
-    "wasi",
-    "webassembly",
-    "kubernetes",
-]
+keywords = ["wasm", "wasi", "webassembly", "kubernetes"]
 
 [lib]
 proc-macro = true
 
+
 [dependencies]
 syn = "1.0"
 quote = "1.0"
+proc-macro2 = "1.0.24"
+
+
+[features]
+admission-webhook = []
 
 [package.metadata.docs.rs]
-features = ["docs"]
+features = ["docs", "admission-webhook"]
 rustdoc-args = ["--cfg", "feature=\"docs\""]
+
+[dev-dependencies]
+kube-runtime = { version = "0.52", default-features = false }
+kube-derive = "0.52"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.8"
+schemars = "0.8.0"
+anyhow = { version = "1.0.40" }
+k8s-openapi = { version = "0.11", default-features = false, features = ["v1_20"] }
+kube = { version = "0.52", default-features = false, features = ["derive", "native-tls"] }
+rcgen = { version = "0.8.9", features = ["x509-parser", "pem"] }

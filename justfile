@@ -7,7 +7,8 @@ run-wasi: run
 
 build +FLAGS='':
     cargo build {{FLAGS}}
-    cd crates/krator && cargo build {{FLAGS}} --example=moose --features=admission-webhook,derive
+    (cd crates/krator && cargo build {{FLAGS}} --example=moose --features=derive-admission-webhook)
+    (cd crates/krator && cargo build {{FLAGS}} --example=moose --features=derive)
 
 lint-docs:
     markdownlint '**/*.md' -c .markdownlint.json
@@ -20,6 +21,8 @@ test:
     cargo clippy --workspace
     cargo test --workspace --lib
     cargo test --doc --all
+    (cd crates/krator-derive && cargo test --features=admission-webhook)
+    (cd crates/krator        && cargo test --features=derive-admission-webhook)
 
 test-e2e:
     cargo test --test integration_tests

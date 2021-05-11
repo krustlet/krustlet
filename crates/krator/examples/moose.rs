@@ -1,8 +1,7 @@
 use krator::{
     Manifest, ObjectState, ObjectStatus, Operator, OperatorRuntime, State, Transition, TransitionTo,
 };
-use kube::api::ListParams;
-use kube::Resource;
+use kube::api::{ListParams, Resource};
 use kube_derive::CustomResource;
 use rand::seq::IteratorRandom;
 use rand::Rng;
@@ -14,7 +13,36 @@ use structopt::StructOpt;
 use tokio::sync::RwLock;
 use tracing::info;
 
+#[cfg(feature = "admission-webhook")]
+use krator_derive::AdmissionWebhook;
+
+#[cfg(feature = "admission-webhook")]
+use krator::admission;
+
+#[cfg(feature = "admission-webhook")]
+use k8s_openapi::api::core::v1::Secret;
+
+#[cfg(not(feature = "admission-webhook"))]
 #[derive(CustomResource, Debug, Serialize, Deserialize, Clone, Default, JsonSchema)]
+#[kube(
+    group = "animals.com",
+    version = "v1",
+    kind = "Moose",
+    derive = "Default",
+    status = "MooseStatus",
+    namespaced
+)]
+struct MooseSpec {
+    height: f64,
+    weight: f64,
+    antlers: bool,
+}
+
+#[cfg(feature = "admission-webhook")]
+#[derive(
+    AdmissionWebhook, CustomResource, Debug, Serialize, Deserialize, Clone, Default, JsonSchema,
+)]
+#[admission_webhook_features(secret, service, admission_webhook_config)]
 #[kube(
     group = "animals.com",
     version = "v1",
@@ -274,6 +302,9 @@ impl State<MooseState> for Released {
 
 struct SharedMooseState {
     friends: HashMap<String, HashSet<String>>,
+
+    #[cfg(feature = "admission-webhook")]
+    client: kube::Client,
 }
 
 struct MooseTracker {
@@ -281,6 +312,16 @@ struct MooseTracker {
 }
 
 impl MooseTracker {
+    #[cfg(feature = "admission-webhook")]
+    fn new(client: &kube::Client) -> Self {
+        let shared = Arc::new(RwLock::new(SharedMooseState {
+            friends: HashMap::new(),
+            client: client.to_owned(),
+        }));
+        MooseTracker { shared }
+    }
+
+    #[cfg(not(feature = "admission-webhook"))]
     fn new() -> Self {
         let shared = Arc::new(RwLock::new(SharedMooseState {
             friends: HashMap::new(),
@@ -331,6 +372,19 @@ impl Operator for MooseTracker {
             }),
         }
     }
+
+    #[cfg(feature = "admission-webhook")]
+    async fn admission_hook_tls(&self) -> anyhow::Result<krator::admission::AdmissionTls> {
+        let client = self.shared.read().await.client.clone();
+        let secret_name = Moose::admission_webhook_secret_name();
+
+        let opt = Opt::from_args();
+        let secret = kube::Api::<Secret>::namespaced(client, &opt.webhook_namespace)
+            .get(&secret_name)
+            .await?;
+
+        Ok(admission::AdmissionTls::from(&secret)?)
+    }
 }
 
 #[derive(Debug, StructOpt)]
@@ -347,12 +401,25 @@ struct Opt {
     /// Configure logger to emit JSON output.
     #[structopt(long)]
     json: bool,
+
+    /// output moose crd manifest
+    #[structopt(long)]
+    output_crd: bool,
+
+    #[cfg(feature = "admission-webhook")]
+    /// output webhook resources manifests for the given namespace
+    #[structopt(long)]
+    output_webhook_resources_for_namespace: Option<String>,
+
+    #[cfg(feature = "admission-webhook")]
+    /// namespace where to install the admission webhook service and secret
+    #[structopt(long, default_value = "default")]
+    webhook_namespace: String,
 }
 
-fn init_logger() -> anyhow::Result<Option<opentelemetry_jaeger::Uninstall>> {
+fn init_logger(opt: &Opt) -> anyhow::Result<Option<opentelemetry_jaeger::Uninstall>> {
     // This isn't very DRY, but all of these combinations have different types,
     // and Boxing them doesn't seem to work.
-    let opt = Opt::from_args();
     let guard = if opt.json {
         let subscriber = tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -397,17 +464,70 @@ fn init_logger() -> anyhow::Result<Option<opentelemetry_jaeger::Uninstall>> {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
-    let _guard = init_logger()?;
+    let opt = Opt::from_args();
+    let _guard = init_logger(&opt)?;
+
+    if opt.output_crd {
+        println!("{}", serde_yaml::to_string(&Moose::crd()).unwrap());
+        return Ok(());
+    }
 
     let kubeconfig = kube::Config::infer().await?;
-    let tracker = MooseTracker::new();
 
-    info!("crd:\n{}", serde_yaml::to_string(&Moose::crd()).unwrap());
+    let tracker;
+
+    #[cfg(feature = "admission-webhook")]
+    {
+        use anyhow::Context;
+
+        let client = kube::Client::try_default().await?;
+        let api = kube::Api::<k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition>::all(client.to_owned());
+        let crd = api.get(&Moose::crd().name()).await.context("moose crd needs to be installed first -- generate the necessary manifests with --output-crd")?;
+        if let Some(namespace) = opt.output_webhook_resources_for_namespace {
+            let resources = krator::admission::WebhookResources::from(
+                Moose::admission_webhook_resources(&namespace),
+            )
+            .add_owner(&crd);
+            println!("{}", resources);
+            return Ok(());
+        }
+        tracker = MooseTracker::new(&client);
+    }
+
+    #[cfg(not(feature = "admission-webhook"))]
+    {
+        tracker = MooseTracker::new();
+    }
 
     // Only track mooses in Glacier NP
     let params = ListParams::default().labels("nps.gov/park=glacier");
 
     let mut runtime = OperatorRuntime::new(&kubeconfig, tracker, Some(params));
+    info!("starting mooses operator");
+
+    #[cfg(feature = "admission-webhook")]
+    info!(
+        r#"
+
+If you run this example outside of Kubernetes (i.e. with `cargo run`), you need to make the webhook available.
+
+Try the script example/assets/use-external-endpoint.sh to redirect webhook traffic to this process. If this
+operator runs within Kubernetes and you use the webhook resources provided by the admission-webhook macro, 
+make sure your deployment has the following labels set:
+
+app={}
+    
+    "#,
+        Moose::admission_webhook_service_app_selector()
+    );
+
+    info!(
+        r#"
+    
+Running moose example. Try to install some of the manifests provided in examples/assets
+    
+    "#
+    );
     runtime.start().await;
     Ok(())
 }
