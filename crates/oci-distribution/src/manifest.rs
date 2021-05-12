@@ -15,6 +15,9 @@ pub const IMAGE_DOCKER_CONFIG_MEDIA_TYPE: &str = "application/vnd.docker.contain
 pub const IMAGE_LAYER_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar";
 /// The mediatype for a layer that is gzipped.
 pub const IMAGE_LAYER_GZIP_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar+gzip";
+/// The mediatype that Docker uses for a layer that is gzipped.
+pub const IMAGE_DOCKER_LAYER_GZIP_MEDIA_TYPE: &str =
+    "application/vnd.docker.image.rootfs.diff.tar.gzip";
 /// The mediatype for a layer that is nondistributable.
 pub const IMAGE_LAYER_NONDISTRIBUTABLE_MEDIA_TYPE: &str =
     "application/vnd.oci.image.layer.nondistributable.v1.tar";
