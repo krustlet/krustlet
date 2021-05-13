@@ -77,7 +77,7 @@ mod test {
 
     #[tokio::test]
     async fn test() {
-        let (tx, manifest_1) = Manifest::new(0);
+        let (tx, manifest_1) = Manifest::new(0, Store::new());
         let manifest_2 = manifest_1.clone();
         let manifest_3 = manifest_1.clone();
 
