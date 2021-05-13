@@ -8,13 +8,13 @@ use kube::Resource;
 /// Builder pattern for registering a controller or operator.
 pub struct ControllerBuilder<C: Operator> {
     /// The controller or operator singleton.
-    pub controller: C,
+    pub(crate) controller: C,
     ///  List of watch configurations for objects that will simply be cached
     ///  locally.
-    pub watches: Vec<Watch>,
+    pub(crate) watches: Vec<Watch>,
     /// List of watch configurations for objects that will trigger
     /// notifications (based on OwnerReferences).
-    pub owns: Vec<Watch>,
+    pub(crate) owns: Vec<Watch>,
     /// Restrict our controller to act on a specific namespace.
     namespace: Option<String>,
     /// Restrict our controller to act on objects that match specific list
@@ -22,11 +22,22 @@ pub struct ControllerBuilder<C: Operator> {
     list_params: ListParams,
 }
 
-impl<C: Operator> ControllerBuilder<C> {
+/// Trait alias for types which can be watched.
+pub trait Watchable:
+    Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static
+{
+}
+
+impl<T> Watchable for T where
+    T: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static
+{
+}
+
+impl<O: Operator> ControllerBuilder<O> {
     /// Create builder from operator singleton.
-    pub fn new(controller: C) -> Self {
+    pub fn new(operator: O) -> Self {
         ControllerBuilder {
-            controller,
+            controller: operator,
             watches: vec![],
             owns: vec![],
             namespace: None,
@@ -35,8 +46,8 @@ impl<C: Operator> ControllerBuilder<C> {
     }
 
     /// Create watcher definition for the configured managed resource.
-    pub fn manages(&self) -> Watch where {
-        Watch::new::<C::Manifest>(self.namespace.clone(), self.list_params.clone())
+    pub(crate) fn manages(&self) -> Watch {
+        Watch::new::<O::Manifest>(self.namespace.clone(), self.list_params.clone())
     }
 
     /// Restrict controller to manage a specific namespace.
@@ -56,7 +67,7 @@ impl<C: Operator> ControllerBuilder<C> {
     /// restrictions.
     pub fn watches<R>(mut self) -> Self
     where
-        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
+        R: Watchable,
     {
         self.watches.push(Watch::new::<R>(None, Default::default()));
         self
@@ -66,7 +77,7 @@ impl<C: Operator> ControllerBuilder<C> {
     /// matching supplied list params.
     pub fn watches_with_params<R>(mut self, list_params: ListParams) -> Self
     where
-        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
+        R: Watchable,
     {
         self.watches.push(Watch::new::<R>(None, list_params));
         self
@@ -76,7 +87,7 @@ impl<C: Operator> ControllerBuilder<C> {
     /// param restrictions.
     pub fn watches_namespaced<R>(mut self, namespace: &str) -> Self
     where
-        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
+        R: Watchable,
     {
         self.watches.push(Watch::new::<R>(
             Some(namespace.to_string()),
@@ -93,7 +104,7 @@ impl<C: Operator> ControllerBuilder<C> {
         list_params: ListParams,
     ) -> Self
     where
-        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
+        R: Watchable,
     {
         self.watches
             .push(Watch::new::<R>(Some(namespace.to_string()), list_params));
@@ -104,7 +115,7 @@ impl<C: Operator> ControllerBuilder<C> {
     /// objects of kind R. Cluster scoped and no list param restrictions.
     pub fn owns<R>(mut self) -> Self
     where
-        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
+        R: Watchable,
     {
         self.owns.push(Watch::new::<R>(None, Default::default()));
         self
@@ -115,7 +126,7 @@ impl<C: Operator> ControllerBuilder<C> {
     /// supplied list params.
     pub fn owns_with_params<R>(mut self, list_params: ListParams) -> Self
     where
-        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
+        R: Watchable,
     {
         self.owns.push(Watch::new::<R>(None, list_params));
         self
@@ -126,7 +137,7 @@ impl<C: Operator> ControllerBuilder<C> {
     /// restrictions.
     pub fn owns_namespaced<R>(mut self, namespace: &str) -> Self
     where
-        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
+        R: Watchable,
     {
         self.owns.push(Watch::new::<R>(
             Some(namespace.to_string()),
@@ -144,7 +155,7 @@ impl<C: Operator> ControllerBuilder<C> {
         list_params: ListParams,
     ) -> Self
     where
-        R: Resource<DynamicType = ()> + serde::de::DeserializeOwned + Clone + Send + 'static,
+        R: Watchable,
     {
         self.owns
             .push(Watch::new::<R>(Some(namespace.to_string()), list_params));
@@ -154,26 +165,26 @@ impl<C: Operator> ControllerBuilder<C> {
     /// Registers a validating webhook at the path "/$GROUP/$VERSION/$KIND".
     /// Multiple webhooks can be registered, but must be at different paths.
     #[cfg(feature = "admission-webhook")]
-    pub fn validates(self, _f: &WebhookFn<C>) -> Self {
+    pub(crate) fn validates(self, _f: &WebhookFn<C>) -> Self {
         todo!()
     }
 
     /// Registers a validating webhook at the supplied path.
     #[cfg(feature = "admission-webhook")]
-    pub fn validates_at_path(self, _path: &str, _f: &WebhookFn<C>) -> Self {
+    pub(crate) fn validates_at_path(self, _path: &str, _f: &WebhookFn<C>) -> Self {
         todo!()
     }
 
     /// Registers a mutating webhook at the path "/$GROUP/$VERSION/$KIND".
     /// Multiple webhooks can be registered, but must be at different paths.
     #[cfg(feature = "admission-webhook")]
-    pub fn mutates(self, _f: &WebhookFn<C>) -> Self {
+    pub(crate) fn mutates(self, _f: &WebhookFn<C>) -> Self {
         todo!()
     }
 
     /// Registers a mutating webhook at the supplied path.
     #[cfg(feature = "admission-webhook")]
-    pub fn mutates_at_path(self, _path: &str, _f: &WebhookFn<C>) -> Self {
+    pub(crate) fn mutates_at_path(self, _path: &str, _f: &WebhookFn<C>) -> Self {
         todo!()
     }
 }

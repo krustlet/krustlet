@@ -16,7 +16,7 @@ use tokio::signal::ctrl_c;
 use tokio::task;
 use tracing::{error, info, warn};
 
-use krator::manager::{ControllerBuilder, Manager};
+use krator::{ControllerBuilder, Manager};
 
 /// A Kubelet server backed by a given `Provider`.
 ///

@@ -2,24 +2,27 @@
 
 #![deny(missing_docs)]
 
-pub mod manager;
+mod manager;
 mod manifest;
 mod object;
 mod operator;
 mod runtime;
-pub mod store;
+mod store;
 pub mod util;
 
 #[cfg(feature = "admission-webhook")]
 pub mod admission;
 
-pub mod state;
+mod state;
 
+pub use manager::controller::{ControllerBuilder, Watchable};
+pub use manager::Manager;
 pub use manifest::Manifest;
 pub use object::{ObjectState, ObjectStatus};
 pub use operator::Operator;
 pub use runtime::OperatorRuntime;
 pub use state::{SharedState, State, Transition, TransitionTo};
+pub use store::Store;
 
 #[cfg(feature = "derive")]
 #[allow(unused_imports)]

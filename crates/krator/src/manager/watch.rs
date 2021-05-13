@@ -1,10 +1,8 @@
-use crate::util::PrettyEvent;
 use kube::{
     api::{DynamicObject, GroupVersionKind, ListParams},
     Resource,
 };
 use kube_runtime::watcher::Event;
-use tracing::{info, warn};
 
 /// Captures configuration needed to configure a watcher.
 #[derive(Clone, Debug)]
@@ -48,32 +46,4 @@ impl Watch {
 pub struct WatchHandle {
     pub watch: Watch,
     pub tx: tokio::sync::mpsc::Sender<Event<DynamicObject>>,
-}
-
-pub async fn launch_watcher(client: kube::Client, handle: WatchHandle) {
-    use futures::StreamExt;
-    use futures::TryStreamExt;
-
-    info!(
-        watch=?handle.watch,
-        "Starting Watcher."
-    );
-    let api: kube::Api<kube::api::DynamicObject> = match handle.watch.namespace {
-        Some(namespace) => kube::Api::namespaced_with(client, &namespace, &handle.watch.gvk),
-        None => kube::Api::all_with(client, &handle.watch.gvk),
-    };
-    let mut watcher = kube_runtime::watcher(api, handle.watch.list_params).boxed();
-    loop {
-        match watcher.try_next().await {
-            Ok(Some(event)) => {
-                info!(
-                    event = ?PrettyEvent::from(&event),
-                    "Handling event."
-                );
-                handle.tx.send(event).await.unwrap()
-            }
-            Ok(None) => break,
-            Err(error) => warn!(?error, "Error streaming object events."),
-        }
-    }
 }

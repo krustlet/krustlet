@@ -10,13 +10,44 @@ use kube_runtime::watcher::Event;
 use tracing::{info, warn};
 
 use crate::{
-    manager::ControllerBuilder,
+    manager::controller::ControllerBuilder,
     operator::Operator,
     store::Store,
     util::{concrete_event, DynamicEvent, PrettyEvent},
 };
 
+use super::watch::WatchHandle;
 use super::Controller;
+
+/// Watcher task which forwards [DynamicEvent](crate::util::DynamicEvent) to
+/// a [channel](tokio::sync::mpsc::channel).
+pub async fn launch_watcher(client: kube::Client, handle: WatchHandle) {
+    use futures::StreamExt;
+    use futures::TryStreamExt;
+
+    info!(
+        watch=?handle.watch,
+        "Starting Watcher."
+    );
+    let api: kube::Api<kube::api::DynamicObject> = match handle.watch.namespace {
+        Some(namespace) => kube::Api::namespaced_with(client, &namespace, &handle.watch.gvk),
+        None => kube::Api::all_with(client, &handle.watch.gvk),
+    };
+    let mut watcher = kube_runtime::watcher(api, handle.watch.list_params).boxed();
+    loop {
+        match watcher.try_next().await {
+            Ok(Some(event)) => {
+                info!(
+                    event = ?PrettyEvent::from(&event),
+                    "Handling event."
+                );
+                handle.tx.send(event).await.unwrap()
+            }
+            Ok(None) => break,
+            Err(error) => warn!(?error, "Error streaming object events."),
+        }
+    }
+}
 
 /// Task for executing a single Controller / Operator. Listens for
 /// [DynamicEvent](crate::util::DynamicEvent) on a
@@ -153,8 +184,8 @@ pub type OperatorTask = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
 /// Generates the `async` tasks needed to run a single controller / operator.
 ///
 /// In general, converts a
-/// [ControllerBuilder](crate::manager::ControllerBuilder) to a `Vec` of
-/// [OperatorTask](crate::manager::tasks::OperatorTask) which can be
+/// [ControllerBuilder](crate::manager::controller::ControllerBuilder) to a
+/// `Vec` of [OperatorTask](crate::manager::tasks::OperatorTask) which can be
 /// executed using [join_all](futures::future::join_all).
 pub fn controller_tasks<C: Operator>(
     kubeconfig: kube::Config,

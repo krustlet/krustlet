@@ -1,4 +1,4 @@
-//! Defines types for registring controllers with runtime.
+//! Defines types for registering controllers with runtime.
 
 use std::sync::Arc;
 
@@ -7,13 +7,11 @@ use futures::FutureExt;
 use crate::{operator::Operator, store::Store};
 
 pub mod tasks;
-use tasks::{controller_tasks, OperatorTask};
+use tasks::{controller_tasks, launch_watcher, OperatorTask};
 
-mod controller;
-use controller::Controller;
-pub use controller::ControllerBuilder;
+pub mod controller;
+use controller::{Controller, ControllerBuilder};
 mod watch;
-use watch::launch_watcher;
 
 /// Coordinates one or more controllers and the main entrypoint for starting
 /// the application.
