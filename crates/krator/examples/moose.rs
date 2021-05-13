@@ -1,6 +1,6 @@
 use krator::{
-    manager::{ControllerBuilder, Manager},
-    Manifest, ObjectState, ObjectStatus, Operator, State, Transition, TransitionTo,
+    ControllerBuilder, Manager, Manifest, ObjectState, ObjectStatus, Operator, State, Transition,
+    TransitionTo,
 };
 use kube::api::{ListParams, Resource};
 use kube_derive::CustomResource;
