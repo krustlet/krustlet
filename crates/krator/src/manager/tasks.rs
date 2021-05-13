@@ -1,7 +1,7 @@
 //! Defines common `async` tasks used by Krator's Controller
 //! [Manager](crate::manager::Manager).
 
-use std::{future::Future, sync::Arc};
+use std::future::Future;
 
 use futures::FutureExt;
 
@@ -62,6 +62,7 @@ pub async fn launch_runtime<O: Operator>(
     kubeconfig: kube::Config,
     controller: O,
     mut rx: tokio::sync::mpsc::Receiver<DynamicEvent>,
+    store: Store,
 ) {
     info!(
         group = &*O::Manifest::group(&()),
@@ -69,7 +70,8 @@ pub async fn launch_runtime<O: Operator>(
         kind = &*O::Manifest::kind(&()),
         "Starting OperatorRuntime."
     );
-    let mut runtime = crate::OperatorRuntime::new(&kubeconfig, controller, Default::default());
+    let mut runtime =
+        crate::OperatorRuntime::new_with_store(&kubeconfig, controller, Default::default(), store);
     while let Some(dynamic_event) = rx.recv().await {
         info!(
             group=&*O::Manifest::group(&()),
@@ -115,7 +117,7 @@ pub async fn launch_runtime<O: Operator>(
 pub async fn launch_watches(
     mut rx: tokio::sync::mpsc::Receiver<DynamicEvent>,
     gvk: GroupVersionKind,
-    store: Arc<Store>,
+    store: Store,
 ) {
     while let Some(dynamic_event) = rx.recv().await {
         info!(
@@ -190,7 +192,7 @@ pub type OperatorTask = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
 pub fn controller_tasks<C: Operator>(
     kubeconfig: kube::Config,
     controller: ControllerBuilder<C>,
-    store: Arc<Store>,
+    store: Store,
 ) -> (Controller, Vec<OperatorTask>) {
     let mut watches = Vec::new();
     let mut owns = Vec::new();
@@ -198,19 +200,19 @@ pub fn controller_tasks<C: Operator>(
 
     // Create main Operator task.
     let (manages, rx) = controller.manages().handle();
-    let task = launch_runtime(kubeconfig, controller.controller, rx).boxed();
+    let task = launch_runtime(kubeconfig, controller.controller, rx, store.clone()).boxed();
     tasks.push(task);
 
     for watch in controller.watches {
         let (handle, rx) = watch.handle();
-        let task = launch_watches(rx, handle.watch.gvk.clone(), Arc::clone(&store)).boxed();
+        let task = launch_watches(rx, handle.watch.gvk.clone(), store.clone()).boxed();
         watches.push(handle);
         tasks.push(task);
     }
 
     for own in controller.owns {
         let (handle, rx) = own.handle();
-        let task = launch_watches(rx, handle.watch.gvk.clone(), Arc::clone(&store)).boxed();
+        let task = launch_watches(rx, handle.watch.gvk.clone(), store.clone()).boxed();
         owns.push(handle);
         tasks.push(task);
     }

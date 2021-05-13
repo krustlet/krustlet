@@ -20,6 +20,7 @@ use crate::object::ObjectKey;
 use crate::object::ObjectState;
 use crate::operator::Operator;
 use crate::state::{run_to_completion, SharedState};
+use crate::store::Store;
 use crate::util::PrettyEvent;
 
 #[derive(Debug)]
@@ -56,6 +57,7 @@ pub struct OperatorRuntime<O: Operator> {
     operator: Arc<O>,
     list_params: ListParams,
     signal: Option<Arc<AtomicBool>>,
+    store: Store,
 }
 
 impl<O: Operator> OperatorRuntime<O> {
@@ -70,6 +72,26 @@ impl<O: Operator> OperatorRuntime<O> {
             operator: Arc::new(operator),
             list_params,
             signal: None,
+            store: Store::new(),
+        }
+    }
+
+    pub(crate) fn new_with_store(
+        kubeconfig: &kube::Config,
+        operator: O,
+        params: Option<ListParams>,
+        store: Store,
+    ) -> Self {
+        let client = Client::try_from(kubeconfig.clone())
+            .expect("Unable to create kube::Client from kubeconfig.");
+        let list_params = params.unwrap_or_default();
+        OperatorRuntime {
+            client,
+            handlers: HashMap::new(),
+            operator: Arc::new(operator),
+            list_params,
+            signal: None,
+            store,
         }
     }
 
@@ -147,7 +169,7 @@ impl<O: Operator> OperatorRuntime<O> {
 
         let object_state = self.operator.initialize_object_state(&manifest).await?;
 
-        let (manifest_tx, manifest_rx) = Manifest::new(manifest);
+        let (manifest_tx, manifest_rx) = Manifest::new(manifest, self.store.clone());
         let reflector_deleted = Arc::clone(&deleted);
         let reflector_deleted_event = Arc::clone(&deleted_event);
 

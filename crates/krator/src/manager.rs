@@ -1,7 +1,4 @@
 //! Defines types for registering controllers with runtime.
-
-use std::sync::Arc;
-
 use crate::{operator::Operator, store::Store};
 
 pub mod tasks;
@@ -22,7 +19,7 @@ pub struct Manager {
     kubeconfig: kube::Config,
     controllers: Vec<Controller>,
     controller_tasks: Vec<OperatorTask>,
-    store: Arc<Store>,
+    store: Store,
 }
 
 impl Manager {
@@ -32,14 +29,14 @@ impl Manager {
             controllers: vec![],
             controller_tasks: vec![],
             kubeconfig: kubeconfig.clone(),
-            store: Arc::new(Store::new()),
+            store: Store::new(),
         }
     }
 
     /// Register a controller with the manager.
     pub fn register_controller<C: Operator>(&mut self, builder: ControllerBuilder<C>) {
         let (controller, tasks) =
-            controller_tasks(self.kubeconfig.clone(), builder, Arc::clone(&self.store));
+            controller_tasks(self.kubeconfig.clone(), builder, self.store.clone());
         self.controllers.push(controller);
         self.controller_tasks.extend(tasks);
     }

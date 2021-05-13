@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use kube::api::DynamicObject;
 use kube::api::GroupVersionKind;
@@ -33,8 +34,9 @@ type ResourceMap = HashMap<GroupVersionKind, HashMap<ObjectKey, serde_json::Valu
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Clone)]
 pub struct Store {
-    objects: RwLock<ResourceMap>,
+    objects: Arc<RwLock<ResourceMap>>,
 }
 
 impl Default for Store {
@@ -47,7 +49,7 @@ impl Store {
     /// Initialize empty store.
     pub fn new() -> Self {
         Store {
-            objects: RwLock::new(HashMap::new()),
+            objects: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
