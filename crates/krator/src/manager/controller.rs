@@ -165,26 +165,26 @@ impl<O: Operator> ControllerBuilder<O> {
     /// Registers a validating webhook at the path "/$GROUP/$VERSION/$KIND".
     /// Multiple webhooks can be registered, but must be at different paths.
     #[cfg(feature = "admission-webhook")]
-    pub(crate) fn validates(self, _f: &WebhookFn<C>) -> Self {
+    pub(crate) fn validates(self, _f: &WebhookFn<O>) -> Self {
         todo!()
     }
 
     /// Registers a validating webhook at the supplied path.
     #[cfg(feature = "admission-webhook")]
-    pub(crate) fn validates_at_path(self, _path: &str, _f: &WebhookFn<C>) -> Self {
+    pub(crate) fn validates_at_path(self, _path: &str, _f: &WebhookFn<O>) -> Self {
         todo!()
     }
 
     /// Registers a mutating webhook at the path "/$GROUP/$VERSION/$KIND".
     /// Multiple webhooks can be registered, but must be at different paths.
     #[cfg(feature = "admission-webhook")]
-    pub(crate) fn mutates(self, _f: &WebhookFn<C>) -> Self {
+    pub(crate) fn mutates(self, _f: &WebhookFn<O>) -> Self {
         todo!()
     }
 
     /// Registers a mutating webhook at the supplied path.
     #[cfg(feature = "admission-webhook")]
-    pub(crate) fn mutates_at_path(self, _path: &str, _f: &WebhookFn<C>) -> Self {
+    pub(crate) fn mutates_at_path(self, _path: &str, _f: &WebhookFn<O>) -> Self {
         todo!()
     }
 }

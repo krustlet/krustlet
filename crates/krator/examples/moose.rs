@@ -1,6 +1,6 @@
 use krator::{
-    ControllerBuilder, Manager, Manifest, ObjectState, ObjectStatus, Operator, State, Transition,
-    TransitionTo,
+    ControllerBuilder, Manager, Manifest, ObjectState, ObjectStatus, Operator, OperatorRuntime,
+    State, Transition, TransitionTo,
 };
 use kube::api::{ListParams, Resource};
 use kube_derive::CustomResource;
@@ -529,11 +529,18 @@ Running moose example. Try to install some of the manifests provided in examples
     "#
     );
 
-    // Build Controller Manager
-    let mut manager = Manager::new(&kubeconfig);
-    let controller = ControllerBuilder::new(tracker).with_params(params);
-    manager.register_controller(controller);
-
-    manager.start().await;
+    // New API does not currently support Webhooks, so use legacy API if enabled.
+    #[cfg(feature = "admission-webhook")]
+    {
+        let mut runtime = OperatorRuntime::new(&kubeconfig, tracker, Some(params));
+        runtime.start().await;
+    }
+    #[cfg(not(feature = "admission-webhook"))]
+    {
+        let mut manager = Manager::new(&kubeconfig);
+        let controller = ControllerBuilder::new(tracker).with_params(params);
+        manager.register_controller(controller);
+        manager.start().await;
+    }
     Ok(())
 }

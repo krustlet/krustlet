@@ -13,7 +13,7 @@ pub mod util;
 #[cfg(feature = "admission-webhook")]
 pub mod admission;
 
-mod state;
+pub mod state;
 
 pub use manager::controller::{ControllerBuilder, Watchable};
 pub use manager::Manager;

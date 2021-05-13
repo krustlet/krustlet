@@ -2,12 +2,10 @@
 
 use std::sync::Arc;
 
-use futures::FutureExt;
-
 use crate::{operator::Operator, store::Store};
 
 pub mod tasks;
-use tasks::{controller_tasks, launch_watcher, OperatorTask};
+use tasks::{controller_tasks, OperatorTask};
 
 pub mod controller;
 use controller::{Controller, ControllerBuilder};
@@ -15,7 +13,11 @@ mod watch;
 
 /// Coordinates one or more controllers and the main entrypoint for starting
 /// the application.
-// #[derive(Default)]
+///
+/// # Warning
+///
+/// This API does not support admissions webhooks yet, please
+/// use [OperatorRuntime](crate::runtime::OperatorRuntime).
 pub struct Manager {
     kubeconfig: kube::Config,
     controllers: Vec<Controller>,
@@ -43,8 +45,12 @@ impl Manager {
     }
 
     /// Start the manager, blocking forever.
+    // TODO: Remove once webhooks are supported.
+    #[cfg(not(feature = "admission-webhook"))]
     pub async fn start(self) {
+        use futures::FutureExt;
         use std::convert::TryFrom;
+        use tasks::launch_watcher;
 
         let mut tasks = self.controller_tasks;
         let client = kube::Client::try_from(self.kubeconfig)
