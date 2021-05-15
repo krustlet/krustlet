@@ -22,13 +22,8 @@ type ResourceMap = HashMap<GroupVersionKind, HashMap<ObjectKey, serde_json::Valu
 /// #
 /// # #[tokio::main]
 /// # async fn main() -> anyhow::Result<()> {
-/// let store = Store::new();
+/// # let store = Store::new();
 ///
-/// let pod = Pod::default();
-///
-/// store.insert(Some("namespace"), "name", pod).await;
-///
-/// // Elsewhere
 /// let pod = store.get::<Pod>(Some("namespace"), "name").await?;
 ///
 /// # Ok(())
