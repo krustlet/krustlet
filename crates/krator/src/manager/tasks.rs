@@ -7,7 +7,7 @@ use futures::FutureExt;
 
 use kube::{api::GroupVersionKind, Resource};
 use kube_runtime::watcher::Event;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
     manager::controller::ControllerBuilder,
@@ -21,7 +21,7 @@ use super::Controller;
 
 /// Watcher task which forwards [DynamicEvent](crate::util::DynamicEvent) to
 /// a [channel](tokio::sync::mpsc::channel).
-pub async fn launch_watcher(client: kube::Client, handle: WatchHandle) {
+pub(crate) async fn launch_watcher(client: kube::Client, handle: WatchHandle) {
     use futures::StreamExt;
     use futures::TryStreamExt;
 
@@ -37,7 +37,7 @@ pub async fn launch_watcher(client: kube::Client, handle: WatchHandle) {
     loop {
         match watcher.try_next().await {
             Ok(Some(event)) => {
-                info!(
+                debug!(
                     event = ?PrettyEvent::from(&event),
                     "Handling event."
                 );
@@ -58,7 +58,7 @@ pub async fn launch_watcher(client: kube::Client, handle: WatchHandle) {
 ///
 /// A warning will be logged if a `DynamicEvent` cannot be converted to a
 /// concrete `Event<O::Manifest>`.
-pub async fn launch_runtime<O: Operator>(
+async fn launch_runtime<O: Operator>(
     kubeconfig: kube::Config,
     controller: O,
     mut rx: tokio::sync::mpsc::Receiver<DynamicEvent>,
@@ -73,7 +73,7 @@ pub async fn launch_runtime<O: Operator>(
     let mut runtime =
         crate::OperatorRuntime::new_with_store(&kubeconfig, controller, Default::default(), store);
     while let Some(dynamic_event) = rx.recv().await {
-        info!(
+        debug!(
             group=&*O::Manifest::group(&()),
             version=&*O::Manifest::version(&()),
             kind=&*O::Manifest::kind(&()),
@@ -114,13 +114,13 @@ pub async fn launch_runtime<O: Operator>(
 /// # TODO
 ///
 /// * Support notifications for `owned` resources.
-pub async fn launch_watches(
+async fn launch_watches(
     mut rx: tokio::sync::mpsc::Receiver<DynamicEvent>,
     gvk: GroupVersionKind,
     store: Store,
 ) {
     while let Some(dynamic_event) = rx.recv().await {
-        info!(
+        debug!(
             gvk=?gvk,
             event = ?PrettyEvent::from(&dynamic_event),
             "Handling watched event."
@@ -139,7 +139,7 @@ pub async fn launch_watches(
                     }
                 };
                 store
-                    .insert_any(namespace, name, &gvk, dynamic_object)
+                    .insert_gvk(namespace, name, &gvk, dynamic_object)
                     .await;
             }
             Event::Deleted(dynamic_object) => {
@@ -154,7 +154,7 @@ pub async fn launch_watches(
                         continue;
                     }
                 };
-                store.delete_any(namespace, name, &gvk).await;
+                store.delete_gvk(namespace, name, &gvk).await;
             }
             Event::Restarted(dynamic_objects) => {
                 store.reset(&gvk).await;
@@ -171,7 +171,7 @@ pub async fn launch_watches(
                         }
                     };
                     store
-                        .insert_any(namespace, name, &gvk, dynamic_object)
+                        .insert_gvk(namespace, name, &gvk, dynamic_object)
                         .await;
                 }
             }
@@ -181,7 +181,7 @@ pub async fn launch_watches(
 
 /// Shorthand for the opaque Future type of the tasks in this module. These
 /// must be `awaited` in order to execute.
-pub type OperatorTask = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
+pub(crate) type OperatorTask = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
 
 /// Generates the `async` tasks needed to run a single controller / operator.
 ///
@@ -189,7 +189,7 @@ pub type OperatorTask = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
 /// [ControllerBuilder](crate::manager::controller::ControllerBuilder) to a
 /// `Vec` of [OperatorTask](crate::manager::tasks::OperatorTask) which can be
 /// executed using [join_all](futures::future::join_all).
-pub fn controller_tasks<C: Operator>(
+pub(crate) fn controller_tasks<C: Operator>(
     kubeconfig: kube::Config,
     controller: ControllerBuilder<C>,
     store: Store,
@@ -197,21 +197,22 @@ pub fn controller_tasks<C: Operator>(
     let mut watches = Vec::new();
     let mut owns = Vec::new();
     let mut tasks = Vec::new();
+    let buffer = controller.buffer();
 
     // Create main Operator task.
-    let (manages, rx) = controller.manages().handle();
+    let (manages, rx) = controller.manages().handle(buffer);
     let task = launch_runtime(kubeconfig, controller.controller, rx, store.clone()).boxed();
     tasks.push(task);
 
     for watch in controller.watches {
-        let (handle, rx) = watch.handle();
+        let (handle, rx) = watch.handle(buffer);
         let task = launch_watches(rx, handle.watch.gvk.clone(), store.clone()).boxed();
         watches.push(handle);
         tasks.push(task);
     }
 
     for own in controller.owns {
-        let (handle, rx) = own.handle();
+        let (handle, rx) = own.handle(buffer);
         let task = launch_watches(rx, handle.watch.gvk.clone(), store.clone()).boxed();
         owns.push(handle);
         tasks.push(task);

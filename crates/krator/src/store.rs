@@ -53,22 +53,8 @@ impl Store {
         }
     }
 
-    /// Insert a new object.
-    pub async fn insert<R: 'static + k8s_openapi::Resource + Sync + Send + serde::Serialize>(
-        &self,
-        namespace: Option<&str>,
-        name: &str,
-        object: R,
-    ) {
-        let mut objects = self.objects.write().await;
-        let key = GroupVersionKind::gvk(R::GROUP, R::VERSION, R::KIND).unwrap();
-        let resource_objects = (*objects).entry(key).or_insert_with(HashMap::new);
-        let object_key = ObjectKey::new(namespace.map(|s| s.to_string()), name.to_string());
-        resource_objects.insert(object_key, serde_json::to_value(&object).unwrap());
-    }
-
     /// Clear cache for specified object kind.
-    pub async fn reset(&self, gvk: &GroupVersionKind) {
+    pub(crate) async fn reset(&self, gvk: &GroupVersionKind) {
         let mut objects = self.objects.write().await;
         let key = gvk.clone();
         let resource_objects = (*objects).entry(key).or_insert_with(HashMap::new);
@@ -76,7 +62,7 @@ impl Store {
     }
 
     /// Delete a cached object.
-    pub async fn delete_any(
+    pub(crate) async fn delete_gvk(
         &self,
         namespace: Option<String>,
         name: String,
@@ -90,7 +76,7 @@ impl Store {
     }
 
     /// Insert an object that has already been type erased.
-    pub async fn insert_any(
+    pub(crate) async fn insert_gvk(
         &self,
         namespace: Option<String>,
         name: String,
@@ -105,6 +91,19 @@ impl Store {
     }
 
     /// Fetch an object.
+    ///
+    /// # Errors
+    ///
+    /// * If the serialized data cannot be deserialized as type `R`.
+    ///
+    /// # Returns
+    ///
+    /// This method will return `None` if:
+    ///
+    /// * The resource `GroupVersionKind` is not being tracked by any watcher.
+    /// * Within the cache for the specific resource, the (namespace, name) key
+    ///   is not found.
+    // TODO: Multi-watcher cache conflict #603
     pub async fn get<R: 'static + k8s_openapi::Resource + Clone + DeserializeOwned>(
         &self,
         namespace: Option<&str>,

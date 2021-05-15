@@ -42,8 +42,6 @@ impl Manager {
     }
 
     /// Start the manager, blocking forever.
-    // TODO: Remove once webhooks are supported.
-    #[cfg(not(feature = "admission-webhook"))]
     pub async fn start(self) {
         use futures::FutureExt;
         use std::convert::TryFrom;

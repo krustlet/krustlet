@@ -20,6 +20,9 @@ pub struct ControllerBuilder<C: Operator> {
     /// Restrict our controller to act on objects that match specific list
     /// params.
     list_params: ListParams,
+    /// The buffer length for Tokio channels used to communicate between
+    /// watcher tasks and runtime tasks.
+    buffer: usize,
 }
 
 /// Trait alias for types which can be watched.
@@ -42,7 +45,18 @@ impl<O: Operator> ControllerBuilder<O> {
             owns: vec![],
             namespace: None,
             list_params: Default::default(),
+            buffer: 32,
         }
+    }
+
+    /// Change the length of buffer used for internal communication channels.
+    pub fn with_buffer(mut self, buffer: usize) -> Self {
+        self.buffer = buffer;
+        self
+    }
+
+    pub(crate) fn buffer(&self) -> usize {
+        self.buffer
     }
 
     /// Create watcher definition for the configured managed resource.

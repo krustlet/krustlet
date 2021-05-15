@@ -32,11 +32,12 @@ impl Watch {
 
     pub fn handle(
         self,
+        buffer: usize,
     ) -> (
         WatchHandle,
         tokio::sync::mpsc::Receiver<Event<DynamicObject>>,
     ) {
-        let (tx, rx) = tokio::sync::mpsc::channel(16);
+        let (tx, rx) = tokio::sync::mpsc::channel(buffer);
         let handle = WatchHandle { watch: self, tx };
         (handle, rx)
     }

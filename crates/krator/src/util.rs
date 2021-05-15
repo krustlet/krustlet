@@ -83,8 +83,8 @@ where
     R: DeserializeOwned,
 {
     // TODO: This sucks
-    let manifest = serde_json::to_string(&dynamic_object)?;
-    Ok(serde_json::from_str::<R>(&manifest)?)
+    let value = serde_json::to_value(&dynamic_object)?;
+    Ok(serde_json::from_value::<R>(value)?)
 }
 
 /// Convert [DynamicEvent](crate::util::DynamicEvent) to
