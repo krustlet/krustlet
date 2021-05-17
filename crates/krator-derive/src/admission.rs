@@ -25,7 +25,7 @@ where
 {
     let input: proc_macro2::TokenStream = input.into();
     let token_stream = match syn::parse2(input)
-        .and_then(|input| <T as CustomDerive>::parse(input))
+        .and_then(<T as CustomDerive>::parse)
         .and_then(<T as CustomDerive>::emit)
     {
         Ok(token_stream) => token_stream,
@@ -71,7 +71,7 @@ impl Parse for Features {
                         "service" => features.service = true,
                         "admission_webhook_config" => features.admission_webhook_config = true,
                         _ => {
-                            panic!(format!("WebhookAdmission attribute {} can only contain one or more of the following values: service, secret, admission_webhook_config", ATTRIBUTE_NAME))
+                            panic!("WebhookAdmission attribute {} can only contain one or more of the following values: service, secret, admission_webhook_config", ATTRIBUTE_NAME)
                         }
                     };
                 }
@@ -81,21 +81,16 @@ impl Parse for Features {
     }
 }
 
-fn get_features(attrs: &Vec<Attribute>) -> Features {
-    attrs
-        .into_iter()
-        .fold(Features::default(), |mut acc, ref attr| {
-            match parse_as_features_attr(attr) {
-                Some(features) => {
-                    acc.secret |= features.secret;
-                    acc.service |= features.service;
-                    acc.admission_webhook_config |= features.admission_webhook_config;
-                    acc.attributes_found |= features.attributes_found;
-                }
-                None => {}
-            };
-            acc
-        })
+fn get_features(attrs: &[Attribute]) -> Features {
+    attrs.iter().fold(Features::default(), |mut acc, ref attr| {
+        if let Some(features) = parse_as_features_attr(attr) {
+            acc.secret |= features.secret;
+            acc.service |= features.service;
+            acc.admission_webhook_config |= features.admission_webhook_config;
+            acc.attributes_found |= features.attributes_found;
+        }
+        acc
+    })
 }
 
 fn parse_as_features_attr(attr: &Attribute) -> Option<Features> {
@@ -130,7 +125,7 @@ impl CustomDerive for CustomResourceInfos {
         // Outputs
         let mut cri = CustomResourceInfos {
             name: "".to_string(),
-            features: features,
+            features,
         };
 
         let mut name: Option<String> = None;
@@ -153,23 +148,17 @@ impl CustomDerive for CustomResourceInfos {
             };
 
             for meta in metas {
-                match &meta {
-                    // key-value arguments
-                    syn::NestedMeta::Meta(syn::Meta::NameValue(meta)) => {
-                        if meta.path.is_ident("kind") {
-                            if let syn::Lit::Str(lit) = &meta.lit {
-                                name = Some(lit.value());
-                                break;
-                            } else {
-                                return Err(
-                                    r#"#[kube(kind = "...")] expects a string literal value"#,
-                                )
+                if let syn::NestedMeta::Meta(syn::Meta::NameValue(meta)) = &meta {
+                    if meta.path.is_ident("kind") {
+                        if let syn::Lit::Str(lit) = &meta.lit {
+                            name = Some(lit.value());
+                            break;
+                        } else {
+                            return Err(r#"#[kube(kind = "...")] expects a string literal value"#)
                                 .spanning(meta);
-                            }
                         }
-                    } // unknown arg
-                    _ => (),
-                };
+                    }
+                }
             }
         }
         cri.name = name.expect("kube macro must have property name set");
@@ -380,6 +369,6 @@ impl CustomDerive for CustomResourceInfos {
             }
         };
 
-        Ok(token_stream.into())
+        Ok(token_stream)
     }
 }
