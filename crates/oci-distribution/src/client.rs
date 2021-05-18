@@ -437,6 +437,8 @@ impl Client {
                 let digest = digest_header_value(&res)?;
                 let text = res.text().await?;
 
+                println!("Manifest Response: {}", text);
+
                 self.validate_image_manifest(&text).await?;
 
                 debug!("Parsing response as OciManifest: {}", text);
@@ -481,6 +483,36 @@ impl Client {
         }
 
         Ok(())
+    }
+
+    /// Pull a manifest and its config from the remote OCI Distribution service.
+    ///
+    /// The client will check if it's already been authenticated and if
+    /// not will attempt to do.
+    pub async fn pull_manifest_and_config(
+        &mut self,
+        image: &Reference,
+        auth: &RegistryAuth,
+    ) -> anyhow::Result<(OciManifest, String, String)> {
+        if !self.tokens.contains_key(image.registry()) {
+            self.auth(image, auth, &RegistryOperation::Pull).await?;
+        }
+
+        self._pull_manifest_and_config(image).await
+    }
+
+    async fn _pull_manifest_and_config(
+        &mut self,
+        image: &Reference,
+    ) -> anyhow::Result<(OciManifest, String, String)> {
+        let (manifest, digest) = self._pull_manifest(image).await?;
+
+        let mut out: Vec<u8> = Vec::new();
+        debug!("Pulling config layer");
+        self.pull_layer(image, &manifest.config.digest, &mut out)
+            .await?;
+
+        Ok((manifest, digest, String::from_utf8(out)?))
     }
 
     /// Pull a single layer from an OCI registry.
@@ -1247,6 +1279,23 @@ mod test {
             // The test on the manifest checks all fields. This is just a brief sanity check.
             assert_eq!(manifest.schema_version, 2);
             assert!(!manifest.layers.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn pull_manifest_and_config_public() {
+        for &image in TEST_IMAGES {
+            let reference = Reference::try_from(image).expect("failed to parse reference");
+            let mut c = Client::default();
+            let (manifest, _, config) = c
+                .pull_manifest_and_config(&reference, &RegistryAuth::Anonymous)
+                .await
+                .expect("pull manifest and config should not fail");
+
+            // The test on the manifest checks all fields. This is just a brief sanity check.
+            assert_eq!(manifest.schema_version, 2);
+            assert!(!manifest.layers.is_empty());
+            assert!(!config.is_empty());
         }
     }
 
