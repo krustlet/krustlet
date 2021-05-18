@@ -184,7 +184,7 @@ impl Client {
             self.auth(image, auth, &RegistryOperation::Pull).await?;
         }
 
-        let (manifest, digest) = self.pull_manifest(image).await?;
+        let (manifest, digest) = self._pull_manifest(image).await?;
 
         self.validate_layers(&manifest, accepted_media_types)
             .await?;
@@ -404,9 +404,25 @@ impl Client {
 
     /// Pull a manifest from the remote OCI Distribution service.
     ///
+    /// The client will check if it's already been authenticated and if
+    /// not will attempt to do.
+    pub async fn pull_manifest(
+        &mut self,
+        image: &Reference,
+        auth: &RegistryAuth,
+    ) -> anyhow::Result<(OciManifest, String)> {
+        if !self.tokens.contains_key(image.registry()) {
+            self.auth(image, auth, &RegistryOperation::Pull).await?;
+        }
+
+        self._pull_manifest(image).await
+    }
+
+    /// Pull a manifest from the remote OCI Distribution service.
+    ///
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
-    async fn pull_manifest(&self, image: &Reference) -> anyhow::Result<(OciManifest, String)> {
+    async fn _pull_manifest(&self, image: &Reference) -> anyhow::Result<(OciManifest, String)> {
         let url = self.to_v2_manifest_url(image);
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
@@ -1189,12 +1205,12 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_pull_manifest() {
+    async fn test_pull_manifest_private() {
         for &image in TEST_IMAGES {
             let reference = Reference::try_from(image).expect("failed to parse reference");
             // Currently, pull_manifest does not perform Authz, so this will fail.
             let c = Client::default();
-            c.pull_manifest(&reference)
+            c._pull_manifest(&reference)
                 .await
                 .expect_err("pull manifest should fail");
 
@@ -1208,7 +1224,23 @@ mod test {
             .await
             .expect("authenticated");
             let (manifest, _) = c
-                .pull_manifest(&reference)
+                ._pull_manifest(&reference)
+                .await
+                .expect("pull manifest should not fail");
+
+            // The test on the manifest checks all fields. This is just a brief sanity check.
+            assert_eq!(manifest.schema_version, 2);
+            assert!(!manifest.layers.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pull_manifest_public() {
+        for &image in TEST_IMAGES {
+            let reference = Reference::try_from(image).expect("failed to parse reference");
+            let mut c = Client::default();
+            let (manifest, _) = c
+                .pull_manifest(&reference, &RegistryAuth::Anonymous)
                 .await
                 .expect("pull manifest should not fail");
 
@@ -1264,7 +1296,7 @@ mod test {
             .await
             .expect("authenticated");
             let (manifest, _) = c
-                .pull_manifest(&reference)
+                ._pull_manifest(&reference)
                 .await
                 .expect("failed to pull manifest");
 
@@ -1485,7 +1517,7 @@ mod test {
             .expect("authenticated");
 
         let (manifest, _digest) = c
-            .pull_manifest(&image)
+            ._pull_manifest(&image)
             .await
             .expect("failed to pull manifest");
 
@@ -1537,7 +1569,7 @@ mod test {
             .expect("failed to pull pushed image");
 
         let (pulled_manifest, _digest) = c
-            .pull_manifest(&push_image)
+            ._pull_manifest(&push_image)
             .await
             .expect("failed to pull pushed image manifest");
 
