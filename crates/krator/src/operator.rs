@@ -1,8 +1,7 @@
-use kube::Resource;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::fmt::Debug;
 
+use crate::manager::controller::Watchable;
 use crate::object::{ObjectState, ObjectStatus};
 use crate::state::{SharedState, State};
 use crate::Manifest;
@@ -14,16 +13,7 @@ use crate::admission::AdmissionTls;
 /// Interface for creating an operator.
 pub trait Operator: 'static + Sync + Send {
     /// Type representing the specification of the object in the Kubernetes API.
-    type Manifest: Resource<DynamicType = ()>
-        + Clone
-        + DeserializeOwned
-        + Serialize
-        + Send
-        + 'static
-        + Debug
-        + Sync
-        + Default
-        + std::marker::Unpin;
+    type Manifest: Watchable + Serialize + Debug + Sync + Default + std::marker::Unpin;
 
     /// Type describing the status of the object.
     type Status: ObjectStatus + Send;

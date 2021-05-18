@@ -1,4 +1,5 @@
 //! Basic implementation of Kubernetes Admission API
+use crate::ObjectState;
 use crate::Operator;
 use anyhow::{bail, ensure, Context};
 use k8s_openapi::{
@@ -317,6 +318,12 @@ impl AdmissionTls {
         )
     }
 }
+
+/// Type signature for validating or mutating webhooks.
+pub type WebhookFn<C> = dyn Fn(
+    <C as Operator>::Manifest,
+    <<C as Operator>::ObjectState as ObjectState>::SharedState,
+) -> AdmissionResult<<C as Operator>::Manifest>;
 
 /// Result of admission hook.
 #[allow(clippy::large_enum_variant)]

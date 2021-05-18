@@ -1,3 +1,4 @@
+use crate::store::Store;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use tokio::sync::watch::{channel, Receiver, Sender};
@@ -16,6 +17,9 @@ where
     // there shouldn't be any issue with these two being "out of sync".
     rx: Receiver<T>,
     stream: WatchStream<T>,
+    /// Use to access [Store](crate::store::Store) and read watched resource
+    /// cache.
+    pub store: Store,
 }
 
 impl<T> Clone for Manifest<T>
@@ -26,6 +30,7 @@ where
         Manifest {
             rx: self.rx.clone(),
             stream: WatchStream::new(self.rx.clone()),
+            store: self.store.clone(),
         }
     }
 }
@@ -35,10 +40,10 @@ where
     T: Clone + Sync + Send + std::marker::Unpin + 'static,
 {
     /// Create a new Manifest wrapper from the initial object manifest.
-    pub fn new(inner: T) -> (Sender<T>, Self) {
+    pub fn new(inner: T, store: Store) -> (Sender<T>, Self) {
         let (tx, rx) = channel(inner);
         let stream = WatchStream::new(rx.clone());
-        (tx, Manifest { rx, stream })
+        (tx, Manifest { rx, stream, store })
     }
 
     /// Obtain a clone of the latest object manifest.
@@ -72,7 +77,7 @@ mod test {
 
     #[tokio::test]
     async fn test() {
-        let (tx, manifest_1) = Manifest::new(0);
+        let (tx, manifest_1) = Manifest::new(0, Store::new());
         let manifest_2 = manifest_1.clone();
         let manifest_3 = manifest_1.clone();
 

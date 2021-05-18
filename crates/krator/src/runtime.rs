@@ -20,39 +20,8 @@ use crate::object::ObjectKey;
 use crate::object::ObjectState;
 use crate::operator::Operator;
 use crate::state::{run_to_completion, SharedState};
-
-#[derive(Debug)]
-enum PrettyEvent {
-    Applied {
-        name: String,
-        namespace: Option<String>,
-    },
-    Deleted {
-        name: String,
-        namespace: Option<String>,
-    },
-    Restarted {
-        count: usize,
-    },
-}
-
-impl<R: Resource> From<&Event<R>> for PrettyEvent {
-    fn from(event: &Event<R>) -> Self {
-        match event {
-            Event::Applied(object) => PrettyEvent::Applied {
-                name: object.name(),
-                namespace: object.namespace(),
-            },
-            Event::Deleted(object) => PrettyEvent::Deleted {
-                name: object.name(),
-                namespace: object.namespace(),
-            },
-            Event::Restarted(objects) => PrettyEvent::Restarted {
-                count: objects.len(),
-            },
-        }
-    }
-}
+use crate::store::Store;
+use crate::util::PrettyEvent;
 
 #[derive(Debug)]
 enum ObjectEvent<R> {
@@ -88,6 +57,7 @@ pub struct OperatorRuntime<O: Operator> {
     operator: Arc<O>,
     list_params: ListParams,
     signal: Option<Arc<AtomicBool>>,
+    store: Store,
 }
 
 impl<O: Operator> OperatorRuntime<O> {
@@ -102,6 +72,26 @@ impl<O: Operator> OperatorRuntime<O> {
             operator: Arc::new(operator),
             list_params,
             signal: None,
+            store: Store::new(),
+        }
+    }
+
+    pub(crate) fn new_with_store(
+        kubeconfig: &kube::Config,
+        operator: O,
+        params: Option<ListParams>,
+        store: Store,
+    ) -> Self {
+        let client = Client::try_from(kubeconfig.clone())
+            .expect("Unable to create kube::Client from kubeconfig.");
+        let list_params = params.unwrap_or_default();
+        OperatorRuntime {
+            client,
+            handlers: HashMap::new(),
+            operator: Arc::new(operator),
+            list_params,
+            signal: None,
+            store,
         }
     }
 
@@ -149,7 +139,7 @@ impl<O: Operator> OperatorRuntime<O> {
                 Ok(())
             }
             ObjectEvent::Deleted { name, namespace } => {
-                let key = ObjectKey::new(&name, &namespace);
+                let key = ObjectKey::new(namespace.clone(), name.clone());
                 if let Some(sender) = self.handlers.remove(&key) {
                     debug!(
                         "Removed event handler for object {} in namespace {:?}.",
@@ -179,7 +169,7 @@ impl<O: Operator> OperatorRuntime<O> {
 
         let object_state = self.operator.initialize_object_state(&manifest).await?;
 
-        let (manifest_tx, manifest_rx) = Manifest::new(manifest);
+        let (manifest_tx, manifest_rx) = Manifest::new(manifest, self.store.clone());
         let reflector_deleted = Arc::clone(&deleted);
         let reflector_deleted_event = Arc::clone(&deleted_event);
 
@@ -283,7 +273,7 @@ impl<O: Operator> OperatorRuntime<O> {
         skip(self, event),
         fields(event=?PrettyEvent::from(&event))
     )]
-    async fn handle_event(&mut self, event: Event<O::Manifest>) {
+    pub(crate) async fn handle_event(&mut self, event: Event<O::Manifest>) {
         if let Some(ref signal) = self.signal {
             if matches!(event, kube_runtime::watcher::Event::Applied(_))
                 && signal.load(Ordering::Relaxed)

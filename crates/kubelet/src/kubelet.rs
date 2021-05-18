@@ -16,7 +16,7 @@ use tokio::signal::ctrl_c;
 use tokio::task;
 use tracing::{error, info, warn};
 
-use krator::OperatorRuntime;
+use krator::{ControllerBuilder, Manager};
 
 /// A Kubelet server backed by a given `Provider`.
 ///
@@ -109,8 +109,12 @@ impl<P: Provider> Kubelet<P> {
             field_selector: Some(node_selector),
             ..Default::default()
         };
-        let mut operator_runtime = OperatorRuntime::new(&self.kube_config, operator, Some(params));
-        let operator_task = operator_runtime.start().fuse().boxed();
+
+        let controller_builder = ControllerBuilder::new(operator).with_params(params);
+        let mut manager = Manager::new(&self.kube_config);
+        manager.register_controller(controller_builder);
+        let operator_task = manager.start().boxed();
+
         // These must all be running for graceful shutdown. An error here exits ungracefully.
         let core = Box::pin(async {
             tokio::select! {

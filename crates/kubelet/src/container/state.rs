@@ -58,7 +58,7 @@ pub async fn run_to_completion<S: ObjectState<Manifest = Container, Status = Sta
         ),
     };
 
-    let (container_tx, container_rx) = Manifest::new(initial_container);
+    let (container_tx, container_rx) = Manifest::new(initial_container, pod.store.clone());
     let mut task_pod = pod.clone();
     let task_container_name = container_name.clone();
     tokio::spawn(
