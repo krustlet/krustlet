@@ -180,7 +180,7 @@ impl Client {
     ) -> anyhow::Result<ImageData> {
         debug!("Pulling image: {:?}", image);
 
-        if !self.tokens.contains_key(image.registry()) {
+        if !self.tokens.contains_key(&self.get_registry(image)) {
             self.auth(image, auth, &RegistryOperation::Pull).await?;
         }
 
@@ -230,7 +230,7 @@ impl Client {
     ) -> anyhow::Result<String> {
         debug!("Pushing image: {:?}", image_ref);
 
-        if !self.tokens.contains_key(image_ref.registry()) {
+        if !self.tokens.contains_key(&self.get_registry(&image_ref)) {
             self.auth(image_ref, auth, &RegistryOperation::Push).await?;
         }
 
@@ -279,8 +279,8 @@ impl Client {
         // The version request will tell us where to go.
         let url = format!(
             "{}://{}/v2/",
-            self.config.protocol.scheme_for(image.registry()),
-            image.registry()
+            self.config.protocol.scheme_for(&self.get_registry(image)),
+            self.get_registry(&image)
         );
         let res = self.client.get(&url).send().await?;
         let dist_hdr = match res.headers().get(reqwest::header::WWW_AUTHENTICATE) {
@@ -331,7 +331,7 @@ impl Client {
                 let token: RegistryToken = serde_json::from_str(&text)
                     .context("Failed to decode registry token from auth request")?;
                 debug!("Succesfully authorized for image '{:?}'", image);
-                self.tokens.insert(image.registry().to_owned(), token);
+                self.tokens.insert(self.get_registry(image), token);
                 Ok(())
             }
             _ => {
@@ -351,7 +351,7 @@ impl Client {
         image: &Reference,
         auth: &RegistryAuth,
     ) -> anyhow::Result<String> {
-        if !self.tokens.contains_key(image.registry()) {
+        if !self.tokens.contains_key(&self.get_registry(image)) {
             self.auth(image, auth, &RegistryOperation::Pull).await?;
         }
 
@@ -533,7 +533,7 @@ impl Client {
         digest: &str,
         mut out: T,
     ) -> anyhow::Result<()> {
-        let url = self.to_v2_blob_url(image.registry(), image.repository(), digest);
+        let url = self.to_v2_blob_url(&self.get_registry(image), image.repository(), digest);
         let mut stream = self
             .client
             .get(&url)
@@ -704,8 +704,8 @@ impl Client {
         if lh.starts_with("/v2/") {
             Ok(format!(
                 "{}://{}{}",
-                self.config.protocol.scheme_for(image.registry()),
-                image.registry(),
+                self.config.protocol.scheme_for(&self.get_registry(image)),
+                self.get_registry(image),
                 lh
             ))
         } else {
@@ -754,16 +754,20 @@ impl Client {
         if let Some(digest) = reference.digest() {
             format!(
                 "{}://{}/v2/{}/manifests/{}",
-                self.config.protocol.scheme_for(reference.registry()),
-                reference.registry(),
+                self.config
+                    .protocol
+                    .scheme_for(&self.get_registry(reference)),
+                self.get_registry(reference),
                 reference.repository(),
                 digest,
             )
         } else {
             format!(
                 "{}://{}/v2/{}/manifests/{}",
-                self.config.protocol.scheme_for(reference.registry()),
-                reference.registry(),
+                self.config
+                    .protocol
+                    .scheme_for(&self.get_registry(reference)),
+                self.get_registry(reference),
                 reference.repository(),
                 reference.tag().unwrap_or("latest")
             )
@@ -783,7 +787,11 @@ impl Client {
 
     /// Convert a Reference to a v2 blob upload URL.
     fn to_v2_blob_upload_url(&self, reference: &Reference) -> String {
-        self.to_v2_blob_url(&reference.registry(), &reference.repository(), "uploads/")
+        self.to_v2_blob_url(
+            &self.get_registry(reference),
+            &reference.repository(),
+            "uploads/",
+        )
     }
 
     /// Generate the headers necessary for authentication.
@@ -795,10 +803,22 @@ impl Client {
         let mut headers = HeaderMap::new();
         headers.insert("Accept", "application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json".parse().unwrap());
 
-        if let Some(token) = self.tokens.get(image.registry()) {
+        if let Some(token) = self.tokens.get(&self.get_registry(&image)) {
             headers.insert("Authorization", token.bearer_token().parse().unwrap());
         }
         headers
+    }
+
+    /// Get the registry address of a given `Reference`.
+    ///
+    /// Some registries, such as docker.io, uses a different address for the actual
+    /// registry. This function implements such redirection.
+    fn get_registry(&self, image: &Reference) -> String {
+        let registry = image.registry();
+        match registry {
+            "docker.io" => "registry-1.docker.io".into(),
+            _ => registry.into(),
+        }
     }
 }
 
@@ -967,6 +987,7 @@ mod test {
         HELLO_IMAGE_DIGEST,
         HELLO_IMAGE_TAG_AND_DIGEST,
     ];
+    const DOCKER_IO_IMAGE: &str = "docker.io/library/hello-world:latest";
 
     #[test]
     fn test_to_v2_blob_url() {
@@ -1638,5 +1659,20 @@ mod test {
         assert_eq!(manifest.media_type, pulled_manifest.media_type);
         assert_eq!(manifest.schema_version, pulled_manifest.schema_version);
         assert_eq!(manifest.config.digest, pulled_manifest.config.digest);
+    }
+
+    #[tokio::test]
+    async fn test_pull_docker_io() {
+        let reference = Reference::try_from(DOCKER_IO_IMAGE).expect("failed to parse reference");
+        let mut c = Client::default();
+        let err = c
+            .pull_manifest(&reference, &RegistryAuth::Anonymous)
+            .await
+            .unwrap_err();
+        // we don't support manifest list so pulling failed but this error means it did downloaded it
+        assert_eq!(
+            format!("{}", err),
+            "unsupported media type: application/vnd.docker.distribution.manifest.list.v2+json"
+        );
     }
 }
