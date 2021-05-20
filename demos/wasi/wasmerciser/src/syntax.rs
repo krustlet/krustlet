@@ -4,7 +4,7 @@ pub enum Command {
     AssertNotExists(DataSource),
     AssertValue(Variable, Value),
     Read(DataSource, Variable),
-    Write(Value, DataDestination),
+    Write(ValueSource, DataDestination),
 }
 
 #[derive(Debug, PartialEq)]
@@ -29,6 +29,14 @@ pub enum Variable {
 pub enum Value {
     Variable(String),
     Literal(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ValueSource {
+    Variable(String),
+    Literal(String),
+    File(String),
+    Env(String),
 }
 
 impl Command {
@@ -98,7 +106,7 @@ impl Command {
             // TODO: enforce that the separator is 'to'
             [_, CommandToken::Bracketed(value), CommandToken::Plain(_sep), CommandToken::Bracketed(destination)] => {
                 Ok(Self::Write(
-                    Value::parse(value.to_string())?,
+                    ValueSource::parse(value.to_string())?,
                     DataDestination::parse(destination.to_string())?,
                 ))
             }
@@ -147,6 +155,19 @@ impl Value {
             ["var", v] => Ok(Self::Variable(v.to_string())),
             ["lit", t] => Ok(Self::Literal(t.to_string())),
             _ => Err(anyhow::anyhow!("invalid value")),
+        }
+    }
+}
+
+impl ValueSource {
+    fn parse(text: String) -> anyhow::Result<Self> {
+        let bits: Vec<&str> = text.split(':').collect();
+        match bits[..] {
+            ["file", f] => Ok(Self::File(f.to_string())),
+            ["env", e] => Ok(Self::Env(e.to_string())),
+            ["var", v] => Ok(Self::Variable(v.to_string())),
+            ["lit", t] => Ok(Self::Literal(t.to_string())),
+            _ => Err(anyhow::anyhow!("invalid data source")),
         }
     }
 }
