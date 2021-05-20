@@ -7,6 +7,30 @@ pub enum Command {
     Write(Value, DataDestination),
 }
 
+#[derive(Debug, PartialEq)]
+pub enum DataSource {
+    File(String),
+    Env(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum DataDestination {
+    File(String),
+    StdOut,
+    StdErr,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Variable {
+    Variable(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Value {
+    Variable(String),
+    Literal(String),
+}
+
 impl Command {
     pub fn parse(text: String) -> anyhow::Result<Self> {
         let tokens = CommandToken::parse(text)?;
@@ -81,30 +105,6 @@ impl Command {
             _ => Err(anyhow::anyhow!("unexpected read command syntax")),
         }
     }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum DataSource {
-    File(String),
-    Env(String),
-}
-
-#[derive(Debug, PartialEq)]
-pub enum DataDestination {
-    File(String),
-    StdOut,
-    StdErr,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Variable {
-    Variable(String),
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Value {
-    Variable(String),
-    Literal(String),
 }
 
 impl DataSource {
