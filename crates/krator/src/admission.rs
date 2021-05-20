@@ -260,16 +260,16 @@ impl Display for WebhookResources {
     }
 }
 
-/// AdmissionTls wraps certificate and private key for the admission webhook server. If you read
-/// the secret from a Kubernets secret, use the convenience function [AdmissionTls::from()]
-pub struct AdmissionTls {
+/// AdmissionTLS wraps certificate and private key for the admission webhook server. If you read
+/// the secret from a Kubernets secret, use the convenience function [AdmissionTLS::from()]
+pub struct AdmissionTLS {
     /// tls certificate
     pub cert: String,
     /// tls private key
     pub private_key: String,
 }
 
-impl AdmissionTls {
+impl AdmissionTLS {
     /// Convenience function to extract secret data from a Kubernetes secret of type `tls`. It supports
     /// Secrets that have secrets set via `data` or `string_data`
     pub fn from(s: &Secret) -> anyhow::Result<Self> {
@@ -295,7 +295,7 @@ impl AdmissionTls {
             let cert_byte_string = data.get(TLS_CRT).context(error_msg(TLS_CRT))?;
             let key_byte_string = data.get(TLS_KEY).context(error_msg(TLS_KEY))?;
 
-            return Ok(AdmissionTls {
+            return Ok(AdmissionTLS {
                 cert: std::str::from_utf8(&cert_byte_string.0)?.to_string(),
                 private_key: std::str::from_utf8(&key_byte_string.0)?.to_string(),
             });
@@ -305,7 +305,7 @@ impl AdmissionTls {
             let cert = string_data.get(TLS_CRT).context(error_msg(TLS_CRT))?;
             let key = string_data.get(TLS_KEY).context(error_msg(TLS_KEY))?;
 
-            return Ok(AdmissionTls {
+            return Ok(AdmissionTLS {
                 cert: cert.to_string(),
                 private_key: key.to_string(),
             });
@@ -540,7 +540,7 @@ pub(crate) async fn endpoint<O: Operator>(operator: Arc<O>) {
     let tls = operator
         .admission_hook_tls()
         .await
-        .expect("getting webhook tls AdmissionTls failed");
+        .expect("getting webhook tls AdmissionTLS failed");
 
     use warp::Filter;
     let routes = warp::any()
