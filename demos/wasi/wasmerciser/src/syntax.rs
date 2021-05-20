@@ -68,10 +68,12 @@ impl Command {
 
     fn parse_assert_not_exists(tokens: &[CommandToken]) -> anyhow::Result<Self> {
         match &tokens[..] {
-            [_, CommandToken::Bracketed(source)] => {
-                Ok(Self::AssertNotExists(DataSource::parse(source.to_string())?))
-            }
-            _ => Err(anyhow::anyhow!("unexpected assert_not_exists command syntax")),
+            [_, CommandToken::Bracketed(source)] => Ok(Self::AssertNotExists(DataSource::parse(
+                source.to_string(),
+            )?)),
+            _ => Err(anyhow::anyhow!(
+                "unexpected assert_not_exists command syntax"
+            )),
         }
     }
 
@@ -121,7 +123,10 @@ impl DataSource {
         match bits[..] {
             ["file", f] => Ok(DataSource::File(f.to_string())),
             ["env", e] => Ok(DataSource::Env(e.to_string())),
-            _ => Err(anyhow::anyhow!("invalid data source: {} (must be file/env)", &text)),
+            _ => Err(anyhow::anyhow!(
+                "invalid data source: {} (must be file/env)",
+                &text
+            )),
         }
     }
 }
@@ -133,7 +138,10 @@ impl DataDestination {
             ["file", f] => Ok(DataDestination::File(f.to_string())),
             ["stm", "stdout"] => Ok(DataDestination::StdOut),
             ["stm", "stderr"] => Ok(DataDestination::StdErr),
-            _ => Err(anyhow::anyhow!("invalid write destination: {} (must be file/stm)", &text)),
+            _ => Err(anyhow::anyhow!(
+                "invalid write destination: {} (must be file/stm)",
+                &text
+            )),
         }
     }
 }
@@ -143,7 +151,10 @@ impl Variable {
         let bits: Vec<&str> = text.split(':').collect();
         match bits[..] {
             ["var", v] => Ok(Variable::Variable(v.to_string())),
-            _ => Err(anyhow::anyhow!("invalid variable reference: {} (must be var)", &text)),
+            _ => Err(anyhow::anyhow!(
+                "invalid variable reference: {} (must be var)",
+                &text
+            )),
         }
     }
 }
@@ -154,7 +165,10 @@ impl Value {
         match bits[..] {
             ["var", v] => Ok(Self::Variable(v.to_string())),
             ["lit", t] => Ok(Self::Literal(t.to_string())),
-            _ => Err(anyhow::anyhow!("invalid value: {} (must be var/lit)", &text)),
+            _ => Err(anyhow::anyhow!(
+                "invalid value: {} (must be var/lit)",
+                &text
+            )),
         }
     }
 }
@@ -167,7 +181,10 @@ impl ValueSource {
             ["env", e] => Ok(Self::Env(e.to_string())),
             ["var", v] => Ok(Self::Variable(v.to_string())),
             ["lit", t] => Ok(Self::Literal(t.to_string())),
-            _ => Err(anyhow::anyhow!("invalid value source: {} (must be file/env/var/lit)", &text)),
+            _ => Err(anyhow::anyhow!(
+                "invalid value source: {} (must be file/env/var/lit)",
+                &text
+            )),
         }
     }
 }
