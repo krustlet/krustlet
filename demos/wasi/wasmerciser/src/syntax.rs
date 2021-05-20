@@ -84,7 +84,7 @@ impl Command {
                     Value::parse(value.to_string())?,
                 ))
             }
-            _ => Err(anyhow::anyhow!("unexpected read command syntax")),
+            _ => Err(anyhow::anyhow!("unexpected assert_value command syntax")),
         }
     }
 
@@ -110,7 +110,7 @@ impl Command {
                     DataDestination::parse(destination.to_string())?,
                 ))
             }
-            _ => Err(anyhow::anyhow!("unexpected read command syntax")),
+            _ => Err(anyhow::anyhow!("unexpected write command syntax")),
         }
     }
 }
