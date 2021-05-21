@@ -477,6 +477,7 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "admission-webhook")]
     {
         use anyhow::Context;
+        use kube::api::ResourceExt;
 
         let client = kube::Client::try_default().await?;
         let api = kube::Api::<k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition>::all(client.to_owned());

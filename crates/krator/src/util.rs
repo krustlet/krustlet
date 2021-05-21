@@ -1,6 +1,6 @@
 //! Provides some utility functions for Krator.
 
-use kube::{api::DynamicObject, Resource};
+use kube::{api::DynamicObject, api::ResourceExt, Resource};
 use kube_runtime::watcher::Event;
 use serde::de::DeserializeOwned;
 

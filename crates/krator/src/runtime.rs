@@ -9,7 +9,7 @@ use tokio::sync::Notify;
 use tracing::{debug, error, info, trace, warn};
 
 use kube::{
-    api::{Api, ListParams, Resource},
+    api::{Api, ListParams, Resource, ResourceExt},
     Client,
 };
 use kube_runtime::watcher;

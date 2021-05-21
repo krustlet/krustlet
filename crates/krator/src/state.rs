@@ -1,6 +1,6 @@
 //! Used to define a state machine.
 
-use kube::api::{PatchParams, Resource};
+use kube::api::{PatchParams, Resource, ResourceExt};
 use kube::Api;
 use serde::de::DeserializeOwned;
 use tracing::Instrument;

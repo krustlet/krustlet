@@ -1,4 +1,4 @@
-use kube::api::Resource;
+use kube::api::{Resource, ResourceExt};
 
 #[derive(Hash, Eq, PartialEq, Clone)]
 pub struct ObjectKey {

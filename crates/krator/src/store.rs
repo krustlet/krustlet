@@ -105,7 +105,7 @@ impl Store {
         name: &str,
     ) -> anyhow::Result<Option<R>> {
         let objects = self.objects.read().await;
-        let key = GroupVersionKind::gvk(R::GROUP, R::VERSION, R::KIND).unwrap();
+        let key = GroupVersionKind::gvk(R::GROUP, R::VERSION, R::KIND);
         let object_key = ObjectKey::new(namespace.map(|s| s.to_string()), name.to_string());
         match (*objects).get(&key) {
             Some(resource_objects) => match resource_objects.get(&object_key) {
