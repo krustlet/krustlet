@@ -36,13 +36,13 @@ features = ["docs", "admission-webhook"]
 rustdoc-args = ["--cfg", "feature=\"docs\""]
 
 [dev-dependencies]
-kube-runtime = { version = "0.52", default-features = false }
-kube-derive = "0.52"
+kube-runtime = { version = "0.55", default-features = false }
+kube-derive = "0.55"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.8"
 schemars = "0.8.0"
 anyhow = { version = "1.0.40" }
 k8s-openapi = { version = "0.11", default-features = false, features = ["v1_20"] }
-kube = { version = "0.52", default-features = false, features = ["derive", "native-tls"] }
+kube = { version = "0.55", default-features = false, features = ["derive", "native-tls"] }
 rcgen = { version = "0.8.9", features = ["x509-parser", "pem"] }

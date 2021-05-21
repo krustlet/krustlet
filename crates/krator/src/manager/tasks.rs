@@ -5,7 +5,7 @@ use std::future::Future;
 
 use futures::FutureExt;
 
-use kube::{api::GroupVersionKind, Resource};
+use kube::{api::ApiResource, api::GroupVersionKind, Resource};
 use kube_runtime::watcher::Event;
 use tracing::{debug, info, warn};
 
@@ -30,8 +30,12 @@ pub(crate) async fn launch_watcher(client: kube::Client, handle: WatchHandle) {
         "Starting Watcher."
     );
     let api: kube::Api<kube::api::DynamicObject> = match handle.watch.namespace {
-        Some(namespace) => kube::Api::namespaced_with(client, &namespace, &handle.watch.gvk),
-        None => kube::Api::all_with(client, &handle.watch.gvk),
+        Some(namespace) => kube::Api::namespaced_with(
+            client,
+            &namespace,
+            &ApiResource::from_gvk(&handle.watch.gvk),
+        ),
+        None => kube::Api::all_with(client, &ApiResource::from_gvk(&handle.watch.gvk)),
     };
     let mut watcher = kube_runtime::watcher(api, handle.watch.list_params).boxed();
     loop {

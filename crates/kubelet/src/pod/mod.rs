@@ -15,7 +15,7 @@ use k8s_openapi::api::core::v1::{
     Container as KubeContainer, Pod as KubePod, Volume as KubeVolume,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-use kube::api::Resource;
+use kube::api::{Resource, ResourceExt};
 use serde::Deserialize;
 use serde::Serialize;
 

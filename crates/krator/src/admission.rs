@@ -11,7 +11,7 @@ use k8s_openapi::{
 };
 use k8s_openapi::{apimachinery::pkg::apis::meta::v1::OwnerReference, Metadata};
 use kube::{
-    api::{ObjectMeta, Patch, PatchParams},
+    api::{ObjectMeta, Patch, PatchParams, ResourceExt},
     Client, Resource,
 };
 use serde::{Deserialize, Serialize};

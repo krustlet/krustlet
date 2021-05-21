@@ -22,7 +22,7 @@ impl Watch {
         namespace: Option<String>,
         list_params: ListParams,
     ) -> Self {
-        let gvk = GroupVersionKind::gvk(&R::group(&()), &R::version(&()), &R::kind(&())).unwrap();
+        let gvk = GroupVersionKind::gvk(&R::group(&()), &R::version(&()), &R::kind(&()));
         Watch {
             gvk,
             namespace,
