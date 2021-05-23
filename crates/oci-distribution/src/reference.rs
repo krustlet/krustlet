@@ -8,15 +8,24 @@ use crate::regexp;
 /// NAME_TOTAL_LENGTH_MAX is the maximum total number of characters in a repository name.
 const NAME_TOTAL_LENGTH_MAX: usize = 255;
 
+/// Reasons that parsing a string as a Reference can fail.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ParseError {
+    /// Invalid checksum digest format
     DigestInvalidFormat,
+    /// Invalid checksum digest length
     DigestInvalidLength,
+    /// Unsupported digest algorithm
     DigestUnsupported,
+    /// Repository name must be lowercase
     NameContainsUppercase,
+    /// Repository name must have at least one component
     NameEmpty,
+    /// Repository name must not be more than NAME_TOTAL_LENGTH_MAX characters
     NameTooLong,
+    /// Invalid reference format
     ReferenceInvalidFormat,
+    /// Invalid tag format
     TagInvalidFormat,
 }
 
