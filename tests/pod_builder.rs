@@ -65,7 +65,7 @@ fn wasmerciser_container(
     };
     let container: Container = serde_json::from_value(json!({
         "name": spec.name,
-        "image": format!("{}.azurecr.io/wasmerciser:v0.2.0", registry),
+        "image": format!("{}.azurecr.io/wasmerciser:v0.3.0", registry),
         "args": spec.args,
         "volumeMounts": volume_mounts,
     }))?;
