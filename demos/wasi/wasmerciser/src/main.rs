@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 mod syntax;
 
-use crate::syntax::{Command, DataDestination, DataSource, Value, Variable};
+use crate::syntax::{Command, DataDestination, DataSource, Value, ValueSource, Variable};
 
 fn main() -> anyhow::Result<()> {
     println!("INF: Let's wasmercise!");
@@ -151,7 +151,7 @@ impl<E: Environment> TestContext<E> {
             Command::AssertNotExists(source) => self.assert_not_exists(source),
             Command::AssertValue(variable, value) => self.assert_value(variable, value),
             Command::Read(source, destination) => self.read(source, destination),
-            Command::Write(value, destination) => self.write(value, destination),
+            Command::Write(source, destination) => self.write(source, destination),
         }
     }
 
@@ -196,10 +196,12 @@ impl<E: Environment> TestContext<E> {
         Ok(())
     }
 
-    fn write(&mut self, value: Value, destination: DataDestination) -> anyhow::Result<()> {
-        let content = match value {
-            Value::Variable(name) => self.get_variable(&name)?,
-            Value::Literal(text) => text,
+    fn write(&mut self, source: ValueSource, destination: DataDestination) -> anyhow::Result<()> {
+        let content = match source {
+            ValueSource::Variable(name) => self.get_variable(&name)?,
+            ValueSource::Literal(text) => text,
+            ValueSource::File(path) => self.file_content(PathBuf::from(path))?,
+            ValueSource::Env(name) => self.env_var_value(name)?,
         };
         match destination {
             DataDestination::File(path) => self

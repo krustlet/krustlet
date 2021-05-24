@@ -4,7 +4,39 @@ pub enum Command {
     AssertNotExists(DataSource),
     AssertValue(Variable, Value),
     Read(DataSource, Variable),
-    Write(Value, DataDestination),
+    Write(ValueSource, DataDestination),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum DataSource {
+    File(String),
+    Env(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum DataDestination {
+    File(String),
+    StdOut,
+    StdErr,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Variable {
+    Variable(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Value {
+    Variable(String),
+    Literal(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ValueSource {
+    Variable(String),
+    Literal(String),
+    File(String),
+    Env(String),
 }
 
 impl Command {
@@ -36,10 +68,12 @@ impl Command {
 
     fn parse_assert_not_exists(tokens: &[CommandToken]) -> anyhow::Result<Self> {
         match &tokens[..] {
-            [_, CommandToken::Bracketed(source)] => {
-                Ok(Self::AssertNotExists(DataSource::parse(source.to_string())?))
-            }
-            _ => Err(anyhow::anyhow!("unexpected assert_not_exists command syntax")),
+            [_, CommandToken::Bracketed(source)] => Ok(Self::AssertNotExists(DataSource::parse(
+                source.to_string(),
+            )?)),
+            _ => Err(anyhow::anyhow!(
+                "unexpected assert_not_exists command syntax"
+            )),
         }
     }
 
@@ -52,7 +86,7 @@ impl Command {
                     Value::parse(value.to_string())?,
                 ))
             }
-            _ => Err(anyhow::anyhow!("unexpected read command syntax")),
+            _ => Err(anyhow::anyhow!("unexpected assert_value command syntax")),
         }
     }
 
@@ -74,37 +108,13 @@ impl Command {
             // TODO: enforce that the separator is 'to'
             [_, CommandToken::Bracketed(value), CommandToken::Plain(_sep), CommandToken::Bracketed(destination)] => {
                 Ok(Self::Write(
-                    Value::parse(value.to_string())?,
+                    ValueSource::parse(value.to_string())?,
                     DataDestination::parse(destination.to_string())?,
                 ))
             }
-            _ => Err(anyhow::anyhow!("unexpected read command syntax")),
+            _ => Err(anyhow::anyhow!("unexpected write command syntax")),
         }
     }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum DataSource {
-    File(String),
-    Env(String),
-}
-
-#[derive(Debug, PartialEq)]
-pub enum DataDestination {
-    File(String),
-    StdOut,
-    StdErr,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Variable {
-    Variable(String),
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Value {
-    Variable(String),
-    Literal(String),
 }
 
 impl DataSource {
@@ -113,7 +123,10 @@ impl DataSource {
         match bits[..] {
             ["file", f] => Ok(DataSource::File(f.to_string())),
             ["env", e] => Ok(DataSource::Env(e.to_string())),
-            _ => Err(anyhow::anyhow!("invalid data source")),
+            _ => Err(anyhow::anyhow!(
+                "invalid data source: {} (must be file/env)",
+                &text
+            )),
         }
     }
 }
@@ -125,7 +138,10 @@ impl DataDestination {
             ["file", f] => Ok(DataDestination::File(f.to_string())),
             ["stm", "stdout"] => Ok(DataDestination::StdOut),
             ["stm", "stderr"] => Ok(DataDestination::StdErr),
-            _ => Err(anyhow::anyhow!("invalid write destination")),
+            _ => Err(anyhow::anyhow!(
+                "invalid write destination: {} (must be file/stm)",
+                &text
+            )),
         }
     }
 }
@@ -135,7 +151,10 @@ impl Variable {
         let bits: Vec<&str> = text.split(':').collect();
         match bits[..] {
             ["var", v] => Ok(Variable::Variable(v.to_string())),
-            _ => Err(anyhow::anyhow!("invalid variable reference")),
+            _ => Err(anyhow::anyhow!(
+                "invalid variable reference: {} (must be var)",
+                &text
+            )),
         }
     }
 }
@@ -146,7 +165,26 @@ impl Value {
         match bits[..] {
             ["var", v] => Ok(Self::Variable(v.to_string())),
             ["lit", t] => Ok(Self::Literal(t.to_string())),
-            _ => Err(anyhow::anyhow!("invalid value")),
+            _ => Err(anyhow::anyhow!(
+                "invalid value: {} (must be var/lit)",
+                &text
+            )),
+        }
+    }
+}
+
+impl ValueSource {
+    fn parse(text: String) -> anyhow::Result<Self> {
+        let bits: Vec<&str> = text.split(':').collect();
+        match bits[..] {
+            ["file", f] => Ok(Self::File(f.to_string())),
+            ["env", e] => Ok(Self::Env(e.to_string())),
+            ["var", v] => Ok(Self::Variable(v.to_string())),
+            ["lit", t] => Ok(Self::Literal(t.to_string())),
+            _ => Err(anyhow::anyhow!(
+                "invalid value source: {} (must be file/env/var/lit)",
+                &text
+            )),
         }
     }
 }
