@@ -437,8 +437,6 @@ impl Client {
                 let digest = digest_header_value(&res)?;
                 let text = res.text().await?;
 
-                println!("Manifest Response: {}", text);
-
                 self.validate_image_manifest(&text).await?;
 
                 debug!("Parsing response as OciManifest: {}", text);
