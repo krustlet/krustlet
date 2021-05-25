@@ -406,6 +406,9 @@ impl Client {
     ///
     /// The client will check if it's already been authenticated and if
     /// not will attempt to do.
+    ///
+    /// A Tuple is returned containing the [OciManifest](crate::manifest::OciManifest)
+    /// and the manifest content digest hash.
     pub async fn pull_manifest(
         &mut self,
         image: &Reference,
@@ -487,6 +490,10 @@ impl Client {
     ///
     /// The client will check if it's already been authenticated and if
     /// not will attempt to do.
+    ///
+    /// A Tuple is returned containing the [OciManifest](crate::manifest::OciManifest),
+    /// the manifest content digest hash and the contents of the manifests config layer
+    /// as a String.
     pub async fn pull_manifest_and_config(
         &mut self,
         image: &Reference,
