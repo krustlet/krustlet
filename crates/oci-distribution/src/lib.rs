@@ -11,7 +11,7 @@ pub mod secrets;
 #[doc(inline)]
 pub use client::Client;
 #[doc(inline)]
-pub use reference::Reference;
+pub use reference::{ParseError, Reference};
 
 #[macro_use]
 extern crate lazy_static;
