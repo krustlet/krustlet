@@ -7,7 +7,7 @@ use crate::device_plugin_api::v1beta1::{
 };
 use crate::grpc_sock;
 use super::{DeviceIdMap, DeviceMap, HEALTHY, UNHEALTHY};
-use super::node_patcher::{listen_and_patch, NodeStatusPatcher, NodeStatusPatcherImpl};
+use super::node_patcher::{listen_and_patch, NodeStatusPatcher};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -278,13 +278,8 @@ impl Registration for DeviceManager {
 }
 
 pub async fn serve_device_manager(device_manager: DeviceManager, update_node_status_receiver: mpsc::Receiver<()>, client: &kube::Client, node_name: &str) -> anyhow::Result<()>  {
-    let node_patcher = NodeStatusPatcherImpl{ devices: device_manager.devices.clone()};
-    internal_serve_device_manager(device_manager, node_patcher, update_node_status_receiver, client, node_name).await
-}
-
-/// TODO
-pub async fn internal_serve_device_manager(device_manager: DeviceManager, node_patcher: impl NodeStatusPatcher, update_node_status_receiver: mpsc::Receiver<()>, client: &kube::Client, node_name: &str) -> anyhow::Result<()>  {
-     // TODO determin if need to create socket (and delete any previous ones)
+    let node_patcher = NodeStatusPatcher{ devices: device_manager.devices.clone()};
+    // TODO determine if need to create socket (and delete any previous ones)
     let manager_socket = device_manager.plugin_dir.join(PLUGIN_MANGER_SOCKET_NAME);
     let socket = grpc_sock::server::Socket::new(&manager_socket).expect("couldn't make manager socket");
     
@@ -307,25 +302,22 @@ pub async fn internal_serve_device_manager(device_manager: DeviceManager, node_p
     Ok(())
 }
 
-
 #[cfg(test)]
-mod manager_tests {
-    use super::super::node_patcher::MockNodeStatusPatcher;
+pub mod manager_tests {
     use super::*;
     use crate::device_plugin_api::v1beta1::{
         device_plugin_server::{DevicePlugin, DevicePluginServer}, AllocateRequest, AllocateResponse, DevicePluginOptions,
-    DeviceSpec, Empty, ListAndWatchResponse, Mount, PreStartContainerRequest, PreferredAllocationRequest, PreferredAllocationResponse,
+    Empty, ListAndWatchResponse, PreStartContainerRequest, PreferredAllocationRequest, PreferredAllocationResponse,
     PreStartContainerResponse, registration_client,
     };
-    use futures::{pin_mut, Stream, StreamExt};
+    use futures::{pin_mut, Stream};
     use http::{Request as HttpRequest, Response as HttpResponse};
     use hyper::Body;
     use kube::{Client, Service};
     use std::pin::Pin;
     use tokio::sync::watch;
-    use tempfile::Builder;
-    use tonic::{Code, Request, Response, Status};
-    use tower_test::{mock, mock::Handle};
+    use tonic::{Request, Response, Status};
+    use tower_test::mock;
 
     /// Mock Device Plugin for testing the DeviceManager
     /// Sends a new list of devices to the DeviceManager whenever it's `devices_receiver` 
@@ -426,7 +418,7 @@ mod manager_tests {
     /// It verifies the request and always returns a fake Node.
     /// Returns a client that will reference this mock service and the task the service is running on.
     /// TODO: Decide whether to test node status
-    async fn create_mock_kube_service(node_name: &str) -> (Client, tokio::task::JoinHandle<()>) {
+    pub async fn create_mock_kube_service(node_name: &str) -> (Client, tokio::task::JoinHandle<()>) {
         // Mock client as inspired by this thread on kube-rs crate: https://github.com/clux/kube-rs/issues/429
         let (mock_service, handle) = mock::pair::<HttpRequest<Body>, HttpResponse<Body>>();
         let service = Service::new(mock_service);
