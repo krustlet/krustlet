@@ -74,8 +74,9 @@
 //! };
 //! ```
 
-#![deny(missing_docs)]
-#![cfg_attr(feature = "docs", feature(doc_cfg))]
+// TODO: @kate uncomment
+// #![deny(missing_docs)]
+// #![cfg_attr(feature = "docs", feature(doc_cfg))]
 
 mod bootstrapping;
 mod config_interpreter;
@@ -91,6 +92,12 @@ pub(crate) mod plugin_registration_api {
         tonic::include_proto!("pluginregistration");
     }
 }
+pub(crate) mod device_plugin_api {
+    pub(crate) mod v1beta1 {
+        pub const API_VERSION: &str = "v1beta1";
+        tonic::include_proto!("v1beta1");
+    }
+}
 pub(crate) mod fs_watch;
 pub(crate) mod grpc_sock;
 #[cfg(target_family = "windows")]
@@ -100,6 +107,7 @@ pub(crate) mod mio_uds_windows;
 pub mod backoff;
 pub mod config;
 pub mod container;
+pub mod device_plugin_manager;
 pub mod handle;
 pub mod log;
 pub mod node;

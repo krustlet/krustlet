@@ -1,6 +1,7 @@
 ///! This library contains code for running a kubelet. Use this to create a new
 ///! Kubelet with a specific handler (called a `Provider`)
 use crate::config::Config;
+use crate::device_plugin_manager::manager;
 use crate::node;
 use crate::operator::PodOperator;
 use crate::plugin_watcher::PluginRegistry;
@@ -13,10 +14,14 @@ use std::convert::TryFrom;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::signal::ctrl_c;
+use tokio::sync::mpsc;
 use tokio::task;
 use tracing::{error, info, warn};
 
 use krator::{ControllerBuilder, Manager};
+
+/// TODO
+const UPDATE_NODE_STATUS_CHANNEL_SIZE: usize = 15;
 
 /// A Kubelet server backed by a given `Provider`.
 ///
@@ -77,6 +82,11 @@ impl<P: Provider> Kubelet<P> {
         .fuse()
         .boxed();
 
+        let (update_node_status_sender, update_node_status_receiver) = mpsc::channel(UPDATE_NODE_STATUS_CHANNEL_SIZE);
+        let manager = manager::DeviceManager::default(update_node_status_sender);
+        // TODO: add provider function for configuring device manager use and path
+        let device_manager = start_device_manager(Some(manager), Some(update_node_status_receiver), &client, &self.config.node_name).fuse().boxed();
+
         // Start the webserver
         let webserver = start_webserver(self.provider.clone(), &self.config.server_config)
             .fuse()
@@ -99,6 +109,9 @@ impl<P: Provider> Kubelet<P> {
                 },
                 res = plugin_registrar => if let Err(e) = res {
                     error!(error = %e, "Plugin registrar task completed with error");
+                },
+                res = device_manager => if let Err(e) = res {
+                    error!("Device manager task completed with error {:?}", &e);
                 }
             };
             // Use relaxed ordering because we just need other tasks to eventually catch the signal.
@@ -170,6 +183,27 @@ async fn start_plugin_registry(registrar: Option<Arc<PluginRegistry>>) -> anyhow
     match registrar {
         Some(r) => r.run().await,
         // Do nothing; just poll forever and "pretend" that a plugin watcher is running
+        None => {
+            task::spawn(async {
+                loop {
+                    // We run a delay here so we don't waste time on NOOP CPU cycles
+                    tokio::time::sleep(tokio::time::Duration::from_secs(std::u64::MAX)).await;
+                }
+            })
+            .map_err(anyhow::Error::from)
+            .await
+        }
+    }
+}
+
+/// Starts a DeviceManager 
+async fn start_device_manager(device_manager: Option<manager::DeviceManager>, update_node_status_receiver: Option<mpsc::Receiver<()>>, client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
+    match device_manager {
+        Some(m) => {
+            let update_node_status_receiver = update_node_status_receiver.ok_or_else(|| anyhow::Error::msg("Provider provided some DeviceManager but no receiver for triggering node status updates"))?;
+            manager::serve_device_manager(m, update_node_status_receiver, client, node_name).await
+        },
+        // Do nothing; just poll forever and "pretend" that a DeviceManager is running
         None => {
             task::spawn(async {
                 loop {
