@@ -1,0 +1,55 @@
+name: Build CSI Test Binaries
+on:
+  workflow_dispatch:
+    inputs:
+      registrar-version:
+        description: "Git tag you wish to build for the Node Driver Registrar"
+        required: true
+        default: "v2.2.0"
+      provisioner-version:
+        description: "Git tag you wish to build for the External Provisioner"
+        required: true
+        default: "v2.2.1"
+jobs:
+  # TODO: Once support is added for all distros (see
+  # https://github.com/kubernetes-csi/node-driver-registrar/pull/133). We should
+  # update this job to support building artifacts for all supported targets
+  registrar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Repo
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.registrar-version }} https://github.com/kubernetes-csi/node-driver-registrar.git
+      - name: Build
+        env:
+          GOOS: linux
+        run: |
+          cd node-driver-registrar
+          go build  -a -ldflags ' -X main.version=${{ github.event.inputs.registrar-version }} -extldflags "-static"' -o "./bin/csi-node-driver-registrar-linux" ./cmd/csi-node-driver-registrar
+      - name: Upload
+        uses: bacongobbler/azure-blob-storage-upload@main
+        with:
+          source_dir: bin
+          container_name: releases
+          connection_string: ${{ secrets.AzureStorageConnectionString }}
+          sync: false
+
+  provisioner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Repo
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.provisioner-version }} https://github.com/kubernetes-csi/external-provisioner.git
+      - name: Build
+        env:
+          GOOS: linux
+        run: |
+          cd external-provisioner
+          go build  -a -ldflags ' -X main.version=${{ github.event.inputs.provisioner-version }} -extldflags "-static"' -o ./bin/csi-provisioner-linux ./cmd/csi-provisioner`
+      - name: Upload
+        uses: bacongobbler/azure-blob-storage-upload@main
+        with:
+          source_dir: bin
+          container_name: releases
+          connection_string: ${{ secrets.AzureStorageConnectionString }}
+          sync: false
