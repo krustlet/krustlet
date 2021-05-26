@@ -29,7 +29,7 @@ jobs:
       - name: Upload
         uses: bacongobbler/azure-blob-storage-upload@main
         with:
-          source_dir: bin
+          source_dir: node-driver-registrar/bin
           container_name: releases
           connection_string: ${{ secrets.AzureStorageConnectionString }}
           sync: false
@@ -45,11 +45,11 @@ jobs:
           GOOS: linux
         run: |
           cd external-provisioner
-          go build  -a -ldflags ' -X main.version=${{ github.event.inputs.provisioner-version }} -extldflags "-static"' -o ./bin/csi-provisioner-linux ./cmd/csi-provisioner`
+          go build  -a -ldflags ' -X main.version=${{ github.event.inputs.provisioner-version }} -extldflags "-static"' -o ./bin/csi-provisioner-linux ./cmd/csi-provisioner
       - name: Upload
         uses: bacongobbler/azure-blob-storage-upload@main
         with:
-          source_dir: bin
+          source_dir: external-provisioner/bin
           container_name: releases
           connection_string: ${{ secrets.AzureStorageConnectionString }}
           sync: false
