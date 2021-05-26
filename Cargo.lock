@@ -1572,10 +1572,12 @@ name = "krustlet"
 version = "0.7.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "compiletest_rs",
  "dirs-next",
  "futures",
  "hostname",
+ "k8s-csi",
  "k8s-openapi",
  "krator",
  "kube",
@@ -1589,6 +1591,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio 1.2.0",
+ "tonic",
  "tracing-subscriber",
  "wasi-provider",
 ]

@@ -1,5 +1,7 @@
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Pod, Secret};
+#[cfg(target_os = "linux")]
+use k8s_openapi::api::{core::v1::PersistentVolumeClaim, storage::v1::StorageClass};
 use kube::api::{Api, DeleteParams, PostParams};
 use serde_json::json;
 
@@ -8,12 +10,20 @@ pub enum TestResource {
     Secret(String),
     ConfigMap(String),
     Pod(String),
+    #[cfg(target_os = "linux")]
+    StorageClass(String),
+    #[cfg(target_os = "linux")]
+    Pvc(String),
 }
 
 #[derive(Clone, Debug)]
 pub enum TestResourceSpec {
     Secret(String, Vec<(String, String)>),
     ConfigMap(String, Vec<(String, String)>),
+    #[cfg(target_os = "linux")]
+    StorageClass(String, String), // resource name, provisioner
+    #[cfg(target_os = "linux")]
+    Pvc(String, String), // name, storage class
 }
 
 impl TestResourceSpec {
@@ -144,12 +154,9 @@ impl TestResourceManager {
     }
 
     async fn set_up_resource(&mut self, resource: &TestResourceSpec) -> anyhow::Result<()> {
-        let secrets: Api<Secret> = Api::namespaced(self.client.clone(), self.namespace());
-        let config_maps: Api<ConfigMap> = Api::namespaced(self.client.clone(), self.namespace());
-
         match resource {
             TestResourceSpec::Secret(resource_name, entries) => {
-                secrets
+                Api::<Secret>::namespaced(self.client.clone(), self.namespace())
                     .create(
                         &PostParams::default(),
                         &serde_json::from_value(json!({
@@ -165,7 +172,7 @@ impl TestResourceManager {
                 self.push(TestResource::Secret(resource_name.to_owned()));
             }
             TestResourceSpec::ConfigMap(resource_name, entries) => {
-                config_maps
+                Api::<ConfigMap>::namespaced(self.client.clone(), self.namespace())
                     .create(
                         &PostParams::default(),
                         &serde_json::from_value(json!({
@@ -180,6 +187,53 @@ impl TestResourceManager {
                     .await?;
                 self.push(TestResource::ConfigMap(resource_name.to_owned()));
             }
+            #[cfg(target_os = "linux")]
+            TestResourceSpec::StorageClass(resource_name, provisioner) => {
+                Api::<StorageClass>::all(self.client.clone())
+                    .create(
+                        &PostParams::default(),
+                        &serde_json::from_value(json!({
+                            "apiVersion": "storage.k8s.io/v1",
+                            "kind": "StorageClass",
+                            "metadata": {
+                                "name": resource_name
+                            },
+                            "provisioner": provisioner,
+                            "reclaimPolicy": "Delete",
+                            "volumeBindingMode": "Immediate",
+                            "allowVolumeExpansion": true
+                        }))?,
+                    )
+                    .await?;
+                self.push(TestResource::StorageClass(resource_name.to_owned()));
+            }
+            #[cfg(target_os = "linux")]
+            TestResourceSpec::Pvc(resource_name, storage_class) => {
+                Api::<PersistentVolumeClaim>::namespaced(self.client.clone(), self.namespace())
+                    .create(
+                        &PostParams::default(),
+                        &serde_json::from_value(json!({
+                            "apiVersion": "v1",
+                            "kind": "PersistentVolumeClaim",
+                            "metadata": {
+                                "name": resource_name
+                            },
+                            "spec": {
+                                "accessModes": [
+                                    "ReadWriteOnce",
+                                ],
+                                "resources": {
+                                    "requests": {
+                                        "storage": "1Gi",
+                                    }
+                                },
+                                "storageClassName": storage_class
+                            }
+                        }))?,
+                    )
+                    .await?;
+                self.push(TestResource::Pvc(resource_name.to_owned()));
+            }
         }
 
         Ok(())
@@ -189,7 +243,11 @@ impl TestResourceManager {
 // This needs to be a free function to work nicely with the Drop
 // implementation
 async fn clean_up_resources(resources: Vec<TestResource>, namespace: String) -> anyhow::Result<()> {
-    let mut cleanup_error_opts: Vec<_> = futures::stream::iter(resources)
+    // Reverse the order of cleanup. Often times resources that are dependent on others (like PVC on
+    // a storage class) should be deleted first. Since they would have been created first and pushed
+    // onto the Vec in that order, the naive/simple way to do this is to just reverse, which should
+    // work for tests
+    let mut cleanup_error_opts: Vec<_> = futures::stream::iter(resources.into_iter().rev())
         .then(|r| clean_up_resource(r, &namespace))
         .collect()
         .await;
@@ -218,26 +276,36 @@ async fn clean_up_resource(resource: TestResource, namespace: &str) -> Option<St
         .await
         .expect("Failed to create client");
 
-    let secrets: Api<Secret> = Api::namespaced(client.clone(), namespace);
-    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), namespace);
-    let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
-
     match resource {
-        TestResource::Secret(name) => secrets
+        TestResource::Secret(name) => Api::<Secret>::namespaced(client.clone(), namespace)
             .delete(&name, &DeleteParams::default())
             .await
             .err()
             .map(|e| format!("secret {} ({})", name, e)),
-        TestResource::ConfigMap(name) => config_maps
+        TestResource::ConfigMap(name) => Api::<ConfigMap>::namespaced(client.clone(), namespace)
             .delete(&name, &DeleteParams::default())
             .await
             .err()
             .map(|e| format!("configmap {} ({})", name, e)),
-        TestResource::Pod(name) => pods
+        TestResource::Pod(name) => Api::<Pod>::namespaced(client.clone(), namespace)
             .delete(&name, &DeleteParams::default())
             .await
             .err()
             .map(|e| format!("pod {} ({})", name, e)),
+        #[cfg(target_os = "linux")]
+        TestResource::StorageClass(name) => Api::<StorageClass>::all(client.clone())
+            .delete(&name, &DeleteParams::default())
+            .await
+            .err()
+            .map(|e| format!("storage class {} ({})", name, e)),
+        #[cfg(target_os = "linux")]
+        TestResource::Pvc(name) => {
+            Api::<PersistentVolumeClaim>::namespaced(client.clone(), namespace)
+                .delete(&name, &DeleteParams::default())
+                .await
+                .err()
+                .map(|e| format!("PVC {} ({})", name, e))
+        }
     }
 }
 

@@ -118,6 +118,8 @@ jobs:
           pathInArchive: just
       - name: Get NODE_IP
         run: echo "KRUSTLET_NODE_IP=$(ip addr ls eth0 | awk '/inet / {split($2, ary, /\//); print ary[1]}')" >> $GITHUB_ENV
+      - name: Apply RBAC rules for CSI tests
+        run: kubectl apply -f tests/csi/rbac.yaml
       - name: Run e2e tests (full)
         if: ${{ github.event_name == 'push' }}
         env:

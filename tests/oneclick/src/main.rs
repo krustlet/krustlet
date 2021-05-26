@@ -12,6 +12,7 @@ const EXIT_CODE_TESTS_FAILED: i32 = 1;
 const EXIT_CODE_NEED_MANUAL_CLEANUP: i32 = 2;
 const EXIT_CODE_BUILD_FAILED: i32 = 3;
 const LOG_DIR: &str = "oneclick-logs";
+const NODE_NAME: &str = "krustlet-wasi";
 
 fn main() {
     println!("Ensuring all binaries are built...");
@@ -381,7 +382,7 @@ impl OwnedChildProcess {
     fn terminate(&mut self) -> anyhow::Result<()> {
         match self.exited() {
             Ok(true) | Err(_) => {
-                eprintln!("Krutlet already exited.");
+                eprintln!("Krustlet already exited.");
                 return Ok(());
             }
             Ok(false) => (),
@@ -419,7 +420,7 @@ impl Drop for OwnedChildProcess {
 fn run_tests(readiness: BootstrapReadiness) -> anyhow::Result<()> {
     std::fs::create_dir_all(LOG_DIR)?;
     let wasi_process_result = launch_kubelet(
-        "krustlet-wasi",
+        NODE_NAME,
         "wasi",
         3001,
         matches!(readiness, BootstrapReadiness::NeedBootstrapAndApprove),
@@ -439,7 +440,7 @@ fn run_tests(readiness: BootstrapReadiness) -> anyhow::Result<()> {
     let test_result = run_test_suite(&mut wasi_process);
 
     if matches!(test_result, Err(_)) {
-        warn_if_premature_exit(&mut wasi_process, "krustlet-wasi");
+        warn_if_premature_exit(&mut wasi_process, NODE_NAME);
         // TODO: ideally we shouldn't have to wait for termination before getting logs
         match wasi_process.exited() {
             Ok(true) | Err(_) => (),

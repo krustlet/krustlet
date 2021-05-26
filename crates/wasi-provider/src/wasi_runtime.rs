@@ -156,7 +156,7 @@ impl WasiRuntime {
 
         let name = self.name.clone();
         let handle = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-            let span = tracing::trace_span!("wasmtime_module_run", %name);
+            let span = tracing::info_span!("wasmtime_module_run", %name);
             let _enter = span.enter();
             // Log this info here so it isn't on _every_ log line
             trace!(env = ?data.env, args = ?data.args, dirs = ?data.dirs, "Starting setup of wasmtime module");
