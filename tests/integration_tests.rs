@@ -1,12 +1,17 @@
 use k8s_openapi::api::core::v1::{Node, Pod, Taint};
-use kube::api::{Api, PostParams};
+use kube::api::{Api, DeleteParams, PostParams};
 use serde_json::json;
 
 mod assert;
+#[cfg(target_os = "linux")]
+mod csi;
 mod expectations;
 mod pod_builder;
 mod pod_setup;
 mod test_resource_manager;
+
+const NODE_NAME: &str = "krustlet-wasi";
+
 use expectations::{assert_container_statuses, ContainerStatusExpectation};
 use pod_builder::{
     wasmerciser_pod, WasmerciserContainerSpec, WasmerciserVolumeSource, WasmerciserVolumeSpec,
@@ -85,6 +90,10 @@ const LOGGY_POD: &str = "loggy-pod";
 const INITY_WASI_POD: &str = "hello-wasi-with-inits";
 const FAILY_INITS_POD: &str = "faily-inits-pod";
 const PRIVATE_REGISTRY_POD: &str = "private-registry-pod";
+#[cfg(target_os = "linux")]
+const PVC_MOUNT_POD: &str = "pvc-mount-pod";
+#[cfg(target_os = "linux")]
+const HOSTPATH_PROVISIONER: &str = "mock.csi.krustlet.dev";
 
 async fn create_wasi_pod(
     client: kube::Client,
@@ -517,7 +526,7 @@ async fn set_up_test(
 async fn test_wasi_node_should_verify() -> anyhow::Result<()> {
     let client = kube::Client::try_default().await?;
     let nodes: Api<Node> = Api::all(client);
-    let node = nodes.get("krustlet-wasi").await?;
+    let node = nodes.get(NODE_NAME).await?;
 
     verify_wasi_node(node).await;
 
@@ -748,6 +757,101 @@ async fn test_pull_from_private_registry() -> anyhow::Result<()> {
     assert::pod_container_log_contains(&pods, PRIVATE_REGISTRY_POD, "floofycat", r#"slats"#)
         .await?;
     assert::pod_container_log_contains(&pods, PRIVATE_REGISTRY_POD, "neatcat", r#"kiki"#).await?;
+
+    Ok(())
+}
+
+// Workaround so we have a single name but a static string (so it works with the rest of the
+// wasmerciser stuff)
+#[cfg(target_os = "linux")]
+const PVC_NAME: &str = "pvc-vol";
+
+#[cfg(target_os = "linux")]
+async fn create_pvc_mount_pod(
+    client: kube::Client,
+    pods: &Api<Pod>,
+    resource_manager: &mut TestResourceManager,
+) -> anyhow::Result<()> {
+    let containers = vec![WasmerciserContainerSpec::named("pvc-test").with_args(&[
+        "write(lit:hammond)to(file:/sgc/general.txt)",
+        "read(file:/sgc/general.txt)to(var:myfile)",
+        "write(var:myfile)to(stm:stdout)",
+    ])];
+
+    let volumes = vec![WasmerciserVolumeSpec {
+        volume_name: PVC_NAME,
+        mount_path: "/sgc",
+        source: WasmerciserVolumeSource::Pvc(PVC_NAME),
+    }];
+
+    wasmercise_wasi(
+        PVC_MOUNT_POD,
+        client,
+        pods,
+        vec![],
+        containers,
+        volumes,
+        OnFailure::Panic,
+        resource_manager,
+    )
+    .await
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_pod_mounts_with_pvc() -> anyhow::Result<()> {
+    let test_ns = "wasi-e2e-pod-mounts-with-pvc";
+    let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
+
+    // Setup the csi things
+
+    let csi_runner = csi::setup::launch_csi_things(NODE_NAME).await?;
+
+    resource_manager
+        .set_up_resources(vec![
+            // storage class needs a unique name since it isn't namespaced, so just reuse the namespace name
+            TestResourceSpec::StorageClass(test_ns.to_owned(), HOSTPATH_PROVISIONER.to_owned()),
+            TestResourceSpec::Pvc(PVC_NAME.to_owned(), test_ns.to_owned()),
+        ])
+        .await?;
+
+    create_pvc_mount_pod(client.clone(), &pods, &mut resource_manager).await?;
+
+    assert::pod_exited_successfully(&pods, PVC_MOUNT_POD).await?;
+
+    // This is just a sanity check that the volume actually gets attached
+    // properly as all it is doing is just writing to a local directory
+    assert::pod_container_log_contains(&pods, PVC_MOUNT_POD, "pvc-test", r#"hammond"#).await?;
+
+    // Make sure that the CSI driver was called as intended
+    assert!(
+        *csi_runner.mock.node_publish_called.read().await,
+        "node_publish was not called"
+    );
+
+    // Manually delete the pod so that the unpublish call happens
+    pods.delete(PVC_MOUNT_POD, &DeleteParams::default()).await?;
+
+    // Sometimes the pod delete/cleanup can take a bit (particularly in CI), so
+    // just try to check the condition several times over a 5s interval before
+    // failing
+    let mut called = false;
+    for _ in 1..6 {
+        if *csi_runner.mock.node_unpublish_called.read().await {
+            called = true;
+            break;
+        } else {
+            println!(
+                "Pod {} has not yet finished cleanup. Will retry in 1s",
+                PVC_MOUNT_POD
+            );
+        }
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    }
+
+    if !called {
+        panic!("node_unpublish was not called");
+    }
 
     Ok(())
 }

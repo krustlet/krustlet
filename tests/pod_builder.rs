@@ -45,6 +45,8 @@ pub enum WasmerciserVolumeSource {
     ConfigMapItems(&'static str, Vec<(&'static str, &'static str)>),
     Secret(&'static str),
     SecretItems(&'static str, Vec<(&'static str, &'static str)>),
+    #[cfg(target_os = "linux")]
+    Pvc(&'static str),
 }
 
 const DEFAULT_TEST_REGISTRY: &str = "webassembly";
@@ -133,6 +135,17 @@ fn wasmerciser_volume(
                 "secret": {
                     "secretName": name,
                     "items": items.iter().map(|(key, path)| json!({"key": key, "path": path})).collect::<Vec<_>>(),
+                }
+            }))?;
+
+            Ok((volume, None))
+        }
+        #[cfg(target_os = "linux")]
+        WasmerciserVolumeSource::Pvc(pvc_name) => {
+            let volume: Volume = serde_json::from_value(json!({
+                "name": spec.volume_name,
+                "persistentVolumeClaim": {
+                    "claimName": pvc_name
                 }
             }))?;
 

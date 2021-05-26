@@ -1,4 +1,9 @@
-use k8s_openapi::api::core::v1::{Namespace, Pod};
+use std::fmt::Display;
+
+use k8s_openapi::api::{
+    core::v1::{Namespace, Pod},
+    storage::v1::StorageClass,
+};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::Metadata;
 use kube::api::{Api, DeleteParams, ListParams};
@@ -7,7 +12,7 @@ const E2E_NS_PREFIXES: &[&str] = &["wasi-e2e"];
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
-    let result = smite_all_integration_test_pods().await;
+    let result = smite_all_integration_test_resources().await;
 
     match &result {
         Ok(message) => println!("{}", message),
@@ -17,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
     result.map(|_| ())
 }
 
-async fn smite_all_integration_test_pods() -> anyhow::Result<&'static str> {
+async fn smite_all_integration_test_resources() -> anyhow::Result<&'static str> {
     let client = match kube::Client::try_default().await {
         Ok(c) => c,
         Err(e) => {
@@ -29,11 +34,12 @@ async fn smite_all_integration_test_pods() -> anyhow::Result<&'static str> {
     };
 
     let namespaces = list_e2e_namespaces(client.clone()).await?;
+    let storageclasses = list_storageclasses(client.clone()).await?;
 
-    if namespaces.is_empty() {
-        return Ok("No e2e namespaces found");
+    if namespaces.is_empty() && storageclasses.is_empty() {
+        return Ok("No e2e namespaces or StorageClasses found");
     }
-    if !confirm_smite(&namespaces) {
+    if !confirm_smite(&namespaces, &storageclasses) {
         return Ok("Operation cancelled");
     }
 
@@ -49,17 +55,16 @@ async fn smite_all_integration_test_pods() -> anyhow::Result<&'static str> {
 
     println!("Requested force-delete of all pods; requesting delete of namespaces...");
 
-    let ns_smite_operations = namespaces
-        .iter()
-        .map(|ns| smite_namespace(client.clone(), ns));
-    let ns_smite_results = futures::future::join_all(ns_smite_operations).await;
-    let (_, ns_smite_errors) = ns_smite_results.partition_success();
+    Smiter::new(namespaces, None, DeleteParams::default())
+        .smite::<Namespace>(client.clone())
+        .await?;
 
-    if !ns_smite_errors.is_empty() {
-        return Err(smite_failure_error(&ns_smite_errors));
-    }
+    println!("Requesting delete of storage classes...");
+    Smiter::new(storageclasses, None, DeleteParams::default())
+        .smite::<StorageClass>(client)
+        .await?;
 
-    Ok("All e2e pods force-deleted; namespace cleanup may take a couple of minutes")
+    Ok("All e2e resources force-deleted; namespace cleanup may take a couple of minutes")
 }
 
 async fn list_e2e_namespaces(client: kube::Client) -> anyhow::Result<Vec<String>> {
@@ -68,21 +73,17 @@ async fn list_e2e_namespaces(client: kube::Client) -> anyhow::Result<Vec<String>
     let nsapi: Api<Namespace> = Api::all(client.clone());
     let nslist = nsapi.list(&ListParams::default()).await?;
 
-    Ok(nslist
-        .iter()
-        .map(name_of)
-        .filter(|n| is_e2e_namespace(n))
-        .collect())
+    Ok(nslist.iter().map(name_of).filter(is_e2e_resource).collect())
 }
 
 fn name_of(ns: &impl Metadata<Ty = ObjectMeta>) -> String {
     ns.metadata().name.as_ref().unwrap().to_owned()
 }
 
-fn is_e2e_namespace(namespace: &str) -> bool {
+fn is_e2e_resource(item: &String) -> bool {
     E2E_NS_PREFIXES
         .iter()
-        .any(|prefix| namespace.starts_with(prefix))
+        .any(|prefix| item.starts_with(prefix))
 }
 
 async fn smite_namespace_pods(client: kube::Client, namespace: &str) -> anyhow::Result<()> {
@@ -91,40 +92,26 @@ async fn smite_namespace_pods(client: kube::Client, namespace: &str) -> anyhow::
     let podapi: Api<Pod> = Api::namespaced(client.clone(), namespace);
     let pods = podapi.list(&ListParams::default()).await?;
 
+    let names_to_delete = pods
+        .into_iter()
+        .map(|p| p.metadata.name.unwrap_or_default())
+        .collect();
+
     println!("Deleting pods in namespace {}...", namespace);
 
-    let delete_operations = pods.iter().map(|p| smite_pod(&podapi, p));
-    let delete_results = futures::future::join_all(delete_operations).await;
-    let (_, errors) = delete_results.partition_success();
+    let smiter = Smiter::new(
+        names_to_delete,
+        Some(namespace.to_owned()),
+        DeleteParams {
+            grace_period_seconds: Some(0),
+            ..DeleteParams::default()
+        },
+    );
 
-    if !errors.is_empty() {
-        return Err(smite_pods_failure_error(namespace, &errors));
-    }
-
-    Ok(())
+    smiter.smite::<Pod>(client).await
 }
 
-async fn smite_pod(podapi: &Api<Pod>, pod: &Pod) -> anyhow::Result<()> {
-    let pod_name = name_of(pod);
-    let _ = podapi
-        .delete(
-            &pod_name,
-            &DeleteParams {
-                grace_period_seconds: Some(0),
-                ..DeleteParams::default()
-            },
-        )
-        .await?;
-    Ok(())
-}
-
-async fn smite_namespace(client: kube::Client, namespace: &str) -> anyhow::Result<()> {
-    let nsapi: Api<Namespace> = Api::all(client.clone());
-    nsapi.delete(namespace, &DeleteParams::default()).await?;
-    Ok(())
-}
-
-fn smite_failure_error(errors: &[anyhow::Error]) -> anyhow::Error {
+fn smite_failure_error<T: Display>(errors: &[T]) -> anyhow::Error {
     let message_list = errors
         .iter()
         .map(|e| format!("{}", e))
@@ -136,31 +123,72 @@ fn smite_failure_error(errors: &[anyhow::Error]) -> anyhow::Error {
     )
 }
 
-fn smite_pods_failure_error(namespace: &str, errors: &[anyhow::Error]) -> anyhow::Error {
-    let message_list = errors
-        .iter()
-        .map(|e| format!("  - {}", e))
-        .collect::<Vec<_>>()
-        .join("\n");
-    anyhow::anyhow!(
-        "- Namespace {}: pod delete(s) failed:\n{}",
-        namespace,
-        message_list
-    )
-}
-
-fn confirm_smite(namespaces: &[String]) -> bool {
+fn confirm_smite(namespaces: &[String], storageclasses: &[String]) -> bool {
     println!(
-        "Smite these namespaces and all resources within them: {}? (y/n) ",
-        namespaces.join(", ")
+        "Smite these resources and namespaces (all resources within it)?:\nNamespaces: {}\nStorageClasses: {} (y/n) ",
+        namespaces.join(", "),
+        storageclasses.join(", "),
     );
     let mut response = String::new();
     match std::io::stdin().read_line(&mut response) {
         Err(e) => {
             eprintln!("Error reading response: {}", e);
-            confirm_smite(namespaces)
+            confirm_smite(namespaces, storageclasses)
         }
         Ok(_) => response.starts_with('y') || response.starts_with('Y'),
+    }
+}
+
+async fn list_storageclasses(client: kube::Client) -> anyhow::Result<Vec<String>> {
+    let sc: Api<StorageClass> = Api::all(client);
+    let all = sc.list(&ListParams::default()).await?;
+    Ok(all
+        .items
+        .into_iter()
+        .map(|class| class.metadata.name.unwrap_or_default())
+        .filter(is_e2e_resource)
+        .collect())
+}
+
+struct Smiter {
+    names_to_smite: Vec<String>,
+    namespace: Option<String>,
+    params: DeleteParams,
+}
+
+impl Smiter {
+    fn new(names_to_smite: Vec<String>, namespace: Option<String>, params: DeleteParams) -> Self {
+        Smiter {
+            names_to_smite,
+            namespace,
+            params,
+        }
+    }
+
+    async fn smite<T>(self, client: kube::Client) -> anyhow::Result<()>
+    where
+        T: kube::Resource + Clone + serde::de::DeserializeOwned + std::fmt::Debug,
+        <T as kube::Resource>::DynamicType: Default,
+    {
+        let api: Api<T> = match self.namespace.as_ref() {
+            Some(ns) => Api::namespaced(client, &ns),
+            None => Api::all(client),
+        };
+        let smite_operations = self
+            .names_to_smite
+            .iter()
+            .map(|name| (name, api.clone(), self.params.clone()))
+            .map(|(name, api, params)| async move {
+                api.delete(&name, &params).await?;
+                Ok::<_, kube::Error>(())
+            });
+        let smite_results = futures::future::join_all(smite_operations).await;
+        let (_, smite_errors) = smite_results.partition_success();
+
+        if !smite_errors.is_empty() {
+            return Err(smite_failure_error(&smite_errors));
+        }
+        Ok(())
     }
 }
 
