@@ -5,9 +5,10 @@
 
 use crate::pod::state::prelude::PodStatus;
 use crate::pod::Pod;
-use crate::provider::{PluginSupport, VolumeSupport};
+use crate::provider::{DevicePluginSupport, PluginSupport, VolumeSupport};
 use krator::{ObjectState, State};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub mod crash_loop_backoff;
 pub mod error;
@@ -71,7 +72,7 @@ pub trait GenericPodState: ObjectState<Manifest = Pod, Status = PodStatus> {
 /// module.
 pub trait GenericProvider: 'static + Send + Sync {
     /// The state of the provider itself.
-    type ProviderState: GenericProviderState + VolumeSupport + PluginSupport;
+    type ProviderState: GenericProviderState + VolumeSupport + PluginSupport + DevicePluginSupport;
     /// The state that is passed between Pod state handlers.
     type PodState: GenericPodState + ObjectState<SharedState = Self::ProviderState>;
     /// The state to which pods should transition after they have completed

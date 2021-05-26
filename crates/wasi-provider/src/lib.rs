@@ -40,11 +40,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use kubelet::device_plugin_manager::manager::DeviceManager;
 use kubelet::node::Builder;
 use kubelet::plugin_watcher::PluginRegistry;
 use kubelet::pod::state::prelude::SharedState;
 use kubelet::pod::{Handle, Pod, PodKey};
-use kubelet::provider::{PluginSupport, Provider, ProviderError, VolumeSupport};
+use kubelet::provider::{DevicePluginSupport, PluginSupport, Provider, ProviderError, VolumeSupport};
 use kubelet::state::common::registered::Registered;
 use kubelet::state::common::terminated::Terminated;
 use kubelet::state::common::{GenericProvider, GenericProviderState};
@@ -79,6 +80,7 @@ pub struct ProviderState {
     client: kube::Client,
     volume_path: PathBuf,
     plugin_registry: Arc<PluginRegistry>,
+    device_plugin_manager: Arc<DeviceManager>,
 }
 
 #[async_trait]
@@ -112,6 +114,12 @@ impl PluginSupport for ProviderState {
     }
 }
 
+impl DevicePluginSupport for ProviderState {
+    fn device_plugin_manager(&self) -> Option<Arc<DeviceManager>> {
+        Some(self.device_plugin_manager.clone())
+    }
+}
+
 impl WasiProvider {
     /// Create a new wasi provider from a module store and a kubelet config
     pub async fn new(
@@ -122,6 +130,7 @@ impl WasiProvider {
     ) -> anyhow::Result<Self> {
         let log_path = config.data_dir.join(LOG_DIR_NAME);
         let volume_path = config.data_dir.join(VOLUME_DIR);
+        let device_plugin_manager = Arc::new(DeviceManager::default());
         tokio::fs::create_dir_all(&log_path).await?;
         tokio::fs::create_dir_all(&volume_path).await?;
         let client = kube::Client::try_from(kubeconfig)?;
@@ -133,6 +142,7 @@ impl WasiProvider {
                 volume_path,
                 client,
                 plugin_registry,
+                device_plugin_manager,
             },
         })
     }

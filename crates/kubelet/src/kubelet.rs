@@ -5,7 +5,7 @@ use crate::device_plugin_manager::manager;
 use crate::node;
 use crate::operator::PodOperator;
 use crate::plugin_watcher::PluginRegistry;
-use crate::provider::{PluginSupport, Provider};
+use crate::provider::{DevicePluginSupport, PluginSupport, Provider};
 use crate::webserver::start as start_webserver;
 
 use futures::future::{FutureExt, TryFutureExt};
@@ -14,14 +14,10 @@ use std::convert::TryFrom;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::signal::ctrl_c;
-use tokio::sync::mpsc;
 use tokio::task;
 use tracing::{error, info, warn};
 
 use krator::{ControllerBuilder, Manager};
-
-/// TODO
-const UPDATE_NODE_STATUS_CHANNEL_SIZE: usize = 15;
 
 /// A Kubelet server backed by a given `Provider`.
 ///
@@ -82,10 +78,9 @@ impl<P: Provider> Kubelet<P> {
         .fuse()
         .boxed();
 
-        let (update_node_status_sender, update_node_status_receiver) = mpsc::channel(UPDATE_NODE_STATUS_CHANNEL_SIZE);
-        let manager = manager::DeviceManager::default(update_node_status_sender);
-        // TODO: add provider function for configuring device manager use and path
-        let device_manager = start_device_manager(Some(manager), Some(update_node_status_receiver), &client, &self.config.node_name).fuse().boxed();
+        let device_manager = start_device_manager(self.provider.provider_state()
+        .read()
+        .await.device_plugin_manager(), &client, &self.config.node_name).fuse().boxed();
 
         // Start the webserver
         let webserver = start_webserver(self.provider.clone(), &self.config.server_config)
@@ -197,11 +192,10 @@ async fn start_plugin_registry(registrar: Option<Arc<PluginRegistry>>) -> anyhow
 }
 
 /// Starts a DeviceManager 
-async fn start_device_manager(device_manager: Option<manager::DeviceManager>, update_node_status_receiver: Option<mpsc::Receiver<()>>, client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
+async fn start_device_manager(device_manager: Option<Arc<manager::DeviceManager>>, client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
     match device_manager {
-        Some(m) => {
-            let update_node_status_receiver = update_node_status_receiver.ok_or_else(|| anyhow::Error::msg("Provider provided some DeviceManager but no receiver for triggering node status updates"))?;
-            manager::serve_device_manager(m, update_node_status_receiver, client, node_name).await
+        Some(dm) => {
+            manager::serve_device_registry(manager::DeviceRegistry::new(dm), client, node_name).await
         },
         // Do nothing; just poll forever and "pretend" that a DeviceManager is running
         None => {
@@ -277,6 +271,13 @@ mod test {
             Some(Arc::new(PluginRegistry::default()))
         }
     }
+
+    impl DevicePluginSupport for ProviderState {
+        fn device_plugin_manager(&self) -> Option<Arc<DeviceManager>> {
+            Some(Arc::new(DeviceManager::default()))
+        }
+    }
+    
     struct PodState;
 
     #[async_trait::async_trait]

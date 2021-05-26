@@ -7,12 +7,12 @@ use crate::device_plugin_api::v1beta1::{
 };
 use crate::grpc_sock;
 use super::{DeviceIdMap, DeviceMap, HEALTHY, UNHEALTHY};
-use super::node_patcher::{listen_and_patch, NodeStatusPatcher};
+use super::node_patcher::NodeStatusPatcher;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use tokio::sync::{mpsc, watch};
+use tokio::sync::broadcast;
 use tokio::task;
 use tonic::{transport::Server, Request};
 #[cfg(target_family = "windows")]
@@ -26,6 +26,9 @@ pub const DEFAULT_PLUGIN_PATH: &str = "c:\\ProgramData\\kubelet\\device_plugins"
 
 const PLUGIN_MANGER_SOCKET_NAME: &str = "kubelet.sock";
 
+/// TODO
+const UPDATE_NODE_STATUS_CHANNEL_SIZE: usize = 15;
+
 /// Endpoint that maps to a single registered device plugin.
 /// It is responsible for managing gRPC communications with the device plugin and caching
 /// device states reported by the device plugin
@@ -34,14 +37,15 @@ pub struct Endpoint {
     pub register_request: RegisterRequest,
 }
 
-type PluginMap = Arc<Mutex<HashMap<String,Endpoint>>>;
+pub type DevicePluginMap = HashMap<String,Endpoint>;
 
 /// An internal storage plugin registry that implements most the same functionality as the [plugin
 /// manager](https://github.com/kubernetes/kubernetes/tree/fd74333a971e2048b5fb2b692a9e043483d63fba/pkg/kubelet/pluginmanager)
 /// in kubelet
+#[derive(Clone)]
 pub struct DeviceManager {
     /// Registered plugins
-    pub plugins: PluginMap,
+    pub plugins: Arc<Mutex<DevicePluginMap>>,
     /// Directory where the plugin sockets live
     pub plugin_dir: PathBuf,
     /// Device map
@@ -52,29 +56,39 @@ pub struct DeviceManager {
     // pub healthy_device_ids: Arc<Mutex<DeviceIdMap>>,
     // pub unhealthy_device_ids: Arc<Mutex<DeviceIdMap>>,
     /// update_node_status_sender notifies the Node patcher to update node status with latest values
-    update_node_status_sender: mpsc::Sender<()>,
+    update_node_status_sender: broadcast::Sender<()>,
+    node_status_patcher: NodeStatusPatcher,
 }
 
 impl DeviceManager {
     /// Returns a new device manager configured with the given device plugin directory path
-    pub fn new<P: AsRef<Path>>(plugin_dir: P, update_node_status_sender: mpsc::Sender<()>) -> Self {
+    pub fn new<P: AsRef<Path>>(plugin_dir: P) -> Self {
+        let devices = Arc::new(Mutex::new(HashMap::new()));
+        let (update_node_status_sender, _) = broadcast::channel(UPDATE_NODE_STATUS_CHANNEL_SIZE);
+        let node_status_patcher = NodeStatusPatcher::new(devices.clone(), update_node_status_sender.clone());
         DeviceManager {
             plugin_dir: PathBuf::from(plugin_dir.as_ref()),
             plugins: Arc::new(Mutex::new(HashMap::new())),
-            devices: Arc::new(Mutex::new(HashMap::new())),
+            devices,
             allocated_device_ids: Arc::new(Mutex::new(HashMap::new())),
-            update_node_status_sender
+            update_node_status_sender,
+            node_status_patcher
         }
     }
+
     /// Returns a new device manager configured with the default `/var/lib/kubelet/device_plugins/` device plugin directory path
-    pub fn default(update_node_status_sender: mpsc::Sender<()>) -> Self {
+    pub fn default() -> Self {
+        let devices = Arc::new(Mutex::new(HashMap::new()));
+        let (update_node_status_sender, _) = broadcast::channel(UPDATE_NODE_STATUS_CHANNEL_SIZE);
+        let node_status_patcher = NodeStatusPatcher::new(devices.clone(), update_node_status_sender.clone());
         DeviceManager {
             plugin_dir: PathBuf::from(DEFAULT_PLUGIN_PATH),
             plugins: Arc::new(Mutex::new(HashMap::new())),
             devices: Arc::new(Mutex::new(HashMap::new())),
             allocated_device_ids: Arc::new(Mutex::new(HashMap::new())),
             // healthy_device_ids,
-            update_node_status_sender
+            update_node_status_sender,
+            node_status_patcher
             // unhealthy_device_ids: Arc::new(Mutex::new(HashMap::new()))
         }
     }
@@ -82,11 +96,6 @@ impl DeviceManager {
     /// Adds the plugin to our HashMap
     fn add_plugin(&self, endpoint: Endpoint) {
         let mut lock = self.plugins.lock().unwrap();
-        // let (connection_directive_sender, _) = watch::channel(ConnectionDirective::CONTINUE);
-        // let plugin_entry = PluginEntry { 
-        //     endpoint,
-        //     connection_directive_sender 
-        // };
         lock.insert(
             endpoint.register_request.resource_name.clone(),
             endpoint,
@@ -238,7 +247,7 @@ impl DeviceManager {
 
                         if update_node_status {
                             // TODO handle error -- maybe channel is full
-                            update_node_status_sender.send(()).await.unwrap();
+                            update_node_status_sender.send(()).unwrap();
                         }
                     }
                 }
@@ -259,40 +268,52 @@ impl DeviceManager {
 
 }
 
+#[derive(Clone)]
+pub struct DeviceRegistry {
+    device_manager: Arc<DeviceManager>
+}
 
+impl DeviceRegistry {
+    pub fn new(device_manager: Arc<DeviceManager>) -> Self {
+        DeviceRegistry{device_manager}
+    }
+}
 #[async_trait::async_trait]
-impl Registration for DeviceManager {
+
+impl Registration for DeviceRegistry {
     async fn register(
         &self,
         request: tonic::Request<RegisterRequest>,
     ) -> Result<tonic::Response<Empty>, tonic::Status> {
         let register_request = request.get_ref();
         // Validate
-        self.validate(register_request).await.map_err(|e| tonic::Status::new(tonic::Code::InvalidArgument, format!("{}", e)))?;
+        self.device_manager.validate(register_request).await.map_err(|e| tonic::Status::new(tonic::Code::InvalidArgument, format!("{}", e)))?;
         // Create a list and watch connection with the device plugin
         // TODO: should the manager keep track of threads?
-        self.create_endpoint(register_request).await.map_err(|e| tonic::Status::new(tonic::Code::NotFound, format!("{}", e)))?;
+        self.device_manager.create_endpoint(register_request).await.map_err(|e| tonic::Status::new(tonic::Code::NotFound, format!("{}", e)))?;
         Ok(tonic::Response::new(Empty {}))
     }
         
 }
 
-pub async fn serve_device_manager(device_manager: DeviceManager, update_node_status_receiver: mpsc::Receiver<()>, client: &kube::Client, node_name: &str) -> anyhow::Result<()>  {
-    let node_patcher = NodeStatusPatcher{ devices: device_manager.devices.clone()};
+pub async fn serve_device_registry(device_registry: DeviceRegistry, client: &kube::Client, node_name: &str) -> anyhow::Result<()>  {
     // TODO determine if need to create socket (and delete any previous ones)
-    let manager_socket = device_manager.plugin_dir.join(PLUGIN_MANGER_SOCKET_NAME);
+    let manager_socket = device_registry.device_manager.plugin_dir.join(PLUGIN_MANGER_SOCKET_NAME);
     let socket = grpc_sock::server::Socket::new(&manager_socket).expect("couldn't make manager socket");
     
     // Clone arguments for listen_and_patch thread
     let node_patcher_task_client = client.clone();
     let node_patcher_task_node_name = node_name.to_string();
+    let node_status_patcher = device_registry.device_manager.node_status_patcher.clone();
     let node_patcher_task = task::spawn(async move {
-        listen_and_patch(update_node_status_receiver, node_patcher_task_node_name, node_patcher_task_client, node_patcher).await.unwrap();
+        node_status_patcher.listen_and_patch(node_patcher_task_node_name, node_patcher_task_client).await.unwrap();
     });
+    // TODO: There may be a slight race case here. If the DeviceManager tries to send device info to the NodeStatusPatcher before the NodeStatusPatcher has created a receiver
+    // it will error because there are no active receivers.
     println!("before serve");
     let device_manager_task = task::spawn(async {
         let serv = Server::builder()
-        .add_service(RegistrationServer::new(device_manager))
+        .add_service(RegistrationServer::new(device_registry))
         .serve_with_incoming(socket);
         #[cfg(target_family = "windows")]
         let serv = serv.compat();
@@ -359,14 +380,14 @@ pub mod manager_tests {
 
         async fn get_preferred_allocation(
             &self,
-            request: Request<PreferredAllocationRequest>,
+            _request: Request<PreferredAllocationRequest>,
         ) -> Result<Response<PreferredAllocationResponse>, Status> {
             unimplemented!();
         }
 
         async fn allocate(
             &self,
-            requests: Request<AllocateRequest>,
+            _request: Request<AllocateRequest>,
         ) -> Result<Response<AllocateResponse>, Status> {
             unimplemented!();
         }
@@ -502,11 +523,10 @@ pub mod manager_tests {
         let (client, mock_service_task) = create_mock_kube_service(test_node_name).await;
 
         // Create and serve a DeviceManager
-        let (update_node_status_sender, update_node_status_receiver) = mpsc::channel(2);
-        let manager = DeviceManager::new(manager_temp_dir.path().clone(), update_node_status_sender);
-        let devices = manager.devices.clone();
+        let device_manager = Arc::new(DeviceManager::new(manager_temp_dir.path().clone()));
+        let devices = device_manager.devices.clone();
         let manager_task = task::spawn( async move {
-            serve_device_manager(manager, update_node_status_receiver, &client, test_node_name).await.unwrap();
+            serve_device_registry(DeviceRegistry::new(device_manager), &client, test_node_name).await.unwrap();
         });
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     

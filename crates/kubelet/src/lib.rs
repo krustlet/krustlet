@@ -8,9 +8,10 @@
 //! ```rust,no_run
 //! use kubelet::Kubelet;
 //! use kubelet::config::Config;
+//! use kubelet::device_plugin_manager::manager::DeviceManager;
 //! use kubelet::plugin_watcher::PluginRegistry;
 //! use kubelet::pod::Pod;
-//! use kubelet::provider::{Provider, PluginSupport};
+//! use kubelet::provider::{DevicePluginSupport, Provider, PluginSupport};
 //! use std::sync::Arc;
 //! use tokio::sync::RwLock;
 //! use kubelet::pod::state::prelude::*;
@@ -58,6 +59,12 @@
 //!     }
 //! }
 //!
+//! impl DevicePluginSupport for ProviderState {
+//!     fn device_plugin_manager(&self) -> Option<Arc<DeviceManager>> {
+//!         None
+//!     }
+//! }
+//! 
 //! async {
 //!     // Instantiate your provider type
 //!     let provider = MyProvider;

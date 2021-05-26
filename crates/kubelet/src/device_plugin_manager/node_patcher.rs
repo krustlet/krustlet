@@ -5,16 +5,22 @@ use k8s_openapi::api::core::v1::{Node, NodeStatus};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 
 /// NodePatcher updates the Node status with the latest device information.
 #[derive(Clone)]
 pub struct NodeStatusPatcher {
-    pub devices: Arc<Mutex<DeviceMap>>,
+    devices: Arc<Mutex<DeviceMap>>,
+    // Broadcast sender so clonable
+    update_node_status_sender: broadcast::Sender<()>,
 }
 
 impl NodeStatusPatcher {
+    pub fn new(devices: Arc<Mutex<DeviceMap>>, update_node_status_sender: broadcast::Sender<()>) -> Self {
+        NodeStatusPatcher {devices, update_node_status_sender}
+    }
+
     async fn get_node_status_patch(
         &self,
     ) -> NodeStatus {
@@ -48,36 +54,34 @@ impl NodeStatusPatcher {
             .map_err(|e| anyhow::anyhow!("Unable to patch node status: {}", e))?;
         Ok(())
     }
-}
 
-pub async fn listen_and_patch(
-    update_node_status_receiver: mpsc::Receiver<()>,
-    node_name: String,
-    client: kube::Client,
-    node_status_patcher: NodeStatusPatcher,
-) -> anyhow::Result<()> {
-    let mut receiver = update_node_status_receiver;
-    println!("entered listen_and_patch");
-    loop {
-        println!("listen_and_patch loop");
-        match receiver.recv().await {
-            None => {
-                error!("Channel closed by senders");
-                // TODO: bubble up error
-            },
-            Some(_) => {
-                // Grab status values
-                let status_patch = node_status_patcher.get_node_status_patch().await;
-                // Do patch 
-                node_status_patcher.do_node_status_patch(status_patch, &node_name, &client).await?;
+    pub async fn listen_and_patch(
+        self,
+        node_name: String,
+        client: kube::Client,
+    ) -> anyhow::Result<()> {
+        // Forever hold lock on the status update receiver
+        let mut receiver = self.update_node_status_sender.subscribe();
+        println!("entered listen_and_patch");
+        loop {
+            println!("listen_and_patch loop");
+            match receiver.recv().await {
+                Err(e) => {
+                    error!("Channel closed by senders");
+                    // TODO: bubble up error
+                },
+                Ok(_) => {
+                    // Grab status values
+                    let status_patch = self.get_node_status_patch().await;
+                    // Do patch 
+                    self.do_node_status_patch(status_patch, &node_name, &client).await?;
+                }
             }
         }
+        // TODO add channel for termination?
+        Ok(())
     }
-    // TODO add channel for termination?
-    Ok(())
 }
-
-
 
 
 #[cfg(test)]
@@ -109,7 +113,8 @@ mod node_patcher_tests {
             allocatable: None,
             ..Default::default()
         };
-        let node_status_patcher = NodeStatusPatcher {devices};
+        let (update_node_status_sender, _rx) = broadcast::channel(2);
+        let node_status_patcher = NodeStatusPatcher {devices, update_node_status_sender};
         let node_name = "test_node";
         let (client, _) = create_mock_kube_service(node_name).await;
         node_status_patcher.do_node_status_patch(empty_node_status, node_name, &client).await.unwrap();
@@ -120,7 +125,8 @@ mod node_patcher_tests {
         let r1_name = "r1";
         let r2_name = "r2";
         let devices = create_mock_devices(r1_name, r2_name);
-        let node_status_patcher = NodeStatusPatcher{devices};
+        let (update_node_status_sender, _rx) = broadcast::channel(2);
+        let node_status_patcher = NodeStatusPatcher {devices, update_node_status_sender};
         let status = node_status_patcher.get_node_status_patch().await;
         // Check that both resources listed under allocatable and only healthy devices are counted
         let allocatable = status.allocatable.unwrap();
