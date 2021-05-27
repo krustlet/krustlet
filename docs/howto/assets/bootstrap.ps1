@@ -19,12 +19,10 @@ stringData:
   usage-bootstrap-signing: "true"
 "@ | kubectl.exe apply -f -
 
-if (!$env:CONFIG_DIR -or -not (Test-Path $env:CONFIG_DIR)) {
-  $config_dir = "$HOME\.krustlet\config"
+if (-not (Test-Path env:CONFIG_DIR)) { 
+  $env:CONFIG_DIR = '$HOME\.krustlet\config'
 }
-else {
-  $config_dir = $env:CONFIG_DIR
-}
+$config_dir = $env:CONFIG_DIR
 
 mkdir $config_dir -ErrorAction SilentlyContinue > $null
 
