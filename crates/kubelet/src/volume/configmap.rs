@@ -75,6 +75,11 @@ impl ConfigMapVolume {
             .chain(data)
             .collect::<tokio::io::Result<_>>()?;
 
+        // Set configmap directory to read-only.
+        let mut perms = tokio::fs::metadata(&path).await?.permissions();
+        perms.set_readonly(true);
+        tokio::fs::set_permissions(&path, perms).await?;
+
         // Update the mounted directory
         self.mounted_path = Some(path);
 
