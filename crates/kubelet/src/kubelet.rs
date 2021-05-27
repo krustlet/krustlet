@@ -4,7 +4,7 @@ use crate::config::Config;
 use crate::node;
 use crate::operator::PodOperator;
 use crate::plugin_watcher::PluginRegistry;
-use crate::provider::Provider;
+use crate::provider::{PluginSupport, Provider};
 use crate::webserver::start as start_webserver;
 
 use futures::future::{FutureExt, TryFutureExt};
@@ -67,9 +67,15 @@ impl<P: Provider> Kubelet<P> {
         let signal = Arc::new(AtomicBool::new(false));
         let signal_task = start_signal_task(Arc::clone(&signal)).fuse().boxed();
 
-        let plugin_registrar = start_plugin_registry(self.provider.plugin_registry())
-            .fuse()
-            .boxed();
+        let plugin_registrar = start_plugin_registry(
+            self.provider
+                .provider_state()
+                .read()
+                .await
+                .plugin_registry(),
+        )
+        .fuse()
+        .boxed();
 
         // Start the webserver
         let webserver = start_webserver(self.provider.clone(), &self.config.server_config)
@@ -204,9 +210,12 @@ async fn start_signal_handler(signal: Arc<AtomicBool>) -> anyhow::Result<()> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::container::Container;
     use crate::plugin_watcher::PluginRegistry;
     use crate::pod::{Pod, Status};
+    use crate::{
+        container::Container,
+        provider::{PluginSupport, VolumeSupport},
+    };
     use k8s_openapi::api::core::v1::{
         Container as KubeContainer, EnvVar, EnvVarSource, ObjectFieldSelector, Pod as KubePod,
         PodSpec, PodStatus,
@@ -226,6 +235,14 @@ mod test {
     struct MockProvider;
 
     struct ProviderState;
+
+    impl VolumeSupport for ProviderState {}
+
+    impl PluginSupport for ProviderState {
+        fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
+            Some(Arc::new(PluginRegistry::default()))
+        }
+    }
     struct PodState;
 
     #[async_trait::async_trait]
@@ -251,10 +268,6 @@ mod test {
 
         fn provider_state(&self) -> krator::SharedState<ProviderState> {
             Arc::new(RwLock::new(ProviderState {}))
-        }
-
-        fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
-            Some(Arc::new(PluginRegistry::default()))
         }
 
         async fn logs(

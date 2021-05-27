@@ -3,9 +3,9 @@
 //! states in many providers; instead, the provider need only implement the
 //! GenericProviderState and GenericPodState traits for its state types.
 
-use crate::plugin_watcher::PluginRegistry;
 use crate::pod::state::prelude::PodStatus;
 use crate::pod::Pod;
+use crate::provider::{PluginSupport, VolumeSupport};
 use krator::{ObjectState, State};
 use std::collections::HashMap;
 
@@ -42,12 +42,6 @@ pub trait GenericProviderState: 'static + Send + Sync {
     fn client(&self) -> kube::Client;
     /// Gets the `Store` used by the provider.
     fn store(&self) -> std::sync::Arc<dyn crate::store::Store + Sync + Send>;
-    /// Gets the path at which to construct temporary directories for volumes.
-    fn volume_path(&self) -> std::path::PathBuf;
-    /// Gets the plugin registry used to fetch volume plugins
-    fn plugin_registry(&self) -> Option<std::sync::Arc<PluginRegistry>> {
-        None
-    }
     /// Stops the specified pod. This typically involves tearing down a
     /// runtime or other execution environment.
     async fn stop(&self, pod: &crate::pod::Pod) -> anyhow::Result<()>;
@@ -77,7 +71,7 @@ pub trait GenericPodState: ObjectState<Manifest = Pod, Status = PodStatus> {
 /// module.
 pub trait GenericProvider: 'static + Send + Sync {
     /// The state of the provider itself.
-    type ProviderState: GenericProviderState;
+    type ProviderState: GenericProviderState + VolumeSupport + PluginSupport;
     /// The state that is passed between Pod state handlers.
     type PodState: GenericPodState + ObjectState<SharedState = Self::ProviderState>;
     /// The state to which pods should transition after they have completed

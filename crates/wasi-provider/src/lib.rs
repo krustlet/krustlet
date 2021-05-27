@@ -36,7 +36,7 @@ mod wasi_runtime;
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -44,7 +44,7 @@ use kubelet::node::Builder;
 use kubelet::plugin_watcher::PluginRegistry;
 use kubelet::pod::state::prelude::SharedState;
 use kubelet::pod::{Handle, Pod, PodKey};
-use kubelet::provider::{Provider, ProviderError};
+use kubelet::provider::{PluginSupport, Provider, ProviderError, VolumeSupport};
 use kubelet::state::common::registered::Registered;
 use kubelet::state::common::terminated::Terminated;
 use kubelet::state::common::{GenericProvider, GenericProviderState};
@@ -89,12 +89,6 @@ impl GenericProviderState for ProviderState {
     fn store(&self) -> std::sync::Arc<(dyn Store + Send + Sync + 'static)> {
         self.store.clone()
     }
-    fn volume_path(&self) -> PathBuf {
-        self.volume_path.clone()
-    }
-    fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
-        Some(self.plugin_registry.clone())
-    }
     async fn stop(&self, pod: &Pod) -> anyhow::Result<()> {
         let key = PodKey::from(pod);
         let mut handle_writer = self.handles.write().await;
@@ -103,6 +97,18 @@ impl GenericProviderState for ProviderState {
         } else {
             Ok(())
         }
+    }
+}
+
+impl VolumeSupport for ProviderState {
+    fn volume_path(&self) -> Option<&Path> {
+        Some(self.volume_path.as_ref())
+    }
+}
+
+impl PluginSupport for ProviderState {
+    fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
+        Some(self.plugin_registry.clone())
     }
 }
 
@@ -175,14 +181,6 @@ impl Provider for WasiProvider {
                 pod_name: pod_name.clone(),
             })?;
         handle.output(&container_name, sender).await
-    }
-
-    fn plugin_registry(&self) -> Option<Arc<PluginRegistry>> {
-        Some(self.shared.plugin_registry.clone())
-    }
-
-    fn volume_path(&self) -> Option<PathBuf> {
-        Some(self.shared.volume_path())
     }
 
     // Evict all pods upon shutdown
