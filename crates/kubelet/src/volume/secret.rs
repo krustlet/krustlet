@@ -62,6 +62,10 @@ impl SecretVolume {
             .await
             .into_iter()
             .collect::<tokio::io::Result<_>>()?;
+        // Set secret directory to read-only.
+        let mut perms = tokio::fs::metadata(&path).await?.permissions();
+        perms.set_readonly(true);
+        tokio::fs::set_permissions(&path, perms).await?;
 
         self.mounted_path = Some(path);
 
