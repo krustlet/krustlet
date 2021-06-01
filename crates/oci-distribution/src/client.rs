@@ -17,7 +17,7 @@ use futures_util::future;
 use futures_util::stream::StreamExt;
 use hyperx::header::Header;
 use reqwest::header::HeaderMap;
-use reqwest::RequestBuilder;
+use reqwest::{RequestBuilder, Url};
 use serde::Deserialize;
 use sha2::Digest;
 use std::collections::HashMap;
@@ -588,12 +588,12 @@ impl Client {
         image: &Reference,
         digest: &str,
     ) -> anyhow::Result<String> {
-        let url = format!("{}&digest={}", location, digest);
+        let url = Url::parse_with_params(location, &[("digest", digest)])?;
         let mut close_headers = HeaderMap::new();
         close_headers.insert("Content-Length", "0".parse().unwrap());
 
         let res = self
-            .apply_auth(self.client.put(&url), image, Some(close_headers))
+            .apply_auth(self.client.put(url), image, Some(close_headers))
             .send()
             .await?;
         self.extract_location_header(&image, res, &reqwest::StatusCode::CREATED)
