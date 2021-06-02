@@ -80,7 +80,7 @@ impl<P: Provider> Kubelet<P> {
 
         let device_manager = start_device_manager(self.provider.provider_state()
         .read()
-        .await.device_plugin_manager(), &client, &self.config.node_name).fuse().boxed();
+        .await.device_plugin_manager()).fuse().boxed();
 
         // Start the webserver
         let webserver = start_webserver(self.provider.clone(), &self.config.server_config)
@@ -192,10 +192,10 @@ async fn start_plugin_registry(registrar: Option<Arc<PluginRegistry>>) -> anyhow
 }
 
 /// Starts a DeviceManager 
-async fn start_device_manager(device_manager: Option<Arc<manager::DeviceManager>>, client: &kube::Client, node_name: &str) -> anyhow::Result<()> {
+async fn start_device_manager(device_manager: Option<Arc<manager::DeviceManager>>) -> anyhow::Result<()> {
     match device_manager {
         Some(dm) => {
-            manager::serve_device_registry(manager::DeviceRegistry::new(dm), client, node_name).await
+            manager::serve_device_registry(manager::DeviceRegistry::new(dm)).await
         },
         // Do nothing; just poll forever and "pretend" that a DeviceManager is running
         None => {
@@ -277,7 +277,7 @@ mod test {
             Some(Arc::new(DeviceManager::default()))
         }
     }
-    
+
     struct PodState;
 
     #[async_trait::async_trait]

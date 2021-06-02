@@ -10,6 +10,7 @@ use krator::{ObjectState, State};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+pub mod allocated;
 pub mod crash_loop_backoff;
 pub mod error;
 pub mod image_pull;

@@ -1,5 +1,7 @@
 pub mod manager;
 pub mod node_patcher;
+pub mod resources;
+pub mod pod_devices;
 use crate::device_plugin_api::v1beta1::Device;
 use std::collections::{HashMap, HashSet};
 
@@ -20,3 +22,8 @@ pub const HEALTHY: &str = "Healthy";
 
 /// Unhealthy means the device is not allocatable
 pub const UNHEALTHY: &str = "Unhealthy";
+
+// // Returns the set all healthy devices
+// fn get_healthy_devices(devices: Arc<Mutex<DeviceMap>>) -> EndpointDeviceIds {
+
+// }

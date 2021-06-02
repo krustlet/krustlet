@@ -11,14 +11,16 @@ use tracing::{error, info, warn};
 /// NodePatcher updates the Node status with the latest device information.
 #[derive(Clone)]
 pub struct NodeStatusPatcher {
+    node_name: String,
     devices: Arc<Mutex<DeviceMap>>,
     // Broadcast sender so clonable
     update_node_status_sender: broadcast::Sender<()>,
+    client: kube::Client,
 }
 
 impl NodeStatusPatcher {
-    pub fn new(devices: Arc<Mutex<DeviceMap>>, update_node_status_sender: broadcast::Sender<()>) -> Self {
-        NodeStatusPatcher {devices, update_node_status_sender}
+    pub fn new(node_name: &str, devices: Arc<Mutex<DeviceMap>>, update_node_status_sender: broadcast::Sender<()>, client: kube::Client) -> Self {
+        NodeStatusPatcher {node_name: node_name.to_string(), devices, update_node_status_sender, client}
     }
 
     async fn get_node_status_patch(
@@ -40,13 +42,11 @@ impl NodeStatusPatcher {
     async fn do_node_status_patch(
         &self,
         status: NodeStatus,
-        node_name: &str,
-        client: &kube::Client,
     ) -> anyhow::Result<()> {
-        let node_client: Api<Node> = Api::all(client.clone());
+        let node_client: Api<Node> = Api::all(self.client.clone());
         let _node = node_client
             .patch_status(
-                node_name,
+                &self.node_name,
                 &PatchParams::default(),
                 &kube::api::Patch::Strategic(status),
             )
@@ -57,8 +57,6 @@ impl NodeStatusPatcher {
 
     pub async fn listen_and_patch(
         self,
-        node_name: String,
-        client: kube::Client,
     ) -> anyhow::Result<()> {
         // Forever hold lock on the status update receiver
         let mut receiver = self.update_node_status_sender.subscribe();
@@ -74,7 +72,7 @@ impl NodeStatusPatcher {
                     // Grab status values
                     let status_patch = self.get_node_status_patch().await;
                     // Do patch 
-                    self.do_node_status_patch(status_patch, &node_name, &client).await?;
+                    self.do_node_status_patch(status_patch).await?;
                 }
             }
         }
@@ -87,7 +85,7 @@ impl NodeStatusPatcher {
 #[cfg(test)]
 mod node_patcher_tests {
     use super::super::{EndpointDevicesMap, UNHEALTHY};
-    use super::super::manager::manager_tests::create_mock_kube_service;
+    use super::super::manager::tests::create_mock_kube_service;
     use super::*;
     use crate::device_plugin_api::v1beta1::Device;
 
@@ -114,10 +112,13 @@ mod node_patcher_tests {
             ..Default::default()
         };
         let (update_node_status_sender, _rx) = broadcast::channel(2);
-        let node_status_patcher = NodeStatusPatcher {devices, update_node_status_sender};
+
+        // Create and run a mock Kubernetes API service and get a Kubernetes client
+        let (client, mock_service_task) = create_mock_kube_service("test_node").await;
         let node_name = "test_node";
+        let node_status_patcher = NodeStatusPatcher::new(node_name, devices, update_node_status_sender, client);
         let (client, _) = create_mock_kube_service(node_name).await;
-        node_status_patcher.do_node_status_patch(empty_node_status, node_name, &client).await.unwrap();
+        node_status_patcher.do_node_status_patch(empty_node_status).await.unwrap();
     }
 
     #[tokio::test]
@@ -126,7 +127,10 @@ mod node_patcher_tests {
         let r2_name = "r2";
         let devices = create_mock_devices(r1_name, r2_name);
         let (update_node_status_sender, _rx) = broadcast::channel(2);
-        let node_status_patcher = NodeStatusPatcher {devices, update_node_status_sender};
+        let node_name = "test_node";
+        // Create and run a mock Kubernetes API service and get a Kubernetes client
+        let (client, mock_service_task) = create_mock_kube_service(node_name).await;
+        let node_status_patcher = NodeStatusPatcher::new(node_name, devices, update_node_status_sender, client);
         let status = node_status_patcher.get_node_status_patch().await;
         // Check that both resources listed under allocatable and only healthy devices are counted
         let allocatable = status.allocatable.unwrap();

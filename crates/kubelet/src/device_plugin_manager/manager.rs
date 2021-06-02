@@ -1,14 +1,21 @@
 //! The Kubelet device plugin manager. Hosts a registration service for device plugins, creates a device plugin client for each registered device plugin, updates node with the extended resources advertised by device plugins.
+use crate::container::Container;
 use crate::device_plugin_api::v1beta1::{
     API_VERSION,
+    AllocateRequest,
+    ContainerAllocateRequest,
     Device, Empty, RegisterRequest,
     registration_server::{Registration, RegistrationServer},
     device_plugin_client::DevicePluginClient,
 };
 use crate::grpc_sock;
-use super::{DeviceIdMap, DeviceMap, HEALTHY, UNHEALTHY};
+use crate::pod::Pod;
+
+use super::{DeviceIdMap, DeviceMap, EndpointDevicesMap, HEALTHY, UNHEALTHY};
 use super::node_patcher::NodeStatusPatcher;
-use std::collections::HashMap;
+use super::pod_devices::{DeviceAllocateInfo, ContainerDevices, PodDevices};
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -32,12 +39,21 @@ const UPDATE_NODE_STATUS_CHANNEL_SIZE: usize = 15;
 /// Endpoint that maps to a single registered device plugin.
 /// It is responsible for managing gRPC communications with the device plugin and caching
 /// device states reported by the device plugin
+#[derive(Clone)]
 pub struct Endpoint {
     pub client: DevicePluginClient<tonic::transport::Channel>,
     pub register_request: RegisterRequest,
 }
 
 pub type DevicePluginMap = HashMap<String,Endpoint>;
+
+#[derive(Clone)]
+/// ContainerAllocateInfo pairs an allocate request to with the requesting container
+pub struct ContainerAllocateInfo {
+    pub container_name: String,
+    pub container_allocate_request: ContainerAllocateRequest,
+}
+
 
 /// An internal storage plugin registry that implements most the same functionality as the [plugin
 /// manager](https://github.com/kubernetes/kubernetes/tree/fd74333a971e2048b5fb2b692a9e043483d63fba/pkg/kubelet/pluginmanager)
@@ -48,9 +64,11 @@ pub struct DeviceManager {
     pub plugins: Arc<Mutex<DevicePluginMap>>,
     /// Directory where the plugin sockets live
     pub plugin_dir: PathBuf,
-    /// Device map
+    /// Map of devices advertised by registered device plugins
     pub devices: Arc<Mutex<DeviceMap>>,
-    /// TODO
+    /// Structure containing map with Pod to allocated device mapping
+    pub pod_devices: PodDevices,
+    /// Devices that have been allocated to Pods, keyed by resource name
     pub allocated_device_ids: Arc<Mutex<DeviceIdMap>>,
     /// TODO
     // pub healthy_device_ids: Arc<Mutex<DeviceIdMap>>,
@@ -62,14 +80,16 @@ pub struct DeviceManager {
 
 impl DeviceManager {
     /// Returns a new device manager configured with the given device plugin directory path
-    pub fn new<P: AsRef<Path>>(plugin_dir: P) -> Self {
+    pub fn new<P: AsRef<Path>>(plugin_dir: P, client: kube::Client, node_name: &str) -> Self {
         let devices = Arc::new(Mutex::new(HashMap::new()));
         let (update_node_status_sender, _) = broadcast::channel(UPDATE_NODE_STATUS_CHANNEL_SIZE);
-        let node_status_patcher = NodeStatusPatcher::new(devices.clone(), update_node_status_sender.clone());
+        let node_status_patcher = NodeStatusPatcher::new(node_name, devices.clone(), update_node_status_sender.clone(), client.clone());
+        let pod_devices = PodDevices::new(client.clone());
         DeviceManager {
             plugin_dir: PathBuf::from(plugin_dir.as_ref()),
             plugins: Arc::new(Mutex::new(HashMap::new())),
             devices,
+            pod_devices,
             allocated_device_ids: Arc::new(Mutex::new(HashMap::new())),
             update_node_status_sender,
             node_status_patcher
@@ -77,14 +97,16 @@ impl DeviceManager {
     }
 
     /// Returns a new device manager configured with the default `/var/lib/kubelet/device_plugins/` device plugin directory path
-    pub fn default() -> Self {
+    pub fn default(client: kube::Client, node_name: &str) -> Self {
         let devices = Arc::new(Mutex::new(HashMap::new()));
         let (update_node_status_sender, _) = broadcast::channel(UPDATE_NODE_STATUS_CHANNEL_SIZE);
-        let node_status_patcher = NodeStatusPatcher::new(devices.clone(), update_node_status_sender.clone());
+        let node_status_patcher = NodeStatusPatcher::new(node_name, devices.clone(), update_node_status_sender.clone(), client.clone());
+        let pod_devices = PodDevices::new(client.clone());
         DeviceManager {
             plugin_dir: PathBuf::from(DEFAULT_PLUGIN_PATH),
             plugins: Arc::new(Mutex::new(HashMap::new())),
             devices: Arc::new(Mutex::new(HashMap::new())),
+            pod_devices,
             allocated_device_ids: Arc::new(Mutex::new(HashMap::new())),
             // healthy_device_ids,
             update_node_status_sender,
@@ -103,7 +125,7 @@ impl DeviceManager {
     }
 
     /// Removes the plugin from our HashMap
-    async fn remove_plugin(&self, resource_name: &str) {
+    fn remove_plugin(&self, resource_name: &str) {
         let mut lock = self.plugins.lock().unwrap();
         lock.remove(
             resource_name
@@ -201,10 +223,6 @@ impl DeviceManager {
                             if let Some(previous_device) = previous_endpoint_devices.get(&device.id) {
                                 if previous_device.health != device.health {
                                    all_devices.lock().unwrap().get_mut(&list_and_watch_resource_name).unwrap().insert(device.id.clone(), device.clone());
-                                   if device.health == HEALTHY {
-                                       // Add device to healthy map
-                                    //    healthy_devices.lock().unwrap().get_mut(&list_and_watch_resource_name).unwrap().insert(device.id.clone());
-                                   }
                                    update_node_status = true;
                                 } else if previous_device.topology != device.topology {
                                     // TODO: how to handle this
@@ -221,10 +239,6 @@ impl DeviceManager {
                                         all_devices_map.insert(list_and_watch_resource_name.clone(), resource_devices_map);
                                     }
                                 }
-                                if device.health == HEALTHY {
-                                    // Add device to healthy map
-                                    // healthy_devices.lock().unwrap().get_mut(&list_and_watch_resource_name).unwrap().insert(device.id.clone());
-                                }
                                 update_node_status = true;
                             }
                         });
@@ -232,10 +246,6 @@ impl DeviceManager {
                         // (3) Check if Device removed
                         previous_endpoint_devices.iter().for_each(|(_, previous_device)| {
                             if !response.devices.contains(previous_device) {
-                                if previous_device.health == HEALTHY {
-                                    // Remove device from healthy map
-                                    // healthy_devices.lock().unwrap().get_mut(&list_and_watch_resource_name).unwrap().remove(&previous_device.id);
-                                }
                                 // TODO: how to handle already allocated devices? Pretty sure K8s lets them keep running but what about the allocated_device map?
                                 all_devices.lock().unwrap().get_mut(&list_and_watch_resource_name).unwrap().remove(&previous_device.id);
                                 update_node_status = true;
@@ -265,7 +275,173 @@ impl DeviceManager {
         
         Ok(())
     }
+    
+    /// do_allocate is the call that you can use to allocate a set of devices
+    /// from the registered device plugins.
+    /// Takes in a map of devices requested by containers, keyed by container name.
+    pub async fn do_allocate(&self, pod: &Pod, container_devices: HashMap<String, HashMap<String, Quantity>>)  -> anyhow::Result<()>  {
+        let mut all_allocate_requests: HashMap<String, Vec<ContainerAllocateInfo>> = HashMap::new();
+        let mut updated_allocated_devices = false;
+        for (container_name, requested_resources) in container_devices {
+            for (resource_name, quantity) in requested_resources {
+                let num_requested: usize = serde_json::to_string(&quantity).unwrap().parse().unwrap();
+                if !self.is_device_plugin_resource(&resource_name, num_requested).await {
+                    continue;
+                }
+                
+                if !updated_allocated_devices {
+                    // Only need to update allocated devices once
+                    self.update_allocated_devices().await?;
+                    updated_allocated_devices = true;
+                }
 
+                let devices_to_allocate = self.devices_to_allocate(&resource_name, &pod.pod_uid(), &container_name, num_requested).await?;
+                let container_allocate_request = ContainerAllocateRequest{devices_i_ds: devices_to_allocate};
+                let mut container_requests = vec![ContainerAllocateInfo{container_name: container_name.clone(), container_allocate_request}];
+                if let Some(all_container_requests) = all_allocate_requests.get_mut(&resource_name) {
+                    all_container_requests.append(&mut container_requests);
+                } else {
+                    all_allocate_requests.insert(resource_name.clone(), container_requests);
+                }
+            }
+        }
+        
+        // Reset allocated_device_ids if allocation fails
+        if let Err(e) = self.do_allocate_for_pod(&pod.pod_uid(), all_allocate_requests).await {
+            let mut allocated_device_ids = self.allocated_device_ids.lock().unwrap();
+            *allocated_device_ids = self.pod_devices.get_allocated_devices();
+            Err(e)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Allocates each resource requested by a Pods containers by calling allocate on the respective device plugins.
+    /// Stores the allocate responces in the PodDevices allocated map.
+    /// Returns an error if an allocate call to any device plugin returns an error.
+    /// 
+    /// Note, say DP1 and DP2 are registered for R1 and R2 respectively. If the allocate call to DP1 for R1 succeeds
+    /// but the allocate call to DP2 for R2 fails, DP1 will have completed any allocation steps it performs despite the fact that the 
+    /// Pod will not be scheduled due to R2 not being an available resource. 
+    pub async fn do_allocate_for_pod(&self, pod_uid: &str, all_allocate_requests: HashMap<String, Vec<ContainerAllocateInfo>>) -> anyhow::Result<()> {
+        let mut container_devices: ContainerDevices = HashMap::new();
+        for (resource_name, container_allocate_info) in all_allocate_requests {
+            let mut endpoint = self.plugins.lock().unwrap().get(&resource_name).unwrap().clone();
+            let container_requests = container_allocate_info.iter().map(|container_allocate_info| container_allocate_info.container_allocate_request.clone()).collect::<Vec<ContainerAllocateRequest>>();
+            let container_names = container_allocate_info.iter().map(|container_allocate_info| &container_allocate_info.container_name).collect::<Vec<&String>>();
+            let allocate_request = AllocateRequest{container_requests: container_requests.clone()};
+            let allocate_response = endpoint.client.allocate(Request::new(allocate_request)).await?;
+            let mut container_index = 0;
+            for container_resp in allocate_response.into_inner().container_responses {
+                let device_allocate_info = DeviceAllocateInfo {
+                    device_ids: container_requests[container_index].devices_i_ds.clone().into_iter().collect::<HashSet<String>>(),
+                    allocate_response: container_resp, 
+                };
+                let container_name = container_names[container_index];
+                if let Some(resource_allocate_info) = container_devices.get_mut(container_name) {
+                    resource_allocate_info.insert(resource_name.clone(), device_allocate_info);
+                } else {
+                    let mut resource_allocate_info: HashMap<String, DeviceAllocateInfo> = HashMap::new();
+                    resource_allocate_info.insert(resource_name.clone(), device_allocate_info);
+                    container_devices.insert(container_name.clone(), resource_allocate_info);
+                }
+                container_index += 1;
+            }
+        }
+        self.pod_devices.add_allocated_devices(pod_uid, container_devices);
+        Ok(())
+    }
+    
+    /// Asserts that the resource is in the device map and has at least one healthy device.
+    /// Asserts that enough healthy devices are available. 
+    /// Later a check is made to make sure enough have not been allocated yet.
+    async fn is_device_plugin_resource(&self, resource_name: &str, quantity: usize) -> bool {
+        if let Some(resource_devices) = self.devices.lock().unwrap().get(resource_name) {
+            if resource_devices.iter().filter_map(|(_id, dev)| { if dev.health == HEALTHY { Some(1)} else {None}}).sum::<usize>()  > quantity {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Frees any Devices that are bound to terminated pods.
+    async fn update_allocated_devices(&self) -> anyhow::Result<()> {
+        let active_pods = self.pod_devices.get_active_pods().await?;
+        let mut pods_to_be_removed = self.pod_devices.get_pods();
+        // remove all active pods from the list of pods to be removed
+        active_pods.iter().for_each(|p_uid| {pods_to_be_removed.remove(p_uid);});
+
+        if pods_to_be_removed.len() == 0 {
+            return Ok(())
+        }
+
+        self.pod_devices.remove_pods(pods_to_be_removed.clone())?;
+
+        // TODO: should `allocated_device_ids` be replaced with `self.pod_devices.get_allocated_devices` instead?
+        let mut allocated_device_ids = self.allocated_device_ids.lock().unwrap();
+        pods_to_be_removed.iter().for_each(|p_uid| {allocated_device_ids.remove(p_uid);});
+        Ok(())
+    }
+
+    /// Looks to see if devices have been previously allocated to a container (due to a container restart)
+    /// or for devices that are healthy and not yet allocated.
+    /// Returns list of device Ids we need to allocate with Allocate rpc call.
+    /// Returns empty list in case we don't need to issue the Allocate rpc call.
+    async fn devices_to_allocate(&self, resource_name: &str, pod_uid: &str, container_name: &str, quantity: usize) -> anyhow::Result<Vec<String>> {
+        // Get list of devices already allocated to this container. This can occur if a container has restarted.
+        if let Some(device_ids) = self.pod_devices.get_container_devices(resource_name, pod_uid, container_name) {
+            if quantity - device_ids.len() != 0 {
+                return Err(anyhow::format_err!("Pod {} with container named {} changed requested quantity for resource {} from {} to {}", pod_uid, container_name, resource_name, device_ids.len(), quantity));
+            } else {
+                // No change, so no new work
+                return Ok(Vec::new())
+            }
+        }
+        // Grab lock on devices and allocated devices
+        let resource_devices_map = self.devices.lock().unwrap();
+        let resource_devices = resource_devices_map.get(resource_name).ok_or_else(|| anyhow::format_err!("Device plugin does not exist for resource {}", resource_name))?;
+        let mut allocated_devices_map = self.allocated_device_ids.lock().unwrap();
+        let mut allocated_devices = allocated_devices_map.get(resource_name).unwrap_or(&mut HashSet::new()).clone(); 
+        // Get available devices
+        let available_devices = get_available_devices(resource_devices, &allocated_devices);
+
+
+        // Check that enough devices are available
+        if available_devices.len() < quantity {
+            return Err(anyhow::format_err!("Pod {} requested {} devices for resource {}, but only {} available for resource", pod_uid, quantity, resource_name, available_devices.len()));
+        }
+
+        // let endpoint = self.plugins.lock().unwrap().get(resource_name).unwrap().clone();
+        // let get_preferred_allocation_available = match &endpoint.register_request.options {
+        //     None => false,
+        //     Some(options) => options.get_preferred_allocation_available,
+        // };
+
+        // if get_preferred_allocation_available {
+        //     
+        // } 
+        
+        // TODO: support preferred allocation
+        // For now, reserve first N devices where N = quantity by adding them to allocated map
+        let devices_to_allocate: Vec<String> = available_devices[..quantity].to_vec();
+        // ??: is there a cleaner way to map `allocated_devices.insert(dev.clone())` from bool to 
+        // () so can remove {} block:
+        devices_to_allocate.iter().for_each(|dev| { allocated_devices.insert(dev.clone());});
+        allocated_devices_map.insert(resource_name.to_string(), allocated_devices.clone());
+
+        Ok(devices_to_allocate)
+    }
+
+}
+
+/// Returns the device IDs of all healthy devices that have yet to be allocated. 
+fn get_available_devices(devices: &EndpointDevicesMap, allocated_devices: &HashSet<String>) -> Vec<String> {
+    let healthy_devices = devices.iter().filter_map(|(dev_id, dev)| if dev.health == HEALTHY {
+        Some(dev_id.clone())
+    } else {
+        None
+    }).collect::<HashSet<String>>();
+    healthy_devices.difference(allocated_devices).into_iter().cloned().collect::<Vec<String>>()
 }
 
 #[derive(Clone)]
@@ -296,17 +472,15 @@ impl Registration for DeviceRegistry {
         
 }
 
-pub async fn serve_device_registry(device_registry: DeviceRegistry, client: &kube::Client, node_name: &str) -> anyhow::Result<()>  {
+pub async fn serve_device_registry(device_registry: DeviceRegistry) -> anyhow::Result<()>  {
     // TODO determine if need to create socket (and delete any previous ones)
     let manager_socket = device_registry.device_manager.plugin_dir.join(PLUGIN_MANGER_SOCKET_NAME);
     let socket = grpc_sock::server::Socket::new(&manager_socket).expect("couldn't make manager socket");
     
     // Clone arguments for listen_and_patch thread
-    let node_patcher_task_client = client.clone();
-    let node_patcher_task_node_name = node_name.to_string();
     let node_status_patcher = device_registry.device_manager.node_status_patcher.clone();
     let node_patcher_task = task::spawn(async move {
-        node_status_patcher.listen_and_patch(node_patcher_task_node_name, node_patcher_task_client).await.unwrap();
+        node_status_patcher.listen_and_patch().await.unwrap();
     });
     // TODO: There may be a slight race case here. If the DeviceManager tries to send device info to the NodeStatusPatcher before the NodeStatusPatcher has created a receiver
     // it will error because there are no active receivers.
@@ -324,7 +498,7 @@ pub async fn serve_device_registry(device_registry: DeviceRegistry, client: &kub
 }
 
 #[cfg(test)]
-pub mod manager_tests {
+pub mod tests {
     use super::*;
     use crate::device_plugin_api::v1beta1::{
         device_plugin_server::{DevicePlugin, DevicePluginServer}, AllocateRequest, AllocateResponse, DevicePluginOptions,
@@ -336,7 +510,7 @@ pub mod manager_tests {
     use hyper::Body;
     use kube::{Client, Service};
     use std::pin::Pin;
-    use tokio::sync::watch;
+    use tokio::sync::{watch, mpsc};
     use tonic::{Request, Response, Status};
     use tower_test::mock;
 
@@ -490,9 +664,6 @@ pub mod manager_tests {
             .unwrap()
             .to_string();
 
-        // Name of "this node" that should be patched with Device Plugin resources
-        let test_node_name = "test_node";
-
         // Make 3 mock devices
         let d1 = Device {
             id: "d1".to_string(),
@@ -519,14 +690,16 @@ pub mod manager_tests {
             run_mock_device_plugin(device_plugin_temp_dir.path().join(socket_name), devices_receiver).await.unwrap();
         });
 
+        // Name of "this node" that should be patched with Device Plugin resources
+        let test_node_name = "test_node";
         // Create and run a mock Kubernetes API service and get a Kubernetes client
         let (client, mock_service_task) = create_mock_kube_service(test_node_name).await;
 
         // Create and serve a DeviceManager
-        let device_manager = Arc::new(DeviceManager::new(manager_temp_dir.path().clone()));
+        let device_manager = Arc::new(DeviceManager::new(manager_temp_dir.path().clone(), client, test_node_name));
         let devices = device_manager.devices.clone();
         let manager_task = task::spawn( async move {
-            serve_device_registry(DeviceRegistry::new(device_manager), &client, test_node_name).await.unwrap();
+            serve_device_registry(DeviceRegistry::new(device_manager)).await.unwrap();
         });
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     

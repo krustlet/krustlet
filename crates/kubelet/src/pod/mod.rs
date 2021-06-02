@@ -79,6 +79,15 @@ impl Pod {
         status.pod_ip.as_deref()
     }
 
+    /// Get the pod's uid
+    pub fn pod_uid(&self) -> &str {
+        self.kube_pod
+            .metadata
+            .uid
+            .as_deref()
+            .expect("Pod uid should always be set but was not")
+    }
+
     /// Get an iterator over the pod's labels
     pub fn labels(&self) -> &std::collections::BTreeMap<String, String> {
         self.kube_pod.meta().labels.as_ref().unwrap_or(&EMPTY_MAP)
