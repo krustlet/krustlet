@@ -62,7 +62,7 @@ warp = { version = "0.3", features = ['tls'] }
 http = "0.2"
 rcgen = "0.8"
 uuid = { version = "0.8.1", features = ["v4"] }
-krator = { path = "../krator", version = "0.2", default-features = false }
+krator = { version = "0.3", default-features = false }
 json-patch = "0.2"
 tempfile = "3.2"
 tonic = "0.4"

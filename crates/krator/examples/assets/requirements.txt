@@ -1,2 +1,0 @@
-kubernetes==11.0
-faker==5.6
