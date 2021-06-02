@@ -78,9 +78,15 @@ impl<P: Provider> Kubelet<P> {
         .fuse()
         .boxed();
 
-        let device_manager = start_device_manager(self.provider.provider_state()
-        .read()
-        .await.device_plugin_manager()).fuse().boxed();
+        let device_manager = start_device_manager(
+            self.provider
+                .provider_state()
+                .read()
+                .await
+                .device_plugin_manager(),
+        )
+        .fuse()
+        .boxed();
 
         // Start the webserver
         let webserver = start_webserver(self.provider.clone(), &self.config.server_config)
@@ -191,12 +197,12 @@ async fn start_plugin_registry(registrar: Option<Arc<PluginRegistry>>) -> anyhow
     }
 }
 
-/// Starts a DeviceManager 
-async fn start_device_manager(device_manager: Option<Arc<manager::DeviceManager>>) -> anyhow::Result<()> {
+/// Starts a DeviceManager
+async fn start_device_manager(
+    device_manager: Option<Arc<manager::DeviceManager>>,
+) -> anyhow::Result<()> {
     match device_manager {
-        Some(dm) => {
-            manager::serve_device_registry(manager::DeviceRegistry::new(dm)).await
-        },
+        Some(dm) => manager::serve_device_registry(manager::DeviceRegistry::new(dm)).await,
         // Do nothing; just poll forever and "pretend" that a DeviceManager is running
         None => {
             task::spawn(async {
@@ -238,6 +244,7 @@ async fn start_signal_handler(signal: Arc<AtomicBool>) -> anyhow::Result<()> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::device_plugin_manager::manager::DeviceManager;
     use crate::plugin_watcher::PluginRegistry;
     use crate::pod::{Pod, Status};
     use crate::{
@@ -274,7 +281,9 @@ mod test {
 
     impl DevicePluginSupport for ProviderState {
         fn device_plugin_manager(&self) -> Option<Arc<DeviceManager>> {
-            Some(Arc::new(DeviceManager::default()))
+            let client = mock_client();
+            let node_name = "test_node";
+            Some(Arc::new(DeviceManager::default(client, node_name)))
         }
     }
 

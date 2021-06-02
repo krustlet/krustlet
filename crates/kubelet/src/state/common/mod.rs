@@ -8,7 +8,6 @@ use crate::pod::Pod;
 use crate::provider::{DevicePluginSupport, PluginSupport, VolumeSupport};
 use krator::{ObjectState, State};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 pub mod allocated;
 pub mod crash_loop_backoff;

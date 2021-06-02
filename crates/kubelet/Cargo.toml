@@ -102,5 +102,5 @@ tower-test = "0.4"
 tonic-build = "0.4"
 
 [package.metadata.docs.rs]
-# features = ["docs"]
-# rustdoc-args = ["--cfg", "feature=\"docs\""]
+features = ["docs"]
+rustdoc-args = ["--cfg", "feature=\"docs\""]

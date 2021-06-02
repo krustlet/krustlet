@@ -14,7 +14,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Generate CSI plugin and Device Plugin code
     builder.compile(
-        &["proto/pluginregistration/v1/pluginregistration.proto", "proto/deviceplugin/v1beta1/deviceplugin.proto"],
+        &[
+            "proto/pluginregistration/v1/pluginregistration.proto",
+            "proto/deviceplugin/v1beta1/deviceplugin.proto",
+        ],
         &["proto/pluginregistration/v1", "proto/deviceplugin/v1beta1"],
     )?;
 

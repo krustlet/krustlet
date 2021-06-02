@@ -64,7 +64,7 @@
 //!         None
 //!     }
 //! }
-//! 
+//!
 //! async {
 //!     // Instantiate your provider type
 //!     let provider = MyProvider;

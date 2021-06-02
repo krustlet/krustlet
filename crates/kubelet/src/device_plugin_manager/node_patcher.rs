@@ -1,12 +1,11 @@
-
-use super::{DeviceMap, HEALTHY, UNHEALTHY};
-use kube::api::{Api, PatchParams};
+use super::{DeviceMap, HEALTHY};
 use k8s_openapi::api::core::v1::{Node, NodeStatus};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+use kube::api::{Api, PatchParams};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
-use tracing::{error, info, warn};
+use tracing::error;
 
 /// NodePatcher updates the Node status with the latest device information.
 #[derive(Clone)]
@@ -19,19 +18,42 @@ pub struct NodeStatusPatcher {
 }
 
 impl NodeStatusPatcher {
-    pub fn new(node_name: &str, devices: Arc<Mutex<DeviceMap>>, update_node_status_sender: broadcast::Sender<()>, client: kube::Client) -> Self {
-        NodeStatusPatcher {node_name: node_name.to_string(), devices, update_node_status_sender, client}
+    pub fn new(
+        node_name: &str,
+        devices: Arc<Mutex<DeviceMap>>,
+        update_node_status_sender: broadcast::Sender<()>,
+        client: kube::Client,
+    ) -> Self {
+        NodeStatusPatcher {
+            node_name: node_name.to_string(),
+            devices,
+            update_node_status_sender,
+            client,
+        }
     }
 
-    async fn get_node_status_patch(
-        &self,
-    ) -> NodeStatus {
+    async fn get_node_status_patch(&self) -> NodeStatus {
         let devices = self.devices.lock().unwrap();
-        let capacity: BTreeMap<String, Quantity> = devices.iter().map(|(resource_name, resource_devices)| (resource_name.clone(), Quantity(resource_devices.len().to_string()))).collect();
-        let allocatable: BTreeMap<String, Quantity> = devices.iter().map(|(resource_name, resource_devices)| {
-            let healthy_count: usize = resource_devices.iter().filter(|(_, dev)| dev.health == HEALTHY).map(|(_, _)| 1).sum();
-            (resource_name.clone(), Quantity(healthy_count.to_string()))
-        }).collect();
+        let capacity: BTreeMap<String, Quantity> = devices
+            .iter()
+            .map(|(resource_name, resource_devices)| {
+                (
+                    resource_name.clone(),
+                    Quantity(resource_devices.len().to_string()),
+                )
+            })
+            .collect();
+        let allocatable: BTreeMap<String, Quantity> = devices
+            .iter()
+            .map(|(resource_name, resource_devices)| {
+                let healthy_count: usize = resource_devices
+                    .iter()
+                    .filter(|(_, dev)| dev.health == HEALTHY)
+                    .map(|(_, _)| 1)
+                    .sum();
+                (resource_name.clone(), Quantity(healthy_count.to_string()))
+            })
+            .collect();
         NodeStatus {
             capacity: Some(capacity),
             allocatable: Some(allocatable),
@@ -39,10 +61,7 @@ impl NodeStatusPatcher {
         }
     }
 
-    async fn do_node_status_patch(
-        &self,
-        status: NodeStatus,
-    ) -> anyhow::Result<()> {
+    async fn do_node_status_patch(&self, status: NodeStatus) -> anyhow::Result<()> {
         let node_client: Api<Node> = Api::all(self.client.clone());
         let _node = node_client
             .patch_status(
@@ -55,23 +74,21 @@ impl NodeStatusPatcher {
         Ok(())
     }
 
-    pub async fn listen_and_patch(
-        self,
-    ) -> anyhow::Result<()> {
+    pub async fn listen_and_patch(self) -> anyhow::Result<()> {
         // Forever hold lock on the status update receiver
         let mut receiver = self.update_node_status_sender.subscribe();
         println!("entered listen_and_patch");
         loop {
             println!("listen_and_patch loop");
             match receiver.recv().await {
-                Err(e) => {
+                Err(_e) => {
                     error!("Channel closed by senders");
                     // TODO: bubble up error
-                },
+                }
                 Ok(_) => {
                     // Grab status values
                     let status_patch = self.get_node_status_patch().await;
-                    // Do patch 
+                    // Do patch
                     self.do_node_status_patch(status_patch).await?;
                 }
             }
@@ -81,25 +98,71 @@ impl NodeStatusPatcher {
     }
 }
 
-
 #[cfg(test)]
 mod node_patcher_tests {
-    use super::super::{EndpointDevicesMap, UNHEALTHY};
     use super::super::manager::tests::create_mock_kube_service;
+    use super::super::{EndpointDevicesMap, UNHEALTHY};
     use super::*;
     use crate::device_plugin_api::v1beta1::Device;
 
     fn create_mock_devices(r1_name: &str, r2_name: &str) -> Arc<Mutex<DeviceMap>> {
         let r1_devices: EndpointDevicesMap = [
-            ("r1-id1".to_string(), Device{id: "r1-id1".to_string(), health: HEALTHY.to_string(), topology: None}), 
-            ("r1-id2".to_string(), Device{id: "r1-id2".to_string(), health: HEALTHY.to_string(), topology: None}),
-            ("r1-id3".to_string(), Device{id: "r1-id3".to_string(), health: UNHEALTHY.to_string(), topology: None})
-            ].iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            (
+                "r1-id1".to_string(),
+                Device {
+                    id: "r1-id1".to_string(),
+                    health: HEALTHY.to_string(),
+                    topology: None,
+                },
+            ),
+            (
+                "r1-id2".to_string(),
+                Device {
+                    id: "r1-id2".to_string(),
+                    health: HEALTHY.to_string(),
+                    topology: None,
+                },
+            ),
+            (
+                "r1-id3".to_string(),
+                Device {
+                    id: "r1-id3".to_string(),
+                    health: UNHEALTHY.to_string(),
+                    topology: None,
+                },
+            ),
+        ]
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
         let r2_devices: EndpointDevicesMap = [
-            ("r2-id1".to_string(), Device{id: "r2-id1".to_string(), health: HEALTHY.to_string(), topology: None}), 
-            ("r2-id2".to_string(), Device{id: "r2-id2".to_string(), health: HEALTHY.to_string(), topology: None})
-            ].iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        let device_map: DeviceMap = [(r1_name.to_string(), r1_devices), (r2_name.to_string(), r2_devices)].iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            (
+                "r2-id1".to_string(),
+                Device {
+                    id: "r2-id1".to_string(),
+                    health: HEALTHY.to_string(),
+                    topology: None,
+                },
+            ),
+            (
+                "r2-id2".to_string(),
+                Device {
+                    id: "r2-id2".to_string(),
+                    health: HEALTHY.to_string(),
+                    topology: None,
+                },
+            ),
+        ]
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+        let device_map: DeviceMap = [
+            (r1_name.to_string(), r1_devices),
+            (r2_name.to_string(), r2_devices),
+        ]
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
         Arc::new(Mutex::new(device_map))
     }
 
@@ -114,11 +177,14 @@ mod node_patcher_tests {
         let (update_node_status_sender, _rx) = broadcast::channel(2);
 
         // Create and run a mock Kubernetes API service and get a Kubernetes client
-        let (client, mock_service_task) = create_mock_kube_service("test_node").await;
+        let (client, _mock_service_task) = create_mock_kube_service("test_node").await;
         let node_name = "test_node";
-        let node_status_patcher = NodeStatusPatcher::new(node_name, devices, update_node_status_sender, client);
-        let (client, _) = create_mock_kube_service(node_name).await;
-        node_status_patcher.do_node_status_patch(empty_node_status).await.unwrap();
+        let node_status_patcher =
+            NodeStatusPatcher::new(node_name, devices, update_node_status_sender, client);
+        node_status_patcher
+            .do_node_status_patch(empty_node_status)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -129,20 +195,26 @@ mod node_patcher_tests {
         let (update_node_status_sender, _rx) = broadcast::channel(2);
         let node_name = "test_node";
         // Create and run a mock Kubernetes API service and get a Kubernetes client
-        let (client, mock_service_task) = create_mock_kube_service(node_name).await;
-        let node_status_patcher = NodeStatusPatcher::new(node_name, devices, update_node_status_sender, client);
+        let (client, _mock_service_task) = create_mock_kube_service(node_name).await;
+        let node_status_patcher =
+            NodeStatusPatcher::new(node_name, devices, update_node_status_sender, client);
         let status = node_status_patcher.get_node_status_patch().await;
         // Check that both resources listed under allocatable and only healthy devices are counted
         let allocatable = status.allocatable.unwrap();
         assert_eq!(allocatable.len(), 2);
-        assert_eq!(allocatable.get(r1_name).unwrap(), &Quantity("2".to_string()));
-        assert_eq!(allocatable.get(r2_name).unwrap(), &Quantity("2".to_string()));
+        assert_eq!(
+            allocatable.get(r1_name).unwrap(),
+            &Quantity("2".to_string())
+        );
+        assert_eq!(
+            allocatable.get(r2_name).unwrap(),
+            &Quantity("2".to_string())
+        );
 
         // Check that both resources listed under capacity and both healthy and unhealthy devices are counted
         let capacity = status.capacity.unwrap();
         assert_eq!(capacity.len(), 2);
         assert_eq!(capacity.get(r1_name).unwrap(), &Quantity("3".to_string()));
         assert_eq!(capacity.get(r2_name).unwrap(), &Quantity("2".to_string()));
-
     }
 }

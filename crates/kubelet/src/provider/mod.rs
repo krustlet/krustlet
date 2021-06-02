@@ -80,7 +80,7 @@ use krator::{ObjectState, State};
 ///         None
 ///     }
 /// }
-/// 
+///
 /// impl DevicePluginSupport for ProviderState {
 ///     fn device_plugin_manager(&self) -> Option<Arc<DeviceManager>> {
 ///         None
