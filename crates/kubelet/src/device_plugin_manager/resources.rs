@@ -27,7 +27,9 @@ const RESOURCE_DEFAULT_NAMESPACE_PREFIX: &str = "kubernetes.io/";
 /// Default resource requests prefix
 const DEFAULT_RESOURCE_REQUESTS_PREFIX: &str = "requests.";
 
-// Taken from oci_distribution::regexp (which is private)
+/// Creates a new regex builder with the input pattern.
+/// Throws error if the pattern is invalid.
+///  Taken from oci_distribution::regexp (which is private)
 pub fn must_compile(r: &str) -> Regex {
     RegexBuilder::new(r)
         .size_limit(10 * (1 << 21))
@@ -35,7 +37,7 @@ pub fn must_compile(r: &str) -> Regex {
         .unwrap()
 }
 
-/// is_extended_resource_name returns true if:
+/// Returns true if:
 /// 1. the resource name is not in the default namespace;
 /// 2. resource name does not have "requests." prefix,
 /// to avoid confusion with the convention in quota
@@ -59,14 +61,14 @@ pub fn is_extended_resource_name(name: &str) -> bool {
     }
 }
 
-/// is_native_resource returns true if the resource name is in the
+/// Returns true if the resource name is in the
 /// *kubernetes.io/ namespace. Partially-qualified (unprefixed) names are
 /// implicitly in the kubernetes.io/ namespace.
 fn is_native_resource(name: &str) -> bool {
     !name.contains('/') || name.contains(RESOURCE_DEFAULT_NAMESPACE_PREFIX)
 }
 
-/// is_qualified_name tests whether the value passed is what Kubernetes calls a "qualified name".  
+/// Tests whether the value passed is what Kubernetes calls a "qualified name".  
 /// A fully-qualified resource typename is constructed from a DNS-style subdomain,
 /// followed by a slash /, followed by a name.
 /// This is a format used in various places throughout the system.
@@ -107,7 +109,7 @@ fn is_qualified_name(name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// is_dns_1123_subdomain tests for a string that conforms to the definition of a
+/// Tests for a string that conforms to the definition of a
 /// subdomain in DNS (RFC 1123).
 fn is_dns_1123_subdomain(value: &str) -> anyhow::Result<()> {
     if value.len() > DNS_1123_SUBDOMAIN_MAX_LEN {

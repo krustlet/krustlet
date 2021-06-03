@@ -81,9 +81,8 @@
 //! };
 //! ```
 
-// TODO: @kate uncomment
-// #![deny(missing_docs)]
-// #![cfg_attr(feature = "docs", feature(doc_cfg))]
+#![deny(missing_docs)]
+#![cfg_attr(feature = "docs", feature(doc_cfg))]
 
 mod bootstrapping;
 mod config_interpreter;

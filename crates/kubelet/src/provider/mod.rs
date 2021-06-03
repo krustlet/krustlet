@@ -9,7 +9,7 @@ use thiserror::Error;
 use tracing::{debug, error, info};
 
 use crate::container::Container;
-use crate::device_plugin_manager::manager::DeviceManager;
+use crate::device_plugin_manager::DeviceManager;
 use crate::log::Sender;
 use crate::node::Builder;
 use crate::plugin_watcher::PluginRegistry;

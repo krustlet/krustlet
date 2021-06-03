@@ -100,7 +100,7 @@ impl NodeStatusPatcher {
 
 #[cfg(test)]
 mod node_patcher_tests {
-    use super::super::manager::tests::create_mock_kube_service;
+    use super::super::tests::create_mock_kube_service;
     use super::super::{EndpointDevicesMap, UNHEALTHY};
     use super::*;
     use crate::device_plugin_api::v1beta1::Device;

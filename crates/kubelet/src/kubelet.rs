@@ -1,7 +1,7 @@
 ///! This library contains code for running a kubelet. Use this to create a new
 ///! Kubelet with a specific handler (called a `Provider`)
 use crate::config::Config;
-use crate::device_plugin_manager::manager;
+use crate::device_plugin_manager::{serve_device_registry, DeviceManager};
 use crate::node;
 use crate::operator::PodOperator;
 use crate::plugin_watcher::PluginRegistry;
@@ -198,11 +198,9 @@ async fn start_plugin_registry(registrar: Option<Arc<PluginRegistry>>) -> anyhow
 }
 
 /// Starts a DeviceManager
-async fn start_device_manager(
-    device_manager: Option<Arc<manager::DeviceManager>>,
-) -> anyhow::Result<()> {
+async fn start_device_manager(device_manager: Option<Arc<DeviceManager>>) -> anyhow::Result<()> {
     match device_manager {
-        Some(dm) => manager::serve_device_registry(manager::DeviceRegistry::new(dm)).await,
+        Some(dm) => serve_device_registry(dm).await,
         // Do nothing; just poll forever and "pretend" that a DeviceManager is running
         None => {
             task::spawn(async {
@@ -244,7 +242,7 @@ async fn start_signal_handler(signal: Arc<AtomicBool>) -> anyhow::Result<()> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::device_plugin_manager::manager::DeviceManager;
+    use crate::device_plugin_manager::DeviceManager;
     use crate::plugin_watcher::PluginRegistry;
     use crate::pod::{Pod, Status};
     use crate::{

@@ -40,12 +40,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use kubelet::device_plugin_manager::manager::DeviceManager;
+use kubelet::device_plugin_manager::DeviceManager;
 use kubelet::node::Builder;
 use kubelet::plugin_watcher::PluginRegistry;
 use kubelet::pod::state::prelude::SharedState;
 use kubelet::pod::{Handle, Pod, PodKey};
-use kubelet::provider::{DevicePluginSupport, PluginSupport, Provider, ProviderError, VolumeSupport};
+use kubelet::provider::{
+    DevicePluginSupport, PluginSupport, Provider, ProviderError, VolumeSupport,
+};
 use kubelet::state::common::registered::Registered;
 use kubelet::state::common::terminated::Terminated;
 use kubelet::state::common::{GenericProvider, GenericProviderState};
