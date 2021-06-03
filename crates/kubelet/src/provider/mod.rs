@@ -33,7 +33,7 @@ use krator::{ObjectState, State};
 /// # Example
 /// ```rust
 /// use async_trait::async_trait;
-/// use kubelet::device_plugin_manager::manager::DeviceManager;
+/// use kubelet::device_plugin_manager::DeviceManager;
 /// use kubelet::plugin_watcher::PluginRegistry;
 /// use kubelet::pod::{Pod, Status};
 /// use kubelet::provider::{DevicePluginSupport, Provider, PluginSupport};

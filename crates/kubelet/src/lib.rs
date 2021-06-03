@@ -8,7 +8,7 @@
 //! ```rust,no_run
 //! use kubelet::Kubelet;
 //! use kubelet::config::Config;
-//! use kubelet::device_plugin_manager::manager::DeviceManager;
+//! use kubelet::device_plugin_manager::DeviceManager;
 //! use kubelet::plugin_watcher::PluginRegistry;
 //! use kubelet::pod::Pod;
 //! use kubelet::provider::{DevicePluginSupport, Provider, PluginSupport};
