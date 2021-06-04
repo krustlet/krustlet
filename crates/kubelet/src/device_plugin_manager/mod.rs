@@ -72,6 +72,13 @@ pub struct ContainerAllocateInfo {
     container_allocate_request: ContainerAllocateRequest,
 }
 
+/// Enum for reporting a whether a connection was made with a device plugin's ListAndWatch service
+#[derive(Debug)]
+enum EndpointConnectionMessage {
+    Success,
+    Error,
+}
+
 /// An implementation of the Kubernetes Device Plugin Manager (https://github.com/kubernetes/kubernetes/tree/v1.21.1/pkg/kubelet/cm/devicemanager).
 /// It implements the device plugin framework's `Registration` gRPC service. A device plugin (DP) can register itself with the kubelet through this gRPC
 /// service. This allows the DP to advertise a resource like system hardware kubelet. The `DeviceManager` contains a `NodePatcher` that patches the Node
@@ -193,11 +200,8 @@ impl DeviceManager {
         Ok(())
     }
 
-    /// This creates a connection to a Device Plugin by calling its ListAndWatch function.
+    /// This creates a connection to a device plugin by calling it's ListAndWatch function.
     /// Upon a successful connection, an `Endpoint` is added to the `plugins` map.
-    /// The device plugin updates the kubelet periodically about the capacity and health of its resource.
-    /// Upon updates, this propagates any changes into the `plugins` map and triggers the `NodePatcher` to
-    /// patch the node with the latest values.
     async fn create_endpoint(&self, register_request: &RegisterRequest) -> anyhow::Result<()> {
         trace!(
             "Connecting to plugin at {:?} for ListAndWatch",
@@ -212,121 +216,136 @@ impl DeviceManager {
         let all_devices = self.devices.clone();
         let update_node_status_sender = self.update_node_status_sender.clone();
 
-        // TODO: make options an enum?
-        let success: i8 = 0;
-        let error: i8 = 1;
-        let (successful_connection_sender, successful_connection_receiver): (
-            tokio::sync::oneshot::Sender<i8>,
-            tokio::sync::oneshot::Receiver<i8>,
-        ) = tokio::sync::oneshot::channel();
+        let (successful_connection_sender, successful_connection_receiver) =
+            tokio::sync::oneshot::channel();
 
-        // TODO: decide whether to join all spawned ListAndWatch threads
+        // TODO: decide whether to join/store all spawned ListAndWatch threads
         tokio::spawn(async move {
-            match list_and_watch_client
-                .list_and_watch(Request::new(Empty {}))
-                .await
-            {
-                Err(e) => {
-                    error!("could not call ListAndWatch on device plugin with resource name {:?} with error {}", list_and_watch_resource_name, e);
-                    successful_connection_sender.send(error).unwrap();
-                }
-                Ok(stream_wrapped) => {
-                    successful_connection_sender.send(success).unwrap();
-                    let mut stream = stream_wrapped.into_inner();
-                    let mut previous_endpoint_devices: HashMap<String, Device> = HashMap::new();
-                    while let Some(response) = stream.message().await.unwrap() {
-                        let current_devices = response
-                            .devices
-                            .iter()
-                            .map(|device| (device.id.clone(), device.clone()))
-                            .collect::<HashMap<String, Device>>();
-                        let mut update_node_status = false;
-                        // Iterate through the list of devices, updating the Node status if
-                        // (1) Device modified: DP reporting a previous device with a different health status
-                        // (2) Device added: DP reporting a new device
-                        // (3) Device removed: DP is no longer advertising a device
-                        current_devices.iter().for_each(|(_, device)| {
-                            // (1) Device modified or already registered
-                            if let Some(previous_device) = previous_endpoint_devices.get(&device.id)
-                            {
-                                if previous_device.health != device.health {
-                                    all_devices
-                                        .lock()
-                                        .unwrap()
-                                        .get_mut(&list_and_watch_resource_name)
-                                        .unwrap()
-                                        .insert(device.id.clone(), device.clone());
-                                    update_node_status = true;
-                                } else if previous_device.topology != device.topology {
-                                    // TODO: how to handle this
-                                    error!("device topology changed");
+            DeviceManager::call_list_and_watch(
+                all_devices,
+                update_node_status_sender,
+                &mut list_and_watch_client,
+                successful_connection_sender,
+                list_and_watch_resource_name,
+            )
+            .await;
+        });
+
+        // Only add device plugin to map if successful ListAndWatch call
+        match successful_connection_receiver.await.unwrap() {
+            EndpointConnectionMessage::Success => {
+                let endpoint = Endpoint {
+                    client,
+                    register_request: register_request.clone(),
+                };
+                self.add_plugin(endpoint);
+            }
+            EndpointConnectionMessage::Error => {
+                return Err(anyhow::Error::msg(format!(
+                    "Could not call ListAndWatch on device plugin at socket {:?}",
+                    register_request.endpoint
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Connects to a device plugin's ListAndWatch service.
+    /// The device plugin updates this client periodically about changes in the capacity and health of its resource.
+    /// Upon updates, this propagates any changes into the `plugins` map and triggers the `NodePatcher` to
+    /// patch the node with the latest values.
+    async fn call_list_and_watch(
+        devices: Arc<Mutex<DeviceMap>>,
+        update_node_status_sender: broadcast::Sender<()>,
+        client: &mut DevicePluginClient<tonic::transport::Channel>,
+        successful_connection_sender: tokio::sync::oneshot::Sender<EndpointConnectionMessage>,
+        resource_name: String,
+    ) {
+        match client.list_and_watch(Request::new(Empty {})).await {
+            Err(e) => {
+                error!(error = %e, resource = %resource_name, "Could not call ListAndWatch on the device plugin for this resource");
+                successful_connection_sender
+                    .send(EndpointConnectionMessage::Error)
+                    .unwrap();
+            }
+            Ok(stream_wrapped) => {
+                successful_connection_sender
+                    .send(EndpointConnectionMessage::Success)
+                    .unwrap();
+                let mut stream = stream_wrapped.into_inner();
+                let mut previous_endpoint_devices: HashMap<String, Device> = HashMap::new();
+                while let Some(response) = stream.message().await.unwrap() {
+                    let current_devices = response
+                        .devices
+                        .iter()
+                        .map(|device| (device.id.clone(), device.clone()))
+                        .collect::<HashMap<String, Device>>();
+                    let mut update_node_status = false;
+                    // Iterate through the list of devices, updating the Node status if
+                    // (1) Device modified: DP reporting a previous device with a different health status
+                    // (2) Device added: DP reporting a new device
+                    // (3) Device removed: DP is no longer advertising a device
+                    current_devices.iter().for_each(|(_, device)| {
+                        // (1) Device modified or already registered
+                        if let Some(previous_device) = previous_endpoint_devices.get(&device.id) {
+                            if previous_device.health != device.health {
+                                devices
+                                    .lock()
+                                    .unwrap()
+                                    .get_mut(&resource_name)
+                                    .unwrap()
+                                    .insert(device.id.clone(), device.clone());
+                                update_node_status = true;
+                            } else if previous_device.topology != device.topology {
+                                // Currently not using/handling device topology. Simply log the change.
+                                trace!("Topology of device {} from resource {} changed from {:?} to {:?}", device.id, resource_name, previous_device.topology, device.topology);
+                            }
+                        // (2) Device added
+                        } else {
+                            let mut all_devices_map = devices.lock().unwrap();
+                            match all_devices_map.get_mut(&resource_name) {
+                                Some(resource_devices_map) => {
+                                    resource_devices_map.insert(device.id.clone(), device.clone());
                                 }
-                            // (2) Device added
-                            } else {
-                                let mut all_devices_map = all_devices.lock().unwrap();
-                                match all_devices_map.get_mut(&list_and_watch_resource_name) {
-                                    Some(resource_devices_map) => {
-                                        resource_devices_map
-                                            .insert(device.id.clone(), device.clone());
-                                    }
-                                    None => {
-                                        let mut resource_devices_map = HashMap::new();
-                                        resource_devices_map
-                                            .insert(device.id.clone(), device.clone());
-                                        all_devices_map.insert(
-                                            list_and_watch_resource_name.clone(),
-                                            resource_devices_map,
-                                        );
-                                    }
+                                None => {
+                                    let mut resource_devices_map = HashMap::new();
+                                    resource_devices_map.insert(device.id.clone(), device.clone());
+                                    all_devices_map
+                                        .insert(resource_name.clone(), resource_devices_map);
                                 }
+                            }
+                            update_node_status = true;
+                        }
+                    });
+
+                    // (3) Check if Device removed
+                    previous_endpoint_devices
+                        .iter()
+                        .for_each(|(_, previous_device)| {
+                            if !response.devices.contains(previous_device) {
+                                // TODO: how to handle already allocated devices? Pretty sure K8s lets them keep running but what about the allocated_device map?
+                                devices
+                                    .lock()
+                                    .unwrap()
+                                    .get_mut(&resource_name)
+                                    .unwrap()
+                                    .remove(&previous_device.id);
                                 update_node_status = true;
                             }
                         });
 
-                        // (3) Check if Device removed
-                        previous_endpoint_devices
-                            .iter()
-                            .for_each(|(_, previous_device)| {
-                                if !response.devices.contains(previous_device) {
-                                    // TODO: how to handle already allocated devices? Pretty sure K8s lets them keep running but what about the allocated_device map?
-                                    all_devices
-                                        .lock()
-                                        .unwrap()
-                                        .get_mut(&list_and_watch_resource_name)
-                                        .unwrap()
-                                        .remove(&previous_device.id);
-                                    update_node_status = true;
-                                }
-                            });
+                    // Replace previous devices with current devices
+                    previous_endpoint_devices = current_devices;
 
-                        // Replace previous devices with current devices
-                        previous_endpoint_devices = current_devices;
-
-                        if update_node_status {
-                            // TODO handle error -- maybe channel is full
-                            update_node_status_sender.send(()).unwrap();
-                        }
+                    if update_node_status {
+                        // TODO handle error -- maybe channel is full
+                        update_node_status_sender.send(()).unwrap();
                     }
-                    // TODO: remove endpoint from map
                 }
+                // TODO: remove endpoint from map
             }
-        });
-
-        // Only add device plugin to map if successful ListAndWatch call
-        if successful_connection_receiver.await.unwrap() == success {
-            let endpoint = Endpoint {
-                client,
-                register_request: register_request.clone(),
-            };
-            self.add_plugin(endpoint);
-        } else {
-            return Err(anyhow::Error::msg(format!(
-                "could not call ListAndWatch on device plugin at socket {:?}",
-                register_request.endpoint
-            )));
         }
-
-        Ok(())
     }
 
     /// This is the call that you can use to allocate a set of devices
@@ -884,7 +903,7 @@ pub mod tests {
         let (devices_sender, devices_receiver) = watch::channel(devices);
 
         // Run the mock device plugin
-        let device_plugin_task = task::spawn(async move {
+        let _device_plugin_task = task::spawn(async move {
             run_mock_device_plugin(
                 device_plugin_temp_dir.path().join(socket_name),
                 devices_receiver,
@@ -896,7 +915,7 @@ pub mod tests {
         // Name of "this node" that should be patched with Device Plugin resources
         let test_node_name = "test_node";
         // Create and run a mock Kubernetes API service and get a Kubernetes client
-        let (client, mock_service_task) = create_mock_kube_service(test_node_name).await;
+        let (client, _mock_service_task) = create_mock_kube_service(test_node_name).await;
 
         // Create and serve a DeviceManager
         let device_manager = Arc::new(DeviceManager::new(
@@ -905,7 +924,7 @@ pub mod tests {
             test_node_name,
         ));
         let devices = device_manager.devices.clone();
-        let manager_task = task::spawn(async move {
+        let _manager_task = task::spawn(async move {
             serve_device_registry(device_manager).await.unwrap();
         });
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
