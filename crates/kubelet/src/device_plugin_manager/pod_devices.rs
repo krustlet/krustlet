@@ -101,15 +101,10 @@ impl PodDevices {
                         container_devs
                             .iter()
                             .for_each(|(resource_name, device_allocate_info)| {
-                                if let Some(device_ids) = res.get(resource_name) {
-                                    res.insert(
-                                        resource_name.clone(),
-                                        device_ids
-                                            .union(&device_allocate_info.device_ids)
-                                            .into_iter()
-                                            .cloned()
-                                            .collect(),
-                                    );
+                                if let Some(device_ids) = res.get_mut(resource_name) {
+                                    device_allocate_info.device_ids.iter().for_each(|id| {
+                                        device_ids.insert(id.clone());
+                                    });
                                 } else {
                                     res.insert(
                                         resource_name.clone(),

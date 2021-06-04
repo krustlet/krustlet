@@ -31,16 +31,18 @@ const DEFAULT_PLUGIN_PATH: &str = "c:\\ProgramData\\kubelet\\device_plugins";
 
 const PLUGIN_MANGER_SOCKET_NAME: &str = "kubelet.sock";
 const UPDATE_NODE_STATUS_CHANNEL_SIZE: usize = 15;
-/// `DeviceIdMap` contains ... TODO
+
+/// `DeviceIdMap` contains the device Ids of all the devices advertised by device plugins.
+/// Key is resource name.
 type DeviceIdMap = HashMap<String, EndpointDeviceIds>;
 
-/// EndpointDeviceIds contains the IDs of all the devices advertised by a single device plugin
+/// `EndpointDeviceIds` contains the IDs of all the devices advertised by a single device plugin
 type EndpointDeviceIds = HashSet<String>;
 
 /// `DeviceMap` contains all the devices advertised by all device plugins. Key is resource name.
 type DeviceMap = HashMap<String, EndpointDevicesMap>;
 
-/// EndpointDevicesMap contains all of the devices advertised by a single device plugin. Key is device ID.
+/// `EndpointDevicesMap` contains all of the devices advertised by a single device plugin. Key is device ID.
 type EndpointDevicesMap = HashMap<String, Device>;
 
 /// Healthy means the device is allocatable (whether already allocated or not)
@@ -187,6 +189,7 @@ impl DeviceManager {
 
     /// Validates if the plugin is unique (meaning it doesn't exist in the `plugins` map).
     /// If there is an active plugin registered with this name, returns error.
+    /// TODO: Might be best to always accept: https://sourcegraph.com/github.com/kubernetes/kubernetes@9d6e5049bb719abf41b69c91437d25e273829746/-/blob/pkg/kubelet/cm/devicemanager/manager.go?subtree=true#L439
     async fn validate_is_unique(
         &self,
         register_request: &RegisterRequest,
@@ -727,14 +730,14 @@ pub mod tests {
             &self,
             _request: Request<Empty>,
         ) -> Result<Response<Self::ListAndWatchStream>, Status> {
-            println!("list_and_watch entered");
+            trace!("list_and_watch entered");
             // Create a channel that list_and_watch can periodically send updates to kubelet on
             let (kubelet_update_sender, kubelet_update_receiver) = mpsc::channel(3);
             let mut devices_receiver = self.devices_receiver.clone();
             tokio::spawn(async move {
                 while devices_receiver.changed().await.is_ok() {
                     let devices = devices_receiver.borrow().clone();
-                    println!(
+                    trace!(
                         "list_and_watch received new devices [{:?}] to send",
                         devices
                     );
@@ -778,7 +781,6 @@ pub mod tests {
     ) -> anyhow::Result<()> {
         let device_plugin = MockDevicePlugin { devices_receiver };
         let socket = grpc_sock::server::Socket::new(&socket_path).expect("couldnt make dp socket");
-        println!("after creating DP socket");
         let serv = Server::builder()
             .add_service(DevicePluginServer::new(device_plugin))
             .serve_with_incoming(socket);
