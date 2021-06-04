@@ -15,7 +15,7 @@ pub struct DeviceAllocateInfo {
     pub allocate_response: ContainerAllocateResponse,
 }
 /// Map of devices allocated to the container, keyed by resource name
-pub type ResourceAllocateInfo = HashMap<String, DeviceAllocateInfo>;
+type ResourceAllocateInfo = HashMap<String, DeviceAllocateInfo>;
 /// Map of container device information, keyed by container name
 pub type ContainerDevices = HashMap<String, ResourceAllocateInfo>;
 

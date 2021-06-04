@@ -281,7 +281,9 @@ mod test {
         fn device_plugin_manager(&self) -> Option<Arc<DeviceManager>> {
             let client = mock_client();
             let node_name = "test_node";
-            Some(Arc::new(DeviceManager::default(client, node_name)))
+            Some(Arc::new(DeviceManager::new_with_default_path(
+                client, node_name,
+            )))
         }
     }
 

@@ -46,29 +46,30 @@ type DeviceMap = HashMap<String, EndpointDevicesMap>;
 type EndpointDevicesMap = HashMap<String, Device>;
 
 /// Healthy means the device is allocatable (whether already allocated or not)
-pub const HEALTHY: &str = "Healthy";
+const HEALTHY: &str = "Healthy";
 
 /// Unhealthy means the device is not allocatable
-pub const UNHEALTHY: &str = "Unhealthy";
+/// TODO: use when device plugins go offline
+const UNHEALTHY: &str = "Unhealthy";
 
 /// Endpoint that maps to a single registered device plugin.
 /// It is responsible for managing gRPC communications with the device plugin and caching
 /// device states reported by the device plugin
 #[derive(Clone)]
-pub struct Endpoint {
+struct Endpoint {
     /// Client that is connected to the device plugin
-    pub client: DevicePluginClient<tonic::transport::Channel>,
+    client: DevicePluginClient<tonic::transport::Channel>,
     /// `RegisterRequest` received when the device plugin registered with the DeviceRegistry
-    pub register_request: RegisterRequest,
+    register_request: RegisterRequest,
 }
 
 /// ContainerAllocateInfo pairs an allocate request to with the requesting container
 #[derive(Clone)]
 pub struct ContainerAllocateInfo {
     /// The name of the container
-    pub container_name: String,
+    container_name: String,
     /// The `ContainerAllocateRequest` sent to the device plugin for this container
-    pub container_allocate_request: ContainerAllocateRequest,
+    container_allocate_request: ContainerAllocateRequest,
 }
 
 /// An implementation of the Kubernetes Device Plugin Manager (https://github.com/kubernetes/kubernetes/tree/v1.21.1/pkg/kubelet/cm/devicemanager).
@@ -80,16 +81,16 @@ pub struct ContainerAllocateInfo {
 #[derive(Clone)]
 pub struct DeviceManager {
     /// Map of registered device plugins, keyed by resource name
-    pub plugins: Arc<Mutex<HashMap<String, Endpoint>>>,
+    plugins: Arc<Mutex<HashMap<String, Endpoint>>>,
     /// Directory where the device plugin sockets live
-    pub plugin_dir: PathBuf,
+    plugin_dir: PathBuf,
     /// Contains all the devices advertised by all device plugins. Key is resource name.
     /// Shared with the NodePatcher.
-    pub devices: Arc<Mutex<DeviceMap>>,
+    devices: Arc<Mutex<DeviceMap>>,
     /// Structure containing map with Pod to currently allocated devices mapping
     pub pod_devices: PodDevices,
     /// Devices that have been allocated to Pods, keyed by resource name.
-    pub allocated_device_ids: Arc<Mutex<DeviceIdMap>>,
+    allocated_device_ids: Arc<Mutex<DeviceIdMap>>,
     /// Sender to notify the NodePatcher to update NodeStatus with latest resource values.
     update_node_status_sender: broadcast::Sender<()>,
     /// Struture that patches the Node with the latest resource values when signaled.
@@ -120,26 +121,8 @@ impl DeviceManager {
     }
 
     /// Returns a new device manager configured with the default `/var/lib/kubelet/device_plugins/` device plugin directory path
-    pub fn default(client: kube::Client, node_name: &str) -> Self {
-        let devices = Arc::new(Mutex::new(HashMap::new()));
-        let (update_node_status_sender, _) = broadcast::channel(UPDATE_NODE_STATUS_CHANNEL_SIZE);
-        let node_status_patcher = NodeStatusPatcher::new(
-            node_name,
-            devices,
-            update_node_status_sender.clone(),
-            client.clone(),
-        );
-        let pod_devices = PodDevices::new(client);
-        DeviceManager {
-            plugin_dir: PathBuf::from(DEFAULT_PLUGIN_PATH),
-            plugins: Arc::new(Mutex::new(HashMap::new())),
-            devices: Arc::new(Mutex::new(HashMap::new())),
-            pod_devices,
-            allocated_device_ids: Arc::new(Mutex::new(HashMap::new())),
-            // healthy_device_ids,
-            update_node_status_sender,
-            node_status_patcher, // unhealthy_device_ids: Arc::new(Mutex::new(HashMap::new()))
-        }
+    pub fn new_with_default_path(client: kube::Client, node_name: &str) -> Self {
+        DeviceManager::new(DEFAULT_PLUGIN_PATH, client, node_name)
     }
 
     /// Adds the plugin to our HashMap
