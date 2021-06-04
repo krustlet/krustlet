@@ -44,6 +44,11 @@ impl<P: Provider> Kubelet<P> {
         kube_config: kube::Config,
         config: Config,
     ) -> anyhow::Result<Self> {
+
+        if config.server_config.private_key_file == config.server_config.cert_file {
+            // throw error ?
+        }
+
         Ok(Self {
             provider: Arc::new(provider),
             kube_config,
