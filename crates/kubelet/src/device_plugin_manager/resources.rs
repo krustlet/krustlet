@@ -2,6 +2,7 @@
 //! explained in [this Kubernetes proposal](https://github.com/kubernetes/community/blob/master/contributors/design-proposals/scheduling/resources.md#the-kubernetes-resource-model).
 // TODO: decide whether this should go under container or some container manager folder
 use regex::{Regex, RegexBuilder};
+use tracing::trace;
 
 const QUALIFIED_NAME_MAX_LENGTH: usize = 63;
 // const QUALIFIED_NAME_CHAR_FMT: &str = "[A-Za-z0-9]";
@@ -51,7 +52,7 @@ pub fn is_extended_resource_name(name: &str) -> bool {
         match is_qualified_name(&quota_resource_name) {
             Ok(_) => true,
             Err(e) => {
-                println!(
+                trace!(
                     "name {} does not qualify as an extended resource name due to {}",
                     name, e
                 );

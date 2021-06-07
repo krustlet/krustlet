@@ -155,7 +155,8 @@ impl DeviceManager {
     /// answer YES to all of these):
     /// 1. Does this manager support the device plugin version? Currently only accepting `API_VERSION`.
     ///    TODO: determine whether can support all versions prior to current `API_VERSION`.
-    /// 2. Is the plugin name available? 2a. If the name is already registered, is the endpoint the
+    /// 2. Does the plugin have a valid extended resource name?
+    /// 3. Is the plugin name available? 2a. If the name is already registered, is the endpoint the
     ///    exact same? If it is, we allow it to reregister
     async fn validate(&self, register_request: &RegisterRequest) -> Result<(), tonic::Status> {
         trace!(
@@ -163,6 +164,7 @@ impl DeviceManager {
             register_request.resource_name,
             register_request.endpoint
         );
+        
         // Validate that version matches the Device Plugin API version
         if register_request.version != API_VERSION {
             return Err(tonic::Status::new(
@@ -174,9 +176,14 @@ impl DeviceManager {
             ));
         };
 
-        // TODO: validate that plugin has proper extended resource name
-        // https://github.com/kubernetes/kubernetes/blob/ea0764452222146c47ec826977f49d7001b0ea8c/pkg/kubelet/cm/devicemanager/manager.go#L309
-        // TODO: validate that endpoint is in proper directory
+        // Validate that plugin has proper extended resource name
+        if !resources::is_extended_resource_name(&register_request.resource_name) {
+            return Err(tonic::Status::new(
+                tonic::Code::Unimplemented,
+                format!(
+                    "resource name {} is not properly formatted. See https://github.com/kubernetes/community/blob/master/contributors/design-proposals/scheduling/resources.md#resource-types", register_request.resource_name)
+            ));
+        }
 
         self.validate_is_unique(register_request).await?;
 
