@@ -9,12 +9,12 @@ use crate::provider::{DevicePluginSupport, PluginSupport, VolumeSupport};
 use krator::{ObjectState, State};
 use std::collections::HashMap;
 
-pub mod allocated;
 pub mod crash_loop_backoff;
 pub mod error;
 pub mod image_pull;
 pub mod image_pull_backoff;
 pub mod registered;
+pub mod resources;
 pub mod terminated;
 pub mod volume_mount;
 

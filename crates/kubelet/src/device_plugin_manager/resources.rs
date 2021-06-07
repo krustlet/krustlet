@@ -54,7 +54,8 @@ pub fn is_extended_resource_name(name: &str) -> bool {
             Err(e) => {
                 trace!(
                     "name {} does not qualify as an extended resource name due to {}",
-                    name, e
+                    name,
+                    e
                 );
                 false
             }

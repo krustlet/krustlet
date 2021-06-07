@@ -164,7 +164,7 @@ impl DeviceManager {
             register_request.resource_name,
             register_request.endpoint
         );
-        
+
         // Validate that version matches the Device Plugin API version
         if register_request.version != API_VERSION {
             return Err(tonic::Status::new(

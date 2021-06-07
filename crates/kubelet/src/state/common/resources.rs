@@ -14,17 +14,17 @@ use super::image_pull::ImagePull;
 use super::{GenericPodState, GenericProvider};
 
 /// Resources can be successfully allocated to the Pod
-pub struct Allocated<P: GenericProvider> {
+pub struct Resources<P: GenericProvider> {
     phantom: std::marker::PhantomData<P>,
 }
 
-impl<P: GenericProvider> std::fmt::Debug for Allocated<P> {
+impl<P: GenericProvider> std::fmt::Debug for Resources<P> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        "Allocated".fmt(formatter)
+        "Resources".fmt(formatter)
     }
 }
 
-impl<P: GenericProvider> Default for Allocated<P> {
+impl<P: GenericProvider> Default for Resources<P> {
     fn default() -> Self {
         Self {
             phantom: std::marker::PhantomData,
@@ -33,7 +33,7 @@ impl<P: GenericProvider> Default for Allocated<P> {
 }
 
 #[async_trait::async_trait]
-impl<P: GenericProvider> State<P::PodState> for Allocated<P> {
+impl<P: GenericProvider> State<P::PodState> for Resources<P> {
     async fn next(
         self: Box<Self>,
         provider_state: SharedState<P::ProviderState>,
@@ -107,7 +107,7 @@ impl<P: GenericProvider> State<P::PodState> for Allocated<P> {
                 pod_state.set_volumes(volumes).await;
             }
 
-            info!("Resources allocated to Pod: {}", pod.name());
+            info!("Resources resources to Pod: {}", pod.name());
         }
 
         let next = ImagePull::<P>::default();
@@ -115,9 +115,9 @@ impl<P: GenericProvider> State<P::PodState> for Allocated<P> {
     }
 
     async fn status(&self, _pod_state: &mut P::PodState, _pod: &Pod) -> anyhow::Result<PodStatus> {
-        Ok(make_status(Phase::Pending, "Allocated"))
+        Ok(make_status(Phase::Pending, "Resources"))
     }
 }
 
-impl<P: GenericProvider> TransitionTo<Error<P>> for Allocated<P> {}
-impl<P: GenericProvider> TransitionTo<ImagePull<P>> for Allocated<P> {}
+impl<P: GenericProvider> TransitionTo<Error<P>> for Resources<P> {}
+impl<P: GenericProvider> TransitionTo<ImagePull<P>> for Resources<P> {}
