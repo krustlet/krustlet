@@ -133,7 +133,10 @@ impl WasiProvider {
         let log_path = config.data_dir.join(LOG_DIR_NAME);
         let volume_path = config.data_dir.join(VOLUME_DIR);
         let client = kube::Client::try_from(kubeconfig.clone())?;
-        let device_plugin_manager = Arc::new(DeviceManager::new_with_default_path(client, &config.node_name));
+        let device_plugin_manager = Arc::new(DeviceManager::new_with_default_path(
+            client,
+            &config.node_name,
+        ));
         tokio::fs::create_dir_all(&log_path).await?;
         tokio::fs::create_dir_all(&volume_path).await?;
         let client = kube::Client::try_from(kubeconfig)?;

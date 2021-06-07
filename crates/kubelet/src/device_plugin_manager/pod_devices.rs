@@ -22,14 +22,18 @@ pub type ContainerDevices = HashMap<String, ResourceAllocateInfo>;
 /// PodDevices contains the map of Pods to allocated devices
 #[derive(Clone)]
 pub struct PodDevices {
+    /// Name of the node this kubelet is running on
+    node_name: String,
     /// Map of devices allocated to the Pod keyed by Pod UID
     allocated_devices: Arc<Mutex<HashMap<String, ContainerDevices>>>,
+    /// Kubernetes API client for making Node status patches
     client: kube::Client,
 }
 
 impl PodDevices {
-    pub fn new(client: kube::Client) -> Self {
+    pub fn new(node_name: &str, client: kube::Client) -> Self {
         PodDevices {
+            node_name: node_name.to_string(),
             allocated_devices: Arc::new(Mutex::new(HashMap::new())),
             client,
         }
@@ -41,7 +45,9 @@ impl PodDevices {
     pub async fn get_active_pods(&self) -> anyhow::Result<HashSet<String>> {
         // TODO: should this be namespaced?
         let pod_client: Api<Pod> = Api::all(self.client.clone());
-        let pods = pod_client.list(&ListParams::default()).await?;
+        let pods = pod_client
+            .list(&ListParams::default().fields(&format!("spec.nodeName={}", self.node_name)))
+            .await?;
         Ok(pods
             .iter()
             .map(|pod| {
@@ -58,9 +64,9 @@ impl PodDevices {
         self.allocated_devices
             .lock()
             .unwrap()
-            .iter()
-            .map(|(p_uid, _container_map)| p_uid.clone())
-            .collect::<HashSet<String>>()
+            .keys()
+            .cloned()
+            .collect()
     }
 
     pub fn remove_pods(&self, pods_to_remove: HashSet<String>) -> anyhow::Result<()> {
@@ -118,12 +124,12 @@ impl PodDevices {
     }
 
     pub fn add_allocated_devices(&self, pod_uid: &str, container_devices: ContainerDevices) {
-        let mut allocated_devices = self.allocated_devices.lock().unwrap();
-        if let Some(pod_container_devices) = allocated_devices.get_mut(pod_uid) {
-            pod_container_devices.extend(container_devices);
-        } else {
-            allocated_devices.insert(pod_uid.to_string(), container_devices);
-        }
+        self.allocated_devices
+            .lock()
+            .unwrap()
+            .entry(pod_uid.to_string())
+            .and_modify(|m| m.extend(container_devices.clone()))
+            .or_insert(container_devices);
     }
 
     /// Returns all of the allocate responses for a Pod. Used to set mounts, env vars, annotations, and device specs for Pod.

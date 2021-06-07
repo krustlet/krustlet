@@ -45,6 +45,12 @@ type DeviceMap = HashMap<String, EndpointDevicesMap>;
 /// `EndpointDevicesMap` contains all of the devices advertised by a single device plugin. Key is device ID.
 type EndpointDevicesMap = HashMap<String, Device>;
 
+/// Map of resources requested by a Container. Key is resource name and value is requested quantity of the resource
+type ContainerResourceRequests = HashMap<String, Quantity>;
+
+/// Map of resources requested by the Containers of a Pod. Key is container name and value is the Container's resource requests
+pub type PodResourceRequests = HashMap<String, ContainerResourceRequests>;
+
 /// Healthy means the device is allocatable (whether already allocated or not)
 const HEALTHY: &str = "Healthy";
 
@@ -115,7 +121,7 @@ impl DeviceManager {
             update_node_status_sender.clone(),
             client.clone(),
         );
-        let pod_devices = PodDevices::new(client);
+        let pod_devices = PodDevices::new(node_name, client);
         DeviceManager {
             plugin_dir: PathBuf::from(plugin_dir.as_ref()),
             plugins: Arc::new(Mutex::new(HashMap::new())),
@@ -278,8 +284,8 @@ impl DeviceManager {
                 while let Some(response) = stream.message().await.unwrap() {
                     let current_devices = response
                         .devices
-                        .iter()
-                        .map(|device| (device.id.clone(), device.clone()))
+                        .into_iter()
+                        .map(|device| (device.id.clone(), device))
                         .collect::<HashMap<String, Device>>();
                     let mut update_node_status = false;
                     // Iterate through the list of devices, updating the Node status if
@@ -322,15 +328,15 @@ impl DeviceManager {
                     // (3) Check if Device removed
                     previous_endpoint_devices
                         .iter()
-                        .for_each(|(_, previous_device)| {
-                            if !response.devices.contains(previous_device) {
+                        .for_each(|(previous_dev_id, _)| {
+                            if !current_devices.contains_key(previous_dev_id) {
                                 // TODO: how to handle already allocated devices? Pretty sure K8s lets them keep running but what about the allocated_device map?
                                 devices
                                     .lock()
                                     .unwrap()
                                     .get_mut(&resource_name)
                                     .unwrap()
-                                    .remove(&previous_device.id);
+                                    .remove(previous_dev_id);
                                 update_node_status = true;
                             }
                         });
@@ -354,16 +360,23 @@ impl DeviceManager {
     pub async fn do_allocate(
         &self,
         pod: &Pod,
-        container_devices: HashMap<String, HashMap<String, Quantity>>,
+        container_devices: PodResourceRequests,
     ) -> anyhow::Result<()> {
         let mut all_allocate_requests: HashMap<String, Vec<ContainerAllocateInfo>> = HashMap::new();
         let mut updated_allocated_devices = false;
         for (container_name, requested_resources) in container_devices {
             for (resource_name, quantity) in requested_resources {
-                let num_requested: usize =
-                    serde_json::to_string(&quantity).unwrap().parse().unwrap();
+                if !self.is_device_plugin_resource(&resource_name).await {
+                    continue;
+                }
+
+                // Device plugin resources should be request in numerical amounts.
+                // Return error if requested quantity cannot be parsed.
+                let num_requested: usize = serde_json::to_string(&quantity)?.parse()?;
+
+                // Check that the resource has enough healthy devices
                 if !self
-                    .is_device_plugin_resource(&resource_name, num_requested)
+                    .is_healthy_resource(&resource_name, num_requested)
                     .await
                 {
                     continue;
@@ -390,12 +403,10 @@ impl DeviceManager {
                     container_name: container_name.clone(),
                     container_allocate_request,
                 }];
-                if let Some(all_container_requests) = all_allocate_requests.get_mut(&resource_name)
-                {
-                    all_container_requests.append(&mut container_requests);
-                } else {
-                    all_allocate_requests.insert(resource_name.clone(), container_requests);
-                }
+                all_allocate_requests
+                    .entry(resource_name)
+                    .and_modify(|v| v.append(&mut container_requests))
+                    .or_insert(container_requests);
             }
         }
 
@@ -450,31 +461,30 @@ impl DeviceManager {
                 .client
                 .allocate(Request::new(allocate_request))
                 .await?;
-            let mut container_index = 0;
             allocate_response
                 .into_inner()
                 .container_responses
                 .into_iter()
-                .for_each(|container_resp| {
+                .enumerate()
+                .for_each(|(i, container_resp)| {
                     let device_allocate_info = DeviceAllocateInfo {
-                        device_ids: container_requests[container_index]
+                        device_ids: container_requests[i]
                             .devices_i_ds
                             .clone()
                             .into_iter()
                             .collect::<HashSet<String>>(),
                         allocate_response: container_resp,
                     };
-                    let container_name = container_names[container_index];
-                    if let Some(resource_allocate_info) = container_devices.get_mut(container_name)
-                    {
-                        resource_allocate_info.insert(resource_name.clone(), device_allocate_info);
-                    } else {
-                        let mut resource_allocate_info: HashMap<String, DeviceAllocateInfo> =
-                            HashMap::new();
-                        resource_allocate_info.insert(resource_name.clone(), device_allocate_info);
-                        container_devices.insert(container_name.clone(), resource_allocate_info);
-                    }
-                    container_index += 1;
+                    container_devices
+                        .entry(container_names[i].clone())
+                        .and_modify(|m| {
+                            m.insert(resource_name.clone(), device_allocate_info.clone());
+                        })
+                        .or_insert_with(|| {
+                            let mut m = HashMap::new();
+                            m.insert(resource_name.clone(), device_allocate_info);
+                            m
+                        });
                 });
         }
         self.pod_devices
@@ -482,10 +492,14 @@ impl DeviceManager {
         Ok(())
     }
 
-    /// Asserts that the resource is in the device map and has at least one healthy device.
-    /// Asserts that enough healthy devices are available.
+    /// Checks that a resource with the given name exists in the device plugin map
+    async fn is_device_plugin_resource(&self, resource_name: &str) -> bool {
+        self.devices.lock().unwrap().get(resource_name).is_some()
+    }
+
+    /// Asserts that the resource is in the device map and has at least `quantity` healthy devices.
     /// Later a check is made to make sure enough have not been allocated yet.
-    async fn is_device_plugin_resource(&self, resource_name: &str, quantity: usize) -> bool {
+    async fn is_healthy_resource(&self, resource_name: &str, quantity: usize) -> bool {
         if let Some(resource_devices) = self.devices.lock().unwrap().get(resource_name) {
             if resource_devices
                 .iter()
@@ -593,8 +607,6 @@ impl DeviceManager {
         // TODO: support preferred allocation
         // For now, reserve first N devices where N = quantity by adding them to allocated map
         let devices_to_allocate: Vec<String> = available_devices[..quantity].to_vec();
-        // ??: is there a cleaner way to map `allocated_devices.insert(dev.clone())` from bool to
-        // () so can remove {} block:
         devices_to_allocate.iter().for_each(|dev| {
             allocated_devices.insert(dev.clone());
         });

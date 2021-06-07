@@ -1,5 +1,5 @@
 //! Resources can be successfully allocated to the Pod.
-use crate::device_plugin_manager::resources;
+use crate::device_plugin_manager::{resources, PodResourceRequests};
 use crate::pod::state::prelude::*;
 use crate::provider::DevicePluginSupport;
 use crate::volume::{HostPathVolume, VolumeRef};
@@ -41,16 +41,13 @@ impl<P: GenericProvider> State<P::PodState> for Allocated<P> {
         pod: Manifest<Pod>,
     ) -> Transition<P::PodState> {
         let pod = pod.latest();
-        debug!(
-            "Preparing to allocate resources for the pod: {}",
-            pod.name()
-        );
+        debug!(pod = %pod.name(), "Preparing to allocate resources for this pod");
         let device_plugin_manager = provider_state.read().await.device_plugin_manager();
 
         // Only check for allocatable resources if a device plugin manager was provided.
         if let Some(device_plugin_manager) = device_plugin_manager {
             // Create a map of devices requested by this Pod's containers, keyed by container name
-            let mut container_devices: HashMap<String, HashMap<String, Quantity>> = HashMap::new();
+            let mut container_devices: PodResourceRequests = HashMap::new();
             for container in pod.all_containers() {
                 if let Some(resources) = container.resources() {
                     if let Some(requests) = &resources.requests {
