@@ -10,10 +10,10 @@ use tokio::sync::Mutex as AsyncMutex;
 use tonic::Request;
 use tracing::{error, trace};
 
-/// Endpoint that maps to a single registered device plugin.
+/// PluginConnection that maps to a single registered device plugin.
 /// It is responsible for managing gRPC communications with the device plugin and caching
 /// device states reported by the device plugin
-pub struct Endpoint {
+pub struct PluginConnection {
     /// Client that is connected to the device plugin
     client: DevicePluginClient<tonic::transport::Channel>,
     /// `RegisterRequest` received when the device plugin registered with the DeviceRegistry
@@ -22,12 +22,12 @@ pub struct Endpoint {
     stop_connection: Arc<AsyncMutex<bool>>,
 }
 
-impl Endpoint {
+impl PluginConnection {
     pub fn new(
         client: DevicePluginClient<tonic::transport::Channel>,
         register_request: RegisterRequest,
     ) -> Self {
-        Endpoint {
+        PluginConnection {
             client,
             register_request,
             stop_connection: Arc::new(AsyncMutex::new(false)),
@@ -74,7 +74,7 @@ impl Endpoint {
             .into_inner();
         let mut previous_law_devices: HashMap<String, Device> = HashMap::new();
         while let Some(response) = stream.message().await? {
-            if Endpoint::update_devices_map(
+            if update_devices_map(
                 &self.register_request.resource_name,
                 devices.clone(),
                 &mut previous_law_devices,
@@ -91,87 +91,6 @@ impl Endpoint {
         Ok(())
     }
 
-    /// This updates the shared device map with the new devices reported by the device plugin.
-    /// This iterates through the latest devices, comparing them with the previously reported devices and
-    /// updates the shared device map if:
-    /// (1) Device modified: DP reporting a previous device with a different health status
-    /// (2) Device added: DP reporting a new device
-    /// (3) Device removed: DP is no longer advertising a device
-    /// If any of the 3 cases occurs, this returns true, signaling that the `NodePatcher` needs to update the
-    /// Node status with new devices.
-    fn update_devices_map(
-        resource_name: &str,
-        devices: Arc<Mutex<DeviceMap>>,
-        previous_law_devices: &mut HashMap<String, Device>,
-        response: ListAndWatchResponse,
-    ) -> bool {
-        let current_devices = response
-            .devices
-            .into_iter()
-            .map(|device| (device.id.clone(), device))
-            .collect::<HashMap<String, Device>>();
-        let mut update_node_status = false;
-
-        current_devices.iter().for_each(|(_, device)| {
-            // (1) Device modified or already registered
-            if let Some(previous_device) = previous_law_devices.get(&device.id) {
-                if previous_device.health != device.health {
-                    devices
-                        .lock()
-                        .unwrap()
-                        .get_mut(resource_name)
-                        .unwrap()
-                        .insert(device.id.clone(), device.clone());
-                    update_node_status = true;
-                } else if previous_device.topology != device.topology {
-                    // Currently not using/handling device topology. Simply log the change.
-                    trace!(
-                        "Topology of device {} from resource {} changed from {:?} to {:?}",
-                        device.id,
-                        resource_name,
-                        previous_device.topology,
-                        device.topology
-                    );
-                }
-            // (2) Device added
-            } else {
-                let mut all_devices_map = devices.lock().unwrap();
-                match all_devices_map.get_mut(resource_name) {
-                    Some(resource_devices_map) => {
-                        resource_devices_map.insert(device.id.clone(), device.clone());
-                    }
-                    None => {
-                        let mut resource_devices_map = HashMap::new();
-                        resource_devices_map.insert(device.id.clone(), device.clone());
-                        all_devices_map.insert(resource_name.to_string(), resource_devices_map);
-                    }
-                }
-                update_node_status = true;
-            }
-        });
-
-        // (3) Check if Device removed
-        previous_law_devices
-            .iter()
-            .for_each(|(previous_dev_id, _)| {
-                if !current_devices.contains_key(previous_dev_id) {
-                    // TODO: how to handle already allocated devices? Pretty sure K8s lets them keep running but what about the allocated_device map?
-                    devices
-                        .lock()
-                        .unwrap()
-                        .get_mut(resource_name)
-                        .unwrap()
-                        .remove(previous_dev_id);
-                    update_node_status = true;
-                }
-            });
-
-        // Replace previous devices with current devices
-        *previous_law_devices = current_devices;
-
-        update_node_status
-    }
-
     pub async fn allocate(
         &self,
         allocate_request: AllocateRequest,
@@ -183,7 +102,88 @@ impl Endpoint {
     }
 }
 
-impl PartialEq for Endpoint {
+/// This updates the shared device map with the new devices reported by the device plugin.
+/// This iterates through the latest devices, comparing them with the previously reported devices and
+/// updates the shared device map if:
+/// (1) Device modified: DP reporting a previous device with a different health status
+/// (2) Device added: DP reporting a new device
+/// (3) Device removed: DP is no longer advertising a device
+/// If any of the 3 cases occurs, this returns true, signaling that the `NodePatcher` needs to update the
+/// Node status with new devices.
+fn update_devices_map(
+    resource_name: &str,
+    devices: Arc<Mutex<DeviceMap>>,
+    previous_law_devices: &mut HashMap<String, Device>,
+    response: ListAndWatchResponse,
+) -> bool {
+    let current_devices = response
+        .devices
+        .into_iter()
+        .map(|device| (device.id.clone(), device))
+        .collect::<HashMap<String, Device>>();
+    let mut update_node_status = false;
+
+    current_devices.iter().for_each(|(_, device)| {
+        // (1) Device modified or already registered
+        if let Some(previous_device) = previous_law_devices.get(&device.id) {
+            if previous_device.health != device.health {
+                devices
+                    .lock()
+                    .unwrap()
+                    .get_mut(resource_name)
+                    .unwrap()
+                    .insert(device.id.clone(), device.clone());
+                update_node_status = true;
+            } else if previous_device.topology != device.topology {
+                // Currently not using/handling device topology. Simply log the change.
+                trace!(
+                    "Topology of device {} from resource {} changed from {:?} to {:?}",
+                    device.id,
+                    resource_name,
+                    previous_device.topology,
+                    device.topology
+                );
+            }
+        // (2) Device added
+        } else {
+            let mut all_devices_map = devices.lock().unwrap();
+            match all_devices_map.get_mut(resource_name) {
+                Some(resource_devices_map) => {
+                    resource_devices_map.insert(device.id.clone(), device.clone());
+                }
+                None => {
+                    let mut resource_devices_map = HashMap::new();
+                    resource_devices_map.insert(device.id.clone(), device.clone());
+                    all_devices_map.insert(resource_name.to_string(), resource_devices_map);
+                }
+            }
+            update_node_status = true;
+        }
+    });
+
+    // (3) Check if Device removed
+    previous_law_devices
+        .iter()
+        .for_each(|(previous_dev_id, _)| {
+            if !current_devices.contains_key(previous_dev_id) {
+                // TODO: how to handle already allocated devices? Pretty sure K8s lets them keep running but what about the allocated_device map?
+                devices
+                    .lock()
+                    .unwrap()
+                    .get_mut(resource_name)
+                    .unwrap()
+                    .remove(previous_dev_id);
+                update_node_status = true;
+            }
+        });
+
+    // Replace previous devices with current devices
+    *previous_law_devices = current_devices;
+
+    update_node_status
+}
+
+impl PartialEq for PluginConnection {
     fn eq(&self, other: &Self) -> bool {
         self.register_request == other.register_request
     }
@@ -208,7 +208,7 @@ pub mod tests {
             devices: devices_vec.clone(),
         };
         let new_previous_law_devices = devices_vec.into_iter().map(|d| (d.id.clone(), d)).collect();
-        assert!(Endpoint::update_devices_map(
+        assert!(update_devices_map(
             r1_name,
             devices_map.clone(),
             &mut previous_law_devices,
@@ -245,7 +245,7 @@ pub mod tests {
             devices: devices_vec.clone(),
         };
         let new_previous_law_devices = devices_vec.into_iter().map(|d| (d.id.clone(), d)).collect();
-        assert!(Endpoint::update_devices_map(
+        assert!(update_devices_map(
             r1_name,
             devices_map.clone(),
             &mut previous_law_devices,
@@ -277,7 +277,7 @@ pub mod tests {
             devices: devices_vec.clone(),
         };
         let new_previous_law_devices = devices_vec.into_iter().map(|d| (d.id.clone(), d)).collect();
-        assert!(Endpoint::update_devices_map(
+        assert!(update_devices_map(
             r1_name,
             devices_map.clone(),
             &mut previous_law_devices,
@@ -304,7 +304,7 @@ pub mod tests {
         let response = ListAndWatchResponse {
             devices: devices_vec,
         };
-        assert!(!Endpoint::update_devices_map(
+        assert!(!update_devices_map(
             r1_name,
             devices_map.clone(),
             &mut previous_law_devices,

@@ -1,7 +1,7 @@
 //! The Kubelet device plugin manager. Consists of a `DeviceRegistry` that hosts a registration service for device plugins, a `DeviceManager` that maintains a device plugin client for each registered device plugin, a `NodePatcher` that patches the Node status with the extended resources advertised by device plugins, and a `PodDevices` that maintains a list of Pods that are actively using allocated resources.
-pub(crate) mod endpoint;
 pub mod manager;
 pub(crate) mod node_patcher;
+pub(crate) mod plugin_connection;
 pub(crate) mod pod_devices;
 pub mod resources;
 use crate::device_plugin_api::v1beta1::{
@@ -22,16 +22,16 @@ const PLUGIN_MANGER_SOCKET_NAME: &str = "kubelet.sock";
 
 /// `DeviceIdMap` contains the device Ids of all the devices advertised by device plugins.
 /// Key is resource name.
-type DeviceIdMap = HashMap<String, EndpointDeviceIds>;
+type DeviceIdMap = HashMap<String, PluginDeviceIds>;
 
-/// `EndpointDeviceIds` contains the IDs of all the devices advertised by a single device plugin
-type EndpointDeviceIds = HashSet<String>;
+/// `PluginDeviceIds` contains the IDs of all the devices advertised by a single device plugin
+type PluginDeviceIds = HashSet<String>;
 
 /// `DeviceMap` contains all the devices advertised by all device plugins. Key is resource name.
-type DeviceMap = HashMap<String, EndpointDevicesMap>;
+type DeviceMap = HashMap<String, PluginDevicesMap>;
 
-/// `EndpointDevicesMap` contains all of the devices advertised by a single device plugin. Key is device ID.
-type EndpointDevicesMap = HashMap<String, Device>;
+/// `PluginDevicesMap` contains all of the devices advertised by a single device plugin. Key is device ID.
+type PluginDevicesMap = HashMap<String, Device>;
 
 /// Map of resources requested by a Container. Key is resource name and value is requested quantity of the resource
 type ContainerResourceRequests = HashMap<String, Quantity>;
@@ -75,7 +75,7 @@ impl Registration for DeviceRegistry {
         // Create a list and watch connection with the device plugin
         // TODO: should the manager keep track of threads?
         self.device_manager
-            .create_endpoint(register_request)
+            .create_plugin_connection(register_request)
             .await
             .map_err(|e| tonic::Status::new(tonic::Code::NotFound, format!("{}", e)))?;
         Ok(tonic::Response::new(Empty {}))
@@ -159,7 +159,7 @@ pub mod test_utils {
     }
 
     pub fn create_mock_healthy_devices(r1_name: &str, r2_name: &str) -> Arc<Mutex<DeviceMap>> {
-        let r1_devices: EndpointDevicesMap = (0..3)
+        let r1_devices: PluginDevicesMap = (0..3)
             .map(|x| Device {
                 id: format!("{}-id{}", r1_name, x),
                 health: HEALTHY.to_string(),
@@ -168,7 +168,7 @@ pub mod test_utils {
             .map(|d| (d.id.clone(), d))
             .collect();
 
-        let r2_devices: EndpointDevicesMap = (0..2)
+        let r2_devices: PluginDevicesMap = (0..2)
             .map(|x| Device {
                 id: format!("{}-id{}", r2_name, x),
                 health: HEALTHY.to_string(),

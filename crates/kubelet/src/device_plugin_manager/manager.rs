@@ -6,10 +6,10 @@ use crate::device_plugin_api::v1beta1::{
 use crate::grpc_sock;
 use crate::pod::Pod;
 
-use super::endpoint::Endpoint;
 use super::node_patcher::NodeStatusPatcher;
+use super::plugin_connection::PluginConnection;
 use super::pod_devices::{ContainerDevices, DeviceAllocateInfo, PodDevices};
-use super::{DeviceIdMap, DeviceMap, EndpointDevicesMap, PodResourceRequests, HEALTHY};
+use super::{DeviceIdMap, DeviceMap, PluginDevicesMap, PodResourceRequests, HEALTHY};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -44,7 +44,7 @@ pub struct ContainerAllocateInfo {
 #[derive(Clone)]
 pub struct DeviceManager {
     /// Map of registered device plugins, keyed by resource name
-    plugins: Arc<Mutex<HashMap<String, Arc<Endpoint>>>>,
+    plugins: Arc<Mutex<HashMap<String, Arc<PluginConnection>>>>,
     /// Directory where the device plugin sockets live
     pub(crate) plugin_dir: PathBuf,
     /// Contains all the devices advertised by all device plugins. Key is resource name.
@@ -89,23 +89,23 @@ impl DeviceManager {
     }
 
     /// Adds the plugin to our HashMap
-    fn add_plugin(&self, endpoint: Arc<Endpoint>, resource_name: &str) {
+    fn add_plugin(&self, plugin_connection: Arc<PluginConnection>, resource_name: &str) {
         let mut lock = self.plugins.lock().unwrap();
-        lock.insert(resource_name.to_string(), endpoint);
+        lock.insert(resource_name.to_string(), plugin_connection);
     }
 
-    /// Removes the Endpoint from our HashMap so long as it is the same as the one currently
+    /// Removes the PluginConnection from our HashMap so long as it is the same as the one currently
     /// stored under the given resource name.
     fn remove_plugin(
-        plugins: Arc<Mutex<HashMap<String, Arc<Endpoint>>>>,
+        plugins: Arc<Mutex<HashMap<String, Arc<PluginConnection>>>>,
         resource_name: &str,
-        endpoint: Arc<Endpoint>,
+        plugin_connection: Arc<PluginConnection>,
     ) {
         let mut lock = plugins.lock().unwrap();
-        if let Some(old_endpoint) = lock.get(resource_name) {
+        if let Some(old_plugin_connection) = lock.get(resource_name) {
             // TODO: partialEq only checks that reg requests are identical. May also want
             // to check match of other fields.
-            if *old_endpoint == endpoint {
+            if *old_plugin_connection == plugin_connection {
                 lock.remove(resource_name);
             }
         }
@@ -117,7 +117,7 @@ impl DeviceManager {
     /// 1. Does this manager support the device plugin version? Currently only accepting `API_VERSION`.
     ///    TODO: determine whether can support all versions prior to current `API_VERSION`.
     /// 2. Does the plugin have a valid extended resource name?
-    /// 3. Is the plugin name available? 2a. If the name is already registered, is the endpoint the
+    /// 3. Is the plugin name available? 2a. If the name is already registered, is the plugin_connection the
     ///    exact same? If it is, we allow it to reregister
     pub(crate) async fn validate(
         &self,
@@ -178,8 +178,8 @@ impl DeviceManager {
     }
 
     /// This creates a connection to a device plugin by calling it's ListAndWatch function.
-    /// Upon a successful connection, an `Endpoint` is added to the `plugins` map.
-    pub(crate) async fn create_endpoint(
+    /// Upon a successful connection, an `PluginConnection` is added to the `plugins` map.
+    pub(crate) async fn create_plugin_connection(
         &self,
         register_request: RegisterRequest,
     ) -> anyhow::Result<()> {
@@ -190,24 +190,24 @@ impl DeviceManager {
         let chan = grpc_sock::client::socket_channel(register_request.endpoint.clone()).await?;
         let client = DevicePluginClient::new(chan);
 
-        // Clone structures for Endpoint thread
+        // Clone structures for PluginConnection thread
         let all_devices = self.devices.clone();
         let update_node_status_sender = self.update_node_status_sender.clone();
         let resource_name = register_request.resource_name.clone();
-        let endpoint = Arc::new(Endpoint::new(client, register_request));
+        let plugin_connection = Arc::new(PluginConnection::new(client, register_request));
         let plugins = self.plugins.clone();
         let devices = self.devices.clone();
-        self.add_plugin(endpoint.clone(), &resource_name);
+        self.add_plugin(plugin_connection.clone(), &resource_name);
 
         // TODO: decide whether to join/store all spawned ListAndWatch threads
         tokio::spawn(async move {
-            endpoint
+            plugin_connection
                 .start(all_devices, update_node_status_sender.clone())
                 .await;
 
-            endpoint.stop().await;
+            plugin_connection.stop().await;
 
-            DeviceManager::remove_plugin(plugins, &resource_name, endpoint);
+            DeviceManager::remove_plugin(plugins, &resource_name, plugin_connection);
 
             // ?? Should devices be marked unhealthy first?
             DeviceManager::remove_resource(devices, &resource_name);
@@ -316,7 +316,7 @@ impl DeviceManager {
     ) -> anyhow::Result<()> {
         let mut container_devices: ContainerDevices = HashMap::new();
         for (resource_name, container_allocate_info) in all_allocate_requests {
-            let endpoint = self
+            let plugin_connection = self
                 .plugins
                 .lock()
                 .unwrap()
@@ -336,7 +336,7 @@ impl DeviceManager {
             let allocate_request = AllocateRequest {
                 container_requests: container_requests.clone(),
             };
-            let allocate_response = endpoint.allocate(allocate_request).await?;
+            let allocate_response = plugin_connection.allocate(allocate_request).await?;
             allocate_response
                 .into_inner()
                 .container_responses
@@ -478,8 +478,8 @@ impl DeviceManager {
             ));
         }
 
-        // let endpoint = self.plugins.lock().unwrap().get(resource_name).unwrap().clone();
-        // let get_preferred_allocation_available = match &endpoint.register_request.options {
+        // let plugin_connection = self.plugins.lock().unwrap().get(resource_name).unwrap().clone();
+        // let get_preferred_allocation_available = match &plugin_connection.register_request.options {
         //     None => false,
         //     Some(options) => options.get_preferred_allocation_available,
         // };
@@ -502,7 +502,7 @@ impl DeviceManager {
 
 /// Returns the device IDs of all healthy devices that have yet to be allocated.
 fn get_available_devices(
-    devices: &EndpointDevicesMap,
+    devices: &PluginDevicesMap,
     allocated_devices: &HashSet<String>,
 ) -> Vec<String> {
     let healthy_devices = devices
