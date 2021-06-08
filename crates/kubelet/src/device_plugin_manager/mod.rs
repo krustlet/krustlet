@@ -582,7 +582,8 @@ impl Registration for DeviceRegistry {
 /// specified in the `DeviceManager`.
 /// Returns an error if either the `NodePatcher` or `DeviceRegistry` error.
 pub async fn serve_device_registry(device_manager: Arc<DeviceManager>) -> anyhow::Result<()> {
-    // TODO determine if need to create socket (and delete any previous ones)
+    // Create plugin manager if it doesn't exist
+    tokio::fs::create_dir_all(&device_manager.plugin_dir).await?;
     let manager_socket = device_manager.plugin_dir.join(PLUGIN_MANGER_SOCKET_NAME);
     let socket =
         grpc_sock::server::Socket::new(&manager_socket).expect("couldn't make manager socket");
