@@ -75,9 +75,8 @@ impl<P: GenericProvider> State<P::PodState> for Resources<P> {
             // In Pod, set mounts, env vars, annotations, and device specs specified in the device plugins' `ContainerAllocateResponse`s.
             // TODO: add support for setting environment variables, annotations, device mounts (with permissions), and container path mounts.
             // For now, just set HostPath volumes for each `ContainerAllocateResponse::Mount`.
-            if let Some(container_allocate_responses) = device_plugin_manager
-                .pod_devices
-                .get_pod_allocate_responses(pod.pod_uid())
+            if let Some(container_allocate_responses) =
+                device_plugin_manager.get_pod_allocate_responses(pod.pod_uid())
             {
                 let mut host_paths: Vec<String> = Vec::new();
                 container_allocate_responses.iter().for_each(|alloc_resp| {
