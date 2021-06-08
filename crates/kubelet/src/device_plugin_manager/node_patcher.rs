@@ -95,76 +95,22 @@ impl NodeStatusPatcher {
 }
 
 #[cfg(test)]
-mod node_patcher_tests {
-    use super::super::tests::create_mock_kube_service;
-    use super::super::{EndpointDevicesMap, UNHEALTHY};
+mod tests {
+    use super::super::test_utils::{create_mock_healthy_devices, create_mock_kube_service};
+    use super::super::UNHEALTHY;
     use super::*;
-    use crate::device_plugin_api::v1beta1::Device;
-
-    fn create_mock_devices(r1_name: &str, r2_name: &str) -> Arc<Mutex<DeviceMap>> {
-        let r1_devices: EndpointDevicesMap = [
-            (
-                "r1-id1".to_string(),
-                Device {
-                    id: "r1-id1".to_string(),
-                    health: HEALTHY.to_string(),
-                    topology: None,
-                },
-            ),
-            (
-                "r1-id2".to_string(),
-                Device {
-                    id: "r1-id2".to_string(),
-                    health: HEALTHY.to_string(),
-                    topology: None,
-                },
-            ),
-            (
-                "r1-id3".to_string(),
-                Device {
-                    id: "r1-id3".to_string(),
-                    health: UNHEALTHY.to_string(),
-                    topology: None,
-                },
-            ),
-        ]
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-        let r2_devices: EndpointDevicesMap = [
-            (
-                "r2-id1".to_string(),
-                Device {
-                    id: "r2-id1".to_string(),
-                    health: HEALTHY.to_string(),
-                    topology: None,
-                },
-            ),
-            (
-                "r2-id2".to_string(),
-                Device {
-                    id: "r2-id2".to_string(),
-                    health: HEALTHY.to_string(),
-                    topology: None,
-                },
-            ),
-        ]
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-        let device_map: DeviceMap = [
-            (r1_name.to_string(), r1_devices),
-            (r2_name.to_string(), r2_devices),
-        ]
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-        Arc::new(Mutex::new(device_map))
-    }
 
     #[tokio::test]
     async fn test_do_node_status_patch() {
-        let devices = create_mock_devices("r1", "r2");
+        let devices = create_mock_healthy_devices("r1", "r2");
+        devices
+            .lock()
+            .unwrap()
+            .get_mut("r1")
+            .unwrap()
+            .get_mut("r1-id1")
+            .unwrap()
+            .health = UNHEALTHY.to_string();
         let empty_node_status = NodeStatus {
             capacity: None,
             allocatable: None,
@@ -187,7 +133,15 @@ mod node_patcher_tests {
     async fn test_get_node_status_patch() {
         let r1_name = "r1";
         let r2_name = "r2";
-        let devices = create_mock_devices(r1_name, r2_name);
+        let devices = create_mock_healthy_devices(r1_name, r2_name);
+        devices
+            .lock()
+            .unwrap()
+            .get_mut("r1")
+            .unwrap()
+            .get_mut("r1-id1")
+            .unwrap()
+            .health = UNHEALTHY.to_string();
         let (update_node_status_sender, _rx) = broadcast::channel(2);
         let node_name = "test_node";
         // Create and run a mock Kubernetes API service and get a Kubernetes client

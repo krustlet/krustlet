@@ -1,4 +1,5 @@
 //! The Kubelet device plugin manager. Consists of a `DeviceRegistry` that hosts a registration service for device plugins, a `DeviceManager` that maintains a device plugin client for each registered device plugin, a `NodePatcher` that patches the Node status with the extended resources advertised by device plugins, and a `PodDevices` that maintains a list of Pods that are actively using allocated resources.
+mod endpoint;
 mod node_patcher;
 mod pod_devices;
 pub mod resources;
@@ -10,6 +11,7 @@ use crate::device_plugin_api::v1beta1::{
 use crate::grpc_sock;
 use crate::pod::Pod;
 
+use endpoint::Endpoint;
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use node_patcher::NodeStatusPatcher;
 use pod_devices::{ContainerDevices, DeviceAllocateInfo, PodDevices};
@@ -21,8 +23,8 @@ use tokio::sync::broadcast;
 use tokio::task;
 #[cfg(target_family = "windows")]
 use tokio_compat_02::FutureExt;
-use tonic::{transport::Server, Request};
-use tracing::{error, trace};
+use tonic::transport::Server;
+use tracing::trace;
 
 #[cfg(target_family = "unix")]
 const DEFAULT_PLUGIN_PATH: &str = "/var/lib/kubelet/device_plugins/";
@@ -55,19 +57,7 @@ pub type PodResourceRequests = HashMap<String, ContainerResourceRequests>;
 const HEALTHY: &str = "Healthy";
 
 /// Unhealthy means the device is not allocatable
-/// TODO: use when device plugins go offline
 const UNHEALTHY: &str = "Unhealthy";
-
-/// Endpoint that maps to a single registered device plugin.
-/// It is responsible for managing gRPC communications with the device plugin and caching
-/// device states reported by the device plugin
-#[derive(Clone)]
-struct Endpoint {
-    /// Client that is connected to the device plugin
-    client: DevicePluginClient<tonic::transport::Channel>,
-    /// `RegisterRequest` received when the device plugin registered with the DeviceRegistry
-    register_request: RegisterRequest,
-}
 
 /// ContainerAllocateInfo pairs an allocate request to with the requesting container
 #[derive(Clone)]
@@ -76,13 +66,6 @@ pub struct ContainerAllocateInfo {
     container_name: String,
     /// The `ContainerAllocateRequest` sent to the device plugin for this container
     container_allocate_request: ContainerAllocateRequest,
-}
-
-/// Enum for reporting a whether a connection was made with a device plugin's ListAndWatch service
-#[derive(Debug)]
-enum EndpointConnectionMessage {
-    Success,
-    Error,
 }
 
 /// An implementation of the Kubernetes Device Plugin Manager (https://github.com/kubernetes/kubernetes/tree/v1.21.1/pkg/kubelet/cm/devicemanager).
@@ -94,7 +77,7 @@ enum EndpointConnectionMessage {
 #[derive(Clone)]
 pub struct DeviceManager {
     /// Map of registered device plugins, keyed by resource name
-    plugins: Arc<Mutex<HashMap<String, Endpoint>>>,
+    plugins: Arc<Mutex<HashMap<String, Arc<Endpoint>>>>,
     /// Directory where the device plugin sockets live
     plugin_dir: PathBuf,
     /// Contains all the devices advertised by all device plugins. Key is resource name.
@@ -139,15 +122,26 @@ impl DeviceManager {
     }
 
     /// Adds the plugin to our HashMap
-    fn add_plugin(&self, endpoint: Endpoint) {
+    fn add_plugin(&self, endpoint: Arc<Endpoint>, resource_name: &str) {
         let mut lock = self.plugins.lock().unwrap();
-        lock.insert(endpoint.register_request.resource_name.clone(), endpoint);
+        lock.insert(resource_name.to_string(), endpoint);
     }
 
-    /// Removes the plugin from our HashMap
-    fn remove_plugin(&self, resource_name: &str) {
-        let mut lock = self.plugins.lock().unwrap();
-        lock.remove(resource_name);
+    /// Removes the Endpoint from our HashMap so long as it is the same as the one currently
+    /// stored under the given resource name.
+    fn remove_plugin(
+        plugins: Arc<Mutex<HashMap<String, Arc<Endpoint>>>>,
+        resource_name: &str,
+        endpoint: Arc<Endpoint>,
+    ) {
+        let mut lock = plugins.lock().unwrap();
+        if let Some(old_endpoint) = lock.get(resource_name) {
+            // TODO: partialEq only checks that reg requests are identical. May also want
+            // to check match of other fields.
+            if *old_endpoint == endpoint {
+                lock.remove(resource_name);
+            }
+        }
     }
 
     /// Validates the given plugin info gathered from a discovered plugin, returning an error with
@@ -215,7 +209,7 @@ impl DeviceManager {
 
     /// This creates a connection to a device plugin by calling it's ListAndWatch function.
     /// Upon a successful connection, an `Endpoint` is added to the `plugins` map.
-    async fn create_endpoint(&self, register_request: &RegisterRequest) -> anyhow::Result<()> {
+    async fn create_endpoint(&self, register_request: RegisterRequest) -> anyhow::Result<()> {
         trace!(
             "Connecting to plugin at {:?} for ListAndWatch",
             register_request.endpoint
@@ -223,141 +217,46 @@ impl DeviceManager {
         let chan = grpc_sock::client::socket_channel(register_request.endpoint.clone()).await?;
         let client = DevicePluginClient::new(chan);
 
-        // Clone structures for ListAndWatch thread
-        let mut list_and_watch_client = client.clone();
-        let list_and_watch_resource_name = register_request.resource_name.clone();
+        // Clone structures for Endpoint thread
         let all_devices = self.devices.clone();
         let update_node_status_sender = self.update_node_status_sender.clone();
-
-        let (successful_connection_sender, successful_connection_receiver) =
-            tokio::sync::oneshot::channel();
+        let resource_name = register_request.resource_name.clone();
+        let endpoint = Arc::new(Endpoint::new(client, register_request));
+        let plugins = self.plugins.clone();
+        let devices = self.devices.clone();
+        self.add_plugin(endpoint.clone(), &resource_name);
 
         // TODO: decide whether to join/store all spawned ListAndWatch threads
         tokio::spawn(async move {
-            DeviceManager::call_list_and_watch(
-                all_devices,
-                update_node_status_sender,
-                &mut list_and_watch_client,
-                successful_connection_sender,
-                list_and_watch_resource_name,
-            )
-            .await;
-        });
+            endpoint
+                .start(all_devices, update_node_status_sender.clone())
+                .await;
 
-        // Only add device plugin to map if successful ListAndWatch call
-        match successful_connection_receiver.await.unwrap() {
-            EndpointConnectionMessage::Success => {
-                let endpoint = Endpoint {
-                    client,
-                    register_request: register_request.clone(),
-                };
-                self.add_plugin(endpoint);
-            }
-            EndpointConnectionMessage::Error => {
-                return Err(anyhow::Error::msg(format!(
-                    "Could not call ListAndWatch on device plugin at socket {:?}",
-                    register_request.endpoint
-                )));
-            }
-        }
+            endpoint.stop().await;
+
+            DeviceManager::remove_plugin(plugins, &resource_name, endpoint);
+
+            // ?? Should devices be marked unhealthy first?
+            DeviceManager::remove_resource(devices, &resource_name);
+
+            // Update nodes status with devices removed
+            update_node_status_sender.send(()).unwrap();
+        });
 
         Ok(())
     }
 
-    /// Connects to a device plugin's ListAndWatch service.
-    /// The device plugin updates this client periodically about changes in the capacity and health of its resource.
-    /// Upon updates, this propagates any changes into the `plugins` map and triggers the `NodePatcher` to
-    /// patch the node with the latest values.
-    async fn call_list_and_watch(
-        devices: Arc<Mutex<DeviceMap>>,
-        update_node_status_sender: broadcast::Sender<()>,
-        client: &mut DevicePluginClient<tonic::transport::Channel>,
-        successful_connection_sender: tokio::sync::oneshot::Sender<EndpointConnectionMessage>,
-        resource_name: String,
-    ) {
-        match client.list_and_watch(Request::new(Empty {})).await {
-            Err(e) => {
-                error!(error = %e, resource = %resource_name, "Could not call ListAndWatch on the device plugin for this resource");
-                successful_connection_sender
-                    .send(EndpointConnectionMessage::Error)
-                    .unwrap();
-            }
-            Ok(stream_wrapped) => {
-                successful_connection_sender
-                    .send(EndpointConnectionMessage::Success)
-                    .unwrap();
-                let mut stream = stream_wrapped.into_inner();
-                let mut previous_endpoint_devices: HashMap<String, Device> = HashMap::new();
-                while let Some(response) = stream.message().await.unwrap() {
-                    let current_devices = response
-                        .devices
-                        .into_iter()
-                        .map(|device| (device.id.clone(), device))
-                        .collect::<HashMap<String, Device>>();
-                    let mut update_node_status = false;
-                    // Iterate through the list of devices, updating the Node status if
-                    // (1) Device modified: DP reporting a previous device with a different health status
-                    // (2) Device added: DP reporting a new device
-                    // (3) Device removed: DP is no longer advertising a device
-                    current_devices.iter().for_each(|(_, device)| {
-                        // (1) Device modified or already registered
-                        if let Some(previous_device) = previous_endpoint_devices.get(&device.id) {
-                            if previous_device.health != device.health {
-                                devices
-                                    .lock()
-                                    .unwrap()
-                                    .get_mut(&resource_name)
-                                    .unwrap()
-                                    .insert(device.id.clone(), device.clone());
-                                update_node_status = true;
-                            } else if previous_device.topology != device.topology {
-                                // Currently not using/handling device topology. Simply log the change.
-                                trace!("Topology of device {} from resource {} changed from {:?} to {:?}", device.id, resource_name, previous_device.topology, device.topology);
-                            }
-                        // (2) Device added
-                        } else {
-                            let mut all_devices_map = devices.lock().unwrap();
-                            match all_devices_map.get_mut(&resource_name) {
-                                Some(resource_devices_map) => {
-                                    resource_devices_map.insert(device.id.clone(), device.clone());
-                                }
-                                None => {
-                                    let mut resource_devices_map = HashMap::new();
-                                    resource_devices_map.insert(device.id.clone(), device.clone());
-                                    all_devices_map
-                                        .insert(resource_name.clone(), resource_devices_map);
-                                }
-                            }
-                            update_node_status = true;
-                        }
-                    });
-
-                    // (3) Check if Device removed
-                    previous_endpoint_devices
-                        .iter()
-                        .for_each(|(previous_dev_id, _)| {
-                            if !current_devices.contains_key(previous_dev_id) {
-                                // TODO: how to handle already allocated devices? Pretty sure K8s lets them keep running but what about the allocated_device map?
-                                devices
-                                    .lock()
-                                    .unwrap()
-                                    .get_mut(&resource_name)
-                                    .unwrap()
-                                    .remove(previous_dev_id);
-                                update_node_status = true;
-                            }
-                        });
-
-                    // Replace previous devices with current devices
-                    previous_endpoint_devices = current_devices;
-
-                    if update_node_status {
-                        // TODO handle error -- maybe channel is full
-                        update_node_status_sender.send(()).unwrap();
-                    }
-                }
-                // TODO: remove endpoint from map
-            }
+    /// Removed all devices of a resource from our shared device map.
+    fn remove_resource(devices: Arc<Mutex<DeviceMap>>, resource_name: &str) {
+        match devices.lock().unwrap().remove(resource_name) {
+            Some(_) => trace!(
+                "All devices of resource {} have been removed",
+                resource_name
+            ),
+            None => trace!(
+                "All devices of resource {} were already removed",
+                resource_name
+            ),
         }
     }
 
@@ -444,7 +343,7 @@ impl DeviceManager {
     ) -> anyhow::Result<()> {
         let mut container_devices: ContainerDevices = HashMap::new();
         for (resource_name, container_allocate_info) in all_allocate_requests {
-            let mut endpoint = self
+            let endpoint = self
                 .plugins
                 .lock()
                 .unwrap()
@@ -464,10 +363,7 @@ impl DeviceManager {
             let allocate_request = AllocateRequest {
                 container_requests: container_requests.clone(),
             };
-            let allocate_response = endpoint
-                .client
-                .allocate(Request::new(allocate_request))
-                .await?;
+            let allocate_response = endpoint.allocate(allocate_request).await?;
             allocate_response
                 .into_inner()
                 .container_responses
@@ -666,10 +562,10 @@ impl Registration for DeviceRegistry {
         &self,
         request: tonic::Request<RegisterRequest>,
     ) -> Result<tonic::Response<Empty>, tonic::Status> {
-        let register_request = request.get_ref();
+        let register_request = request.into_inner();
         // Validate
         self.device_manager
-            .validate(register_request)
+            .validate(&register_request)
             .await
             .map_err(|e| tonic::Status::new(tonic::Code::InvalidArgument, format!("{}", e)))?;
         // Create a list and watch connection with the device plugin
@@ -710,7 +606,85 @@ pub async fn serve_device_registry(device_manager: Arc<DeviceManager>) -> anyhow
 }
 
 #[cfg(test)]
-pub mod tests {
+pub mod test_utils {
+    use super::*;
+    use futures::pin_mut;
+    use http::{Request as HttpRequest, Response as HttpResponse};
+    use hyper::Body;
+    use kube::Client;
+    use tower_test::mock;
+
+    /// Creates a mock kubernetes API service that the NodePatcher calls to when device plugin resources
+    /// need to be updated in the Node status.
+    /// It verifies the request and always returns a fake Node.
+    /// Returns a client that will reference this mock service and the task the service is running on.
+    /// TODO: Decide whether to test node status
+    pub async fn create_mock_kube_service(
+        node_name: &str,
+    ) -> (Client, tokio::task::JoinHandle<()>) {
+        // Mock client as inspired by this thread on kube-rs crate: https://github.com/clux/kube-rs/issues/429
+        let (mock_service, handle) = mock::pair::<HttpRequest<Body>, HttpResponse<Body>>();
+        let node_name = node_name.to_string();
+        let spawned = tokio::spawn(async move {
+            pin_mut!(handle);
+            let (request, send) = handle.next_request().await.expect("service not called");
+            assert_eq!(request.method(), http::Method::PATCH);
+            assert_eq!(
+                request.uri().to_string(),
+                format!("/api/v1/nodes/{}/status?", node_name)
+            );
+            let node: k8s_openapi::api::core::v1::Node =
+                serde_json::from_value(serde_json::json!({
+                    "apiVersion": "v1",
+                    "kind": "Node",
+                    "metadata": {
+                        "name": "test",
+                    }
+                }))
+                .unwrap();
+            send.send_response(
+                HttpResponse::builder()
+                    .body(Body::from(serde_json::to_vec(&node).unwrap()))
+                    .unwrap(),
+            );
+        });
+        let client = Client::new(mock_service);
+        (client, spawned)
+    }
+
+    pub fn create_mock_healthy_devices(r1_name: &str, r2_name: &str) -> Arc<Mutex<DeviceMap>> {
+        let r1_devices: EndpointDevicesMap = (0..3)
+            .map(|x| Device {
+                id: format!("{}-id{}", r1_name, x),
+                health: HEALTHY.to_string(),
+                topology: None,
+            })
+            .map(|d| (d.id.clone(), d))
+            .collect();
+
+        let r2_devices: EndpointDevicesMap = (0..2)
+            .map(|x| Device {
+                id: format!("{}-id{}", r2_name, x),
+                health: HEALTHY.to_string(),
+                topology: None,
+            })
+            .map(|d| (d.id.clone(), d))
+            .collect();
+
+        let device_map: DeviceMap = [
+            (r1_name.to_string(), r1_devices),
+            (r2_name.to_string(), r2_devices),
+        ]
+        .iter()
+        .cloned()
+        .collect();
+
+        Arc::new(Mutex::new(device_map))
+    }
+}
+
+#[cfg(test)]
+mod tests {
     use super::*;
     use crate::device_plugin_api::v1beta1::{
         device_plugin_server::{DevicePlugin, DevicePluginServer},
@@ -718,19 +692,15 @@ pub mod tests {
         ListAndWatchResponse, PreStartContainerRequest, PreStartContainerResponse,
         PreferredAllocationRequest, PreferredAllocationResponse,
     };
-    use futures::{pin_mut, Stream};
-    use http::{Request as HttpRequest, Response as HttpResponse};
-    use hyper::Body;
-    use kube::Client;
+    use futures::Stream;
     use std::pin::Pin;
     use tokio::sync::{mpsc, watch};
     use tonic::{Request, Response, Status};
-    use tower_test::mock;
 
     /// Mock Device Plugin for testing the DeviceManager
     /// Sends a new list of devices to the DeviceManager whenever it's `devices_receiver`
     /// is notified of them on a channel.
-    pub struct MockDevicePlugin {
+    struct MockDevicePlugin {
         // Using watch so the receiver can be cloned and be moved into a spawned thread in ListAndWatch
         devices_receiver: watch::Receiver<Vec<Device>>,
     }
@@ -836,44 +806,6 @@ pub mod tests {
         Ok(())
     }
 
-    /// Creates a mock kubernetes API service that the NodePatcher calls to when device plugin resources
-    /// need to be updated in the Node status.
-    /// It verifies the request and always returns a fake Node.
-    /// Returns a client that will reference this mock service and the task the service is running on.
-    /// TODO: Decide whether to test node status
-    pub async fn create_mock_kube_service(
-        node_name: &str,
-    ) -> (Client, tokio::task::JoinHandle<()>) {
-        // Mock client as inspired by this thread on kube-rs crate: https://github.com/clux/kube-rs/issues/429
-        let (mock_service, handle) = mock::pair::<HttpRequest<Body>, HttpResponse<Body>>();
-        let node_name = node_name.to_string();
-        let spawned = tokio::spawn(async move {
-            pin_mut!(handle);
-            let (request, send) = handle.next_request().await.expect("service not called");
-            assert_eq!(request.method(), http::Method::PATCH);
-            assert_eq!(
-                request.uri().to_string(),
-                format!("/api/v1/nodes/{}/status?", node_name)
-            );
-            let node: k8s_openapi::api::core::v1::Node =
-                serde_json::from_value(serde_json::json!({
-                    "apiVersion": "v1",
-                    "kind": "Node",
-                    "metadata": {
-                        "name": "test",
-                    }
-                }))
-                .unwrap();
-            send.send_response(
-                HttpResponse::builder()
-                    .body(Body::from(serde_json::to_vec(&node).unwrap()))
-                    .unwrap(),
-            );
-        });
-        let client = Client::new(mock_service);
-        (client, spawned)
-    }
-
     /// Tests e2e flow of kicked off by a mock DP registering with the DeviceManager
     /// DeviceManager should call ListAndWatch on the DP, update it's devices registry with the DP's
     /// devices, and instruct it's NodePatcher to patch the node status with the new DP resources.
@@ -934,11 +866,12 @@ pub mod tests {
         // Name of "this node" that should be patched with Device Plugin resources
         let test_node_name = "test_node";
         // Create and run a mock Kubernetes API service and get a Kubernetes client
-        let (client, _mock_service_task) = create_mock_kube_service(test_node_name).await;
+        let (client, _mock_service_task) =
+            super::test_utils::create_mock_kube_service(test_node_name).await;
 
         // Create and serve a DeviceManager
         let device_manager = Arc::new(DeviceManager::new(
-            manager_temp_dir.path().clone(),
+            manager_temp_dir.path(),
             client,
             test_node_name,
         ));
@@ -949,7 +882,7 @@ pub mod tests {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
         // Register the mock device plugin with the DeviceManager's Registration service
-        let dp_resource_name = "mock-device-plugin";
+        let dp_resource_name = "example.com/mock-device-plugin";
         register_mock_device_plugin(manager_socket.to_string(), &dp_socket, dp_resource_name)
             .await
             .unwrap();
