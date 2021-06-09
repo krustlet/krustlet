@@ -94,23 +94,6 @@ impl DeviceManager {
         lock.insert(resource_name.to_string(), plugin_connection);
     }
 
-    /// Removes the PluginConnection from our HashMap so long as it is the same as the one currently
-    /// stored under the given resource name.
-    fn remove_plugin(
-        plugins: Arc<Mutex<HashMap<String, Arc<PluginConnection>>>>,
-        resource_name: &str,
-        plugin_connection: Arc<PluginConnection>,
-    ) {
-        let mut lock = plugins.lock().unwrap();
-        if let Some(old_plugin_connection) = lock.get(resource_name) {
-            // TODO: partialEq only checks that reg requests are identical. May also want
-            // to check match of other fields.
-            if *old_plugin_connection == plugin_connection {
-                lock.remove(resource_name);
-            }
-        }
-    }
-
     /// Validates the given plugin info gathered from a discovered plugin, returning an error with
     /// additional information if it is not valid. This will validate 3 specific things (should
     /// answer YES to all of these):
@@ -205,32 +188,16 @@ impl DeviceManager {
                 .start(all_devices, update_node_status_sender.clone())
                 .await;
 
-            plugin_connection.stop().await;
-
-            DeviceManager::remove_plugin(plugins, &resource_name, plugin_connection);
+            remove_plugin(plugins, &resource_name, plugin_connection);
 
             // ?? Should devices be marked unhealthy first?
-            DeviceManager::remove_resource(devices, &resource_name);
+            remove_resource(devices, &resource_name);
 
             // Update nodes status with devices removed
             update_node_status_sender.send(()).unwrap();
         });
 
         Ok(())
-    }
-
-    /// Removed all devices of a resource from our shared device map.
-    fn remove_resource(devices: Arc<Mutex<DeviceMap>>, resource_name: &str) {
-        match devices.lock().unwrap().remove(resource_name) {
-            Some(_) => trace!(
-                "All devices of resource {} have been removed",
-                resource_name
-            ),
-            None => trace!(
-                "All devices of resource {} were already removed",
-                resource_name
-            ),
-        }
     }
 
     /// This is the call that you can use to allocate a set of devices
@@ -520,4 +487,35 @@ fn get_available_devices(
         .into_iter()
         .cloned()
         .collect::<Vec<String>>()
+}
+
+/// Removes the PluginConnection from our HashMap so long as it is the same as the one currently
+/// stored under the given resource name.
+fn remove_plugin(
+    plugins: Arc<Mutex<HashMap<String, Arc<PluginConnection>>>>,
+    resource_name: &str,
+    plugin_connection: Arc<PluginConnection>,
+) {
+    let mut lock = plugins.lock().unwrap();
+    if let Some(old_plugin_connection) = lock.get(resource_name) {
+        // TODO: partialEq only checks that reg requests are identical. May also want
+        // to check match of other fields.
+        if *old_plugin_connection == plugin_connection {
+            lock.remove(resource_name);
+        }
+    }
+}
+
+/// Removed all devices of a resource from our shared device map.
+fn remove_resource(devices: Arc<Mutex<DeviceMap>>, resource_name: &str) {
+    match devices.lock().unwrap().remove(resource_name) {
+        Some(_) => trace!(
+            "All devices of resource {} have been removed",
+            resource_name
+        ),
+        None => trace!(
+            "All devices of resource {} were already removed",
+            resource_name
+        ),
+    }
 }
