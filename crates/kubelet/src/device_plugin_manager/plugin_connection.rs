@@ -6,7 +6,6 @@ use crate::device_plugin_api::v1beta1::{
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
-use tokio::sync::Mutex as AsyncMutex;
 use tonic::Request;
 use tracing::{error, trace};
 
@@ -18,8 +17,6 @@ pub struct PluginConnection {
     client: DevicePluginClient<tonic::transport::Channel>,
     /// `RegisterRequest` received when the device plugin registered with the DeviceRegistry
     register_request: RegisterRequest,
-    /// Boolean for signaling that the ListAndWatch connection with the channel should be closed
-    stop_connection: Arc<AsyncMutex<bool>>,
 }
 
 impl PluginConnection {
@@ -30,7 +27,6 @@ impl PluginConnection {
         PluginConnection {
             client,
             register_request,
-            stop_connection: Arc::new(AsyncMutex::new(false)),
         }
     }
 
@@ -50,10 +46,6 @@ impl PluginConnection {
                 trace!(resource = %self.register_request.resource_name, "Received message to stop ListAndWatch for resource")
             }
         }
-    }
-
-    pub async fn stop(&self) {
-        *self.stop_connection.lock().await = true;
     }
 
     /// Connects to a device plugin's ListAndWatch service.
@@ -82,9 +74,6 @@ impl PluginConnection {
             ) {
                 // TODO handle error -- maybe channel is full
                 update_node_status_sender.send(()).unwrap();
-            }
-            if *self.stop_connection.lock().await {
-                break;
             }
         }
 
