@@ -67,7 +67,7 @@ impl<P: GenericProvider> State<P::PodState> for Resources<P> {
                 .do_allocate(&pod, container_devices)
                 .await
             {
-                error!("{:?}", e);
+                error!(error = %e);
                 let next = Error::<P>::new(e.to_string());
                 return Transition::next(self, next);
             }

@@ -275,7 +275,7 @@ impl DeviceManager {
     ///
     /// Note, say DP1 and DP2 are registered for R1 and R2 respectively. If the allocate call to DP1 for R1 succeeds
     /// but the allocate call to DP2 for R2 fails, DP1 will have completed any allocation steps it performs despite the fact that the
-    /// Pod will not be scheduled due to R2 not being an available resource.
+    /// Pod will not be scheduled due to R2 not being an available resource. This is expected behavior with the device plugin interface.
     async fn do_allocate_for_pod(
         &self,
         pod_uid: &str,
@@ -303,10 +303,21 @@ impl DeviceManager {
             let allocate_request = AllocateRequest {
                 container_requests: container_requests.clone(),
             };
-            let allocate_response = plugin_connection.allocate(allocate_request).await?;
-            allocate_response
+            let container_responses = plugin_connection
+                .allocate(allocate_request)
+                .await?
                 .into_inner()
-                .container_responses
+                .container_responses;
+
+            // By doing one allocate call per Pod, an assumption is being made that the container requests array (sent to a DP)
+            // and container responses array returned are the same length. This is not documented in the DP API. However Kubernetes has a
+            // TODO (https://github.com/kubernetes/kubernetes/blob/d849d9d057369121fc43aa3359059471e1ca9d1c/pkg/kubelet/cm/devicemanager/manager.go#L916)
+            // to use the same one call implementation.
+            if container_requests.len() != container_responses.len() {
+                return Err(anyhow::anyhow!("Container responses returned from allocate are not the same length as container requests"));
+            }
+
+            container_responses
                 .into_iter()
                 .enumerate()
                 .for_each(|(i, container_resp)| {
@@ -517,5 +528,288 @@ fn remove_resource(devices: Arc<Mutex<DeviceMap>>, resource_name: &str) {
             "All devices of resource {} were already removed",
             resource_name
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{test_utils, PLUGIN_MANGER_SOCKET_NAME, UNHEALTHY};
+    use super::*;
+    use crate::device_plugin_api::v1beta1::{
+        device_plugin_server::{DevicePlugin, DevicePluginServer},
+        registration_client, AllocateRequest, AllocateResponse, Device, DevicePluginOptions, Empty,
+        ListAndWatchResponse, PreStartContainerRequest, PreStartContainerResponse,
+        PreferredAllocationRequest, PreferredAllocationResponse, API_VERSION,
+    };
+    use futures::Stream;
+    use std::pin::Pin;
+    use tokio::sync::{mpsc, watch};
+    use tonic::{Request, Response, Status};
+
+    /// Mock Device Plugin for testing the DeviceManager
+    /// Sends a new list of devices to the DeviceManager whenever it's `devices_receiver`
+    /// is notified of them on a channel.
+    struct MockDevicePlugin {
+        // Using watch so the receiver can be cloned and be moved into a spawned thread in ListAndWatch
+        devices_receiver: watch::Receiver<Vec<Device>>,
+    }
+
+    #[async_trait::async_trait]
+    impl DevicePlugin for MockDevicePlugin {
+        async fn get_device_plugin_options(
+            &self,
+            _request: Request<Empty>,
+        ) -> Result<Response<DevicePluginOptions>, Status> {
+            unimplemented!();
+        }
+
+        type ListAndWatchStream = Pin<
+            Box<dyn Stream<Item = Result<ListAndWatchResponse, Status>> + Send + Sync + 'static>,
+        >;
+        async fn list_and_watch(
+            &self,
+            _request: Request<Empty>,
+        ) -> Result<Response<Self::ListAndWatchStream>, Status> {
+            println!("list_and_watch entered");
+            // Create a channel that list_and_watch can periodically send updates to kubelet on
+            let (kubelet_update_sender, kubelet_update_receiver) = mpsc::channel(3);
+            let mut devices_receiver = self.devices_receiver.clone();
+            tokio::spawn(async move {
+                while devices_receiver.changed().await.is_ok() {
+                    let devices = devices_receiver.borrow().clone();
+                    println!(
+                        "list_and_watch received new devices [{:?}] to send",
+                        devices
+                    );
+                    kubelet_update_sender
+                        .send(Ok(ListAndWatchResponse { devices }))
+                        .await
+                        .unwrap();
+                }
+            });
+            Ok(Response::new(Box::pin(
+                tokio_stream::wrappers::ReceiverStream::new(kubelet_update_receiver),
+            )))
+        }
+
+        async fn get_preferred_allocation(
+            &self,
+            _request: Request<PreferredAllocationRequest>,
+        ) -> Result<Response<PreferredAllocationResponse>, Status> {
+            unimplemented!();
+        }
+
+        async fn allocate(
+            &self,
+            request: Request<AllocateRequest>,
+        ) -> Result<Response<AllocateResponse>, Status> {
+            let allocate_request = request.into_inner();
+            let container_responses: Vec<ContainerAllocateResponse> = allocate_request
+                .container_requests
+                .into_iter()
+                .map(|_| ContainerAllocateResponse {
+                    ..Default::default()
+                })
+                .collect();
+            Ok(Response::new(AllocateResponse {
+                container_responses,
+            }))
+        }
+
+        async fn pre_start_container(
+            &self,
+            _request: Request<PreStartContainerRequest>,
+        ) -> Result<Response<PreStartContainerResponse>, Status> {
+            Ok(Response::new(PreStartContainerResponse {}))
+        }
+    }
+
+    /// Serves the mock DP and returns its socket path
+    async fn run_mock_device_plugin(
+        devices_receiver: watch::Receiver<Vec<Device>>,
+    ) -> anyhow::Result<String> {
+        // Device plugin temp socket deleted when it goes out of scope
+        // so create it in thread and return with a channel
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::task::spawn(async move {
+            let device_plugin_temp_dir =
+                tempfile::tempdir().expect("should be able to create tempdir");
+            let socket_name = "gpu-device-plugin.sock";
+            let dp_socket = device_plugin_temp_dir
+                .path()
+                .join(socket_name)
+                .to_str()
+                .unwrap()
+                .to_string();
+            tx.send(dp_socket.clone()).unwrap();
+            let device_plugin = MockDevicePlugin { devices_receiver };
+            let socket =
+                grpc_sock::server::Socket::new(&dp_socket).expect("couldnt make dp socket");
+            let serv = tonic::transport::Server::builder()
+                .add_service(DevicePluginServer::new(device_plugin))
+                .serve_with_incoming(socket);
+            #[cfg(target_family = "windows")]
+            let serv = serv.compat();
+            serv.await.expect("Unable to serve mock device plugin");
+        });
+        Ok(rx.await.unwrap())
+    }
+
+    /// Registers the mock DP with the DeviceManager's registration service
+    async fn register_mock_device_plugin(
+        kubelet_socket: String,
+        dp_socket: &str,
+        dp_resource_name: &str,
+    ) -> anyhow::Result<()> {
+        let op = DevicePluginOptions {
+            get_preferred_allocation_available: false,
+            pre_start_required: false,
+        };
+        let channel = grpc_sock::client::socket_channel(kubelet_socket).await?;
+        let mut registration_client = registration_client::RegistrationClient::new(channel);
+        let register_request = tonic::Request::new(RegisterRequest {
+            version: API_VERSION.into(),
+            endpoint: dp_socket.to_string(),
+            resource_name: dp_resource_name.to_string(),
+            options: Some(op),
+        });
+        registration_client
+            .register(register_request)
+            .await
+            .unwrap();
+        Ok(())
+    }
+
+    /// Tests e2e flow of kicked off by a mock DP registering with the DeviceManager
+    /// DeviceManager should call ListAndWatch on the DP, update it's devices registry with the DP's
+    /// devices, and instruct it's NodePatcher to patch the node status with the new DP resources.
+    #[tokio::test]
+    async fn do_device_manager_test() {
+        // There doesn't seem to be a way to use the same temp dir for manager and mock dp due to being able to
+        // pass the temp dir reference to multiple threads
+        // Instead, create a temp dir for the DP manager and the mock DP
+        let manager_temp_dir = tempfile::tempdir().expect("should be able to create tempdir");
+
+        // Capture the DP and DP manager socket paths
+        let manager_socket = manager_temp_dir
+            .path()
+            .join(PLUGIN_MANGER_SOCKET_NAME)
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        // Make 3 mock devices
+        let d1 = Device {
+            id: "d1".to_string(),
+            health: HEALTHY.to_string(),
+            topology: None,
+        };
+        let d2 = Device {
+            id: "d2".to_string(),
+            health: HEALTHY.to_string(),
+            topology: None,
+        };
+        let d3 = Device {
+            id: "d3".to_string(),
+            health: UNHEALTHY.to_string(),
+            topology: None,
+        };
+
+        // Start the mock device plugin without any devices
+        let devices: Vec<Device> = Vec::new();
+        let (devices_sender, devices_receiver) = watch::channel(devices);
+
+        // Run the mock device plugin
+        let dp_socket = run_mock_device_plugin(devices_receiver).await.unwrap();
+
+        // Name of "this node" that should be patched with Device Plugin resources
+        let test_node_name = "test_node";
+        // Create and run a mock Kubernetes API service and get a Kubernetes client
+        let (client, _mock_service_task) =
+            test_utils::create_mock_kube_service(test_node_name).await;
+
+        // Create and serve a DeviceManager
+        let device_manager = Arc::new(DeviceManager::new(
+            manager_temp_dir.path(),
+            client,
+            test_node_name,
+        ));
+        let devices = device_manager.devices.clone();
+        let _manager_task = tokio::task::spawn(async move {
+            super::super::serve_device_registry(device_manager)
+                .await
+                .unwrap();
+        });
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        // Register the mock device plugin with the DeviceManager's Registration service
+        let dp_resource_name = "example.com/mock-device-plugin";
+        register_mock_device_plugin(manager_socket.to_string(), &dp_socket, dp_resource_name)
+            .await
+            .unwrap();
+
+        // Make DP report 2 healthy and 1 unhealthy device
+        devices_sender.send(vec![d1, d2, d3]).unwrap();
+
+        let mut x: i8 = 0;
+        let mut num_devices: i8 = 0;
+        while x < 3 {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            // Assert that there are 3 devices in the map now
+            if let Some(resource_devices_map) = devices.lock().unwrap().get(dp_resource_name) {
+                if resource_devices_map.len() == 3 {
+                    num_devices = 3;
+                    break;
+                }
+            }
+            x += 1;
+        }
+        assert_eq!(num_devices, 3);
+    }
+
+    fn build_container_allocate_info(
+        devices_i_ds: Vec<String>,
+        container_name: &str,
+    ) -> ContainerAllocateInfo {
+        let container_allocate_request = ContainerAllocateRequest { devices_i_ds };
+        ContainerAllocateInfo {
+            container_allocate_request,
+            container_name: container_name.to_string(),
+        }
+    }
+
+    fn create_device_manager(node_name: &str) -> DeviceManager {
+        let client = test_utils::mock_client();
+        DeviceManager::new_with_default_path(client, node_name)
+    }
+
+    // Pod with 2 Containers each requesting 2 devices of the same resource
+    #[tokio::test]
+    async fn test_do_allocate_for_pod() {
+        let resource_name = "resource_name";
+        let cont_a_device_ids = vec!["id1".to_string(), "id2".to_string()];
+        let cont_a_alloc_info = build_container_allocate_info(cont_a_device_ids, "containerA");
+        let cont_b_device_ids = vec!["id3".to_string(), "id4".to_string()];
+        let cont_b_alloc_info = build_container_allocate_info(cont_b_device_ids, "containerB");
+        let mut all_reqs = HashMap::new();
+        all_reqs.insert(
+            resource_name.to_string(),
+            vec![cont_a_alloc_info, cont_b_alloc_info],
+        );
+        let (_devices_sender, devices_receiver) = watch::channel(Vec::new());
+
+        let dp_socket = run_mock_device_plugin(devices_receiver).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let dm = create_device_manager("some_node");
+        dm.create_plugin_connection(RegisterRequest {
+            endpoint: dp_socket,
+            resource_name: resource_name.to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        dm.do_allocate_for_pod("pod_uid", all_reqs).await.unwrap();
+        // Assert that two responses were stored in `PodDevices`, one for each ContainerAllocateRequest
+        assert_eq!(dm.get_pod_allocate_responses("pod_uid").unwrap().len(), 2);
     }
 }

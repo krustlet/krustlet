@@ -5,13 +5,14 @@ use kube::api::{Api, ListParams};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-/// DeviceAllocateInfo contains the device ids reserved to a container for a specific
+/// `DeviceAllocateInfo` contains the device ids reserved to a container for a specific
 /// resource and the ContainerAllocateResponse which contains information about what
 /// to mount into the container
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DeviceAllocateInfo {
-    /// device_ids contains the device Ids allocated to this container for the given resource name
-    pub device_ids: HashSet<String>, // ContainerAllocateRequest.devices_i_ds
+    /// Contains the device Ids allocated to this container for the given resource name
+    pub device_ids: HashSet<String>,
+    /// Contains the RPC ContainerAllocateResponse for the device_ids
     pub allocate_response: ContainerAllocateResponse,
 }
 /// Map of devices allocated to the container, keyed by resource name
@@ -20,6 +21,9 @@ type ResourceAllocateInfo = HashMap<String, DeviceAllocateInfo>;
 pub type ContainerDevices = HashMap<String, ResourceAllocateInfo>;
 
 /// PodDevices contains the map of Pods to allocated devices
+/// This is a very nested structure modeled after Kubernetes
+/// (see https://github.com/kubernetes/kubernetes/blob/master/pkg/kubelet/cm/devicemanager/pod_devices.go).
+/// This could potentially be simplified by use of an in memory database.
 #[derive(Clone)]
 pub struct PodDevices {
     /// Name of the node this kubelet is running on
@@ -39,7 +43,7 @@ impl PodDevices {
         }
     }
 
-    /// get_active_pods activePods is a method for listing active pods on the node so the
+    /// A method for listing active pods on the node so the
     /// amount of device plugin resources requested by existing pods could be counted
     /// when updating allocated devices
     pub async fn get_active_pods(&self) -> anyhow::Result<HashSet<String>> {

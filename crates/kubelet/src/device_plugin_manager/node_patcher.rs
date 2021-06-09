@@ -75,7 +75,6 @@ impl NodeStatusPatcher {
     }
 
     pub async fn listen_and_patch(self) -> anyhow::Result<()> {
-        // Forever hold lock on the status update receiver
         let mut receiver = self.update_node_status_sender.subscribe();
         loop {
             match receiver.recv().await {
