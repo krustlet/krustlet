@@ -3,15 +3,15 @@ use k8s_openapi::api::core::v1::{Node, NodeStatus};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use kube::api::{Api, PatchParams};
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
-use tokio::sync::broadcast;
+use std::sync::Arc;
+use tokio::sync::{broadcast, RwLock};
 use tracing::error;
 
 /// NodePatcher updates the Node status with the latest device information.
 #[derive(Clone)]
 pub struct NodeStatusPatcher {
     node_name: String,
-    devices: Arc<Mutex<DeviceMap>>,
+    devices: Arc<RwLock<DeviceMap>>,
     // Broadcast sender so clonable
     update_node_status_sender: broadcast::Sender<()>,
     client: kube::Client,
@@ -20,7 +20,7 @@ pub struct NodeStatusPatcher {
 impl NodeStatusPatcher {
     pub fn new(
         node_name: &str,
-        devices: Arc<Mutex<DeviceMap>>,
+        devices: Arc<RwLock<DeviceMap>>,
         update_node_status_sender: broadcast::Sender<()>,
         client: kube::Client,
     ) -> Self {
@@ -33,7 +33,7 @@ impl NodeStatusPatcher {
     }
 
     async fn get_node_status_patch(&self) -> NodeStatus {
-        let devices = self.devices.lock().unwrap();
+        let devices = self.devices.read().await;
         let capacity: BTreeMap<String, Quantity> = devices
             .iter()
             .map(|(resource_name, resource_devices)| {
@@ -103,8 +103,8 @@ mod tests {
     async fn test_do_node_status_patch() {
         let devices = create_mock_healthy_devices("r1", "r2");
         devices
-            .lock()
-            .unwrap()
+            .write()
+            .await
             .get_mut("r1")
             .unwrap()
             .get_mut("r1-id1")
@@ -134,8 +134,8 @@ mod tests {
         let r2_name = "r2";
         let devices = create_mock_healthy_devices(r1_name, r2_name);
         devices
-            .lock()
-            .unwrap()
+            .write()
+            .await
             .get_mut("r1")
             .unwrap()
             .get_mut("r1-id1")

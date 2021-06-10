@@ -12,7 +12,8 @@ use super::pod_devices::{ContainerDevices, DeviceAllocateInfo, PodDevices};
 use super::{DeviceIdMap, DeviceMap, PluginDevicesMap, PodResourceRequests, HEALTHY};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use tokio::sync::broadcast;
 #[cfg(target_family = "windows")]
@@ -44,16 +45,16 @@ pub struct ContainerAllocateInfo {
 #[derive(Clone)]
 pub struct DeviceManager {
     /// Map of registered device plugins, keyed by resource name
-    plugins: Arc<Mutex<HashMap<String, Arc<PluginConnection>>>>,
+    plugins: Arc<RwLock<HashMap<String, Arc<PluginConnection>>>>,
     /// Directory where the device plugin sockets live
     pub(crate) plugin_dir: PathBuf,
     /// Contains all the devices advertised by all device plugins. Key is resource name.
     /// Shared with the NodePatcher.
-    pub(crate) devices: Arc<Mutex<DeviceMap>>,
+    pub(crate) devices: Arc<RwLock<DeviceMap>>,
     /// Structure containing map with Pod to currently allocated devices mapping
     pod_devices: PodDevices,
     /// Devices that have been allocated to Pods, keyed by resource name.
-    allocated_device_ids: Arc<Mutex<DeviceIdMap>>,
+    allocated_device_ids: Arc<RwLock<DeviceIdMap>>,
     /// Sender to notify the NodePatcher to update NodeStatus with latest resource values.
     update_node_status_sender: broadcast::Sender<()>,
     /// Struture that patches the Node with the latest resource values when signaled.
@@ -63,7 +64,7 @@ pub struct DeviceManager {
 impl DeviceManager {
     /// Returns a new device manager configured with the given device plugin directory path
     pub fn new<P: AsRef<Path>>(plugin_dir: P, client: kube::Client, node_name: &str) -> Self {
-        let devices = Arc::new(Mutex::new(HashMap::new()));
+        let devices = Arc::new(RwLock::new(HashMap::new()));
         let (update_node_status_sender, _) = broadcast::channel(UPDATE_NODE_STATUS_CHANNEL_SIZE);
         let node_status_patcher = NodeStatusPatcher::new(
             node_name,
@@ -74,10 +75,10 @@ impl DeviceManager {
         let pod_devices = PodDevices::new(node_name, client);
         DeviceManager {
             plugin_dir: PathBuf::from(plugin_dir.as_ref()),
-            plugins: Arc::new(Mutex::new(HashMap::new())),
+            plugins: Arc::new(RwLock::new(HashMap::new())),
             devices,
             pod_devices,
-            allocated_device_ids: Arc::new(Mutex::new(HashMap::new())),
+            allocated_device_ids: Arc::new(RwLock::new(HashMap::new())),
             update_node_status_sender,
             node_status_patcher,
         }
@@ -89,8 +90,8 @@ impl DeviceManager {
     }
 
     /// Adds the plugin to our HashMap
-    fn add_plugin(&self, plugin_connection: Arc<PluginConnection>, resource_name: &str) {
-        let mut lock = self.plugins.lock().unwrap();
+    async fn add_plugin(&self, plugin_connection: Arc<PluginConnection>, resource_name: &str) {
+        let mut lock = self.plugins.write().await;
         lock.insert(resource_name.to_string(), plugin_connection);
     }
 
@@ -144,7 +145,7 @@ impl DeviceManager {
         &self,
         register_request: &RegisterRequest,
     ) -> Result<(), tonic::Status> {
-        let plugins = self.plugins.lock().unwrap();
+        let plugins = self.plugins.read().await;
 
         if let Some(_previous_plugin_entry) = plugins.get(&register_request.resource_name) {
             // TODO: check if plugin is active
@@ -180,7 +181,8 @@ impl DeviceManager {
         let plugin_connection = Arc::new(PluginConnection::new(client, register_request));
         let plugins = self.plugins.clone();
         let devices = self.devices.clone();
-        self.add_plugin(plugin_connection.clone(), &resource_name);
+        self.add_plugin(plugin_connection.clone(), &resource_name)
+            .await;
 
         // TODO: decide whether to join/store all spawned ListAndWatch threads
         tokio::spawn(async move {
@@ -188,10 +190,10 @@ impl DeviceManager {
                 .start(all_devices, update_node_status_sender.clone())
                 .await;
 
-            remove_plugin(plugins, &resource_name, plugin_connection);
+            remove_plugin(plugins, &resource_name, plugin_connection).await;
 
             // ?? Should devices be marked unhealthy first?
-            remove_resource(devices, &resource_name);
+            remove_resource(devices, &resource_name).await;
 
             // Update nodes status with devices removed
             update_node_status_sender.send(()).unwrap();
@@ -261,8 +263,7 @@ impl DeviceManager {
             .do_allocate_for_pod(&pod.pod_uid(), all_allocate_requests)
             .await
         {
-            let mut allocated_device_ids = self.allocated_device_ids.lock().unwrap();
-            *allocated_device_ids = self.pod_devices.get_allocated_devices();
+            *self.allocated_device_ids.write().await = self.pod_devices.get_allocated_devices();
             Err(e)
         } else {
             Ok(())
@@ -285,8 +286,8 @@ impl DeviceManager {
         for (resource_name, container_allocate_info) in all_allocate_requests {
             let plugin_connection = self
                 .plugins
-                .lock()
-                .unwrap()
+                .read()
+                .await
                 .get(&resource_name)
                 .unwrap()
                 .clone();
@@ -348,13 +349,13 @@ impl DeviceManager {
 
     /// Checks that a resource with the given name exists in the device plugin map
     async fn is_device_plugin_resource(&self, resource_name: &str) -> bool {
-        self.devices.lock().unwrap().get(resource_name).is_some()
+        self.devices.read().await.get(resource_name).is_some()
     }
 
     /// Asserts that the resource is in the device map and has at least `quantity` healthy devices.
     /// Later a check is made to make sure enough have not been allocated yet.
     async fn is_healthy_resource(&self, resource_name: &str, quantity: usize) -> bool {
-        if let Some(resource_devices) = self.devices.lock().unwrap().get(resource_name) {
+        if let Some(resource_devices) = self.devices.read().await.get(resource_name) {
             if resource_devices
                 .iter()
                 .filter_map(
@@ -391,7 +392,7 @@ impl DeviceManager {
         self.pod_devices.remove_pods(pods_to_be_removed.clone())?;
 
         // TODO: should `allocated_device_ids` be replaced with `self.pod_devices.get_allocated_devices` instead?
-        let mut allocated_device_ids = self.allocated_device_ids.lock().unwrap();
+        let mut allocated_device_ids = self.allocated_device_ids.write().await;
         pods_to_be_removed.iter().for_each(|p_uid| {
             allocated_device_ids.remove(p_uid);
         });
@@ -430,14 +431,14 @@ impl DeviceManager {
             }
         }
         // Grab lock on devices and allocated devices
-        let resource_devices_map = self.devices.lock().unwrap();
+        let resource_devices_map = self.devices.write().await;
         let resource_devices = resource_devices_map.get(resource_name).ok_or_else(|| {
             anyhow::format_err!(
                 "Device plugin does not exist for resource {}",
                 resource_name
             )
         })?;
-        let mut allocated_devices_map = self.allocated_device_ids.lock().unwrap();
+        let mut allocated_devices_map = self.allocated_device_ids.write().await;
         let mut allocated_devices = allocated_devices_map
             .get(resource_name)
             .unwrap_or(&HashSet::new())
@@ -502,12 +503,12 @@ fn get_available_devices(
 
 /// Removes the PluginConnection from our HashMap so long as it is the same as the one currently
 /// stored under the given resource name.
-fn remove_plugin(
-    plugins: Arc<Mutex<HashMap<String, Arc<PluginConnection>>>>,
+async fn remove_plugin(
+    plugins: Arc<RwLock<HashMap<String, Arc<PluginConnection>>>>,
     resource_name: &str,
     plugin_connection: Arc<PluginConnection>,
 ) {
-    let mut lock = plugins.lock().unwrap();
+    let mut lock = plugins.write().await;
     if let Some(old_plugin_connection) = lock.get(resource_name) {
         // TODO: partialEq only checks that reg requests are identical. May also want
         // to check match of other fields.
@@ -518,8 +519,8 @@ fn remove_plugin(
 }
 
 /// Removed all devices of a resource from our shared device map.
-fn remove_resource(devices: Arc<Mutex<DeviceMap>>, resource_name: &str) {
-    match devices.lock().unwrap().remove(resource_name) {
+async fn remove_resource(devices: Arc<RwLock<DeviceMap>>, resource_name: &str) {
+    match devices.write().await.remove(resource_name) {
         Some(_) => trace!(
             "All devices of resource {} have been removed",
             resource_name
@@ -756,7 +757,7 @@ mod tests {
         while x < 3 {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             // Assert that there are 3 devices in the map now
-            if let Some(resource_devices_map) = devices.lock().unwrap().get(dp_resource_name) {
+            if let Some(resource_devices_map) = devices.read().await.get(dp_resource_name) {
                 if resource_devices_map.len() == 3 {
                     num_devices = 3;
                     break;

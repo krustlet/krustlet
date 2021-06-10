@@ -118,7 +118,7 @@ pub mod test_utils {
     use hyper::Body;
     use kube::Client;
     use std::convert::TryFrom;
-    use std::sync::Mutex;
+    use tokio::sync::RwLock;
     use tower_test::mock;
 
     pub fn mock_client() -> kube::Client {
@@ -166,7 +166,7 @@ pub mod test_utils {
         (client, spawned)
     }
 
-    pub fn create_mock_healthy_devices(r1_name: &str, r2_name: &str) -> Arc<Mutex<DeviceMap>> {
+    pub fn create_mock_healthy_devices(r1_name: &str, r2_name: &str) -> Arc<RwLock<DeviceMap>> {
         let r1_devices: PluginDevicesMap = (0..3)
             .map(|x| Device {
                 id: format!("{}-id{}", r1_name, x),
@@ -193,6 +193,6 @@ pub mod test_utils {
         .cloned()
         .collect();
 
-        Arc::new(Mutex::new(device_map))
+        Arc::new(RwLock::new(device_map))
     }
 }

@@ -4,8 +4,8 @@ use crate::device_plugin_api::v1beta1::{
     ListAndWatchResponse, RegisterRequest,
 };
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use tokio::sync::broadcast;
+use std::sync::Arc;
+use tokio::sync::{broadcast, RwLock};
 use tonic::Request;
 use tracing::{error, trace};
 
@@ -32,7 +32,7 @@ impl PluginConnection {
 
     pub async fn start(
         &self,
-        devices: Arc<Mutex<DeviceMap>>,
+        devices: Arc<RwLock<DeviceMap>>,
         update_node_status_sender: broadcast::Sender<()>,
     ) {
         match self
@@ -55,7 +55,7 @@ impl PluginConnection {
     /// TODO: return error
     async fn list_and_watch(
         &self,
-        devices: Arc<Mutex<DeviceMap>>,
+        devices: Arc<RwLock<DeviceMap>>,
         update_node_status_sender: broadcast::Sender<()>,
     ) -> anyhow::Result<()> {
         let mut stream = self
@@ -71,7 +71,9 @@ impl PluginConnection {
                 devices.clone(),
                 &mut previous_law_devices,
                 response,
-            ) {
+            )
+            .await
+            {
                 // TODO handle error -- maybe channel is full
                 update_node_status_sender.send(()).unwrap();
             }
@@ -99,9 +101,9 @@ impl PluginConnection {
 /// (3) Device removed: DP is no longer advertising a device
 /// If any of the 3 cases occurs, this returns true, signaling that the `NodePatcher` needs to update the
 /// Node status with new devices.
-fn update_devices_map(
+async fn update_devices_map(
     resource_name: &str,
-    devices: Arc<Mutex<DeviceMap>>,
+    devices: Arc<RwLock<DeviceMap>>,
     previous_law_devices: &mut HashMap<String, Device>,
     response: ListAndWatchResponse,
 ) -> bool {
@@ -112,30 +114,28 @@ fn update_devices_map(
         .collect::<HashMap<String, Device>>();
     let mut update_node_status = false;
 
-    current_devices.iter().for_each(|(_, device)| {
+    for (_, device) in &current_devices {
         // (1) Device modified or already registered
         if let Some(previous_device) = previous_law_devices.get(&device.id) {
             if previous_device.health != device.health {
                 devices
-                    .lock()
-                    .unwrap()
+                    .write()
+                    .await
                     .get_mut(resource_name)
                     .unwrap()
                     .insert(device.id.clone(), device.clone());
                 update_node_status = true;
             } else if previous_device.topology != device.topology {
                 // Currently not using/handling device topology. Simply log the change.
-                trace!(
-                    "Topology of device {} from resource {} changed from {:?} to {:?}",
-                    device.id,
-                    resource_name,
+                trace!(resource = %resource_name,
+                    "Topology of device changed from {:?} to {:?}",
                     previous_device.topology,
                     device.topology
                 );
             }
         // (2) Device added
         } else {
-            let mut all_devices_map = devices.lock().unwrap();
+            let mut all_devices_map = devices.write().await;
             match all_devices_map.get_mut(resource_name) {
                 Some(resource_devices_map) => {
                     resource_devices_map.insert(device.id.clone(), device.clone());
@@ -148,23 +148,23 @@ fn update_devices_map(
             }
             update_node_status = true;
         }
-    });
+    }
 
     // (3) Check if Device removed
-    previous_law_devices
+    let removed_device_ids: Vec<String> = previous_law_devices
         .iter()
-        .for_each(|(previous_dev_id, _)| {
-            if !current_devices.contains_key(previous_dev_id) {
-                // TODO: how to handle already allocated devices? Pretty sure K8s lets them keep running but what about the allocated_device map?
-                devices
-                    .lock()
-                    .unwrap()
-                    .get_mut(resource_name)
-                    .unwrap()
-                    .remove(previous_dev_id);
-                update_node_status = true;
-            }
+        .map(|(prev_id, _)| prev_id)
+        .filter(|prev_id| !current_devices.contains_key(*prev_id))
+        .cloned()
+        .collect();
+    if removed_device_ids.len() > 0 {
+        update_node_status = true;
+        let mut lock = devices.write().await;
+        let map = lock.get_mut(resource_name).unwrap();
+        removed_device_ids.into_iter().for_each(|id| {
+            map.remove(&id);
         });
+    }
 
     // Replace previous devices with current devices
     *previous_law_devices = current_devices;
@@ -184,11 +184,11 @@ pub mod tests {
     use super::super::{HEALTHY, UNHEALTHY};
     use super::*;
 
-    #[test]
-    fn test_update_devices_map_modified() {
+    #[tokio::test]
+    async fn test_update_devices_map_modified() {
         let (r1_name, r2_name) = ("r1", "r2");
         let devices_map = create_mock_healthy_devices(r1_name, r2_name);
-        let mut previous_law_devices = devices_map.lock().unwrap().get(r1_name).unwrap().clone();
+        let mut previous_law_devices = devices_map.read().await.get(r1_name).unwrap().clone();
         let mut devices_vec: Vec<Device> = previous_law_devices.values().cloned().collect();
         // Mark the device offline
         devices_vec[0].health = UNHEALTHY.to_string();
@@ -197,17 +197,20 @@ pub mod tests {
             devices: devices_vec.clone(),
         };
         let new_previous_law_devices = devices_vec.into_iter().map(|d| (d.id.clone(), d)).collect();
-        assert!(update_devices_map(
-            r1_name,
-            devices_map.clone(),
-            &mut previous_law_devices,
-            response
-        ));
+        assert!(
+            update_devices_map(
+                r1_name,
+                devices_map.clone(),
+                &mut previous_law_devices,
+                response
+            )
+            .await
+        );
         assert_eq!(previous_law_devices, new_previous_law_devices);
         assert_eq!(
             devices_map
-                .lock()
-                .unwrap()
+                .read()
+                .await
                 .get(r1_name)
                 .unwrap()
                 .get(&unhealthy_id)
@@ -217,11 +220,11 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn test_update_devices_map_added() {
+    #[tokio::test]
+    async fn test_update_devices_map_added() {
         let (r1_name, r2_name) = ("r1", "r2");
         let devices_map = create_mock_healthy_devices(r1_name, r2_name);
-        let mut previous_law_devices = devices_map.lock().unwrap().get(r1_name).unwrap().clone();
+        let mut previous_law_devices = devices_map.read().await.get(r1_name).unwrap().clone();
         let mut devices_vec: Vec<Device> = previous_law_devices.values().cloned().collect();
         // Add another device
         let added_id = format!("{}-id{}", r1_name, 10);
@@ -234,17 +237,20 @@ pub mod tests {
             devices: devices_vec.clone(),
         };
         let new_previous_law_devices = devices_vec.into_iter().map(|d| (d.id.clone(), d)).collect();
-        assert!(update_devices_map(
-            r1_name,
-            devices_map.clone(),
-            &mut previous_law_devices,
-            response
-        ));
+        assert!(
+            update_devices_map(
+                r1_name,
+                devices_map.clone(),
+                &mut previous_law_devices,
+                response
+            )
+            .await
+        );
         assert_eq!(previous_law_devices, new_previous_law_devices);
         assert_eq!(
             devices_map
-                .lock()
-                .unwrap()
+                .read()
+                .await
                 .get(r1_name)
                 .unwrap()
                 .get(&added_id)
@@ -254,11 +260,11 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn test_update_devices_map_removed() {
+    #[tokio::test]
+    async fn test_update_devices_map_removed() {
         let (r1_name, r2_name) = ("r1", "r2");
         let devices_map = create_mock_healthy_devices(r1_name, r2_name);
-        let mut previous_law_devices = devices_map.lock().unwrap().get(r1_name).unwrap().clone();
+        let mut previous_law_devices = devices_map.read().await.get(r1_name).unwrap().clone();
         let mut devices_vec: Vec<Device> = previous_law_devices.values().cloned().collect();
         // Remove a device
         let removed_id = devices_vec.pop().unwrap().id;
@@ -266,17 +272,20 @@ pub mod tests {
             devices: devices_vec.clone(),
         };
         let new_previous_law_devices = devices_vec.into_iter().map(|d| (d.id.clone(), d)).collect();
-        assert!(update_devices_map(
-            r1_name,
-            devices_map.clone(),
-            &mut previous_law_devices,
-            response
-        ));
+        assert!(
+            update_devices_map(
+                r1_name,
+                devices_map.clone(),
+                &mut previous_law_devices,
+                response
+            )
+            .await
+        );
         assert_eq!(previous_law_devices, new_previous_law_devices);
         assert_eq!(
             devices_map
-                .lock()
-                .unwrap()
+                .read()
+                .await
                 .get(r1_name)
                 .unwrap()
                 .get(&removed_id),
@@ -284,23 +293,26 @@ pub mod tests {
         );
     }
 
-    #[test]
-    fn test_update_devices_map_no_change() {
+    #[tokio::test]
+    async fn test_update_devices_map_no_change() {
         let (r1_name, r2_name) = ("r1", "r2");
         let devices_map = create_mock_healthy_devices(r1_name, r2_name);
-        let mut previous_law_devices = devices_map.lock().unwrap().get(r1_name).unwrap().clone();
+        let mut previous_law_devices = devices_map.read().await.get(r1_name).unwrap().clone();
         let devices_vec: Vec<Device> = previous_law_devices.values().cloned().collect();
         let response = ListAndWatchResponse {
             devices: devices_vec,
         };
-        assert!(!update_devices_map(
-            r1_name,
-            devices_map.clone(),
-            &mut previous_law_devices,
-            response
-        ));
+        assert!(
+            !update_devices_map(
+                r1_name,
+                devices_map.clone(),
+                &mut previous_law_devices,
+                response
+            )
+            .await
+        );
         assert_eq!(
-            devices_map.lock().unwrap().get(r1_name).unwrap(),
+            devices_map.read().await.get(r1_name).unwrap(),
             &previous_law_devices
         );
     }
