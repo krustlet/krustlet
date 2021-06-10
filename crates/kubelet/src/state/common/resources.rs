@@ -85,7 +85,6 @@ impl<P: GenericProvider> State<P::PodState> for Resources<P> {
                         .iter()
                         .for_each(|m| host_paths.push(m.host_path.clone()))
                 });
-                // TODO: determine what to name each volume. Currently using whatever the default is.
                 let volumes: HashMap<String, VolumeRef> = host_paths
                     .iter_mut()
                     .map(|p| HostPathVolumeSource {
@@ -93,6 +92,7 @@ impl<P: GenericProvider> State<P::PodState> for Resources<P> {
                         ..Default::default()
                     })
                     .map(|h| KubeVolume {
+                        name: h.path.clone(),
                         host_path: Some(h),
                         ..Default::default()
                     })
