@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
     let store = make_store(&config);
     let plugin_registry = Arc::new(PluginRegistry::new(&config.plugins_dir));
     let device_plugin_manager = Arc::new(DeviceManager::new(
-        &config.plugins_dir,
+        &config.device_plugins_dir,
         kube::Client::try_from(kubeconfig.clone())?,
         &config.node_name,
     ));
