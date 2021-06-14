@@ -62,6 +62,10 @@ pub struct Config {
     pub insecure_registries: Option<Vec<String>>,
     /// The directory kubelet should watch for new plugin sockets
     pub plugins_dir: PathBuf,
+    /// The directory where kubelet's Registration service for
+    /// device plugins lives. This is also where device plugins
+    /// should host their services.
+    pub device_plugins_dir: PathBuf,
 }
 /// The configuration for the Kubelet server.
 #[derive(Clone, Debug)]
@@ -121,6 +125,8 @@ struct ConfigBuilder {
     pub insecure_registries: Option<Vec<String>>,
     #[serde(default, rename = "pluginsDir")]
     pub plugins_dir: Option<PathBuf>,
+    #[serde(default, rename = "devicePluginsDir")]
+    pub device_plugins_dir: Option<PathBuf>,
 }
 
 struct ConfigBuilderFallbacks {
@@ -130,6 +136,7 @@ struct ConfigBuilderFallbacks {
     cert_path: fn(data_dir: &Path) -> PathBuf,
     key_path: fn(data_dir: &Path) -> PathBuf,
     plugins_dir: fn(data_dir: &Path) -> PathBuf,
+    device_plugins_dir: fn(data_dir: &Path) -> PathBuf,
     node_ip: fn(hostname: &mut String, preferred_ip_family: &IpAddr) -> IpAddr,
 }
 
@@ -145,6 +152,7 @@ impl Config {
         let cert_file = default_cert_path(&data_dir);
         let private_key_file = default_key_path(&data_dir);
         let plugins_dir = default_plugins_path(&data_dir);
+        let device_plugins_dir = default_device_plugins_path(&data_dir);
         Ok(Config {
             node_ip: default_node_ip(&mut hostname.clone(), preferred_ip_family)?,
             node_name: sanitize_hostname(&hostname),
@@ -156,6 +164,7 @@ impl Config {
             allow_local_modules: false,
             insecure_registries: None,
             plugins_dir,
+            device_plugins_dir,
             server_config: ServerConfig {
                 addr: match preferred_ip_family {
                     IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -175,6 +184,7 @@ impl Config {
             cert_path: default_cert_path,
             key_path: default_key_path,
             plugins_dir: default_plugins_path,
+            device_plugins_dir: default_device_plugins_path,
             node_ip: |hn, ip| default_node_ip(hn, ip).expect("unable to get default node IP"),
             bootstrap_file: || PathBuf::from(BOOTSTRAP_FILE),
         };
@@ -278,6 +288,7 @@ impl ConfigBuilder {
             allow_local_modules: opts.allow_local_modules,
             insecure_registries: opts.insecure_registries.map(parse_comma_separated),
             plugins_dir: opts.plugins_dir,
+            device_plugins_dir: opts.device_plugins_dir,
             server_addr: ok_result_of(opts.addr),
             server_port: ok_result_of(opts.port),
             server_tls_cert_file: opts.cert_file,
@@ -316,6 +327,7 @@ impl ConfigBuilder {
             allow_local_modules: other.allow_local_modules.or(self.allow_local_modules),
             insecure_registries: other.insecure_registries.or(self.insecure_registries),
             plugins_dir: other.plugins_dir.or(self.plugins_dir),
+            device_plugins_dir: other.device_plugins_dir.or(self.device_plugins_dir),
             server_tls_private_key_file: other
                 .server_tls_private_key_file
                 .or(self.server_tls_private_key_file),
@@ -331,6 +343,9 @@ impl ConfigBuilder {
         let plugins_dir = self
             .plugins_dir
             .unwrap_or_else(|| (fallbacks.plugins_dir)(&data_dir));
+        let device_plugins_dir = self
+            .device_plugins_dir
+            .unwrap_or_else(|| (fallbacks.device_plugins_dir)(&data_dir));
         let server_addr = self
             .server_addr
             .unwrap_or(Ok(empty_ip_addr))
@@ -368,6 +383,7 @@ impl ConfigBuilder {
             allow_local_modules: self.allow_local_modules.unwrap_or(false),
             insecure_registries: self.insecure_registries,
             plugins_dir,
+            device_plugins_dir,
             server_config: ServerConfig {
                 cert_file: server_tls_cert_file,
                 private_key_file: server_tls_private_key_file,
@@ -506,6 +522,13 @@ pub struct Opts {
     plugins_dir: Option<PathBuf>,
 
     #[structopt(
+        long = "device-plugins-dir",
+        env = "KRUSTLET_DEVICE_PLUGINS_DIR",
+        help = "The path to the directory where kubelet's Registration service for device plugins live. Defaults to $KRUSTLET_DATA_DIR/device_plugins"
+    )]
+    device_plugins_dir: Option<PathBuf>,
+
+    #[structopt(
         long = "x-allow-local-modules",
         env = "KRUSTLET_ALLOW_LOCAL_MODULES",
         help = "(Experimental) Whether to allow loading modules directly from the filesystem"
@@ -580,6 +603,10 @@ fn default_plugins_path(data_dir: &Path) -> PathBuf {
     data_dir.join("plugins")
 }
 
+fn default_device_plugins_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("device_plugins")
+}
+
 #[cfg(any(feature = "cli", feature = "docs"))]
 fn default_config_file_path() -> PathBuf {
     dirs::home_dir()
@@ -632,6 +659,7 @@ mod test {
             cert_path: |_| PathBuf::from("/fallback/cert/path"),
             key_path: |_| PathBuf::from("/fallback/key/path"),
             plugins_dir: |_| PathBuf::from("/fallback/plugins/dir"),
+            device_plugins_dir: |_| PathBuf::from("/fallback/device_plugins/dir"),
             bootstrap_file: || PathBuf::from("/fallback/bootstrap_file.txt"),
         }
     }
