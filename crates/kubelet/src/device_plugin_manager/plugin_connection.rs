@@ -114,7 +114,7 @@ async fn update_devices_map(
         .collect::<HashMap<String, Device>>();
     let mut update_node_status = false;
 
-    for (_, device) in &current_devices {
+    for device in current_devices.values() {
         // (1) Device modified or already registered
         if let Some(previous_device) = previous_law_devices.get(&device.id) {
             if previous_device.health != device.health {
@@ -157,7 +157,7 @@ async fn update_devices_map(
         .filter(|prev_id| !current_devices.contains_key(*prev_id))
         .cloned()
         .collect();
-    if removed_device_ids.len() > 0 {
+    if !removed_device_ids.is_empty() {
         update_node_status = true;
         let mut lock = devices.write().await;
         let map = lock.get_mut(resource_name).unwrap();
