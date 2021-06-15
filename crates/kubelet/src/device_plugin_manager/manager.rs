@@ -184,7 +184,6 @@ impl DeviceManager {
         self.add_plugin(plugin_connection.clone(), &resource_name)
             .await;
 
-        // TODO: decide whether to join/store all spawned ListAndWatch threads
         tokio::spawn(async move {
             plugin_connection
                 .start(all_devices, update_node_status_sender.clone())
@@ -192,8 +191,8 @@ impl DeviceManager {
 
             remove_plugin(plugins, &resource_name, plugin_connection).await;
 
-            // ?? Should devices be marked unhealthy first?
-            remove_resource(devices, &resource_name).await;
+            // This clears the map of devices for a resource.
+            remove_resource_devices(devices, &resource_name).await;
 
             // Update nodes status with devices removed
             update_node_status_sender.send(()).unwrap();
@@ -519,15 +518,15 @@ async fn remove_plugin(
 }
 
 /// Removed all devices of a resource from our shared device map.
-async fn remove_resource(devices: Arc<RwLock<DeviceMap>>, resource_name: &str) {
-    match devices.write().await.remove(resource_name) {
-        Some(_) => trace!(
-            "All devices of resource {} have been removed",
-            resource_name
-        ),
+async fn remove_resource_devices(devices: Arc<RwLock<DeviceMap>>, resource_name: &str) {
+    match devices.write().await.get_mut(resource_name) {
+        Some(map) => {
+            map.clear();
+            trace!(resource = %resource_name,
+            "All devices of this resource have been cleared");
+        }
         None => trace!(
-            "All devices of resource {} were already removed",
-            resource_name
+            resource = %resource_name ,"All devices of this resource were already removed"
         ),
     }
 }

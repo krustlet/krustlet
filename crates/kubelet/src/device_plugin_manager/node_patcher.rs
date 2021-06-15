@@ -1,11 +1,9 @@
 use super::{DeviceMap, HEALTHY};
-use k8s_openapi::api::core::v1::{Node, NodeStatus};
-use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+use k8s_openapi::api::core::v1::Node;
 use kube::api::{Api, PatchParams};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
-use tracing::error;
+use tracing::{debug, error};
 
 /// NodePatcher updates the Node status with the latest device information.
 #[derive(Clone)]
@@ -32,46 +30,65 @@ impl NodeStatusPatcher {
         }
     }
 
-    async fn get_node_status_patch(&self) -> NodeStatus {
+    // TODO: Decide whether `NodePatcher` should do `remove` patches when there are no
+    // devices under a resource. When a device plugin drops, the `DeviceManager` clears
+    // out the resource's device map. Currently, this just sets the resource's
+    // `allocatable` and `capacity` count to 0, which appears to be the same implementation
+    // in Kubernetes.
+    async fn get_node_status_patch(&self) -> json_patch::Patch {
+        let mut patches = Vec::new();
         let devices = self.devices.read().await;
-        let capacity: BTreeMap<String, Quantity> = devices
+        devices
             .iter()
-            .map(|(resource_name, resource_devices)| {
-                (
-                    resource_name.clone(),
-                    Quantity(resource_devices.len().to_string()),
-                )
-            })
-            .collect();
-        let allocatable: BTreeMap<String, Quantity> = devices
-            .iter()
-            .map(|(resource_name, resource_devices)| {
+            .for_each(|(resource_name, resource_devices)| {
+                let adjusted_name = adjust_name(resource_name);
+                let capacity_patch = serde_json::json!(
+                    {
+                        "op": "add",
+                        "path": format!("/status/capacity/{}", adjusted_name),
+                        "value": resource_devices.len().to_string()
+                    }
+                );
                 let healthy_count: usize = resource_devices
                     .iter()
                     .filter(|(_, dev)| dev.health == HEALTHY)
                     .map(|(_, _)| 1)
                     .sum();
-                (resource_name.clone(), Quantity(healthy_count.to_string()))
-            })
-            .collect();
-        NodeStatus {
-            capacity: Some(capacity),
-            allocatable: Some(allocatable),
-            ..Default::default()
-        }
+                let allocated_patch = serde_json::json!(
+                    {
+                        "op": "add",
+                        "path": format!("/status/allocatable/{}", adjusted_name),
+                        "value": healthy_count.to_string()
+                    }
+                );
+                patches.push(capacity_patch);
+                patches.push(allocated_patch);
+            });
+        let patches_value = serde_json::value::Value::Array(patches);
+        json_patch::from_value(patches_value).unwrap()
     }
 
-    async fn do_node_status_patch(&self, status: NodeStatus) -> anyhow::Result<()> {
+    async fn do_node_status_patch(&self, patch: json_patch::Patch) -> anyhow::Result<()> {
+        debug!(
+            "Patching {} node status with patch {:?}",
+            self.node_name, patch
+        );
         let node_client: Api<Node> = Api::all(self.client.clone());
-        let _node = node_client
+
+        match node_client
             .patch_status(
                 &self.node_name,
                 &PatchParams::default(),
-                &kube::api::Patch::Strategic(status),
+                &kube::api::Patch::Json::<()>(patch),
             )
             .await
-            .map_err(|e| anyhow::anyhow!("Unable to patch node status: {}", e))?;
-        Ok(())
+        {
+            Err(e) => Err(anyhow::anyhow!("Unable to patch node status: {}", e)),
+            Ok(s) => {
+                debug!("Node status patch returned {:?}", s);
+                Ok(())
+            }
+        }
     }
 
     pub async fn listen_and_patch(self) -> anyhow::Result<()> {
@@ -83,6 +100,7 @@ impl NodeStatusPatcher {
                     // TODO: bubble up error
                 }
                 Ok(_) => {
+                    debug!("Received notification that Node status should be patched");
                     // Grab status values
                     let status_patch = self.get_node_status_patch().await;
                     // Do patch
@@ -93,11 +111,20 @@ impl NodeStatusPatcher {
     }
 }
 
+fn adjust_name(name: &str) -> String {
+    name.replace("/", "~1")
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::test_utils::{create_mock_healthy_devices, create_mock_kube_service};
     use super::super::UNHEALTHY;
     use super::*;
+
+    #[test]
+    fn test_adjust_name() {
+        assert_eq!(adjust_name("example.com/r1"), "example.com~1r1");
+    }
 
     #[tokio::test]
     async fn test_do_node_status_patch() {
@@ -110,11 +137,14 @@ mod tests {
             .get_mut("r1-id1")
             .unwrap()
             .health = UNHEALTHY.to_string();
-        let empty_node_status = NodeStatus {
-            capacity: None,
-            allocatable: None,
-            ..Default::default()
-        };
+        let patch_value = serde_json::json!([
+            {
+                "op": "add",
+                "path": format!("/status/capacity/example.com~1foo"),
+                "value": "2"
+            }
+        ]);
+        let patch = json_patch::from_value(patch_value).unwrap();
         let (update_node_status_sender, _rx) = broadcast::channel(2);
 
         // Create and run a mock Kubernetes API service and get a Kubernetes client
@@ -123,22 +153,22 @@ mod tests {
         let node_status_patcher =
             NodeStatusPatcher::new(node_name, devices, update_node_status_sender, client);
         node_status_patcher
-            .do_node_status_patch(empty_node_status)
+            .do_node_status_patch(patch)
             .await
             .unwrap();
     }
 
     #[tokio::test]
     async fn test_get_node_status_patch() {
-        let r1_name = "r1";
-        let r2_name = "r2";
+        let r1_name = "example.com/r1";
+        let r2_name = "something.net/r2";
         let devices = create_mock_healthy_devices(r1_name, r2_name);
         devices
             .write()
             .await
-            .get_mut("r1")
+            .get_mut(r1_name)
             .unwrap()
-            .get_mut("r1-id1")
+            .get_mut(&format!("{}-id1", r1_name))
             .unwrap()
             .health = UNHEALTHY.to_string();
         let (update_node_status_sender, _rx) = broadcast::channel(2);
@@ -147,23 +177,76 @@ mod tests {
         let (client, _mock_service_task) = create_mock_kube_service(node_name).await;
         let node_status_patcher =
             NodeStatusPatcher::new(node_name, devices, update_node_status_sender, client);
-        let status = node_status_patcher.get_node_status_patch().await;
+        let patch = node_status_patcher.get_node_status_patch().await;
+        let expected_patch_value = serde_json::json!([
+            {
+                "op": "add",
+                "path": format!("/status/capacity/example.com~1r1"),
+                "value": "3"
+            },
+            {
+                "op": "add",
+                "path": format!("/status/allocatable/example.com~1r1"),
+                "value": "2"
+            },
+            {
+                "op": "add",
+                "path": format!("/status/capacity/something.net~1r2"),
+                "value": "2"
+            },
+            {
+                "op": "add",
+                "path": format!("/status/allocatable/something.net~1r2"),
+                "value": "2"
+            }
+        ]);
+        let expected_patch = json_patch::from_value(expected_patch_value).unwrap();
         // Check that both resources listed under allocatable and only healthy devices are counted
-        let allocatable = status.allocatable.unwrap();
-        assert_eq!(allocatable.len(), 2);
-        assert_eq!(
-            allocatable.get(r1_name).unwrap(),
-            &Quantity("2".to_string())
-        );
-        assert_eq!(
-            allocatable.get(r2_name).unwrap(),
-            &Quantity("2".to_string())
-        );
-
         // Check that both resources listed under capacity and both healthy and unhealthy devices are counted
-        let capacity = status.capacity.unwrap();
-        assert_eq!(capacity.len(), 2);
-        assert_eq!(capacity.get(r1_name).unwrap(), &Quantity("3".to_string()));
-        assert_eq!(capacity.get(r2_name).unwrap(), &Quantity("2".to_string()));
+        assert_eq!(patch, expected_patch);
+    }
+
+    #[tokio::test]
+    async fn test_get_node_status_patch_remove() {
+        use std::collections::HashMap;
+        let r1_name = "example.com/r1";
+        let r2_name = "something.net/r2";
+        let mut devices_map = HashMap::new();
+        devices_map.insert(r1_name.to_string(), HashMap::new());
+        devices_map.insert(r2_name.to_string(), HashMap::new());
+        let devices = Arc::new(RwLock::new(devices_map));
+        let (update_node_status_sender, _rx) = broadcast::channel(2);
+        let node_name = "test_node";
+        // Create and run a mock Kubernetes API service and get a Kubernetes client
+        let (client, _mock_service_task) = create_mock_kube_service(node_name).await;
+        let node_status_patcher =
+            NodeStatusPatcher::new(node_name, devices, update_node_status_sender, client);
+        let patch = node_status_patcher.get_node_status_patch().await;
+        let expected_patch_value = serde_json::json!([
+            {
+                "op": "add",
+                "path": format!("/status/capacity/example.com~1r1"),
+                "value": "0"
+            },
+            {
+                "op": "add",
+                "path": format!("/status/allocatable/example.com~1r1"),
+                "value": "0"
+            },
+            {
+                "op": "add",
+                "path": format!("/status/capacity/something.net~1r2"),
+                "value": "0"
+            },
+            {
+                "op": "add",
+                "path": format!("/status/allocatable/something.net~1r2"),
+                "value": "0"
+            }
+        ]);
+        let expected_patch = json_patch::from_value(expected_patch_value).unwrap();
+        // Check that both resources listed under allocatable and only healthy devices are counted
+        // Check that both resources listed under capacity and both healthy and unhealthy devices are counted
+        assert_eq!(patch, expected_patch);
     }
 }
