@@ -90,13 +90,12 @@ impl ConfigMapVolume {
     pub async fn unmount(&mut self) -> anyhow::Result<()> {
         match self.mounted_path.take() {
             Some(p) => {
-                //although remove_dir_all crate could default to std::fs::remove_dir_all for unix family, we still prefer std::fs implemetation for unix 
+                //although remove_dir_all crate could default to std::fs::remove_dir_all for unix family, we still prefer std::fs implemetation for unix
                 #[cfg(target_family = "windows")]
-                tokio::task::spawn_blocking(||remove_dir_all::remove_dir_all(p)).await?;
+                tokio::task::spawn_blocking(|| remove_dir_all::remove_dir_all(p)).await?;
 
                 #[cfg(target_family = "unix")]
                 tokio::fs::remove_dir_all(p).await?;
-            
             }
             None => {
                 warn!("Attempted to unmount ConfigMap directory that wasn't mounted, this generally shouldn't happen");
