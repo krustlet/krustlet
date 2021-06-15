@@ -97,6 +97,11 @@ pub(crate) mod grpc_sock;
 #[allow(dead_code, clippy::all)]
 pub(crate) mod mio_uds_windows;
 
+//to resolve Windows volume unmount issue(625) remove_dir_all crate is used
+//although remove_dir_all crate could default to std::fs::remove_dir_all for unix family, we still prefer std::fs implemetation for unix 
+#[cfg(target_family = "windows")]
+pub(crate) mod remove_dir_all;
+
 pub mod backoff;
 pub mod config;
 pub mod container;
