@@ -33,6 +33,7 @@ mod test {
             hostname: "nope".to_owned(),
             insecure_registries: None,
             plugins_dir: std::path::PathBuf::from("/nope"),
+            device_plugins_dir: std::path::PathBuf::from("/nope"),
             max_pods: 0,
             node_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
             node_labels: std::collections::HashMap::new(),
