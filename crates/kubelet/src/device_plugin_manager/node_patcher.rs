@@ -30,6 +30,11 @@ impl NodeStatusPatcher {
         }
     }
 
+    // TODO: Decide whether `NodePatcher` should do `remove` patches when there are no
+    // devices under a resource. When a device plugin drops, the `DeviceManager` clears
+    // out the resource's device map. Currently, this just sets the resource's
+    // `allocatable` and `capacity` count to 0, which appears to be the same implementation
+    // in Kubernetes.
     async fn get_node_status_patch(&self) -> json_patch::Patch {
         let mut patches = Vec::new();
         let devices = self.devices.read().await;
@@ -193,6 +198,50 @@ mod tests {
                 "op": "add",
                 "path": format!("/status/allocatable/something.net~1r2"),
                 "value": "2"
+            }
+        ]);
+        let expected_patch = json_patch::from_value(expected_patch_value).unwrap();
+        // Check that both resources listed under allocatable and only healthy devices are counted
+        // Check that both resources listed under capacity and both healthy and unhealthy devices are counted
+        assert_eq!(patch, expected_patch);
+    }
+
+    #[tokio::test]
+    async fn test_get_node_status_patch_remove() {
+        use std::collections::HashMap;
+        let r1_name = "example.com/r1";
+        let r2_name = "something.net/r2";
+        let mut devices_map = HashMap::new();
+        devices_map.insert(r1_name.to_string(), HashMap::new());
+        devices_map.insert(r2_name.to_string(), HashMap::new());
+        let devices = Arc::new(RwLock::new(devices_map));
+        let (update_node_status_sender, _rx) = broadcast::channel(2);
+        let node_name = "test_node";
+        // Create and run a mock Kubernetes API service and get a Kubernetes client
+        let (client, _mock_service_task) = create_mock_kube_service(node_name).await;
+        let node_status_patcher =
+            NodeStatusPatcher::new(node_name, devices, update_node_status_sender, client);
+        let patch = node_status_patcher.get_node_status_patch().await;
+        let expected_patch_value = serde_json::json!([
+            {
+                "op": "add",
+                "path": format!("/status/capacity/example.com~1r1"),
+                "value": "0"
+            },
+            {
+                "op": "add",
+                "path": format!("/status/allocatable/example.com~1r1"),
+                "value": "0"
+            },
+            {
+                "op": "add",
+                "path": format!("/status/capacity/something.net~1r2"),
+                "value": "0"
+            },
+            {
+                "op": "add",
+                "path": format!("/status/allocatable/something.net~1r2"),
+                "value": "0"
             }
         ]);
         let expected_patch = json_patch::from_value(expected_patch_value).unwrap();
