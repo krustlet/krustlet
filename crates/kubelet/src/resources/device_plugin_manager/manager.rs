@@ -1,14 +1,14 @@
 //! The Kubelet device plugin manager. Consists of a `DeviceRegistry` that hosts a registration service for device plugins, a `DeviceManager` that maintains a device plugin client for each registered device plugin, a `NodePatcher` that patches the Node status with the extended resources advertised by device plugins, and a `PodDevices` that maintains a list of Pods that are actively using allocated resources.
+use super::super::util;
+use super::node_patcher::NodeStatusPatcher;
+use super::plugin_connection::PluginConnection;
+use super::pod_devices::{ContainerDevices, DeviceAllocateInfo, PodDevices};
+use super::{DeviceIdMap, DeviceMap, PluginDevicesMap, PodResourceRequests, HEALTHY};
 use crate::device_plugin_api::v1beta1::{
     device_plugin_client::DevicePluginClient, AllocateRequest, ContainerAllocateRequest,
     ContainerAllocateResponse, RegisterRequest, API_VERSION,
 };
 use crate::grpc_sock;
-
-use super::node_patcher::NodeStatusPatcher;
-use super::plugin_connection::PluginConnection;
-use super::pod_devices::{ContainerDevices, DeviceAllocateInfo, PodDevices};
-use super::{DeviceIdMap, DeviceMap, PluginDevicesMap, PodResourceRequests, HEALTHY};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -125,7 +125,7 @@ impl DeviceManager {
         };
 
         // Validate that plugin has proper extended resource name
-        if !super::resources::is_extended_resource_name(&register_request.resource_name) {
+        if !util::is_extended_resource_name(&register_request.resource_name) {
             return Err(tonic::Status::new(
                 tonic::Code::Unimplemented,
                 format!(

@@ -1,7 +1,8 @@
 //! Resources can be successfully allocated to the Pod.
-use crate::device_plugin_manager::{resources, PodResourceRequests};
 use crate::pod::state::prelude::*;
 use crate::provider::DevicePluginSupport;
+use crate::resources::device_plugin_manager::PodResourceRequests;
+use crate::resources::util;
 use crate::volume::{HostPathVolume, VolumeRef};
 use k8s_openapi::api::core::v1::HostPathVolumeSource;
 use k8s_openapi::api::core::v1::Volume as KubeVolume;
@@ -55,7 +56,7 @@ impl<P: GenericProvider> State<P::PodState> for Resources<P> {
                             .clone()
                             .into_iter()
                             .filter(|(resource_name, _)| {
-                                resources::is_extended_resource_name(resource_name)
+                                util::is_extended_resource_name(resource_name)
                             })
                             .collect();
                         container_devices.insert(container.name().to_string(), extended_resources);

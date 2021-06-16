@@ -3,7 +3,6 @@ pub mod manager;
 pub(crate) mod node_patcher;
 pub(crate) mod plugin_connection;
 pub(crate) mod pod_devices;
-pub mod resources;
 use crate::device_plugin_api::v1beta1::{
     registration_server::{Registration, RegistrationServer},
     Device, Empty, RegisterRequest,

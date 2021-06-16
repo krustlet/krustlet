@@ -1,11 +1,11 @@
 ///! This library contains code for running a kubelet. Use this to create a new
 ///! Kubelet with a specific handler (called a `Provider`)
 use crate::config::Config;
-use crate::device_plugin_manager::{serve_device_registry, DeviceManager};
 use crate::node;
 use crate::operator::PodOperator;
 use crate::plugin_watcher::PluginRegistry;
 use crate::provider::{DevicePluginSupport, PluginSupport, Provider};
+use crate::resources::device_plugin_manager::{serve_device_registry, DeviceManager};
 use crate::webserver::start as start_webserver;
 
 use futures::future::{FutureExt, TryFutureExt};
@@ -242,9 +242,9 @@ async fn start_signal_handler(signal: Arc<AtomicBool>) -> anyhow::Result<()> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::device_plugin_manager::DeviceManager;
     use crate::plugin_watcher::PluginRegistry;
     use crate::pod::{Pod, Status};
+    use crate::resources::DeviceManager;
     use crate::{
         container::Container,
         provider::{PluginSupport, VolumeSupport},

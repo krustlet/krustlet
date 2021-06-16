@@ -9,12 +9,12 @@ use thiserror::Error;
 use tracing::{debug, error, info};
 
 use crate::container::Container;
-use crate::device_plugin_manager::DeviceManager;
 use crate::log::Sender;
 use crate::node::Builder;
 use crate::plugin_watcher::PluginRegistry;
 use crate::pod::Pod;
 use crate::pod::Status as PodStatus;
+use crate::resources::DeviceManager;
 use krator::{ObjectState, State};
 
 /// A back-end for a Kubelet.
