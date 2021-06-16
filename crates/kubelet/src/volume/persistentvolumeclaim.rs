@@ -267,6 +267,11 @@ impl PvcVolume {
                 // https://github.com/kubernetes/kubernetes/blob/6d5cb36d36f34cb4f5735b6adcd5ea8ebb4440ba/pkg/volume/csi/csi_mounter.go#L390
                 unpublish_volume(&mut self.csi_client, &self.csi_pv_source, &p).await?;
                 // Now remove the empty directory
+                //although remove_dir_all crate could default to std::fs::remove_dir_all for unix family, we still prefer std::fs implemetation for unix
+                #[cfg(target_family = "windows")]
+                tokio::task::spawn_blocking(|| remove_dir_all::remove_dir_all(p)).await?;
+
+                #[cfg(target_family = "unix")]
                 std::fs::remove_dir_all(p)?;
             }
             None => {

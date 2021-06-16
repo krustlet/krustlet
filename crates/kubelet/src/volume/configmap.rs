@@ -5,7 +5,6 @@ use k8s_openapi::ByteString;
 use tracing::warn;
 
 use super::*;
-
 /// A type that can manage a ConfigMap volume with mounting and unmounting support
 pub struct ConfigMapVolume {
     vol_name: String,
@@ -91,6 +90,11 @@ impl ConfigMapVolume {
     pub async fn unmount(&mut self) -> anyhow::Result<()> {
         match self.mounted_path.take() {
             Some(p) => {
+                //although remove_dir_all crate could default to std::fs::remove_dir_all for unix family, we still prefer std::fs implemetation for unix
+                #[cfg(target_family = "windows")]
+                tokio::task::spawn_blocking(|| remove_dir_all::remove_dir_all(p)).await?;
+
+                #[cfg(target_family = "unix")]
                 tokio::fs::remove_dir_all(p).await?;
             }
             None => {
