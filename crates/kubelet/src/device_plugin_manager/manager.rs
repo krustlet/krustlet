@@ -21,9 +21,9 @@ use tokio_compat_02::FutureExt;
 use tracing::trace;
 
 #[cfg(target_family = "unix")]
-const DEFAULT_PLUGIN_PATH: &str = "/var/lib/kubelet/device_plugins/";
+const DEFAULT_PLUGIN_PATH: &str = "/var/lib/kubelet/device-plugins/";
 #[cfg(target_family = "windows")]
-const DEFAULT_PLUGIN_PATH: &str = "c:\\ProgramData\\kubelet\\device_plugins";
+const DEFAULT_PLUGIN_PATH: &str = "c:\\ProgramData\\kubelet\\device-plugins";
 
 const UPDATE_NODE_STATUS_CHANNEL_SIZE: usize = 15;
 
