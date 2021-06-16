@@ -64,7 +64,7 @@ impl<P: GenericProvider> State<P::PodState> for Resources<P> {
             }
             // Do allocate for this Pod
             if let Err(e) = device_plugin_manager
-                .do_allocate(&pod, container_devices)
+                .do_allocate(&pod.pod_uid(), container_devices)
                 .await
             {
                 error!(error = %e);

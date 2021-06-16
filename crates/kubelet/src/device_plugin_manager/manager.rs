@@ -4,12 +4,12 @@ use crate::device_plugin_api::v1beta1::{
     ContainerAllocateResponse, RegisterRequest, API_VERSION,
 };
 use crate::grpc_sock;
-use crate::pod::Pod;
 
 use super::node_patcher::NodeStatusPatcher;
 use super::plugin_connection::PluginConnection;
 use super::pod_devices::{ContainerDevices, DeviceAllocateInfo, PodDevices};
 use super::{DeviceIdMap, DeviceMap, PluginDevicesMap, PodResourceRequests, HEALTHY};
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -21,9 +21,9 @@ use tokio_compat_02::FutureExt;
 use tracing::trace;
 
 #[cfg(target_family = "unix")]
-const DEFAULT_PLUGIN_PATH: &str = "/var/lib/kubelet/device_plugins/";
+const DEFAULT_PLUGIN_PATH: &str = "/var/lib/kubelet/device-plugins/";
 #[cfg(target_family = "windows")]
-const DEFAULT_PLUGIN_PATH: &str = "c:\\ProgramData\\kubelet\\device_plugins";
+const DEFAULT_PLUGIN_PATH: &str = "c:\\ProgramData\\kubelet\\device-plugins";
 
 const UPDATE_NODE_STATUS_CHANNEL_SIZE: usize = 15;
 
@@ -206,7 +206,7 @@ impl DeviceManager {
     /// Takes in a map of devices requested by containers, keyed by container name.
     pub async fn do_allocate(
         &self,
-        pod: &Pod,
+        pod_uid: &str,
         container_devices: PodResourceRequests,
     ) -> anyhow::Result<()> {
         let mut all_allocate_requests: HashMap<String, Vec<ContainerAllocateInfo>> = HashMap::new();
@@ -219,7 +219,7 @@ impl DeviceManager {
 
                 // Device plugin resources should be request in numerical amounts.
                 // Return error if requested quantity cannot be parsed.
-                let num_requested: usize = serde_json::to_string(&quantity)?.parse()?;
+                let num_requested: usize = get_num_from_quantity(quantity)?;
 
                 // Check that the resource has enough healthy devices
                 if !self
@@ -236,12 +236,7 @@ impl DeviceManager {
                 }
 
                 let devices_to_allocate = self
-                    .devices_to_allocate(
-                        &resource_name,
-                        &pod.pod_uid(),
-                        &container_name,
-                        num_requested,
-                    )
+                    .devices_to_allocate(&resource_name, pod_uid, &container_name, num_requested)
                     .await?;
                 let container_allocate_request = ContainerAllocateRequest {
                     devices_i_ds: devices_to_allocate,
@@ -259,7 +254,7 @@ impl DeviceManager {
 
         // Reset allocated_device_ids if allocation fails
         if let Err(e) = self
-            .do_allocate_for_pod(&pod.pod_uid(), all_allocate_requests)
+            .do_allocate_for_pod(pod_uid, all_allocate_requests)
             .await
         {
             *self.allocated_device_ids.write().await = self.pod_devices.get_allocated_devices();
@@ -531,6 +526,13 @@ async fn remove_resource_devices(devices: Arc<RwLock<DeviceMap>>, resource_name:
     }
 }
 
+fn get_num_from_quantity(q: Quantity) -> anyhow::Result<usize> {
+    match q.0.parse::<usize>() {
+        Err(e) => Err(anyhow::anyhow!(e)),
+        Ok(v) => Ok(v),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{test_utils, PLUGIN_MANGER_SOCKET_NAME, UNHEALTHY};
@@ -781,6 +783,28 @@ mod tests {
     fn create_device_manager(node_name: &str) -> DeviceManager {
         let client = test_utils::mock_client();
         DeviceManager::new_with_default_path(client, node_name)
+    }
+
+    #[test]
+    fn test_get_num_from_quantity() {
+        assert_eq!(get_num_from_quantity(Quantity("2".to_string())).unwrap(), 2);
+    }
+
+    // Test that when a pod requests resources that are not device plugins that no allocate calls are made
+    #[tokio::test]
+    async fn test_do_allocate_dne() {
+        let resource_name = "example.com/other-extended-resource";
+        let container_name = "containerA";
+        let mut cont_resource_reqs = HashMap::new();
+        cont_resource_reqs.insert(resource_name.to_string(), Quantity("2".to_string()));
+        let mut pod_resource_req = HashMap::new();
+        pod_resource_req.insert(container_name.to_string(), cont_resource_reqs);
+        let dm = create_device_manager("some_node");
+        // Note: device manager is initialized with an empty devices map, so no resource
+        // "example.com/other-extended-resource" will be found
+        dm.do_allocate("pod_uid", pod_resource_req).await.unwrap();
+        // Allocate should not be called
+        assert_eq!(dm.get_pod_allocate_responses("pod_uid").unwrap().len(), 0);
     }
 
     // Pod with 2 Containers each requesting 2 devices of the same resource
