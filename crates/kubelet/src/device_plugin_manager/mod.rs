@@ -17,6 +17,7 @@ use tokio::task;
 #[cfg(target_family = "windows")]
 use tokio_compat_02::FutureExt;
 use tonic::transport::Server;
+use tracing::debug;
 
 pub(crate) const PLUGIN_MANGER_SOCKET_NAME: &str = "kubelet.sock";
 
@@ -43,6 +44,7 @@ pub type PodResourceRequests = HashMap<String, ContainerResourceRequests>;
 const HEALTHY: &str = "Healthy";
 
 /// Unhealthy means the device is not allocatable
+#[cfg(test)]
 pub(crate) const UNHEALTHY: &str = "Unhealthy";
 
 /// Hosts the device plugin `Registration` service (defined in the device plugin API) for a `DeviceManager`.
@@ -67,6 +69,7 @@ impl Registration for DeviceRegistry {
         request: tonic::Request<RegisterRequest>,
     ) -> Result<tonic::Response<Empty>, tonic::Status> {
         let register_request = request.into_inner();
+        debug!(resource = %register_request.resource_name, "Register called by device plugin");
         // Validate
         self.device_manager
             .validate(&register_request)
@@ -89,6 +92,10 @@ pub async fn serve_device_registry(device_manager: Arc<DeviceManager>) -> anyhow
     // Create plugin manager if it doesn't exist
     tokio::fs::create_dir_all(&device_manager.plugin_dir).await?;
     let manager_socket = device_manager.plugin_dir.join(PLUGIN_MANGER_SOCKET_NAME);
+    debug!(
+        "Serving device plugin manager on socket {:?}",
+        manager_socket
+    );
     let socket =
         grpc_sock::server::Socket::new(&manager_socket).expect("couldn't make manager socket");
     let node_status_patcher = device_manager.node_status_patcher.clone();

@@ -106,7 +106,7 @@ impl<P: GenericProvider> State<P::PodState> for Resources<P> {
                 pod_state.set_volumes(volumes).await;
             }
 
-            info!("Resources resources to Pod: {}", pod.name());
+            info!("Resources allocated to Pod: {}", pod.name());
         }
 
         let next = ImagePull::<P>::default();

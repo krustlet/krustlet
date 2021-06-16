@@ -18,7 +18,7 @@ use tokio::sync::RwLock;
 use tokio::sync::broadcast;
 #[cfg(target_family = "windows")]
 use tokio_compat_02::FutureExt;
-use tracing::trace;
+use tracing::{debug, trace};
 
 #[cfg(target_family = "unix")]
 const DEFAULT_PLUGIN_PATH: &str = "/var/lib/kubelet/device-plugins/";
@@ -167,8 +167,8 @@ impl DeviceManager {
         &self,
         register_request: RegisterRequest,
     ) -> anyhow::Result<()> {
-        trace!(
-            "Connecting to plugin at {:?} for ListAndWatch",
+        debug!(
+            resource = %register_request.resource_name, "Connecting to plugin at {:?} for ListAndWatch",
             register_request.endpoint
         );
         let chan = grpc_sock::client::socket_channel(register_request.endpoint.clone()).await?;
@@ -209,6 +209,7 @@ impl DeviceManager {
         pod_uid: &str,
         container_devices: PodResourceRequests,
     ) -> anyhow::Result<()> {
+        debug!("do_allocate called for pod {}", pod_uid);
         let mut all_allocate_requests: HashMap<String, Vec<ContainerAllocateInfo>> = HashMap::new();
         let mut updated_allocated_devices = false;
         for (container_name, requested_resources) in container_devices {
@@ -502,6 +503,7 @@ async fn remove_plugin(
     resource_name: &str,
     plugin_connection: Arc<PluginConnection>,
 ) {
+    debug!(resource = %resource_name, "Removing plugin");
     let mut lock = plugins.write().await;
     if let Some(old_plugin_connection) = lock.get(resource_name) {
         // TODO: partialEq only checks that reg requests are identical. May also want

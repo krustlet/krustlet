@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use tonic::Request;
-use tracing::{error, trace};
+use tracing::{debug, error, trace};
 
 /// PluginConnection that maps to a single registered device plugin.
 /// It is responsible for managing gRPC communications with the device plugin and caching
@@ -66,6 +66,7 @@ impl PluginConnection {
             .into_inner();
         let mut previous_law_devices: HashMap<String, Device> = HashMap::new();
         while let Some(response) = stream.message().await? {
+            debug!(resource = %self.register_request.resource_name, "Received ListAndWatch message from this resource");
             if update_devices_map(
                 &self.register_request.resource_name,
                 devices.clone(),
