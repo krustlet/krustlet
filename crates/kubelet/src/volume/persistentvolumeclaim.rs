@@ -272,7 +272,7 @@ impl PvcVolume {
                 tokio::task::spawn_blocking(|| remove_dir_all::remove_dir_all(p)).await?;
 
                 #[cfg(target_family = "unix")]
-                std::fs::remove_dir_all(p)?;
+                tokio::fs::remove_dir_all(p).await?;
             }
             None => {
                 warn!("Attempted to unmount PVC directory that wasn't mounted, this generally shouldn't happen");
