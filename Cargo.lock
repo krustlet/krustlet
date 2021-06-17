@@ -1575,6 +1575,7 @@ dependencies = [
  "prost",
  "prost-types",
  "rcgen",
+ "remove_dir_all 0.7.0",
  "reqwest",
  "serde",
  "serde_json",
@@ -2467,6 +2468,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "remove_dir_all"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "882f368737489ea543bc5c340e6f3d34a28c39980bd9a979e47322b26f60ac40"
+dependencies = [
+ "libc",
+ "log 0.4.14",
+ "num_cpus",
+ "rayon",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "reqwest"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3024,7 +3038,7 @@ dependencies = [
  "libc",
  "rand 0.8.3",
  "redox_syscall",
- "remove_dir_all",
+ "remove_dir_all 0.5.3",
  "winapi 0.3.9",
 ]
 
