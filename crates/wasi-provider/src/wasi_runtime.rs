@@ -1,4 +1,3 @@
-use anyhow::bail;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,9 +8,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use wasi_cap_std_sync::WasiCtxBuilder;
-use wasmtime::InterruptHandle;
-use wasmtime_wasi::snapshots::preview_0::Wasi as WasiUnstable;
-use wasmtime_wasi::snapshots::preview_1::Wasi;
+use wasmtime::{InterruptHandle, Linker};
 
 use kubelet::container::Handle as ContainerHandle;
 use kubelet::container::Status;
@@ -165,31 +162,22 @@ impl WasiRuntime {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect();
-            let stdout = unsafe { cap_std::fs::File::from_std(output_write.try_clone()?) };
-            let stdout = wasi_cap_std_sync::file::File::from_cap_std(stdout);
-            let stderr = unsafe { cap_std::fs::File::from_std(output_write.try_clone()?) };
-            let stderr = wasi_cap_std_sync::file::File::from_cap_std(stderr);
+            let stdout = wasi_cap_std_sync::file::File::from_cap_std(unsafe {
+                cap_std::fs::File::from_std(output_write.try_clone()?)
+            });
+            let stderr = wasi_cap_std_sync::file::File::from_cap_std(unsafe {
+                cap_std::fs::File::from_std(output_write.try_clone()?)
+            });
 
-            // Build the WASI instance and then generate a list of WASI modules
-            let ctx_builder_snapshot = WasiCtxBuilder::new();
-            let mut ctx_builder_snapshot = ctx_builder_snapshot
+            // Create the WASI context builder and pass arguments, environment,
+            // and standard output and error.
+            let mut builder = WasiCtxBuilder::new()
                 .args(&data.args)?
                 .envs(&env)?
                 .stdout(Box::new(stdout))
                 .stderr(Box::new(stderr));
 
-            let stdout = unsafe { cap_std::fs::File::from_std(output_write.try_clone()?) };
-            let stdout = wasi_cap_std_sync::file::File::from_cap_std(stdout);
-            let stderr = unsafe { cap_std::fs::File::from_std(output_write.try_clone()?) };
-            let stderr = wasi_cap_std_sync::file::File::from_cap_std(stderr);
-
-            let ctx_builder_unstable = WasiCtxBuilder::new();
-            let mut ctx_builder_unstable = ctx_builder_unstable
-                .args(&data.args)?
-                .envs(&env)?
-                .stdout(Box::new(stdout))
-                .stderr(Box::new(stderr));
-
+            // Add preopen dirs.
             for (key, value) in data.dirs.iter() {
                 let guest_dir = value.as_ref().unwrap_or(key);
                 debug!(
@@ -198,30 +186,22 @@ impl WasiRuntime {
                     "mounting hostpath in modules"
                 );
                 let preopen_dir = unsafe { cap_std::fs::Dir::open_ambient_dir(key) }?;
-                ctx_builder_snapshot =
-                    ctx_builder_snapshot.preopened_dir(preopen_dir, guest_dir)?;
-                let preopen_dir = unsafe { cap_std::fs::Dir::open_ambient_dir(key) }?;
-                ctx_builder_unstable =
-                    ctx_builder_unstable.preopened_dir(preopen_dir, guest_dir)?;
+
+                builder = builder.preopened_dir(preopen_dir, guest_dir)?;
             }
-            let wasi_ctx_snapshot = ctx_builder_snapshot.build()?;
-            let wasi_ctx_unstable = ctx_builder_unstable.build()?;
+
+            let ctx = builder.build();
+
             let mut config = wasmtime::Config::new();
             config.interruptable(true);
             let engine = wasmtime::Engine::new(&config)?;
-            let store = wasmtime::Store::new(&engine);
+            let mut store = wasmtime::Store::new(&engine, ctx);
             let interrupt = store.interrupt_handle()?;
             tx.send(interrupt)
                 .map_err(|_| anyhow::anyhow!("Unable to send interrupt back to main thread"))?;
 
-            let wasi_snapshot = Wasi::new(
-                &store,
-                std::rc::Rc::new(std::cell::RefCell::new(wasi_ctx_snapshot)),
-            );
-            let wasi_unstable = WasiUnstable::new(
-                &store,
-                std::rc::Rc::new(std::cell::RefCell::new(wasi_ctx_unstable)),
-            );
+            let mut linker = Linker::new(&engine);
+
             let module = match wasmtime::Module::new(&engine, &data.module_data) {
                 // We can't map errors here or it moves the send channel, so we
                 // do it in a match
@@ -242,48 +222,12 @@ impl WasiRuntime {
                     return Err(anyhow::anyhow!("{}: {}", message, e));
                 }
             };
-            // Iterate through the module includes and resolve imports
-            let imports = module
-                .imports()
-                .map(|i| {
-                    let name = i.name().unwrap();
-                    // This is super funky logic, but it matches what is in 0.12.0
-                    let export = match i.module() {
-                        "wasi_snapshot_preview1" => wasi_snapshot.get_export(name),
-                        "wasi_unstable" => wasi_unstable.get_export(name),
-                        other => bail!("import module `{}` was not found", other),
-                    };
-                    match export {
-                        Some(export) => Ok(export.clone().into()),
-                        None => bail!("import `{}` was not found in module `{}`", name, i.module()),
-                    }
-                })
-                .collect::<Result<Vec<_>, _>>();
-            let imports = match imports {
+
+            wasmtime_wasi::add_to_linker(&mut linker, |cx| cx)?;
+            let instance = match linker.instantiate(&mut store, &module) {
                 // We can't map errors here or it moves the send channel, so we
                 // do it in a match
-                Ok(m) => m,
-                Err(e) => {
-                    let message = "unable to load module";
-                    error!(error = %e, "{}", message);
-                    send(
-                        &status_sender,
-                        &name,
-                        Status::Terminated {
-                            failed: true,
-                            message: message.into(),
-                            timestamp: chrono::Utc::now(),
-                        },
-                    );
-
-                    return Err(e);
-                }
-            };
-
-            let instance = match wasmtime::Instance::new(&store, &module, &imports) {
-                // We can't map errors here or it moves the send channel, so we
-                // do it in a match
-                Ok(m) => m,
+                Ok(i) => i,
                 Err(e) => {
                     let message = "unable to instantiate module";
                     error!(error = %e, "{}", message);
@@ -314,7 +258,7 @@ impl WasiRuntime {
             );
 
             let export = instance
-                .get_export("_start")
+                .get_export(&mut store, "_start")
                 .ok_or_else(|| anyhow::anyhow!("_start import doesn't exist in wasm module"))?;
             let func = match export {
                 wasmtime::Extern::Func(f) => f,
@@ -334,7 +278,7 @@ impl WasiRuntime {
                     return Err(anyhow::anyhow!(message));
                 }
             };
-            match func.call(&[]) {
+            match func.call(&mut store, &[]) {
                 // We can't map errors here or it moves the send channel, so we
                 // do it in a match
                 Ok(_) => {}
