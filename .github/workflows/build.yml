@@ -5,18 +5,6 @@ on:
       - main
   pull_request: {}
 jobs:
-  ui_test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: engineerd/configurator@v0.0.5
-        with:
-          name: "just"
-          url: "https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-unknown-linux-musl.tar.gz"
-          pathInArchive: "just"
-      - name: UI Test
-        run: |
-          just ui-test ""
   build:
     runs-on: ${{ matrix.config.os }}
     env: ${{ matrix.config.env }}
