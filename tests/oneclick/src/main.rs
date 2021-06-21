@@ -1,5 +1,6 @@
+use std::env;
 use std::io::BufRead;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 enum BootstrapReadiness {
     AlreadyBootstrapped,
@@ -74,8 +75,13 @@ fn main() {
 }
 
 fn config_dir() -> std::path::PathBuf {
-    let home_dir = dirs::home_dir().expect("Can't get home dir"); // TODO: allow override of config dir
-    home_dir.join(".krustlet/config")
+    match env::var("KRUSTLET_DATA_DIR") {
+        Ok(config_dir) => PathBuf::from(config_dir),
+        _ => {
+            let home_dir = dirs::home_dir().expect("Can't get home dir");
+            home_dir.join(".krustlet/config")
+        }
+    }
 }
 
 fn config_file_path_str(file_name: impl AsRef<std::path::Path>) -> String {
@@ -83,9 +89,17 @@ fn config_file_path_str(file_name: impl AsRef<std::path::Path>) -> String {
 }
 
 fn build_workspace() -> anyhow::Result<()> {
-    let build_result = std::process::Command::new("cargo")
-        .args(&["build"])
-        .output()?;
+    let mut cmd = std::process::Command::new("cargo");
+    #[cfg(target_family = "unix")]
+    cmd.args(&["build"]);
+    #[cfg(target_family = "windows")]
+    cmd.args(&[
+        "build",
+        "--no-default-features",
+        "--features",
+        "rustls-tls,kubelet/derive",
+    ]);
+    let build_result = cmd.output()?;
 
     if build_result.status.success() {
         Ok(())
@@ -220,11 +234,10 @@ fn is_resource_gone(kubectl_output: &std::process::Output) -> bool {
 }
 
 fn run_bootstrap() -> anyhow::Result<()> {
-    let (shell, ext) = match std::env::consts::OS {
-        "windows" => Ok(("powershell.exe", "ps1")),
-        "linux" | "macos" => Ok(("bash", "sh")),
-        os => Err(anyhow::anyhow!("Unsupported OS {}", os)),
-    }?;
+    #[cfg(target_family = "unix")]
+    let (shell, ext) = ("bash", "sh");
+    #[cfg(target_family = "windows")]
+    let (shell, ext) = ("powershell.exe", "ps1");
 
     let repo_root = std::env!("CARGO_MANIFEST_DIR");
 
@@ -266,7 +279,12 @@ fn launch_kubelet(
     let port_arg = format!("{}", kubelet_port);
 
     let repo_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    #[cfg(target_family = "unix")]
     let bin_path = repo_root.join("target/debug").join(name);
+    #[cfg(target_family = "windows")]
+    let bin_path = repo_root
+        .join("target/debug")
+        .join(name.to_owned() + ".exe");
 
     let stderr = std::fs::File::create(Path::new(LOG_DIR).join(format!("{}.stderr", name)))?;
 
@@ -483,11 +501,20 @@ fn run_test_suite(krustlet_process: &mut OwnedChildProcess) -> anyhow::Result<()
     let stdout = std::fs::File::create(Path::new(LOG_DIR).join("integration_tests.stdout"))?;
     let stderr = std::fs::File::create(Path::new(LOG_DIR).join("integration_tests.stderr"))?;
 
-    let mut test_process = std::process::Command::new("cargo")
-        .args(&["test", "--test", "integration_tests"])
-        .stderr(stdout)
-        .stdout(stderr)
-        .spawn()?;
+    let mut cmd = std::process::Command::new("cargo");
+    #[cfg(target_family = "unix")]
+    cmd.args(&["test", "--test", "integration_tests"]);
+    #[cfg(target_family = "windows")]
+    cmd.args(&[
+        "test",
+        "--test",
+        "integration_tests",
+        "--no-default-features",
+        "--features",
+        "rustls-tls,kubelet/derive",
+    ]);
+
+    let mut test_process = cmd.stderr(stdout).stdout(stderr).spawn()?;
     println!("Integration tests running");
     let start = std::time::Instant::now();
     loop {

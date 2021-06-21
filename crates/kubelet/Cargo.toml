@@ -63,7 +63,7 @@ http = "0.2"
 regex = "1.5"
 rcgen = "0.8"
 uuid = { version = "0.8.1", features = ["v4"] }
-krator = { path = "../krator", version = "0.2", default-features = false }
+krator = { version = "0.3", default-features = false }
 json-patch = "0.2"
 tempfile = "3.2"
 tonic = "0.4"
@@ -86,6 +86,7 @@ winapi = "0.2.8"
 ws2_32-sys = "0.2.1"
 tokio-compat-02 = "0.2"
 tokio_02 = { package = "tokio", version = "0.2", features = ["fs", "macros", "signal", "net"] }
+remove_dir_all = "0.7.0"
 
 [target.'cfg(target_family = "windows")'.dev-dependencies]
 bytes = "0.3"

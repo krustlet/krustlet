@@ -1,5 +1,7 @@
 use k8s_openapi::api::core::v1::{Node, Pod, Taint};
-use kube::api::{Api, DeleteParams, PostParams};
+#[cfg(target_os = "linux")]
+use kube::api::DeleteParams;
+use kube::api::{Api, PostParams};
 use serde_json::json;
 
 mod assert;

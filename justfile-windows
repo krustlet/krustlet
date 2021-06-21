@@ -1,6 +1,6 @@
 set shell := ["powershell.exe", "-c"]
 
-export RUST_LOG := "wasi_provider=debug,main=debug"
+export RUST_LOG := "wasi_provider=debug,main=debug,kubelet=debug"
 export PFX_PASSWORD := "testing"
 export CONFIG_DIR := env_var_or_default('CONFIG_DIR', '$HOME\.krustlet\config')
 
@@ -18,13 +18,21 @@ test:
     @# "not_used" errors as it isn't checking the whole workspace, but it should be
     @# sufficient for now. We may want to consider improving things using `cfg`
     @# directives to always pull in rustls-tls on windows machines
-    Push-Location .\crates\krator; cargo test --no-default-features --features rustls-tls; Pop-Location
     Push-Location .\crates\kubelet; cargo test --no-default-features --features rustls-tls,derive; Pop-Location
     Push-Location .\crates\oci-distribution; cargo test --no-default-features --features rustls-tls; Pop-Location
     Push-Location .\crates\wasi-provider; cargo test --no-default-features --features rustls-tls,kubelet/derive; Pop-Location
 
 test-e2e +FLAGS='--no-default-features --features rustls-tls,kubelet/derive':
     cargo test --test integration_tests {{FLAGS}}
+
+test-e2e-standalone +FLAGS='--no-default-features --features rustls-tls,kubelet/derive':
+    cargo run --bin oneclick {{FLAGS}}
+
+test-e2e-ci +FLAGS='--no-default-features --features rustls-tls,kubelet/derive':
+    KRUSTLET_TEST_ENV=ci cargo test --test integration_tests {{FLAGS}}
+
+test-e2e-standalone-ci +FLAGS='--no-default-features --features rustls-tls,kubelet/derive':
+    KRUSTLET_TEST_ENV=ci cargo run --bin oneclick {{FLAGS}}
 
 run +FLAGS='--no-default-features --features rustls-tls,kubelet/derive': bootstrap
     $env:KUBECONFIG = "$(Invoke-Expression "echo $env:CONFIG_DIR")\kubeconfig-wasi"; cargo run --bin krustlet-wasi {{FLAGS}} -- --node-name krustlet-wasi --port 3001 --bootstrap-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\bootstrap.conf" --cert-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wasi.crt" --private-key-file "$(Invoke-Expression "echo $env:CONFIG_DIR")\krustlet-wasi.key"

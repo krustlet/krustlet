@@ -5,18 +5,6 @@ on:
       - main
   pull_request: {}
 jobs:
-  ui_test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: engineerd/configurator@v0.0.5
-        with:
-          name: "just"
-          url: "https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-unknown-linux-musl.tar.gz"
-          pathInArchive: "just"
-      - name: UI Test
-        run: |
-          just ui-test ""
   build:
     runs-on: ${{ matrix.config.os }}
     env: ${{ matrix.config.env }}
@@ -53,7 +41,7 @@ jobs:
             }
     steps:
       - uses: actions/checkout@v2
-      - uses: engineerd/configurator@v0.0.5
+      - uses: engineerd/configurator@v0.0.7
         with:
           name: ${{ matrix.config.name }}
           url: ${{ matrix.config.url }}
@@ -100,10 +88,55 @@ jobs:
         run: |
           just --justfile justfile-windows build
           just --justfile justfile-windows test
-  # TODO: Figure out how to get kind or minikube running on a windows test host and see how we can
-  # get things working with rustls
-  # windows-e2e:
-  #   runs-on: windows-latest
+  windows-e2e:
+    env:
+      # Because we are on a shared build machine, we need to use a different directory than the default homedir
+      KRUSTLET_DATA_DIR: ".krustlet"
+      CONFIG_DIR: '.krustlet\config'
+    runs-on: [self-hosted, windows, x64]
+    steps:
+      - uses: actions/checkout@v2
+      - uses: engineerd/configurator@v0.0.7
+        with:
+          name: just.exe
+          url: "https://github.com/casey/just/releases/download/v0.9.4/just-v0.9.4-x86_64-pc-windows-msvc.zip"
+          pathInArchive: just.exe
+      - uses: engineerd/configurator@v0.0.7
+        with:
+          name: kind.exe
+          url: "https://kind.sigs.k8s.io/dl/v0.11.1/kind-windows-amd64"
+      - name: Ensure Docker is running
+        run: .\tests\windows\ensure-docker.ps1
+      - name: Setup kind cluster
+        # The image flag is a workaround to force to 1.20 until we add support for projected volumes
+        run: kind create cluster --config .\tests\windows\kind-config.yaml --name kind-${{ github.run_id }} --image kindest/node:v1.20.7@sha256:cbeaf907fc78ac97ce7b625e4bf0de16e3ea725daf6b04f930bd14c67c671ff9
+      # Because Windows uses rustls, it can't use a bare IP address. This
+      # switches the kubeconfig file to use localhost instead
+      - name: Modify kubeconfig
+        run: |
+          kubectl config view -o jsonpath='{.clusters[?(@.name == \"kind-kind-${{ github.run_id }}\")].cluster.server}' | % {$_.replace("127.0.0.1", "localhost")} | % {kubectl config set clusters.kind-kind-${{ github.run_id }}.server $_}
+      - name: Get NODE_IP
+        run: |
+          $addr = (Get-NetIPAddress -AddressFamily IPV4 -InterfaceAlias 'vEthernet (WSL)').IPAddress
+          echo "KRUSTLET_NODE_IP=$addr" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Run e2e tests (full)
+        if: ${{ github.event_name == 'push' }}
+        env:
+          KRUSTLET_TEST_ENV: "ci"
+          KRUSTLET_E2E_IMAGE_PULL_SECRET: ${{ secrets.KRUSTLET_E2E_IMAGE_PULL_SECRET }}
+          KRUSTLET_NODE_IP: ${{ env.KRUSTLET_NODE_IP }}
+        run: just --justfile justfile-windows test-e2e-standalone
+      - name: Run e2e tests (PR)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: just --justfile justfile-windows test-e2e-standalone
+      - uses: actions/upload-artifact@v2
+        if: ${{ always() }}
+        with:
+          name: e2e-logs-windows
+          path: oneclick-logs/
+      - name: Cleanup kind cluster
+        if: ${{ always() }}
+        run: kind delete cluster --name kind-${{ github.run_id }}
   e2e:
     runs-on: ubuntu-latest
     steps:
@@ -111,7 +144,7 @@ jobs:
       - uses: engineerd/setup-kind@v0.5.0
         with:
           version: "v0.10.0"
-      - uses: engineerd/configurator@v0.0.5
+      - uses: engineerd/configurator@v0.0.7
         with:
           name: just
           url: https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-unknown-linux-musl.tar.gz
