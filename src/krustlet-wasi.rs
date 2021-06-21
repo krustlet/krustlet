@@ -1,6 +1,6 @@
 use kubelet::config::Config;
-use kubelet::device_plugin_manager::DeviceManager;
 use kubelet::plugin_watcher::PluginRegistry;
+use kubelet::resources::DeviceManager;
 use kubelet::store::composite::ComposableStore;
 use kubelet::store::oci::FileStore;
 use kubelet::Kubelet;
