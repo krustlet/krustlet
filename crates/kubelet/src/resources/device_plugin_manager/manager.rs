@@ -171,7 +171,10 @@ impl DeviceManager {
             resource = %register_request.resource_name, "Connecting to plugin at {:?} for ListAndWatch",
             register_request.endpoint
         );
-        let chan = grpc_sock::client::socket_channel(register_request.endpoint.clone()).await?;
+        let chan = grpc_sock::client::socket_channel(
+            self.plugin_dir.join(register_request.endpoint.clone()),
+        )
+        .await?;
         let client = DevicePluginClient::new(chan);
 
         // Clone structures for PluginConnection thread
