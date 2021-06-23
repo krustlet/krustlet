@@ -21,8 +21,8 @@ hosts a registration service for device plugins, as described in the [device
 plugin
 documentation](https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/device-plugins/#device-plugin-registration).
 
-
 ## CSI Plugins
+
 ### Registration: How does it work?
 
 The plugin registration system has an event driven loop for discovering and
@@ -62,19 +62,19 @@ in the kubelet's [`resources` module](../../crates/kubelet/src/resources). It
 implements the [device plugin framework's `Registration` gRPC
 service](https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/device-plugins/#device-plugin-registration).
 
-
 Flow from registering device plugin  (DP) to running a Pod requesting an DP
 extended resource:
+
 1. The kubelet's `DeviceManager` hosts the [device plugin framework's
    `Registration` gRPC
    service](https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/device-plugins/#device-plugin-registration)
-   on the Kubernetes default `/var/lib/kubelet/device-plugins/kubelet.sock`. 
+   on the Kubernetes default `/var/lib/kubelet/device-plugins/kubelet.sock`.
 1. DP registers itself with the kubelet through this gRPC service. This allows
-   the DP to advertise a resource such as system hardware to kubelet. 
+   the DP to advertise a resource such as system hardware to kubelet.
 1. The kubelet creates a `PluginConnection` for marshalling requests to the DP.
    It calls the DP's `ListAndWatch` service, creating a bi-directional streaming
    connection. The device plugin updates the kubelet about the device health
-   across this connection. 
+   across this connection.
 1. Each time the `PluginConnection` receives device updates across the
    `ListAndWatch` connection. It updates the map of all devices (`DeviceMap`)
    shared between the `DeviceManager`, `PluginConnections` and `NodePatcher` and
@@ -85,7 +85,7 @@ extended resource:
    this node, since the requested resource is `allocatable` in the `NodeSpec`.
    During the `Resources` state, if a DP resource is requested, the
    `PluginConnection` calls `Allocate` on the DP, requesting use of the
-   resource. 
+   resource.
 1. If the Pod is terminated, in order to free up the DP resource, the
    `DeviceManager` contains a `PodDevices` structure that queries K8s Api for
    currently running Pods before each allocate call. It then will update it's
@@ -95,14 +95,16 @@ extended resource:
    the resource in the NodeSpec.
 
 ### What is not supported?
+
 The current implementation does not support the following:
+
 1. Calls to a device plugin's `GetPreferredAllocation` endpoint in order to make
    more informed `Allocate` calls.
 2. Each
    [`ContainerAllocateResponse`](../../crates/kubelet/proto/deviceplugin/v1beta1/deviceplugin.proto#L181)
    contains environment variables, mounts, device specs, and annotations that
    should be set in Pods that request the resource. Currently, Krustlet only
-   supports a subset of `Mounts`, namely `host_path` mounts as volumes. 
+   supports a subset of `Mounts`, namely `host_path` mounts as volumes.
 1. Does not consider
    [`Device::TopologyInfo`](../../crates/kubelet/proto/deviceplugin/v1beta1/deviceplugin.proto#L98),
    as the [Topology
