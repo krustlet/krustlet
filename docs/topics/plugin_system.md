@@ -100,7 +100,7 @@ The current implementation does not support the following:
 
 1. Calls to a device plugin's `GetPreferredAllocation` endpoint in order to make
    more informed `Allocate` calls.
-2. Each
+1. Each
    [`ContainerAllocateResponse`](../../crates/kubelet/proto/deviceplugin/v1beta1/deviceplugin.proto#L181)
    contains environment variables, mounts, device specs, and annotations that
    should be set in Pods that request the resource. Currently, Krustlet only
