@@ -177,8 +177,9 @@ mod tests {
         let (client, _mock_service_task) = create_mock_kube_service(node_name).await;
         let node_status_patcher =
             NodeStatusPatcher::new(node_name, devices, update_node_status_sender, client);
-        let patch = node_status_patcher.get_node_status_patch().await;
-        let expected_patch_value = serde_json::json!([
+        let actual_patch_values =
+            serde_json::to_value(node_status_patcher.get_node_status_patch().await).unwrap();
+        let expected_patch_values = serde_json::json!([
             {
                 "op": "add",
                 "path": format!("/status/capacity/example.com~1r1"),
@@ -200,10 +201,14 @@ mod tests {
                 "value": "2"
             }
         ]);
-        let expected_patch = json_patch::from_value(expected_patch_value).unwrap();
         // Check that both resources listed under allocatable and only healthy devices are counted
         // Check that both resources listed under capacity and both healthy and unhealthy devices are counted
-        assert_eq!(patch, expected_patch);
+        let actual_values = actual_patch_values.as_array().unwrap();
+        let expected_values = expected_patch_values.as_array().unwrap();
+        assert_eq!(expected_values.len(), actual_values.len());
+        expected_values
+            .iter()
+            .for_each(|v| assert!(actual_values.contains(v)));
     }
 
     #[tokio::test]
@@ -221,8 +226,9 @@ mod tests {
         let (client, _mock_service_task) = create_mock_kube_service(node_name).await;
         let node_status_patcher =
             NodeStatusPatcher::new(node_name, devices, update_node_status_sender, client);
-        let patch = node_status_patcher.get_node_status_patch().await;
-        let expected_patch_value = serde_json::json!([
+        let actual_patch_values =
+            serde_json::to_value(node_status_patcher.get_node_status_patch().await).unwrap();
+        let expected_patch_values = serde_json::json!([
             {
                 "op": "add",
                 "path": format!("/status/capacity/example.com~1r1"),
@@ -244,9 +250,11 @@ mod tests {
                 "value": "0"
             }
         ]);
-        let expected_patch = json_patch::from_value(expected_patch_value).unwrap();
-        // Check that both resources listed under allocatable and only healthy devices are counted
-        // Check that both resources listed under capacity and both healthy and unhealthy devices are counted
-        assert_eq!(patch, expected_patch);
+        let actual_values = actual_patch_values.as_array().unwrap();
+        let expected_values = expected_patch_values.as_array().unwrap();
+        assert_eq!(expected_values.len(), actual_values.len());
+        expected_values
+            .iter()
+            .for_each(|v| assert!(actual_values.contains(v)));
     }
 }
