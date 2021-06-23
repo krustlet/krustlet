@@ -18,7 +18,7 @@
 			"value": null
 		},
 		"kubernetesVersion": {
-			"value": "1.18.10"
+			"value": "1.20.7"
 		},
 		"krustletURL": {
 			"value": "https://krustlet.blob.core.windows.net/releases/krustlet-v0.6.0-linux-amd64.tar.gz"
