@@ -6,7 +6,9 @@
 //! # Example
 //! ```rust,no_run
 //! use kubelet::{Kubelet, config::Config};
+//! use kubelet::resources::DeviceManager;
 //! use kubelet::store::oci::FileStore;
+//! use std::convert::TryFrom;
 //! use std::sync::Arc;
 //! use wasi_provider::WasiProvider;
 //!
@@ -19,9 +21,10 @@
 //!     // Load a kubernetes configuration
 //!     let kubeconfig = kube::Config::infer().await.unwrap();
 //!     let plugin_registry = Arc::new(Default::default());
+//!     let device_plugin_manager = Arc::new(DeviceManager::new_with_default_path(kube::Client::try_from(kubeconfig.clone()).unwrap(), &kubelet_config.node_name));
 //!
 //!     // Instantiate the provider type
-//!     let provider = WasiProvider::new(store, &kubelet_config, kubeconfig.clone(), plugin_registry).await.unwrap();
+//!     let provider = WasiProvider::new(store, &kubelet_config, kubeconfig.clone(), plugin_registry, device_plugin_manager).await.unwrap();
 //!
 //!     // Instantiate the Kubelet
 //!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config).await.unwrap();
