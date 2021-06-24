@@ -95,8 +95,9 @@ pub async fn serve_device_registry(device_manager: Arc<DeviceManager>) -> anyhow
         "Serving device plugin manager on socket {:?}",
         manager_socket
     );
-    let socket =
-        grpc_sock::server::Socket::new(&manager_socket).expect("couldn't make manager socket");
+    // Delete any existing manager socket
+    let _ = tokio::fs::remove_file(&manager_socket).await;
+    let socket = grpc_sock::server::Socket::new(&manager_socket)?;
     let node_status_patcher = device_manager.node_status_patcher.clone();
     let node_patcher_task = task::spawn(async move {
         node_status_patcher.listen_and_patch().await.unwrap();
