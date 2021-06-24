@@ -156,6 +156,7 @@ impl WasiProvider {
 struct ModuleRunContext {
     modules: HashMap<String, Vec<u8>>,
     volumes: HashMap<String, VolumeRef>,
+    env_vars: HashMap<String, HashMap<String, String>>,
 }
 
 #[async_trait::async_trait]

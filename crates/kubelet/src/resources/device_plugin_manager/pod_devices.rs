@@ -140,19 +140,21 @@ impl PodDevices {
     pub fn get_pod_allocate_responses(
         &self,
         pod_uid: &str,
-    ) -> Option<Vec<ContainerAllocateResponse>> {
+    ) -> Option<HashMap<String, Vec<ContainerAllocateResponse>>> {
         match self.allocated_devices.lock().unwrap().get(pod_uid) {
             Some(container_devices) => {
-                let mut container_allocate_responses = Vec::new();
+                let mut container_allocate_responses = HashMap::new();
                 container_devices
                     .iter()
-                    .for_each(|(_container_name, resource_allocate_info)| {
-                        resource_allocate_info
-                            .iter()
-                            .for_each(|(_resource_name, dev_info)| {
-                                container_allocate_responses
-                                    .push(dev_info.allocate_response.clone());
-                            });
+                    .for_each(|(container_name, resource_allocate_info)| {
+                        container_allocate_responses.insert(
+                            container_name.clone(),
+                            resource_allocate_info
+                                .values()
+                                .cloned()
+                                .map(|dev_info| dev_info.allocate_response)
+                                .collect(),
+                        );
                     });
                 Some(container_allocate_responses)
             }

@@ -397,11 +397,11 @@ impl DeviceManager {
         Ok(())
     }
 
-    /// Returns all of the allocate responses for a Pod. Used to set mounts, env vars, annotations, and device specs for Pod.
+    /// Returns a map all of the allocate responses for a Pod, keyed by Container name. Used to set mounts, env vars, annotations, and device specs for Pod.
     pub fn get_pod_allocate_responses(
         &self,
         pod_uid: &str,
-    ) -> Option<Vec<ContainerAllocateResponse>> {
+    ) -> Option<HashMap<String, Vec<ContainerAllocateResponse>>> {
         self.pod_devices.get_pod_allocate_responses(pod_uid)
     }
 

@@ -104,7 +104,8 @@ The current implementation does not support the following:
    [`ContainerAllocateResponse`](../../crates/kubelet/proto/deviceplugin/v1beta1/deviceplugin.proto#L181)
    contains environment variables, mounts, device specs, and annotations that
    should be set in Pods that request the resource. Currently, Krustlet only
-   supports a subset of `Mounts`, namely `host_path` mounts as volumes.
+   supports environment variables and a subset of `Mounts`, namely `host_path`
+   mounts as volumes.
 1. Does not consider
    [`Device::TopologyInfo`](../../crates/kubelet/proto/deviceplugin/v1beta1/deviceplugin.proto#L98),
    as the [Topology

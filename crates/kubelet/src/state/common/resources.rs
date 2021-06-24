@@ -73,18 +73,21 @@ impl<P: GenericProvider> State<P::PodState> for Resources<P> {
                 return Transition::next(self, next);
             }
 
-            // In Pod, set mounts, env vars, annotations, and device specs specified in the device plugins' `ContainerAllocateResponse`s.
-            // TODO: add support for setting environment variables, annotations, device mounts (with permissions), and container path mounts.
-            // For now, just set HostPath volumes for each `ContainerAllocateResponse::Mount`.
+            // In Pod, set env vars and set HostPath volumes for each `ContainerAllocateResponse`.
+            // TODO: add support for setting container path mounts, env vars, annotations, and device specs (with permissions) specified in the device plugins' `ContainerAllocateResponse`s.
             if let Some(container_allocate_responses) =
                 device_plugin_manager.get_pod_allocate_responses(pod.pod_uid())
             {
                 let mut host_paths: Vec<String> = Vec::new();
-                container_allocate_responses.iter().for_each(|alloc_resp| {
-                    alloc_resp
-                        .mounts
-                        .iter()
-                        .for_each(|m| host_paths.push(m.host_path.clone()))
+                let mut env_vars: HashMap<String, HashMap<String, String>> = HashMap::new();
+                // Get host paths, env vars, and annotations from allocate responses.
+                container_allocate_responses.iter().for_each(|(c, rs)| {
+                    rs.iter().for_each(|r| {
+                        env_vars.insert(c.clone(), r.envs.clone());
+                        r.mounts
+                            .iter()
+                            .for_each(|m| host_paths.push(m.host_path.clone()))
+                    });
                 });
                 let volumes: HashMap<String, VolumeRef> = host_paths
                     .iter_mut()
@@ -105,6 +108,7 @@ impl<P: GenericProvider> State<P::PodState> for Resources<P> {
                     })
                     .collect();
                 pod_state.set_volumes(volumes).await;
+                pod_state.set_env_vars(env_vars).await;
             }
 
             info!("Resources allocated to Pod: {}", pod.name());

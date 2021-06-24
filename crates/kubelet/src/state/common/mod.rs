@@ -52,6 +52,9 @@ pub trait GenericProviderState: 'static + Send + Sync {
 /// the generic states.
 #[async_trait::async_trait]
 pub trait GenericPodState: ObjectState<Manifest = Pod, Status = PodStatus> {
+    /// Stores the environment variables that are added through state conditions
+    /// rather than being from PodSpecs.
+    async fn set_env_vars(&mut self, env_vars: HashMap<String, HashMap<String, String>>);
     /// Stores the pod module binaries for future execution. Typically your
     /// implementation can just move the modules map into a member field.
     async fn set_modules(&mut self, modules: HashMap<String, Vec<u8>>);
