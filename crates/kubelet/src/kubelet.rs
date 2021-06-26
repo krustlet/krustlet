@@ -46,7 +46,7 @@ impl<P: Provider> Kubelet<P> {
     ) -> anyhow::Result<Self> {
 
         if config.server_config.private_key_file == config.server_config.cert_file {
-            // throw error ?
+            panic!("The config private key file and server config certificate file are the same");
         }
 
         Ok(Self {
