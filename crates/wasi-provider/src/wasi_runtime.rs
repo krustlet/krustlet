@@ -5,7 +5,6 @@ use tracing::{debug, error, info, instrument, trace, warn};
 
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use wasi_cap_std_sync::WasiCtxBuilder;
 use wasmtime::{InterruptHandle, Linker};
@@ -124,7 +123,9 @@ impl WasiRuntime {
         })
         .await??;
 
-        let (interrupt_handle, handle) = self.spawn_wasmtime(output_write).await?;
+        let (interrupt_handle, handle) = self
+            .spawn_wasmtime(tokio::fs::File::from_std(output_write))
+            .await?;
 
         let log_handle_factory = HandleFactory {
             temp: self.output.clone(),
@@ -140,144 +141,139 @@ impl WasiRuntime {
     }
 
     // Spawns a running wasmtime instance with the given context and status
-    // channel. Due to the Instance type not being Send safe, all of the logic
-    // needs to be done within the spawned task
+    // channel.
+    #[instrument(level = "info", skip(self, output_write), fields(name = %self.name))]
     async fn spawn_wasmtime(
         &self,
-        output_write: std::fs::File,
+        output_write: tokio::fs::File,
     ) -> anyhow::Result<(InterruptHandle, JoinHandle<anyhow::Result<()>>)> {
         // Clone the module data Arc so it can be moved
         let data = self.data.clone();
         let status_sender = self.status_sender.clone();
-        let (tx, rx) = oneshot::channel();
+
+        // Log this info here so it isn't on _every_ log line
+        trace!(env = ?data.env, args = ?data.args, dirs = ?data.dirs, "Starting setup of wasmtime module");
+        let env: Vec<(String, String)> = data
+            .env
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        let stdout = wasi_cap_std_sync::file::File::from_cap_std(unsafe {
+            cap_std::fs::File::from_std(output_write.try_clone().await?.into_std().await)
+        });
+        let stderr = wasi_cap_std_sync::file::File::from_cap_std(unsafe {
+            cap_std::fs::File::from_std(output_write.try_clone().await?.into_std().await)
+        });
+
+        // Create the WASI context builder and pass arguments, environment,
+        // and standard output and error.
+        let mut builder = WasiCtxBuilder::new()
+            .args(&data.args)?
+            .envs(&env)?
+            .stdout(Box::new(stdout))
+            .stderr(Box::new(stderr));
+
+        // Add preopen dirs.
+        for (key, value) in data.dirs.iter() {
+            let guest_dir = value.as_ref().unwrap_or(key);
+            debug!(
+                hostpath = %key.display(),
+                guestpath = %guest_dir.display(),
+                "mounting hostpath in modules"
+            );
+            let preopen_dir = unsafe { cap_std::fs::Dir::open_ambient_dir(key) }?;
+
+            builder = builder.preopened_dir(preopen_dir, guest_dir)?;
+        }
+
+        let ctx = builder.build();
+
+        let mut config = wasmtime::Config::new();
+        config.interruptable(true);
+        let engine = wasmtime::Engine::new(&config)?;
+        let mut store = wasmtime::Store::new(&engine, ctx);
+        let interrupt = store.interrupt_handle()?;
+
+        let mut linker = Linker::new(&engine);
+
+        let module = match wasmtime::Module::new(&engine, &data.module_data) {
+            // We can't map errors here or it moves the send channel, so we
+            // do it in a match
+            Ok(m) => m,
+            Err(e) => {
+                let message = "unable to create module";
+                error!(error = %e, "{}", message);
+                status_sender
+                    .send(Status::Terminated {
+                        failed: true,
+                        message: message.into(),
+                        timestamp: chrono::Utc::now(),
+                    })
+                    .await?;
+
+                return Err(anyhow::anyhow!("{}: {}", message, e));
+            }
+        };
+
+        wasmtime_wasi::add_to_linker(&mut linker, |cx| cx)?;
+        let instance = match linker.instantiate(&mut store, &module) {
+            // We can't map errors here or it moves the send channel, so we
+            // do it in a match
+            Ok(i) => i,
+            Err(e) => {
+                let message = "unable to instantiate module";
+                error!(error = %e, "{}", message);
+                status_sender
+                    .send(Status::Terminated {
+                        failed: true,
+                        message: message.into(),
+                        timestamp: chrono::Utc::now(),
+                    })
+                    .await?;
+                // Converting from anyhow
+                return Err(anyhow::anyhow!("{}: {}", message, e));
+            }
+        };
+
+        info!("starting run of module");
+        status_sender
+            .send(Status::Running {
+                timestamp: chrono::Utc::now(),
+            })
+            .await?;
+
+        // NOTE(thomastaylor312): In the future, if we want to pass args directly, we'll
+        // need to do a bit more to pass them in here.
+        let export = instance
+            .get_export(&mut store, "_start")
+            .ok_or_else(|| anyhow::anyhow!("_start import doesn't exist in wasm module"))?;
+
+        // NOTE(thomastaylor312): In the future (pun intended) we might be able to use something
+        // like `func.call(...).await`. We should check every once and a while when upgraing
+        // wasmtime
+        let func = match export {
+            wasmtime::Extern::Func(f) => f,
+            _ => {
+                let message =
+                    "_start import was not a function. This is likely a problem with the module";
+                error!(error = message);
+                status_sender
+                    .send(Status::Terminated {
+                        failed: true,
+                        message: message.into(),
+                        timestamp: chrono::Utc::now(),
+                    })
+                    .await?;
+
+                return Err(anyhow::anyhow!(message));
+            }
+        };
 
         let name = self.name.clone();
         let handle = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
             let span = tracing::info_span!("wasmtime_module_run", %name);
             let _enter = span.enter();
-            // Log this info here so it isn't on _every_ log line
-            trace!(env = ?data.env, args = ?data.args, dirs = ?data.dirs, "Starting setup of wasmtime module");
-            let env: Vec<(String, String)> = data
-                .env
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect();
-            let stdout = wasi_cap_std_sync::file::File::from_cap_std(unsafe {
-                cap_std::fs::File::from_std(output_write.try_clone()?)
-            });
-            let stderr = wasi_cap_std_sync::file::File::from_cap_std(unsafe {
-                cap_std::fs::File::from_std(output_write.try_clone()?)
-            });
 
-            // Create the WASI context builder and pass arguments, environment,
-            // and standard output and error.
-            let mut builder = WasiCtxBuilder::new()
-                .args(&data.args)?
-                .envs(&env)?
-                .stdout(Box::new(stdout))
-                .stderr(Box::new(stderr));
-
-            // Add preopen dirs.
-            for (key, value) in data.dirs.iter() {
-                let guest_dir = value.as_ref().unwrap_or(key);
-                debug!(
-                    hostpath = %key.display(),
-                    guestpath = %guest_dir.display(),
-                    "mounting hostpath in modules"
-                );
-                let preopen_dir = unsafe { cap_std::fs::Dir::open_ambient_dir(key) }?;
-
-                builder = builder.preopened_dir(preopen_dir, guest_dir)?;
-            }
-
-            let ctx = builder.build();
-
-            let mut config = wasmtime::Config::new();
-            config.interruptable(true);
-            let engine = wasmtime::Engine::new(&config)?;
-            let mut store = wasmtime::Store::new(&engine, ctx);
-            let interrupt = store.interrupt_handle()?;
-            tx.send(interrupt)
-                .map_err(|_| anyhow::anyhow!("Unable to send interrupt back to main thread"))?;
-
-            let mut linker = Linker::new(&engine);
-
-            let module = match wasmtime::Module::new(&engine, &data.module_data) {
-                // We can't map errors here or it moves the send channel, so we
-                // do it in a match
-                Ok(m) => m,
-                Err(e) => {
-                    let message = "unable to create module";
-                    error!(error = %e, "{}", message);
-                    send(
-                        &status_sender,
-                        &name,
-                        Status::Terminated {
-                            failed: true,
-                            message: message.into(),
-                            timestamp: chrono::Utc::now(),
-                        },
-                    );
-
-                    return Err(anyhow::anyhow!("{}: {}", message, e));
-                }
-            };
-
-            wasmtime_wasi::add_to_linker(&mut linker, |cx| cx)?;
-            let instance = match linker.instantiate(&mut store, &module) {
-                // We can't map errors here or it moves the send channel, so we
-                // do it in a match
-                Ok(i) => i,
-                Err(e) => {
-                    let message = "unable to instantiate module";
-                    error!(error = %e, "{}", message);
-                    send(
-                        &status_sender,
-                        &name,
-                        Status::Terminated {
-                            failed: true,
-                            message: message.into(),
-                            timestamp: chrono::Utc::now(),
-                        },
-                    );
-
-                    // Converting from anyhow
-                    return Err(anyhow::anyhow!("{}: {}", message, e));
-                }
-            };
-
-            // NOTE(taylor): In the future, if we want to pass args directly, we'll
-            // need to do a bit more to pass them in here.
-            info!("starting run of module");
-            send(
-                &status_sender,
-                &name,
-                Status::Running {
-                    timestamp: chrono::Utc::now(),
-                },
-            );
-
-            let export = instance
-                .get_export(&mut store, "_start")
-                .ok_or_else(|| anyhow::anyhow!("_start import doesn't exist in wasm module"))?;
-            let func = match export {
-                wasmtime::Extern::Func(f) => f,
-                _ => {
-                    let message = "_start import was not a function. This is likely a problem with the module";
-                    error!(error = message);
-                    send(
-                        &status_sender,
-                        &name,
-                        Status::Terminated {
-                            failed: true,
-                            message: message.into(),
-                            timestamp: chrono::Utc::now(),
-                        },
-                    );
-
-                    return Err(anyhow::anyhow!(message));
-                }
-            };
             match func.call(&mut store, &[]) {
                 // We can't map errors here or it moves the send channel, so we
                 // do it in a match
@@ -312,7 +308,6 @@ impl WasiRuntime {
             Ok(())
         });
         // Wait for the interrupt to be sent back to us
-        let interrupt = rx.await?;
         Ok((interrupt, handle))
     }
 }
