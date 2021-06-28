@@ -68,6 +68,7 @@ jobs:
       - name: setup for cross-compile builds
         if: matrix.config.arch == 'aarch64'
         run: |
+          sudo apt update
           sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
           cd /tmp
           git clone https://github.com/openssl/openssl

@@ -24,7 +24,7 @@ anyhow = "1.0"
 async-trait = "0.1"
 backtrace = "0.3"
 kube = { version = "0.55", default-features = false }
-wasmtime = { version = "0.28", default-features = true }
+wasmtime = "0.28"
 wasmtime-wasi = "0.28"
 wasi-common = "0.28"
 wasi-cap-std-sync = "0.28"
