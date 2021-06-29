@@ -108,9 +108,7 @@ impl DeviceManager {
         register_request: &RegisterRequest,
     ) -> Result<(), tonic::Status> {
         trace!(
-            "Starting validation for plugin {:?} discovered at path {}",
-            register_request.resource_name,
-            register_request.endpoint
+            resource = %register_request.resource_name, endpoint = %register_request.endpoint, "Starting validation for plugin discovered at path",
         );
 
         // Validate that version matches the Device Plugin API version
@@ -168,8 +166,7 @@ impl DeviceManager {
         register_request: RegisterRequest,
     ) -> anyhow::Result<()> {
         debug!(
-            resource = %register_request.resource_name, "Connecting to plugin at {:?} for ListAndWatch",
-            register_request.endpoint
+            resource = %register_request.resource_name, endpoint = %register_request.endpoint, "Connecting to plugin's ListAndWatch service"
         );
         let chan = grpc_sock::client::socket_channel(
             self.plugin_dir.join(register_request.endpoint.clone()),
@@ -387,13 +384,8 @@ impl DeviceManager {
             return Ok(());
         }
 
-        self.pod_devices.remove_pods(pods_to_be_removed.clone())?;
+        self.pod_devices.remove_pods(pods_to_be_removed)?;
 
-        // TODO: should `allocated_device_ids` be replaced with `self.pod_devices.get_allocated_devices` instead?
-        let mut allocated_device_ids = self.allocated_device_ids.write().await;
-        pods_to_be_removed.iter().for_each(|p_uid| {
-            allocated_device_ids.remove(p_uid);
-        });
         Ok(())
     }
 
@@ -425,7 +417,7 @@ impl DeviceManager {
                 return Err(anyhow::format_err!("Pod {} with container named {} changed requested quantity for resource {} from {} to {}", pod_uid, container_name, resource_name, device_ids.len(), quantity));
             } else {
                 // No change, so no new work
-                return Ok(Vec::new());
+                return Ok(Vec::with_capacity(0));
             }
         }
         // Grab lock on devices and allocated devices
@@ -540,7 +532,7 @@ fn get_num_from_quantity(q: Quantity) -> anyhow::Result<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{test_utils, PLUGIN_MANGER_SOCKET_NAME, UNHEALTHY};
+    use super::super::{test_utils, PLUGIN_MANGER_SOCKET_NAME};
     use super::*;
     use crate::device_plugin_api::v1beta1::{
         device_plugin_server::{DevicePlugin, DevicePluginServer},
@@ -664,7 +656,7 @@ mod tests {
 
     /// Registers the mock DP with the DeviceManager's registration service
     async fn register_mock_device_plugin(
-        kubelet_socket: String,
+        kubelet_socket: impl AsRef<Path>,
         dp_socket: &str,
         dp_resource_name: &str,
     ) -> anyhow::Result<()> {
@@ -697,14 +689,6 @@ mod tests {
         // Instead, create a temp dir for the DP manager and the mock DP
         let manager_temp_dir = tempfile::tempdir().expect("should be able to create tempdir");
 
-        // Capture the DP and DP manager socket paths
-        let manager_socket = manager_temp_dir
-            .path()
-            .join(PLUGIN_MANGER_SOCKET_NAME)
-            .to_str()
-            .unwrap()
-            .to_string();
-
         // Make 3 mock devices
         let d1 = Device {
             id: "d1".to_string(),
@@ -718,7 +702,7 @@ mod tests {
         };
         let d3 = Device {
             id: "d3".to_string(),
-            health: UNHEALTHY.to_string(),
+            health: test_utils::UNHEALTHY.to_string(),
             topology: None,
         };
 
@@ -751,9 +735,13 @@ mod tests {
 
         // Register the mock device plugin with the DeviceManager's Registration service
         let dp_resource_name = "example.com/mock-device-plugin";
-        register_mock_device_plugin(manager_socket.to_string(), &dp_socket, dp_resource_name)
-            .await
-            .unwrap();
+        register_mock_device_plugin(
+            manager_temp_dir.path().join(PLUGIN_MANGER_SOCKET_NAME),
+            &dp_socket,
+            dp_resource_name,
+        )
+        .await
+        .unwrap();
 
         // Make DP report 2 healthy and 1 unhealthy device
         devices_sender.send(vec![d1, d2, d3]).unwrap();

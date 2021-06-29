@@ -52,7 +52,6 @@ impl PluginConnection {
     /// The device plugin updates this client periodically about changes in the capacity and health of its resource.
     /// Upon updates, this propagates any changes into the `plugins` map and triggers the `NodePatcher` to
     /// patch the node with the latest values.
-    /// TODO: return error
     async fn list_and_watch(
         &self,
         devices: Arc<RwLock<DeviceMap>>,
@@ -75,8 +74,9 @@ impl PluginConnection {
             )
             .await
             {
-                // TODO handle error -- maybe channel is full
-                update_node_status_sender.send(()).unwrap();
+                if let Err(e) = update_node_status_sender.send(()) {
+                    error!(error = %e, "Node status update channel is full");
+                }
             }
         }
 
@@ -152,18 +152,17 @@ async fn update_devices_map(
     }
 
     // (3) Check if Device removed
-    let removed_device_ids: Vec<String> = previous_law_devices
+    let removed_device_ids: Vec<&String> = previous_law_devices
         .iter()
         .map(|(prev_id, _)| prev_id)
         .filter(|prev_id| !current_devices.contains_key(*prev_id))
-        .cloned()
         .collect();
     if !removed_device_ids.is_empty() {
         update_node_status = true;
         let mut lock = devices.write().await;
         let map = lock.get_mut(resource_name).unwrap();
-        removed_device_ids.into_iter().for_each(|id| {
-            map.remove(&id);
+        removed_device_ids.iter().for_each(|id| {
+            map.remove(*id);
         });
     }
 
@@ -181,8 +180,8 @@ impl PartialEq for PluginConnection {
 
 #[cfg(test)]
 pub mod tests {
-    use super::super::test_utils::create_mock_healthy_devices;
-    use super::super::{HEALTHY, UNHEALTHY};
+    use super::super::test_utils::{create_mock_healthy_devices, UNHEALTHY};
+    use super::super::HEALTHY;
     use super::*;
 
     #[tokio::test]

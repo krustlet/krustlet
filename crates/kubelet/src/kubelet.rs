@@ -112,7 +112,7 @@ impl<P: Provider> Kubelet<P> {
                     error!(error = %e, "Plugin registrar task completed with error");
                 },
                 res = device_manager => if let Err(e) = res {
-                    error!("Device manager task completed with error {:?}", &e);
+                    error!(error = %e, "Device manager task completed with error");
                 }
             };
             // Use relaxed ordering because we just need other tasks to eventually catch the signal.

@@ -42,10 +42,6 @@ pub type PodResourceRequests = HashMap<String, ContainerResourceRequests>;
 /// Healthy means the device is allocatable (whether already allocated or not)
 const HEALTHY: &str = "Healthy";
 
-/// Unhealthy means the device is not allocatable
-#[cfg(test)]
-pub(crate) const UNHEALTHY: &str = "Unhealthy";
-
 /// Hosts the device plugin `Registration` service (defined in the device plugin API) for a `DeviceManager`.
 /// Upon device plugin registration, reaches out to its `DeviceManager` to validate the device plugin
 /// and establish a connection with it.
@@ -75,7 +71,6 @@ impl Registration for DeviceRegistry {
             .await
             .map_err(|e| tonic::Status::new(tonic::Code::InvalidArgument, format!("{}", e)))?;
         // Create a list and watch connection with the device plugin
-        // TODO: should the manager keep track of threads?
         self.device_manager
             .create_plugin_connection(register_request)
             .await
@@ -96,15 +91,22 @@ pub async fn serve_device_registry(device_manager: Arc<DeviceManager>) -> anyhow
         manager_socket
     );
     // Delete any existing manager socket
-    let _ = tokio::fs::remove_file(&manager_socket).await;
+    match tokio::fs::remove_file(&manager_socket).await {
+        Ok(_) => (),
+        Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound) => (),
+        Err(e) => return Err(e.into()),
+    }
     let socket = grpc_sock::server::Socket::new(&manager_socket)?;
     let node_status_patcher = device_manager.node_status_patcher.clone();
+    let (tx, rx) = tokio::sync::oneshot::channel();
     let node_patcher_task = task::spawn(async move {
-        node_status_patcher.listen_and_patch().await.unwrap();
+        node_status_patcher.listen_and_patch(tx).await.unwrap();
     });
+    // Have NodePatcher notify when it has created a receiver to avoid race case of the DeviceManager trying
+    // to send device info to the NodeStatusPatcher before the NodeStatusPatcher has created a receiver.
+    // Sender would error due to no active receivers.
+    rx.await?;
     let device_registry = DeviceRegistry::new(device_manager);
-    // TODO: There may be a slight race case here. If the DeviceManager tries to send device info to the NodeStatusPatcher before the NodeStatusPatcher has created a receiver
-    // it will error because there are no active receivers.
     let device_manager_task = task::spawn(async {
         let serv = Server::builder()
             .add_service(RegistrationServer::new(device_registry))
@@ -128,6 +130,9 @@ pub mod test_utils {
     use tokio::sync::RwLock;
     use tower_test::mock;
 
+    /// Unhealthy means the device is not allocatable
+    pub const UNHEALTHY: &str = "Unhealthy";
+
     pub fn mock_client() -> kube::Client {
         kube::Client::try_from(kube::Config::new(
             reqwest::Url::parse("http://127.0.0.1:8080").unwrap(),
@@ -139,7 +144,6 @@ pub mod test_utils {
     /// need to be updated in the Node status.
     /// It verifies the request and always returns a fake Node.
     /// Returns a client that will reference this mock service and the task the service is running on.
-    /// TODO: Decide whether to test node status
     pub async fn create_mock_kube_service(
         node_name: &str,
     ) -> (Client, tokio::task::JoinHandle<()>) {

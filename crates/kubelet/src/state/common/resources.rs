@@ -90,9 +90,9 @@ impl<P: GenericProvider> State<P::PodState> for Resources<P> {
                     });
                 });
                 let volumes: HashMap<String, VolumeRef> = host_paths
-                    .iter_mut()
+                    .into_iter()
                     .map(|p| HostPathVolumeSource {
-                        path: p.clone(),
+                        path: p,
                         ..Default::default()
                     })
                     .map(|h| KubeVolume {

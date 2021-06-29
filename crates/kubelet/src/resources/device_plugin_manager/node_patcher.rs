@@ -3,7 +3,7 @@ use k8s_openapi::api::core::v1::Node;
 use kube::api::{Api, PatchParams};
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
-use tracing::{debug, error};
+use tracing::debug;
 
 /// NodePatcher updates the Node status with the latest device information.
 #[derive(Clone)]
@@ -30,18 +30,16 @@ impl NodeStatusPatcher {
         }
     }
 
-    // TODO: Decide whether `NodePatcher` should do `remove` patches when there are no
-    // devices under a resource. When a device plugin drops, the `DeviceManager` clears
-    // out the resource's device map. Currently, this just sets the resource's
-    // `allocatable` and `capacity` count to 0, which appears to be the same implementation
-    // in Kubernetes.
+    // When a device plugin drops, the `DeviceManager` clears out the resource's device map.
+    //This sets the resource's `allocatable` and `capacity` count to 0,
+    // which appears to be the same implementation in Kubernetes.
     async fn get_node_status_patch(&self) -> json_patch::Patch {
         let mut patches = Vec::new();
         let devices = self.devices.read().await;
         devices
             .iter()
             .for_each(|(resource_name, resource_devices)| {
-                let adjusted_name = adjust_name(resource_name);
+                let adjusted_name = escape_json_pointer(resource_name);
                 let capacity_patch = serde_json::json!(
                     {
                         "op": "add",
@@ -91,39 +89,39 @@ impl NodeStatusPatcher {
         }
     }
 
-    pub async fn listen_and_patch(self) -> anyhow::Result<()> {
+    pub async fn listen_and_patch(
+        self,
+        ready_tx: tokio::sync::oneshot::Sender<()>,
+    ) -> anyhow::Result<()> {
         let mut receiver = self.update_node_status_sender.subscribe();
+        ready_tx
+            .send(())
+            .map_err(|e| anyhow::Error::msg(format!("{:?}", e)))?;
         loop {
-            match receiver.recv().await {
-                Err(_e) => {
-                    error!("Channel closed by senders");
-                    // TODO: bubble up error
-                }
-                Ok(_) => {
-                    debug!("Received notification that Node status should be patched");
-                    // Grab status values
-                    let status_patch = self.get_node_status_patch().await;
-                    // Do patch
-                    self.do_node_status_patch(status_patch).await?;
-                }
-            }
+            receiver.recv().await?;
+            debug!("Received notification that Node status should be patched");
+            // Grab status values
+            let status_patch = self.get_node_status_patch().await;
+            // Do patch
+            self.do_node_status_patch(status_patch).await?;
         }
     }
 }
 
-fn adjust_name(name: &str) -> String {
+fn escape_json_pointer(name: &str) -> String {
     name.replace("/", "~1")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_utils::{create_mock_healthy_devices, create_mock_kube_service};
-    use super::super::UNHEALTHY;
+    use super::super::test_utils::{
+        create_mock_healthy_devices, create_mock_kube_service, UNHEALTHY,
+    };
     use super::*;
 
     #[test]
-    fn test_adjust_name() {
-        assert_eq!(adjust_name("example.com/r1"), "example.com~1r1");
+    fn test_escape_json_pointer() {
+        assert_eq!(escape_json_pointer("example.com/r1"), "example.com~1r1");
     }
 
     #[tokio::test]
@@ -140,7 +138,7 @@ mod tests {
         let patch_value = serde_json::json!([
             {
                 "op": "add",
-                "path": format!("/status/capacity/example.com~1foo"),
+                "path": "/status/capacity/example.com~1foo".to_string(),
                 "value": "2"
             }
         ]);
@@ -182,22 +180,22 @@ mod tests {
         let expected_patch_values = serde_json::json!([
             {
                 "op": "add",
-                "path": format!("/status/capacity/example.com~1r1"),
+                "path": "/status/capacity/example.com~1r1".to_string(),
                 "value": "3"
             },
             {
                 "op": "add",
-                "path": format!("/status/allocatable/example.com~1r1"),
+                "path": "/status/allocatable/example.com~1r1".to_string(),
                 "value": "2"
             },
             {
                 "op": "add",
-                "path": format!("/status/capacity/something.net~1r2"),
+                "path": "/status/capacity/something.net~1r2".to_string(),
                 "value": "2"
             },
             {
                 "op": "add",
-                "path": format!("/status/allocatable/something.net~1r2"),
+                "path": "/status/allocatable/something.net~1r2".to_string(),
                 "value": "2"
             }
         ]);
@@ -231,22 +229,22 @@ mod tests {
         let expected_patch_values = serde_json::json!([
             {
                 "op": "add",
-                "path": format!("/status/capacity/example.com~1r1"),
+                "path": "/status/capacity/example.com~1r1".to_string(),
                 "value": "0"
             },
             {
                 "op": "add",
-                "path": format!("/status/allocatable/example.com~1r1"),
+                "path": "/status/allocatable/example.com~1r1".to_string(),
                 "value": "0"
             },
             {
                 "op": "add",
-                "path": format!("/status/capacity/something.net~1r2"),
+                "path": "/status/capacity/something.net~1r2".to_string(),
                 "value": "0"
             },
             {
                 "op": "add",
-                "path": format!("/status/allocatable/something.net~1r2"),
+                "path": "/status/allocatable/something.net~1r2".to_string(),
                 "value": "0"
             }
         ]);

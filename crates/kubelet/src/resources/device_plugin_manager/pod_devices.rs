@@ -47,7 +47,6 @@ impl PodDevices {
     /// amount of device plugin resources requested by existing pods could be counted
     /// when updating allocated devices
     pub async fn get_active_pods(&self) -> anyhow::Result<HashSet<String>> {
-        // TODO: should this be namespaced?
         let pod_client: Api<Pod> = Api::all(self.client.clone());
         let pods = pod_client
             .list(&ListParams::default().fields(&format!("spec.nodeName={}", self.node_name)))
