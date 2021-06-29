@@ -1,4 +1,8 @@
-//! The Kubelet device plugin manager. Consists of a `DeviceRegistry` that hosts a registration service for device plugins, a `DeviceManager` that maintains a device plugin client for each registered device plugin, a `NodePatcher` that patches the Node status with the extended resources advertised by device plugins, and a `PodDevices` that maintains a list of Pods that are actively using allocated resources.
+//! The kubelet device plugin manager. Consists of a `DeviceRegistry` that hosts a registration
+//! service for device plugins, a `DeviceManager` that maintains a device plugin client for each
+//! registered device plugin, a `NodePatcher` that patches the Node status with the extended
+//! resources advertised by device plugins, and a `PodDevices` that maintains a list of Pods that
+//! are actively using allocated resources.
 pub mod manager;
 pub(crate) mod node_patcher;
 pub(crate) mod plugin_connection;
@@ -20,8 +24,8 @@ use tracing::debug;
 
 pub(crate) const PLUGIN_MANGER_SOCKET_NAME: &str = "kubelet.sock";
 
-/// `DeviceIdMap` contains the device Ids of all the devices advertised by device plugins.
-/// Key is resource name.
+/// `DeviceIdMap` contains the device Ids of all the devices advertised by device plugins. Key is
+/// resource name.
 type DeviceIdMap = HashMap<String, PluginDeviceIds>;
 
 /// `PluginDeviceIds` contains the IDs of all the devices advertised by a single device plugin
@@ -30,28 +34,32 @@ type PluginDeviceIds = HashSet<String>;
 /// `DeviceMap` contains all the devices advertised by all device plugins. Key is resource name.
 type DeviceMap = HashMap<String, PluginDevicesMap>;
 
-/// `PluginDevicesMap` contains all of the devices advertised by a single device plugin. Key is device ID.
+/// `PluginDevicesMap` contains all of the devices advertised by a single device plugin. Key is
+/// device ID.
 type PluginDevicesMap = HashMap<String, Device>;
 
-/// Map of resources requested by a Container. Key is resource name and value is requested quantity of the resource
+/// Map of resources requested by a Container. Key is resource name and value is requested quantity
+/// of the resource
 type ContainerResourceRequests = HashMap<String, Quantity>;
 
-/// Map of resources requested by the Containers of a Pod. Key is container name and value is the Container's resource requests
+/// Map of resources requested by the Containers of a Pod. Key is container name and value is the
+/// Container's resource requests
 pub type PodResourceRequests = HashMap<String, ContainerResourceRequests>;
 
 /// Healthy means the device is allocatable (whether already allocated or not)
 const HEALTHY: &str = "Healthy";
 
-/// Hosts the device plugin `Registration` service (defined in the device plugin API) for a `DeviceManager`.
-/// Upon device plugin registration, reaches out to its `DeviceManager` to validate the device plugin
-/// and establish a connection with it.
+/// Hosts the device plugin `Registration` service (defined in the device plugin API) for a
+/// `DeviceManager`. Upon device plugin registration, reaches out to its `DeviceManager` to validate
+/// the device plugin and establish a connection with it.
 #[derive(Clone)]
 pub struct DeviceRegistry {
     device_manager: Arc<DeviceManager>,
 }
 
 impl DeviceRegistry {
-    /// Returns a new `DeviceRegistry` with a reference to a `DeviceManager` to handle each registered device plugin.
+    /// Returns a new `DeviceRegistry` with a reference to a `DeviceManager` to handle each
+    /// registered device plugin.
     pub fn new(device_manager: Arc<DeviceManager>) -> Self {
         DeviceRegistry { device_manager }
     }
@@ -79,9 +87,9 @@ impl Registration for DeviceRegistry {
     }
 }
 
-/// Starts the `DeviceManager` by running its `NodePatcher` and serving the `DeviceRegistry` which hosts the device plugin manager's `Registration` service on the socket
-/// specified in the `DeviceManager`.
-/// Returns an error if either the `NodePatcher` or `DeviceRegistry` error.
+/// Starts the `DeviceManager` by running its `NodePatcher` and serving the `DeviceRegistry` which
+/// hosts the device plugin manager's `Registration` service on the socket specified in the
+/// `DeviceManager`. Returns an error if either the `NodePatcher` or `DeviceRegistry` error.
 pub async fn serve_device_registry(device_manager: Arc<DeviceManager>) -> anyhow::Result<()> {
     // Create plugin manager if it doesn't exist
     tokio::fs::create_dir_all(&device_manager.plugin_dir).await?;
@@ -102,9 +110,9 @@ pub async fn serve_device_registry(device_manager: Arc<DeviceManager>) -> anyhow
     let node_patcher_task = task::spawn(async move {
         node_status_patcher.listen_and_patch(tx).await.unwrap();
     });
-    // Have NodePatcher notify when it has created a receiver to avoid race case of the DeviceManager trying
-    // to send device info to the NodeStatusPatcher before the NodeStatusPatcher has created a receiver.
-    // Sender would error due to no active receivers.
+    // Have NodePatcher notify when it has created a receiver to avoid race case of the
+    // DeviceManager trying to send device info to the NodeStatusPatcher before the
+    // NodeStatusPatcher has created a receiver. Sender would error due to no active receivers.
     rx.await?;
     let device_registry = DeviceRegistry::new(device_manager);
     let device_manager_task = task::spawn(async {
@@ -140,14 +148,15 @@ pub mod test_utils {
         .unwrap()
     }
 
-    /// Creates a mock kubernetes API service that the NodePatcher calls to when device plugin resources
-    /// need to be updated in the Node status.
-    /// It verifies the request and always returns a fake Node.
-    /// Returns a client that will reference this mock service and the task the service is running on.
+    /// Creates a mock kubernetes API service that the NodePatcher calls to when device plugin
+    /// resources need to be updated in the Node status. It verifies the request and always returns
+    /// a fake Node. Returns a client that will reference this mock service and the task the service
+    /// is running on.
     pub async fn create_mock_kube_service(
         node_name: &str,
     ) -> (Client, tokio::task::JoinHandle<()>) {
-        // Mock client as inspired by this thread on kube-rs crate: https://github.com/clux/kube-rs/issues/429
+        // Mock client as inspired by this thread on kube-rs crate:
+        // https://github.com/clux/kube-rs/issues/429
         let (mock_service, handle) = mock::pair::<HttpRequest<Body>, HttpResponse<Body>>();
         let node_name = node_name.to_string();
         let spawned = tokio::spawn(async move {

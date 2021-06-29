@@ -5,9 +5,8 @@ use kube::api::{Api, ListParams};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-/// `DeviceAllocateInfo` contains the device ids reserved to a container for a specific
-/// resource and the ContainerAllocateResponse which contains information about what
-/// to mount into the container
+/// `DeviceAllocateInfo` contains the device ids reserved to a container for a specific resource and
+/// the ContainerAllocateResponse which contains information about what to mount into the container
 #[derive(Clone, Debug)]
 pub struct DeviceAllocateInfo {
     /// Contains the device Ids allocated to this container for the given resource name
@@ -20,9 +19,9 @@ type ResourceAllocateInfo = HashMap<String, DeviceAllocateInfo>;
 /// Map of container device information, keyed by container name
 pub type ContainerDevices = HashMap<String, ResourceAllocateInfo>;
 
-/// PodDevices contains the map of Pods to allocated devices
-/// This is a very nested structure modeled after Kubernetes
-/// (see https://github.com/kubernetes/kubernetes/blob/master/pkg/kubelet/cm/devicemanager/pod_devices.go).
+/// PodDevices contains the map of Pods to allocated devices This is a very nested structure modeled
+/// after Kubernetes (see
+/// https://github.com/kubernetes/kubernetes/blob/master/pkg/kubelet/cm/devicemanager/pod_devices.go).
 /// This could potentially be simplified by use of an in memory database.
 #[derive(Clone)]
 pub struct PodDevices {
@@ -43,9 +42,8 @@ impl PodDevices {
         }
     }
 
-    /// A method for listing active pods on the node so the
-    /// amount of device plugin resources requested by existing pods could be counted
-    /// when updating allocated devices
+    /// A method for listing active pods on the node so the amount of device plugin resources
+    /// requested by existing pods could be counted when updating allocated devices
     pub async fn get_active_pods(&self) -> anyhow::Result<HashSet<String>> {
         let pod_client: Api<Pod> = Api::all(self.client.clone());
         let pods = pod_client
@@ -135,7 +133,8 @@ impl PodDevices {
             .or_insert(container_devices);
     }
 
-    /// Returns all of the allocate responses for a Pod. Used to set mounts, env vars, annotations, and device specs for Pod.
+    /// Returns all of the allocate responses for a Pod. Used to set mounts, env vars, annotations,
+    /// and device specs for Pod.
     pub fn get_pod_allocate_responses(
         &self,
         pod_uid: &str,

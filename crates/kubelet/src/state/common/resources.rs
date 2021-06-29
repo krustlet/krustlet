@@ -74,7 +74,9 @@ impl<P: GenericProvider> State<P::PodState> for Resources<P> {
             }
 
             // In Pod, set env vars and set HostPath volumes for each `ContainerAllocateResponse`.
-            // TODO: add support for setting container path mounts, env vars, annotations, and device specs (with permissions) specified in the device plugins' `ContainerAllocateResponse`s.
+            // TODO: add support for setting container path mounts, env vars, annotations, and
+            // device specs (with permissions) specified in the device plugins'
+            // `ContainerAllocateResponse`s.
             if let Some(container_allocate_responses) =
                 device_plugin_manager.get_pod_allocate_responses(pod.pod_uid())
             {

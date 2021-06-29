@@ -9,9 +9,9 @@ use tokio::sync::{broadcast, RwLock};
 use tonic::Request;
 use tracing::{debug, error, trace};
 
-/// PluginConnection that maps to a single registered device plugin.
-/// It is responsible for managing gRPC communications with the device plugin and caching
-/// device states reported by the device plugin
+/// PluginConnection that maps to a single registered device plugin. It is responsible for managing
+/// gRPC communications with the device plugin and caching device states reported by the device
+/// plugin
 pub struct PluginConnection {
     /// Client that is connected to the device plugin
     client: DevicePluginClient<tonic::transport::Channel>,
@@ -48,10 +48,10 @@ impl PluginConnection {
         }
     }
 
-    /// Connects to a device plugin's ListAndWatch service.
-    /// The device plugin updates this client periodically about changes in the capacity and health of its resource.
-    /// Upon updates, this propagates any changes into the `plugins` map and triggers the `NodePatcher` to
-    /// patch the node with the latest values.
+    /// Connects to a device plugin's ListAndWatch service. The device plugin updates this client
+    /// periodically about changes in the capacity and health of its resource. Upon updates, this
+    /// propagates any changes into the `plugins` map and triggers the `NodePatcher` to patch the
+    /// node with the latest values.
     async fn list_and_watch(
         &self,
         devices: Arc<RwLock<DeviceMap>>,
@@ -94,14 +94,12 @@ impl PluginConnection {
     }
 }
 
-/// This updates the shared device map with the new devices reported by the device plugin.
-/// This iterates through the latest devices, comparing them with the previously reported devices and
-/// updates the shared device map if:
-/// (1) Device modified: DP reporting a previous device with a different health status
-/// (2) Device added: DP reporting a new device
-/// (3) Device removed: DP is no longer advertising a device
-/// If any of the 3 cases occurs, this returns true, signaling that the `NodePatcher` needs to update the
-/// Node status with new devices.
+/// This updates the shared device map with the new devices reported by the device plugin. This
+/// iterates through the latest devices, comparing them with the previously reported devices and
+/// updates the shared device map if: (1) Device modified: DP reporting a previous device with a
+/// different health status (2) Device added: DP reporting a new device (3) Device removed: DP is no
+/// longer advertising a device If any of the 3 cases occurs, this returns true, signaling that the
+/// `NodePatcher` needs to update the Node status with new devices.
 async fn update_devices_map(
     resource_name: &str,
     devices: Arc<RwLock<DeviceMap>>,

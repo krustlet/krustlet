@@ -1,4 +1,7 @@
-//! The Kubelet device plugin manager. Consists of a `DeviceRegistry` that hosts a registration service for device plugins, a `DeviceManager` that maintains a device plugin client for each registered device plugin, a `NodePatcher` that patches the Node status with the extended resources advertised by device plugins, and a `PodDevices` that maintains a list of Pods that are actively using allocated resources.
+//! The `DeviceManager` maintains a device plugin client for each
+//! registered device plugin. It ensures that the Node's `NodeStatus` contains the
+//! the resources advertised by device plugins and performs allocate calls
+//! on device plugins when Pods are scheduled that request device plugin resources.
 use super::super::util;
 use super::node_patcher::NodeStatusPatcher;
 use super::plugin_connection::PluginConnection;
@@ -36,20 +39,24 @@ pub struct ContainerAllocateInfo {
     container_allocate_request: ContainerAllocateRequest,
 }
 
-/// An implementation of the Kubernetes Device Plugin Manager (https://github.com/kubernetes/kubernetes/tree/v1.21.1/pkg/kubelet/cm/devicemanager).
-/// It implements the device plugin framework's `Registration` gRPC service. A device plugin (DP) can register itself with the kubelet through this gRPC
-/// service. This allows the DP to advertise a resource like system hardware kubelet. The `DeviceManager` contains a `NodePatcher` that patches the Node
-/// with resources advertised by DPs. Then the K8s scheduler can schedule Pods that request those resources to this Node. Once scheduled, the device manager
-/// confirms notifies the DP that it wants to use on of its resources by making an `allocate` gRPC call. On success, it ensures that all necessary mounts,
-/// environment variables, annotations, and device specs are added to the Pod (which's Containers) are requesting the DP resource.
+/// An implementation of the Kubernetes Device Plugin Manager
+/// (https://github.com/kubernetes/kubernetes/tree/v1.21.1/pkg/kubelet/cm/devicemanager). It
+/// implements the device plugin framework's `Registration` gRPC service. A device plugin (DP) can
+/// register itself with the kubelet through this gRPC service. This allows the DP to advertise a
+/// resource like system hardware kubelet. The `DeviceManager` contains a `NodePatcher` that patches
+/// the Node with resources advertised by DPs. Then the K8s scheduler can schedule Pods that request
+/// those resources to this Node. Once scheduled, the device manager confirms notifies the DP that
+/// it wants to use on of its resources by making an `allocate` gRPC call. On success, it ensures
+/// that all necessary mounts, environment variables, annotations, and device specs are added to the
+/// Pod (which's Containers) are requesting the DP resource.
 #[derive(Clone)]
 pub struct DeviceManager {
     /// Map of registered device plugins, keyed by resource name
     plugins: Arc<RwLock<HashMap<String, Arc<PluginConnection>>>>,
     /// Directory where the device plugin sockets live
     pub(crate) plugin_dir: PathBuf,
-    /// Contains all the devices advertised by all device plugins. Key is resource name.
-    /// Shared with the NodePatcher.
+    /// Contains all the devices advertised by all device plugins. Key is resource name. Shared with
+    /// the NodePatcher.
     pub(crate) devices: Arc<RwLock<DeviceMap>>,
     /// Structure containing map with Pod to currently allocated devices mapping
     pod_devices: PodDevices,
@@ -57,7 +64,7 @@ pub struct DeviceManager {
     allocated_device_ids: Arc<RwLock<DeviceIdMap>>,
     /// Sender to notify the NodePatcher to update NodeStatus with latest resource values.
     update_node_status_sender: broadcast::Sender<()>,
-    /// Struture that patches the Node with the latest resource values when signaled.
+    /// Structure that patches the Node with the latest resource values when signaled.
     pub(crate) node_status_patcher: NodeStatusPatcher,
 }
 
@@ -84,7 +91,8 @@ impl DeviceManager {
         }
     }
 
-    /// Returns a new device manager configured with the default `/var/lib/kubelet/device_plugins/` device plugin directory path
+    /// Returns a new device manager configured with the default `/var/lib/kubelet/device_plugins/`
+    /// device plugin directory path
     pub fn new_with_default_path(client: kube::Client, node_name: &str) -> Self {
         DeviceManager::new(DEFAULT_PLUGIN_PATH, client, node_name)
     }
@@ -98,11 +106,12 @@ impl DeviceManager {
     /// Validates the given plugin info gathered from a discovered plugin, returning an error with
     /// additional information if it is not valid. This will validate 3 specific things (should
     /// answer YES to all of these):
-    /// 1. Does this manager support the device plugin version? Currently only accepting `API_VERSION`.
-    ///    TODO: determine whether can support all versions prior to current `API_VERSION`.
+    /// 1. Does this manager support the device plugin version? Currently only accepting
+    ///    `API_VERSION`. TODO: determine whether can support all versions prior to current
+    ///    `API_VERSION`.
     /// 2. Does the plugin have a valid extended resource name?
-    /// 3. Is the plugin name available? 2a. If the name is already registered, is the plugin_connection the
-    ///    exact same? If it is, we allow it to reregister
+    /// 3. Is the plugin name available? 2a. If the name is already registered, is the
+    ///    plugin_connection the exact same? If it is, we allow it to register again
     pub(crate) async fn validate(
         &self,
         register_request: &RegisterRequest,
@@ -136,9 +145,10 @@ impl DeviceManager {
         Ok(())
     }
 
-    /// Validates if the plugin is unique (meaning it doesn't exist in the `plugins` map).
-    /// If there is an active plugin registered with this name, returns error.
-    /// TODO: Might be best to always accept: https://sourcegraph.com/github.com/kubernetes/kubernetes@9d6e5049bb719abf41b69c91437d25e273829746/-/blob/pkg/kubelet/cm/devicemanager/manager.go?subtree=true#L439
+    /// Validates if the plugin is unique (meaning it doesn't exist in the `plugins` map). If there
+    /// is an active plugin registered with this name, returns error. TODO: Might be best to always
+    /// accept:
+    /// https://sourcegraph.com/github.com/kubernetes/kubernetes@9d6e5049bb719abf41b69c91437d25e273829746/-/blob/pkg/kubelet/cm/devicemanager/manager.go?subtree=true#L439
     async fn validate_is_unique(
         &self,
         register_request: &RegisterRequest,
@@ -159,8 +169,8 @@ impl DeviceManager {
         Ok(())
     }
 
-    /// This creates a connection to a device plugin by calling it's ListAndWatch function.
-    /// Upon a successful connection, an `PluginConnection` is added to the `plugins` map.
+    /// This creates a connection to a device plugin by calling it's ListAndWatch function. Upon a
+    /// successful connection, an `PluginConnection` is added to the `plugins` map.
     pub(crate) async fn create_plugin_connection(
         &self,
         register_request: RegisterRequest,
@@ -201,9 +211,8 @@ impl DeviceManager {
         Ok(())
     }
 
-    /// This is the call that you can use to allocate a set of devices
-    /// from the registered device plugins.
-    /// Takes in a map of devices requested by containers, keyed by container name.
+    /// This is the call that you can use to allocate a set of devices from the registered device
+    /// plugins. Takes in a map of devices requested by containers, keyed by container name.
     pub async fn do_allocate(
         &self,
         pod_uid: &str,
@@ -218,8 +227,8 @@ impl DeviceManager {
                     continue;
                 }
 
-                // Device plugin resources should be request in numerical amounts.
-                // Return error if requested quantity cannot be parsed.
+                // Device plugin resources should be request in numerical amounts. Return error if
+                // requested quantity cannot be parsed.
                 let num_requested: usize = get_num_from_quantity(quantity)?;
 
                 // Check that the resource has enough healthy devices
@@ -265,13 +274,14 @@ impl DeviceManager {
         }
     }
 
-    /// Allocates each resource requested by a Pods containers by calling allocate on the respective device plugins.
-    /// Stores the allocate responces in the PodDevices allocated map.
-    /// Returns an error if an allocate call to any device plugin returns an error.
+    /// Allocates each resource requested by a Pods containers by calling allocate on the respective
+    /// device plugins. Stores the allocate responses in the PodDevices allocated map. Returns an
+    /// error if an allocate call to any device plugin returns an error.
     ///
-    /// Note, say DP1 and DP2 are registered for R1 and R2 respectively. If the allocate call to DP1 for R1 succeeds
-    /// but the allocate call to DP2 for R2 fails, DP1 will have completed any allocation steps it performs despite the fact that the
-    /// Pod will not be scheduled due to R2 not being an available resource. This is expected behavior with the device plugin interface.
+    /// Note, say DP1 and DP2 are registered for R1 and R2 respectively. If the allocate call to DP1
+    /// for R1 succeeds but the allocate call to DP2 for R2 fails, DP1 will have completed any
+    /// allocation steps it performs despite the fact that the Pod will not be scheduled due to R2
+    /// not being an available resource. This is expected behavior with the device plugin interface.
     async fn do_allocate_for_pod(
         &self,
         pod_uid: &str,
@@ -305,9 +315,10 @@ impl DeviceManager {
                 .into_inner()
                 .container_responses;
 
-            // By doing one allocate call per Pod, an assumption is being made that the container requests array (sent to a DP)
-            // and container responses array returned are the same length. This is not documented in the DP API. However Kubernetes has a
-            // TODO (https://github.com/kubernetes/kubernetes/blob/d849d9d057369121fc43aa3359059471e1ca9d1c/pkg/kubelet/cm/devicemanager/manager.go#L916)
+            // By doing one allocate call per Pod, an assumption is being made that the container
+            // requests array (sent to a DP) and container responses array returned are the same
+            // length. This is not documented in the DP API. However Kubernetes has a TODO
+            // (https://github.com/kubernetes/kubernetes/blob/d849d9d057369121fc43aa3359059471e1ca9d1c/pkg/kubelet/cm/devicemanager/manager.go#L916)
             // to use the same one call implementation.
             if container_requests.len() != container_responses.len() {
                 return Err(anyhow::anyhow!("Container responses returned from allocate are not the same length as container requests"));
@@ -389,7 +400,8 @@ impl DeviceManager {
         Ok(())
     }
 
-    /// Returns a map all of the allocate responses for a Pod, keyed by Container name. Used to set mounts, env vars, annotations, and device specs for Pod.
+    /// Returns a map all of the allocate responses for a Pod, keyed by Container name. Used to set
+    /// mounts, env vars, annotations, and device specs for Pod.
     pub fn get_pod_allocate_responses(
         &self,
         pod_uid: &str,
@@ -397,10 +409,10 @@ impl DeviceManager {
         self.pod_devices.get_pod_allocate_responses(pod_uid)
     }
 
-    /// Looks to see if devices have been previously allocated to a container (due to a container restart)
-    /// or for devices that are healthy and not yet allocated.
-    /// Returns list of device Ids we need to allocate with Allocate rpc call.
-    /// Returns empty list in case we don't need to issue the Allocate rpc call.
+    /// Looks to see if devices have been previously allocated to a container (due to a container
+    /// restart) or for devices that are healthy and not yet allocated. Returns list of device Ids
+    /// we need to allocate with Allocate rpc call. Returns empty list in case we don't need to
+    /// issue the Allocate rpc call.
     async fn devices_to_allocate(
         &self,
         resource_name: &str,
@@ -408,7 +420,8 @@ impl DeviceManager {
         container_name: &str,
         quantity: usize,
     ) -> anyhow::Result<Vec<String>> {
-        // Get list of devices already allocated to this container. This can occur if a container has restarted.
+        // Get list of devices already allocated to this container. This can occur if a container
+        // has restarted.
         if let Some(device_ids) =
             self.pod_devices
                 .get_container_devices(resource_name, pod_uid, container_name)
@@ -448,17 +461,17 @@ impl DeviceManager {
         }
 
         // let plugin_connection = self.plugins.lock().unwrap().get(resource_name).unwrap().clone();
-        // let get_preferred_allocation_available = match &plugin_connection.register_request.options {
-        //     None => false,
-        //     Some(options) => options.get_preferred_allocation_available,
+        // let get_preferred_allocation_available = match
+        // &plugin_connection.register_request.options {None => false, Some(options) =>
+        // options.get_preferred_allocation_available,
         // };
 
         // if get_preferred_allocation_available {
         //
         // }
 
-        // TODO: support preferred allocation
-        // For now, reserve first N devices where N = quantity by adding them to allocated map
+        // TODO: support preferred allocation For now, reserve first N devices where N = quantity by
+        // adding them to allocated map
         let devices_to_allocate: Vec<String> = available_devices[..quantity].to_vec();
         devices_to_allocate.iter().for_each(|dev| {
             allocated_devices.insert(dev.clone());
@@ -501,8 +514,8 @@ async fn remove_plugin(
     debug!(resource = %resource_name, "Removing plugin");
     let mut lock = plugins.write().await;
     if let Some(old_plugin_connection) = lock.get(resource_name) {
-        // TODO: partialEq only checks that reg requests are identical. May also want
-        // to check match of other fields.
+        // TODO: partialEq only checks that reg requests are identical. May also want to check match
+        // of other fields.
         if *old_plugin_connection == plugin_connection {
             lock.remove(resource_name);
         }
@@ -545,11 +558,11 @@ mod tests {
     use tokio::sync::{mpsc, watch};
     use tonic::{Request, Response, Status};
 
-    /// Mock Device Plugin for testing the DeviceManager
-    /// Sends a new list of devices to the DeviceManager whenever it's `devices_receiver`
-    /// is notified of them on a channel.
+    /// Mock Device Plugin for testing the DeviceManager Sends a new list of devices to the
+    /// DeviceManager whenever it's `devices_receiver` is notified of them on a channel.
     struct MockDevicePlugin {
-        // Using watch so the receiver can be cloned and be moved into a spawned thread in ListAndWatch
+        // Using watch so the receiver can be cloned and be moved into a spawned thread in
+        // ListAndWatch
         devices_receiver: watch::Receiver<Vec<Device>>,
     }
 
@@ -627,8 +640,8 @@ mod tests {
     async fn run_mock_device_plugin(
         devices_receiver: watch::Receiver<Vec<Device>>,
     ) -> anyhow::Result<String> {
-        // Device plugin temp socket deleted when it goes out of scope
-        // so create it in thread and return with a channel
+        // Device plugin temp socket deleted when it goes out of scope so create it in thread and
+        // return with a channel
         let (tx, rx) = tokio::sync::oneshot::channel();
         tokio::task::spawn(async move {
             let device_plugin_temp_dir =
@@ -643,7 +656,7 @@ mod tests {
             tx.send(dp_socket.clone()).unwrap();
             let device_plugin = MockDevicePlugin { devices_receiver };
             let socket =
-                grpc_sock::server::Socket::new(&dp_socket).expect("couldnt make dp socket");
+                grpc_sock::server::Socket::new(&dp_socket).expect("couldn't make dp socket");
             let serv = tonic::transport::Server::builder()
                 .add_service(DevicePluginServer::new(device_plugin))
                 .serve_with_incoming(socket);
@@ -679,14 +692,14 @@ mod tests {
         Ok(())
     }
 
-    /// Tests e2e flow of kicked off by a mock DP registering with the DeviceManager
-    /// DeviceManager should call ListAndWatch on the DP, update it's devices registry with the DP's
-    /// devices, and instruct it's NodePatcher to patch the node status with the new DP resources.
+    /// Tests e2e flow of kicked off by a mock DP registering with the DeviceManager DeviceManager
+    /// should call ListAndWatch on the DP, update it's devices registry with the DP's devices, and
+    /// instruct it's NodePatcher to patch the node status with the new DP resources.
     #[tokio::test]
     async fn do_device_manager_test() {
-        // There doesn't seem to be a way to use the same temp dir for manager and mock dp due to being able to
-        // pass the temp dir reference to multiple threads
-        // Instead, create a temp dir for the DP manager and the mock DP
+        // There doesn't seem to be a way to use the same temp dir for manager and mock dp due to
+        // being able to pass the temp dir reference to multiple threads Instead, create a temp dir
+        // for the DP manager and the mock DP
         let manager_temp_dir = tempfile::tempdir().expect("should be able to create tempdir");
 
         // Make 3 mock devices
@@ -783,7 +796,8 @@ mod tests {
         assert_eq!(get_num_from_quantity(Quantity("2".to_string())).unwrap(), 2);
     }
 
-    // Test that when a pod requests resources that are not device plugins that no allocate calls are made
+    // Test that when a pod requests resources that are not device plugins that no allocate calls
+    // are made
     #[tokio::test]
     async fn test_do_allocate_dne() {
         let resource_name = "example.com/other-extended-resource";
@@ -826,7 +840,8 @@ mod tests {
         .await
         .unwrap();
         dm.do_allocate_for_pod("pod_uid", all_reqs).await.unwrap();
-        // Assert that two responses were stored in `PodDevices`, one for each ContainerAllocateRequest
+        // Assert that two responses were stored in `PodDevices`, one for each
+        // ContainerAllocateRequest
         assert_eq!(dm.get_pod_allocate_responses("pod_uid").unwrap().len(), 2);
     }
 }

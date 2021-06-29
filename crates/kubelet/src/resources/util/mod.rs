@@ -1,10 +1,12 @@
-//! Helpers for parsing resource names and types. Checks that they follow the expected resource formatting
-//! explained in [this Kubernetes proposal](https://github.com/kubernetes/community/blob/master/contributors/design-proposals/scheduling/resources.md#the-kubernetes-resource-model).
+//! Helpers for parsing resource names and types. Checks that they follow the expected resource
+//! formatting explained in [this Kubernetes
+//! proposal](https://github.com/kubernetes/community/blob/master/contributors/design-proposals/scheduling/resources.md#the-kubernetes-resource-model).
 use regex::{Regex, RegexBuilder};
 use tracing::trace;
 
 const QUALIFIED_NAME_MAX_LENGTH: usize = 63;
-// QUALIFIED_NAME_FMT = "("" + QUALIFIED_NAME_CHAR_FMT + "*)?"" + QUALIFIED_NAME_EXT_CHAR_FMT + QUALIFIED_NAME_CHAR_FMT
+// QUALIFIED_NAME_FMT = "("" + QUALIFIED_NAME_CHAR_FMT + "*)?"" + QUALIFIED_NAME_EXT_CHAR_FMT +
+// QUALIFIED_NAME_CHAR_FMT
 const QUALIFIED_NAME_FMT: &str =
     concat!("(", "[A-Za-z0-9]", "[-A-Za-z0-9_.]", "*)?", "[A-Za-z0-9]");
 const QUALIFIED_NAME_ERR_MSG: &str = "must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character";
@@ -25,9 +27,8 @@ const RESOURCE_DEFAULT_NAMESPACE_PREFIX: &str = "kubernetes.io/";
 /// Default resource requests prefix
 const DEFAULT_RESOURCE_REQUESTS_PREFIX: &str = "requests.";
 
-/// Creates a new regex builder with the input pattern.
-/// Throws error if the pattern is invalid.
-///  Taken from oci_distribution::regexp (which is private)
+/// Creates a new regex builder with the input pattern. Throws error if the pattern is invalid.
+/// Taken from oci_distribution::regexp (which is private)
 pub fn must_compile(r: &str) -> Regex {
     RegexBuilder::new(r)
         .size_limit(10 * (1 << 21))
@@ -37,10 +38,11 @@ pub fn must_compile(r: &str) -> Regex {
 
 /// Returns true if:
 /// 1. the resource name is not in the default namespace;
-/// 2. resource name does not have "requests." prefix,
-/// to avoid confusion with the convention in quota
+/// 2. resource name does not have "requests." prefix, to avoid confusion with the convention in
+///    quota
 /// 3. it satisfies the rules in IsQualifiedName() after converted into quota resource name
-/// Following implementation from https://github.com/kubernetes/kubernetes/blob/v1.21.1/pkg/apis/core/helper/helpers.go#L174
+///    Following implementation from
+///    https://github.com/kubernetes/kubernetes/blob/v1.21.1/pkg/apis/core/helper/helpers.go#L174
 pub fn is_extended_resource_name(name: &str) -> bool {
     if is_native_resource(name) || name.starts_with(DEFAULT_RESOURCE_REQUESTS_PREFIX) {
         false
@@ -60,17 +62,15 @@ pub fn is_extended_resource_name(name: &str) -> bool {
     }
 }
 
-/// Returns true if the resource name is in the
-/// *kubernetes.io/ namespace. Partially-qualified (unprefixed) names are
-/// implicitly in the kubernetes.io/ namespace.
+/// Returns true if the resource name is in the *kubernetes.io/ namespace. Partially-qualified
+/// (unprefixed) names are implicitly in the kubernetes.io/ namespace.
 fn is_native_resource(name: &str) -> bool {
     !name.contains('/') || name.contains(RESOURCE_DEFAULT_NAMESPACE_PREFIX)
 }
 
 /// Tests whether the value passed is what Kubernetes calls a "qualified name".  
-/// A fully-qualified resource typename is constructed from a DNS-style subdomain,
-/// followed by a slash /, followed by a name.
-/// This is a format used in various places throughout the system.
+/// A fully-qualified resource typename is constructed from a DNS-style subdomain, followed by a
+/// slash /, followed by a name. This is a format used in various places throughout the system.
 /// Returns first improper formatting error hit.
 fn is_qualified_name(name: &str) -> anyhow::Result<()> {
     // List of error strings to be compiled into one error
@@ -108,8 +108,7 @@ fn is_qualified_name(name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Tests for a string that conforms to the definition of a
-/// subdomain in DNS (RFC 1123).
+/// Tests for a string that conforms to the definition of a subdomain in DNS (RFC 1123).
 fn is_dns_1123_subdomain(value: &str) -> anyhow::Result<()> {
     if value.len() > DNS_1123_SUBDOMAIN_MAX_LEN {
         Err(anyhow::format_err!(
