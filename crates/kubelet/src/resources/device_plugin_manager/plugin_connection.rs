@@ -96,10 +96,10 @@ impl PluginConnection {
 
 /// This updates the shared device map with the new devices reported by the device plugin. This
 /// iterates through the latest devices, comparing them with the previously reported devices and
-/// updates the shared device map if: 
-/// (1) Device modified: DP reporting a previous device with a different health status 
-/// (2) Device added: DP reporting a new device 
-/// (3) Device removed: DP is no longer advertising a device 
+/// updates the shared device map if:
+/// (1) Device modified: DP reporting a previous device with a different health status
+/// (2) Device added: DP reporting a new device
+/// (3) Device removed: DP is no longer advertising a device
 ///  If any of the 3 cases occurs, this returns true, signaling that the
 /// `NodePatcher` needs to update the Node status with new devices.
 async fn update_devices_map(

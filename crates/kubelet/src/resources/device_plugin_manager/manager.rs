@@ -1,7 +1,7 @@
-//! The `DeviceManager` maintains a device plugin client for each
-//! registered device plugin. It ensures that the Node's `NodeStatus` contains the
-//! the resources advertised by device plugins and performs allocate calls
-//! on device plugins when Pods are scheduled that request device plugin resources.
+//! The `DeviceManager` maintains a device plugin client for each registered device plugin. It
+//! ensures that the Node's `NodeStatus` contains the the resources advertised by device plugins and
+//! performs allocate calls on device plugins when Pods are scheduled that request device plugin
+//! resources.
 use super::super::util;
 use super::node_patcher::NodeStatusPatcher;
 use super::plugin_connection::PluginConnection;
@@ -110,8 +110,8 @@ impl DeviceManager {
     ///    `API_VERSION`. TODO: determine whether can support all versions prior to current
     ///    `API_VERSION`.
     /// 2. Does the plugin have a valid extended resource name?
-    /// 3. Is the plugin name available? 2a. If the name is already registered, is the
-    ///    plugin_connection the exact same? If it is, we allow it to register again
+    /// 3. Is the plugin name available? If the name is already registered, return an error that the
+    ///    plugin already exists.
     pub(crate) async fn validate(
         &self,
         register_request: &RegisterRequest,
@@ -145,10 +145,8 @@ impl DeviceManager {
         Ok(())
     }
 
-    /// Validates if the plugin is unique (meaning it doesn't exist in the `plugins` map). If there
-    /// is an active plugin registered with this name, returns error. TODO: Might be best to always
-    /// accept:
-    /// https://sourcegraph.com/github.com/kubernetes/kubernetes@9d6e5049bb719abf41b69c91437d25e273829746/-/blob/pkg/kubelet/cm/devicemanager/manager.go?subtree=true#L439
+    /// Validates that the plugin is unique (meaning it doesn't exist in the `plugins` map). If
+    /// there is an active plugin registered with this name, returns error.
     async fn validate_is_unique(
         &self,
         register_request: &RegisterRequest,
@@ -156,7 +154,6 @@ impl DeviceManager {
         let plugins = self.plugins.read().await;
 
         if let Some(_previous_plugin_entry) = plugins.get(&register_request.resource_name) {
-            // TODO: check if plugin is active
             return Err(tonic::Status::new(
                 tonic::Code::AlreadyExists,
                 format!(
