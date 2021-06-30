@@ -8,9 +8,10 @@
 //! ```rust,no_run
 //! use kubelet::Kubelet;
 //! use kubelet::config::Config;
+//! use kubelet::resources::DeviceManager;
 //! use kubelet::plugin_watcher::PluginRegistry;
 //! use kubelet::pod::Pod;
-//! use kubelet::provider::{Provider, PluginSupport};
+//! use kubelet::provider::{DevicePluginSupport, Provider, PluginSupport};
 //! use std::sync::Arc;
 //! use tokio::sync::RwLock;
 //! use kubelet::pod::state::prelude::*;
@@ -58,6 +59,12 @@
 //!     }
 //! }
 //!
+//! impl DevicePluginSupport for ProviderState {
+//!     fn device_plugin_manager(&self) -> Option<Arc<DeviceManager>> {
+//!         None
+//!     }
+//! }
+//!
 //! async {
 //!     // Instantiate your provider type
 //!     let provider = MyProvider;
@@ -91,6 +98,12 @@ pub(crate) mod plugin_registration_api {
         tonic::include_proto!("pluginregistration");
     }
 }
+pub(crate) mod device_plugin_api {
+    pub(crate) mod v1beta1 {
+        pub const API_VERSION: &str = "v1beta1";
+        tonic::include_proto!("v1beta1");
+    }
+}
 pub(crate) mod fs_watch;
 pub(crate) mod grpc_sock;
 #[cfg(target_family = "windows")]
@@ -106,6 +119,7 @@ pub mod node;
 pub mod plugin_watcher;
 pub mod pod;
 pub mod provider;
+pub mod resources;
 pub mod secret;
 pub mod state;
 pub mod store;

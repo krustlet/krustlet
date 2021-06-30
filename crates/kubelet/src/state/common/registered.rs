@@ -4,7 +4,7 @@ use crate::pod::state::prelude::*;
 use tracing::{debug, error, info, instrument};
 
 use super::error::Error;
-use super::image_pull::ImagePull;
+use super::resources::Resources;
 use super::GenericProvider;
 
 /// The Kubelet is aware of the Pod.
@@ -53,7 +53,7 @@ impl<P: GenericProvider> State<P::PodState> for Registered<P> {
             }
         }
         info!("Pod registered");
-        let next = ImagePull::<P>::default();
+        let next = Resources::<P>::default();
         Transition::next(self, next)
     }
 
@@ -63,4 +63,4 @@ impl<P: GenericProvider> State<P::PodState> for Registered<P> {
 }
 
 impl<P: GenericProvider> TransitionTo<Error<P>> for Registered<P> {}
-impl<P: GenericProvider> TransitionTo<ImagePull<P>> for Registered<P> {}
+impl<P: GenericProvider> TransitionTo<Resources<P>> for Registered<P> {}

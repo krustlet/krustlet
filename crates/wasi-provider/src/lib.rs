@@ -6,7 +6,9 @@
 //! # Example
 //! ```rust,no_run
 //! use kubelet::{Kubelet, config::Config};
+//! use kubelet::resources::DeviceManager;
 //! use kubelet::store::oci::FileStore;
+//! use std::convert::TryFrom;
 //! use std::sync::Arc;
 //! use wasi_provider::WasiProvider;
 //!
@@ -19,9 +21,10 @@
 //!     // Load a kubernetes configuration
 //!     let kubeconfig = kube::Config::infer().await.unwrap();
 //!     let plugin_registry = Arc::new(Default::default());
+//!     let device_plugin_manager = Arc::new(DeviceManager::new_with_default_path(kube::Client::try_from(kubeconfig.clone()).unwrap(), &kubelet_config.node_name));
 //!
 //!     // Instantiate the provider type
-//!     let provider = WasiProvider::new(store, &kubelet_config, kubeconfig.clone(), plugin_registry).await.unwrap();
+//!     let provider = WasiProvider::new(store, &kubelet_config, kubeconfig.clone(), plugin_registry, device_plugin_manager).await.unwrap();
 //!
 //!     // Instantiate the Kubelet
 //!     let kubelet = Kubelet::new(provider, kubeconfig, kubelet_config).await.unwrap();
@@ -44,7 +47,10 @@ use kubelet::node::Builder;
 use kubelet::plugin_watcher::PluginRegistry;
 use kubelet::pod::state::prelude::SharedState;
 use kubelet::pod::{Handle, Pod, PodKey};
-use kubelet::provider::{PluginSupport, Provider, ProviderError, VolumeSupport};
+use kubelet::provider::{
+    DevicePluginSupport, PluginSupport, Provider, ProviderError, VolumeSupport,
+};
+use kubelet::resources::DeviceManager;
 use kubelet::state::common::registered::Registered;
 use kubelet::state::common::terminated::Terminated;
 use kubelet::state::common::{GenericProvider, GenericProviderState};
@@ -79,6 +85,7 @@ pub struct ProviderState {
     client: kube::Client,
     volume_path: PathBuf,
     plugin_registry: Arc<PluginRegistry>,
+    device_plugin_manager: Arc<DeviceManager>,
 }
 
 #[async_trait]
@@ -112,6 +119,12 @@ impl PluginSupport for ProviderState {
     }
 }
 
+impl DevicePluginSupport for ProviderState {
+    fn device_plugin_manager(&self) -> Option<Arc<DeviceManager>> {
+        Some(self.device_plugin_manager.clone())
+    }
+}
+
 impl WasiProvider {
     /// Create a new wasi provider from a module store and a kubelet config
     pub async fn new(
@@ -119,6 +132,7 @@ impl WasiProvider {
         config: &kubelet::config::Config,
         kubeconfig: kube::Config,
         plugin_registry: Arc<PluginRegistry>,
+        device_plugin_manager: Arc<DeviceManager>,
     ) -> anyhow::Result<Self> {
         let log_path = config.data_dir.join(LOG_DIR_NAME);
         let volume_path = config.data_dir.join(VOLUME_DIR);
@@ -133,6 +147,7 @@ impl WasiProvider {
                 volume_path,
                 client,
                 plugin_registry,
+                device_plugin_manager,
             },
         })
     }
@@ -141,6 +156,7 @@ impl WasiProvider {
 struct ModuleRunContext {
     modules: HashMap<String, Vec<u8>>,
     volumes: HashMap<String, VolumeRef>,
+    env_vars: HashMap<String, HashMap<String, String>>,
 }
 
 #[async_trait::async_trait]

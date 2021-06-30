@@ -79,7 +79,7 @@ impl State<ContainerState> for Waiting {
             (provider_state.client(), provider_state.log_path.clone())
         };
 
-        let (module_data, container_volumes) = {
+        let (module_data, container_volumes, container_envs) = {
             let mut run_context = state.run_context.write().await;
             let module_data = match run_context.modules.remove(container.name()) {
                 Some(data) => data,
@@ -114,10 +114,18 @@ impl State<ContainerState> for Waiting {
                     )
                 }
             };
-            (module_data, container_volumes)
+            (
+                module_data,
+                container_volumes,
+                run_context
+                    .env_vars
+                    .remove(container.name())
+                    .unwrap_or_default(),
+            )
         };
 
-        let env = kubelet::provider::env_vars(&container, &state.pod, &client).await;
+        let mut env = kubelet::provider::env_vars(&container, &state.pod, &client).await;
+        env.extend(container_envs);
         let args = container.args().clone().unwrap_or_default();
 
         // TODO: ~magic~ number
@@ -129,6 +137,7 @@ impl State<ContainerState> for Waiting {
             state.pod.name(),
             container.name()
         );
+        // TODO: decide how/what it means to propagate annotations (from run_context) into WASM modules.
         let runtime = match WasiRuntime::new(
             name,
             module_data,

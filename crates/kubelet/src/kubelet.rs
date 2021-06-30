@@ -4,7 +4,8 @@ use crate::config::Config;
 use crate::node;
 use crate::operator::PodOperator;
 use crate::plugin_watcher::PluginRegistry;
-use crate::provider::{PluginSupport, Provider};
+use crate::provider::{DevicePluginSupport, PluginSupport, Provider};
+use crate::resources::device_plugin_manager::{serve_device_registry, DeviceManager};
 use crate::webserver::start as start_webserver;
 
 use futures::future::{FutureExt, TryFutureExt};
@@ -77,6 +78,16 @@ impl<P: Provider> Kubelet<P> {
         .fuse()
         .boxed();
 
+        let device_manager = start_device_manager(
+            self.provider
+                .provider_state()
+                .read()
+                .await
+                .device_plugin_manager(),
+        )
+        .fuse()
+        .boxed();
+
         // Start the webserver
         let webserver = start_webserver(self.provider.clone(), &self.config.server_config)
             .fuse()
@@ -99,6 +110,9 @@ impl<P: Provider> Kubelet<P> {
                 },
                 res = plugin_registrar => if let Err(e) = res {
                     error!(error = %e, "Plugin registrar task completed with error");
+                },
+                res = device_manager => if let Err(e) = res {
+                    error!(error = %e, "Device manager task completed with error");
                 }
             };
             // Use relaxed ordering because we just need other tasks to eventually catch the signal.
@@ -183,6 +197,24 @@ async fn start_plugin_registry(registrar: Option<Arc<PluginRegistry>>) -> anyhow
     }
 }
 
+/// Starts a DeviceManager
+async fn start_device_manager(device_manager: Option<Arc<DeviceManager>>) -> anyhow::Result<()> {
+    match device_manager {
+        Some(dm) => serve_device_registry(dm).await,
+        // Do nothing; just poll forever and "pretend" that a DeviceManager is running
+        None => {
+            task::spawn(async {
+                loop {
+                    // We run a delay here so we don't waste time on NOOP CPU cycles
+                    tokio::time::sleep(tokio::time::Duration::from_secs(std::u64::MAX)).await;
+                }
+            })
+            .map_err(anyhow::Error::from)
+            .await
+        }
+    }
+}
+
 /// Periodically renew node lease and status. Exits if signal is caught.
 async fn start_node_updater(client: kube::Client, node_name: String) -> anyhow::Result<()> {
     let sleep_interval = std::time::Duration::from_secs(10);
@@ -212,6 +244,7 @@ mod test {
     use super::*;
     use crate::plugin_watcher::PluginRegistry;
     use crate::pod::{Pod, Status};
+    use crate::resources::DeviceManager;
     use crate::{
         container::Container,
         provider::{PluginSupport, VolumeSupport},
@@ -243,6 +276,17 @@ mod test {
             Some(Arc::new(PluginRegistry::default()))
         }
     }
+
+    impl DevicePluginSupport for ProviderState {
+        fn device_plugin_manager(&self) -> Option<Arc<DeviceManager>> {
+            let client = mock_client();
+            let node_name = "test_node";
+            Some(Arc::new(DeviceManager::new_with_default_path(
+                client, node_name,
+            )))
+        }
+    }
+
     struct PodState;
 
     #[async_trait::async_trait]

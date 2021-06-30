@@ -1,8 +1,10 @@
 use kubelet::config::Config;
 use kubelet::plugin_watcher::PluginRegistry;
+use kubelet::resources::DeviceManager;
 use kubelet::store::composite::ComposableStore;
 use kubelet::store::oci::FileStore;
 use kubelet::Kubelet;
+use std::convert::TryFrom;
 use std::sync::Arc;
 use wasi_provider::WasiProvider;
 
@@ -22,8 +24,20 @@ async fn main() -> anyhow::Result<()> {
 
     let store = make_store(&config);
     let plugin_registry = Arc::new(PluginRegistry::new(&config.plugins_dir));
+    let device_plugin_manager = Arc::new(DeviceManager::new(
+        &config.device_plugins_dir,
+        kube::Client::try_from(kubeconfig.clone())?,
+        &config.node_name,
+    ));
 
-    let provider = WasiProvider::new(store, &config, kubeconfig.clone(), plugin_registry).await?;
+    let provider = WasiProvider::new(
+        store,
+        &config,
+        kubeconfig.clone(),
+        plugin_registry,
+        device_plugin_manager,
+    )
+    .await?;
     let kubelet = Kubelet::new(provider, kubeconfig, config).await?;
     kubelet.start().await
 }

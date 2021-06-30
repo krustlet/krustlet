@@ -14,6 +14,7 @@ use crate::node::Builder;
 use crate::plugin_watcher::PluginRegistry;
 use crate::pod::Pod;
 use crate::pod::Status as PodStatus;
+use crate::resources::DeviceManager;
 use krator::{ObjectState, State};
 
 /// A back-end for a Kubelet.
@@ -32,9 +33,10 @@ use krator::{ObjectState, State};
 /// # Example
 /// ```rust
 /// use async_trait::async_trait;
+/// use kubelet::resources::DeviceManager;
 /// use kubelet::plugin_watcher::PluginRegistry;
 /// use kubelet::pod::{Pod, Status};
-/// use kubelet::provider::{Provider, PluginSupport};
+/// use kubelet::provider::{DevicePluginSupport, Provider, PluginSupport};
 /// use kubelet::pod::state::Stub;
 /// use kubelet::pod::state::prelude::*;
 /// use std::sync::Arc;
@@ -78,11 +80,17 @@ use krator::{ObjectState, State};
 ///         None
 ///     }
 /// }
+///
+/// impl DevicePluginSupport for ProviderState {
+///     fn device_plugin_manager(&self) -> Option<Arc<DeviceManager>> {
+///         None
+///     }
+/// }
 /// ```
 #[async_trait]
 pub trait Provider: Sized + Send + Sync + 'static {
     /// The state of the provider itself.
-    type ProviderState: 'static + Send + Sync + PluginSupport;
+    type ProviderState: 'static + Send + Sync + PluginSupport + DevicePluginSupport;
 
     /// The state that is passed between Pod state handlers.
     type PodState: ObjectState<
@@ -201,6 +209,15 @@ pub trait PluginSupport {
         None
     }
 }
+
+/// A trait for specifying whether device plugins are supported. Defaults to `None`
+pub trait DevicePluginSupport {
+    /// Fetch the device plugin manager to register and use device plugins
+    fn device_plugin_manager(&self) -> Option<Arc<DeviceManager>> {
+        None
+    }
+}
+
 /// Resolve the environment variables for a container.
 ///
 /// This generally should not be overwritten unless you need to handle

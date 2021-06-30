@@ -767,6 +767,7 @@ mod test {
             insecure_registries: None,
             data_dir: PathBuf::new(),
             plugins_dir: PathBuf::new(),
+            device_plugins_dir: PathBuf::new(),
             node_labels,
             max_pods: 110,
         };

@@ -5,7 +5,7 @@
 
 use crate::pod::state::prelude::PodStatus;
 use crate::pod::Pod;
-use crate::provider::{PluginSupport, VolumeSupport};
+use crate::provider::{DevicePluginSupport, PluginSupport, VolumeSupport};
 use krator::{ObjectState, State};
 use std::collections::HashMap;
 
@@ -14,6 +14,7 @@ pub mod error;
 pub mod image_pull;
 pub mod image_pull_backoff;
 pub mod registered;
+pub mod resources;
 pub mod terminated;
 pub mod volume_mount;
 
@@ -51,6 +52,9 @@ pub trait GenericProviderState: 'static + Send + Sync {
 /// the generic states.
 #[async_trait::async_trait]
 pub trait GenericPodState: ObjectState<Manifest = Pod, Status = PodStatus> {
+    /// Stores the environment variables that are added through state conditions
+    /// rather than being from PodSpecs.
+    async fn set_env_vars(&mut self, env_vars: HashMap<String, HashMap<String, String>>);
     /// Stores the pod module binaries for future execution. Typically your
     /// implementation can just move the modules map into a member field.
     async fn set_modules(&mut self, modules: HashMap<String, Vec<u8>>);
@@ -71,7 +75,7 @@ pub trait GenericPodState: ObjectState<Manifest = Pod, Status = PodStatus> {
 /// module.
 pub trait GenericProvider: 'static + Send + Sync {
     /// The state of the provider itself.
-    type ProviderState: GenericProviderState + VolumeSupport + PluginSupport;
+    type ProviderState: GenericProviderState + VolumeSupport + PluginSupport + DevicePluginSupport;
     /// The state that is passed between Pod state handlers.
     type PodState: GenericPodState + ObjectState<SharedState = Self::ProviderState>;
     /// The state to which pods should transition after they have completed

@@ -57,6 +57,7 @@ impl PodState {
         let run_context = ModuleRunContext {
             modules: Default::default(),
             volumes: Default::default(),
+            env_vars: Default::default(),
         };
         let key = PodKey::from(pod);
         PodState {
@@ -71,6 +72,10 @@ impl PodState {
 
 #[async_trait]
 impl GenericPodState for PodState {
+    async fn set_env_vars(&mut self, env_vars: HashMap<String, HashMap<String, String>>) {
+        let mut run_context = self.run_context.write().await;
+        run_context.env_vars = env_vars;
+    }
     async fn set_modules(&mut self, modules: HashMap<String, Vec<u8>>) {
         let mut run_context = self.run_context.write().await;
         run_context.modules = modules;
