@@ -31,8 +31,8 @@ impl NodeStatusPatcher {
     }
 
     // When a device plugin drops, the `DeviceManager` clears out the resource's device map. This
-    //sets the resource's `allocatable` and `capacity` count to 0, which appears to be the same
-    //implementation in Kubernetes.
+    // sets the resource's `allocatable` and `capacity` count to 0, which appears to be the same
+    // implementation in Kubernetes.
     async fn get_node_status_patch(&self) -> json_patch::Patch {
         let mut patches = Vec::new();
         let devices = self.devices.read().await;

@@ -119,12 +119,7 @@ async fn update_devices_map(
         // (1) Device modified or already registered
         if let Some(previous_device) = previous_law_devices.get(&device.id) {
             if previous_device.health != device.health {
-                devices
-                    .write()
-                    .await
-                    .get_mut(resource_name)
-                    .unwrap()
-                    .insert(device.id.clone(), device.clone());
+                add_device_to_map(&mut devices.write().await, resource_name, device);
                 update_node_status = true;
             } else if previous_device.topology != device.topology {
                 // Currently not using/handling device topology. Simply log the change.
@@ -136,17 +131,7 @@ async fn update_devices_map(
             }
         // (2) Device added
         } else {
-            let mut all_devices_map = devices.write().await;
-            match all_devices_map.get_mut(resource_name) {
-                Some(resource_devices_map) => {
-                    resource_devices_map.insert(device.id.clone(), device.clone());
-                }
-                None => {
-                    let mut resource_devices_map = HashMap::new();
-                    resource_devices_map.insert(device.id.clone(), device.clone());
-                    all_devices_map.insert(resource_name.to_string(), resource_devices_map);
-                }
-            }
+            add_device_to_map(&mut devices.write().await, resource_name, device);
             update_node_status = true;
         }
     }
@@ -170,6 +155,24 @@ async fn update_devices_map(
     *previous_law_devices = current_devices;
 
     update_node_status
+}
+
+// Adds device to the shared devices map
+fn add_device_to_map(
+    devices: &mut tokio::sync::RwLockWriteGuard<DeviceMap>,
+    resource_name: &str,
+    device: &Device,
+) {
+    match devices.get_mut(resource_name) {
+        Some(resource_devices_map) => {
+            resource_devices_map.insert(device.id.clone(), device.clone());
+        }
+        None => {
+            let mut resource_devices_map = HashMap::new();
+            resource_devices_map.insert(device.id.clone(), device.clone());
+            devices.insert(resource_name.to_string(), resource_devices_map);
+        }
+    }
 }
 
 impl PartialEq for PluginConnection {
