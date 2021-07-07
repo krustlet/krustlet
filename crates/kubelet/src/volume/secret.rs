@@ -11,7 +11,7 @@ pub struct SecretVolume {
     vol_name: String,
     sec_name: String,
     client: kube::Api<Secret>,
-    items: Option<Vec<KeyToPath>>,
+    items: Vec<KeyToPath>,
     mounted_path: Option<PathBuf>,
 }
 
@@ -46,9 +46,7 @@ impl SecretVolume {
         let secret = self.client.get(&self.sec_name).await?;
         let path = base_path.as_ref().join(&self.vol_name);
         tokio::fs::create_dir_all(&path).await?;
-        let data = secret.data.unwrap_or_default();
-        // We could probably just move the data out of the option, but I don't know what the correct
-        // behavior is from k8s point of view if something tries to mount a volume again
+        let data = secret.data;
         let data = data
             .into_iter()
             .filter_map(

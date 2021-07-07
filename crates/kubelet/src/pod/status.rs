@@ -75,16 +75,8 @@ pub async fn initialize_pod_container_statuses(
                 .clone()
                 .unwrap_or_default();
 
-            let num_statuses = status
-                .container_statuses
-                .as_ref()
-                .map(|statuses| statuses.len())
-                .unwrap_or(0);
-            let num_init_statuses = status
-                .init_container_statuses
-                .as_ref()
-                .map(|statuses| statuses.len())
-                .unwrap_or(0);
+            let num_statuses = status.container_statuses.len();
+            let num_init_statuses = status.init_container_statuses.len();
 
             if (num_statuses == num_containers) && (num_init_statuses == num_init_containers) {
                 break 'main Ok(());
@@ -180,7 +172,7 @@ impl StatusBuilder {
         mut self,
         container_statuses: Vec<KubeContainerStatus>,
     ) -> StatusBuilder {
-        self.0.container_statuses = Some(container_statuses);
+        self.0.container_statuses = container_statuses;
         self
     }
 
@@ -189,13 +181,13 @@ impl StatusBuilder {
         mut self,
         init_container_statuses: Vec<KubeContainerStatus>,
     ) -> StatusBuilder {
-        self.0.init_container_statuses = Some(init_container_statuses);
+        self.0.init_container_statuses = init_container_statuses;
         self
     }
 
     /// Set Pod conditions.
     pub fn conditions(mut self, conditions: Vec<KubePodCondition>) -> StatusBuilder {
-        self.0.conditions = Some(conditions);
+        self.0.conditions = conditions;
         self
     }
 
@@ -249,17 +241,20 @@ impl ObjectStatus for Status {
             status.insert("reason".to_string(), serde_json::Value::String(s));
         };
 
-        if let Some(s) = self.0.container_statuses.clone() {
-            status.insert("containerStatuses".to_string(), serde_json::json!(s));
-        };
+        status.insert(
+            "containerStatuses".to_string(),
+            serde_json::json!(self.0.container_statuses.clone()),
+        );
 
-        if let Some(s) = self.0.init_container_statuses.clone() {
-            status.insert("initContainerStatuses".to_string(), serde_json::json!(s));
-        };
+        status.insert(
+            "initContainerStatuses".to_string(),
+            serde_json::json!(self.0.init_container_statuses.clone()),
+        );
 
-        if let Some(s) = self.0.conditions.clone() {
-            status.insert("conditions".to_string(), serde_json::json!(s));
-        };
+        status.insert(
+            "conditions".to_string(),
+            serde_json::json!(self.0.conditions.clone()),
+        );
 
         serde_json::json!(
             {

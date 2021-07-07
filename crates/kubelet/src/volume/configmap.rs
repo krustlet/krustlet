@@ -10,7 +10,7 @@ pub struct ConfigMapVolume {
     vol_name: String,
     cm_name: String,
     client: kube::Api<ConfigMap>,
-    items: Option<Vec<KeyToPath>>,
+    items: Vec<KeyToPath>,
     mounted_path: Option<PathBuf>,
 }
 
@@ -46,7 +46,7 @@ impl ConfigMapVolume {
         let path = base_path.as_ref().join(&self.vol_name);
         tokio::fs::create_dir_all(&path).await?;
 
-        let binary_data = config_map.binary_data.unwrap_or_default();
+        let binary_data = config_map.binary_data;
         let binary_data = binary_data
             .into_iter()
             .filter_map(
@@ -58,7 +58,7 @@ impl ConfigMapVolume {
             .map(|(file_path, data)| async move { tokio::fs::write(file_path, &data).await });
         let binary_data = futures::future::join_all(binary_data);
 
-        let data = config_map.data.unwrap_or_default();
+        let data = config_map.data;
         let data = data
             .into_iter()
             .filter_map(|(key, data)| match mount_setting_for(&key, &self.items) {

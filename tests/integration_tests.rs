@@ -40,17 +40,12 @@ async fn verify_wasi_node(node: Node) {
     assert_eq!(
         node_meta
             .labels
-            .expect("node had no labels")
             .get("kubernetes.io/arch")
             .expect("node did not have kubernetes.io/arch label"),
         "wasm32-wasi"
     );
 
-    let taints = node
-        .spec
-        .expect("node had no spec")
-        .taints
-        .expect("node had no taints");
+    let taints = node.spec.expect("node had no spec").taints;
     let taint = taints
         .iter()
         .find(|t| (t.key == "kubernetes.io/arch") & (t.effect == "NoExecute"))
