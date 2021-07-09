@@ -19,8 +19,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use tokio::sync::broadcast;
-#[cfg(target_family = "windows")]
-use tokio_compat_02::FutureExt;
 use tracing::{debug, trace};
 
 #[cfg(target_family = "unix")]
