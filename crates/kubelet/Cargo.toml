@@ -64,7 +64,7 @@ http = "0.2"
 regex = "1.5"
 rcgen = "0.8"
 uuid = { version = "0.8.1", features = ["v4"] }
-krator = { version = "0.3", default-features = false, path = "../../../krator/krator" }
+krator = { git = "https://github.com/krator-rs/krator", version = "0.3", default-features = false, branch = "main" }
 json-patch = "0.2"
 tempfile = "3.2"
 tonic = "0.4"
@@ -76,6 +76,7 @@ async-stream = "0.3"
 tower = { version = "0.4.2", features = ["util"] }
 tracing = { version = "0.1", features = ["log"] }
 tracing-futures = "0.2"
+either = "1.6"
 
 [target.'cfg(target_family = "windows")'.dependencies]
 mio = "0.6"

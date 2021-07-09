@@ -1353,6 +1353,7 @@ dependencies = [
 [[package]]
 name = "krator"
 version = "0.3.0"
+source = "git+https://github.com/krator-rs/krator?branch=main#357f4ad2b083dbdb3c58e42abf641744a496ad11"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1372,6 +1373,7 @@ dependencies = [
 [[package]]
 name = "krator-derive"
 version = "0.2.0"
+source = "git+https://github.com/krator-rs/krator?branch=main#357f4ad2b083dbdb3c58e42abf641744a496ad11"
 dependencies = [
  "proc-macro2",
  "quote 1.0.9",
@@ -1494,6 +1496,7 @@ dependencies = [
  "bytes 0.3.0",
  "chrono",
  "dirs-next",
+ "either",
  "env_logger 0.4.3",
  "futures",
  "hostname",

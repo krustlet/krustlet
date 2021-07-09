@@ -14,12 +14,14 @@ use crate::plugin_watcher::PluginRegistry;
 use crate::pod::Pod;
 
 mod configmap;
+mod downward;
 mod hostpath;
 mod persistentvolumeclaim;
 mod projected;
 mod secret;
 
 pub use configmap::ConfigMapVolume;
+pub use downward::DownwardApiVolume;
 pub use hostpath::HostPathVolume;
 pub use persistentvolumeclaim::PvcVolume;
 pub use secret::SecretVolume;
@@ -35,11 +37,17 @@ pub enum VolumeType {
     PersistentVolumeClaim(Option<PathBuf>),
     /// hostpath volume
     HostPath,
+    /// Downward API volume, populated using projected data from the Downward API
+    DownwardApi,
+    /// Projected volume, a new volume type used for all projected data types (ConfigMap, Secret,
+    /// and Downward API)
+    Projected,
 }
 
 /// A reference to a volume that can be mounted and unmounted. A `VolumeRef` should be stored
 /// alongside a pod handle as a way to manage the lifecycle of a Pod's volume. Each embedded type
 /// can be used separately as well
+#[allow(clippy::large_enum_variant)]
 pub enum VolumeRef {
     /// configmap volume
     ConfigMap(ConfigMapVolume),
@@ -49,6 +57,9 @@ pub enum VolumeRef {
     PersistentVolumeClaim(PvcVolume),
     /// hostpath volume
     HostPath(HostPathVolume),
+    /// Projected volume, a new volume type used for all projected data types (ConfigMap, Secret,
+    /// and Downward API)
+    DownwardApi(DownwardApiVolume),
 }
 
 impl VolumeRef {
@@ -63,10 +74,7 @@ impl VolumeRef {
             .iter()
             .map(|v| (v, plugin_registry.clone()))
             .map(|(vol, pr)| async move {
-                Ok((
-                    vol.name.clone(),
-                    to_volume_ref(vol, pod.namespace(), client, pr).await?,
-                ))
+                Ok((vol.name.clone(), to_volume_ref(vol, pod, client, pr).await?))
             });
         futures::future::join_all(vols).await.into_iter().collect()
     }
@@ -79,6 +87,7 @@ impl VolumeRef {
             VolumeRef::Secret(sec) => sec.get_path(),
             VolumeRef::PersistentVolumeClaim(pv) => pv.get_path(),
             VolumeRef::HostPath(host) => host.get_path(),
+            VolumeRef::DownwardApi(d) => d.get_path(),
         }
     }
 
@@ -89,6 +98,7 @@ impl VolumeRef {
             VolumeRef::Secret(sec) => sec.mount(path).await,
             VolumeRef::PersistentVolumeClaim(pv) => pv.mount(path).await,
             VolumeRef::HostPath(host) => host.mount().await,
+            VolumeRef::DownwardApi(d) => d.mount(path).await,
         }
     }
 
@@ -100,6 +110,7 @@ impl VolumeRef {
             VolumeRef::PersistentVolumeClaim(pv) => pv.unmount().await,
             // Doesn't need any unmounting steps
             VolumeRef::HostPath(_) => Ok(()),
+            VolumeRef::DownwardApi(d) => d.unmount().await,
         }
     }
 }
@@ -133,31 +144,36 @@ impl From<Option<String>> for ItemMount {
 
 async fn to_volume_ref(
     vol: &KubeVolume,
-    namespace: &str,
+    pod: &Pod,
     client: &kube::Client,
     plugin_registry: Option<Arc<PluginRegistry>>,
 ) -> anyhow::Result<VolumeRef> {
     if vol.config_map.is_some() {
         Ok(VolumeRef::ConfigMap(ConfigMapVolume::new(
             vol,
-            namespace,
+            pod.namespace(),
             client.clone(),
         )?))
     } else if vol.secret.is_some() {
         Ok(VolumeRef::Secret(SecretVolume::new(
             vol,
-            namespace,
+            pod.namespace(),
             client.clone(),
         )?))
     } else if vol.persistent_volume_claim.is_some() {
         Ok(VolumeRef::PersistentVolumeClaim(
-            PvcVolume::new(vol, namespace, client.clone(), plugin_registry).await?,
+            PvcVolume::new(vol, pod.namespace(), client.clone(), plugin_registry).await?,
         ))
     } else if vol.host_path.is_some() {
-        Ok(VolumeRef::HostPath(hostpath::HostPathVolume::new(vol)?))
+        Ok(VolumeRef::HostPath(HostPathVolume::new(vol)?))
+    } else if vol.downward_api.is_some() {
+        Ok(VolumeRef::DownwardApi(DownwardApiVolume::new(
+            vol,
+            pod.to_owned(),
+        )?))
     } else {
         Err(anyhow::anyhow!(
-            "Unsupported volume type. Currently supported types: ConfigMap, Secret, PersistentVolumeClaim, and HostPath"
+            "Unsupported volume type. Currently supported types: ConfigMap, Secret, PersistentVolumeClaim, HostPath, and DownwardAPI"
         ))
     }
 }
