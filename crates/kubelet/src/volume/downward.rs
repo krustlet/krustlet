@@ -5,11 +5,12 @@ use k8s_openapi::{
     api::core::v1::{
         DownwardAPIVolumeFile, ObjectFieldSelector, ResourceFieldSelector, Volume as KubeVolume,
     },
-    apimachinery::pkg::api::resource::Quantity as KubeQuantity
+    apimachinery::pkg::api::resource::Quantity as KubeQuantity,
 };
 use tracing::warn;
 
 use crate::container::Container;
+use crate::resources::quantity::{self, Quantity, QuantityType, Suffix};
 
 use super::*;
 /// A type that can manage a Downward API volume with mounting and unmounting support
@@ -101,6 +102,11 @@ impl DownwardApiVolume {
     pub async fn unmount(&mut self) -> anyhow::Result<()> {
         match self.mounted_path.take() {
             Some(p) => {
+                // Because things are set to read only, we need to remove the read only flag so it
+                // can be deleted
+                let mut perms = tokio::fs::metadata(&p).await?.permissions();
+                perms.set_readonly(false);
+                tokio::fs::set_permissions(&p, perms).await?;
                 //although remove_dir_all crate could default to std::fs::remove_dir_all for unix family, we still prefer std::fs implemetation for unix
                 #[cfg(target_family = "windows")]
                 tokio::task::spawn_blocking(|| remove_dir_all::remove_dir_all(p)).await??;
@@ -139,7 +145,8 @@ fn data_from_field_ref(field_ref: &ObjectFieldSelector, pod: &Pod) -> anyhow::Re
     // should be valid or at least result in an invalid key if used maliciously
     let has_start_brace = path.contains('[');
     let has_end_brace = path.ends_with(']');
-    let is_label_or_annotation = path == "labels" || path == "annotations";
+    let is_label_or_annotation = path.contains("labels") || path.contains("annotations");
+
     // Brief overview of what is being checked here as a precaution (since I think these fields are checked for validity by the API, but I am not sure):
     // 1. If the path contains any braces and isn't for labels or annotations, error
     // 2. If the path is missing a start or end brace (but has at least one) and is an annotation or label, error
@@ -231,41 +238,433 @@ fn data_from_resource_ref(
         .resources()
         .ok_or_else(|| anyhow::anyhow!("No resources were found on the container"))?;
     let empty_quantity = KubeQuantity::default();
-    Ok(match (kind, path) {
+    match (kind, path) {
         ("requests", "cpu") => calculate_value(
-            resources
-                .requests
-                .get("cpu")
-                .ok_or_else(|| anyhow::anyhow!("A CPU request value was not found"))?,
+            QuantityType::Cpu(
+                resources
+                    .requests
+                    .get("cpu")
+                    .ok_or_else(|| anyhow::anyhow!("A CPU request value was not found"))?,
+            ),
             resource_ref.divisor.as_ref(),
         ),
         ("requests", "memory") => calculate_value(
-            resources
-                .requests
-                .get("memory")
-                .ok_or_else(|| anyhow::anyhow!("A memory request value was not found"))?,
+            QuantityType::Memory(
+                resources
+                    .requests
+                    .get("memory")
+                    .ok_or_else(|| anyhow::anyhow!("A memory request value was not found"))?,
+            ),
             resource_ref.divisor.as_ref(),
         ),
         // TODO(thomastaylor312): According to the docs, if a limit is not specified, we should
         // default to the node allocatable value for CPU and memory. We have no easy way to access
         // that here, so for now we are just defaulting
         ("limits", "cpu") => calculate_value(
-            resources.limits.get("cpu").unwrap_or(&empty_quantity),
+            QuantityType::Cpu(resources.limits.get("cpu").unwrap_or(&empty_quantity)),
             resource_ref.divisor.as_ref(),
         ),
         ("limits", "memory") => calculate_value(
-            resources.limits.get("memory").unwrap_or(&empty_quantity),
+            QuantityType::Memory(resources.limits.get("memory").unwrap_or(&empty_quantity)),
             resource_ref.divisor.as_ref(),
         ),
         _ => anyhow::bail!("Resource ref {} does not exist", resource_ref.resource),
-    })
+    }
 }
 
-fn calculate_value(data: &KubeQuantity, divisor: Option<&KubeQuantity>) -> Vec<u8> {
-    // NOTE: The docs seem to indicate that at least basic verification of the quantity is done
-    // during deserialization, but the code doesn't seem to reflect that, so we are performing at
-    // least some of that validation here
-    todo!()
+fn calculate_value(
+    data: QuantityType<'_>,
+    divisor: Option<&KubeQuantity>,
+) -> anyhow::Result<Vec<u8>> {
+    // NOTE: This assumes that the API has validated the fields and so we shouldn't get a divisor
+    // that doesn't match the type. We may have to revisit that assumption
+    let suffix = match divisor {
+        Some(q) => quantity::get_suffix(q),
+        None if matches!(data, QuantityType::Cpu(_)) => Suffix::Millicpu,
+        None if matches!(data, QuantityType::Memory(_)) => Suffix::Mebibyte,
+        None => Suffix::None,
+    };
+
+    let mut quantity_str = match Quantity::from_kube_quantity(data)? {
+        Quantity::Cpu(v) => (v / suffix.get_value()).to_string(),
+        Quantity::Memory(v) => ((v as f64 / suffix.get_value()) as u128).to_string(),
+    };
+    // Push the suffix on the end
+    quantity_str.push_str(suffix.as_ref());
+    Ok(quantity_str.into_bytes())
 }
 
+#[cfg(test)]
+mod test {
+    use super::*;
 
+    #[tokio::test]
+    async fn test_valid_mount() {
+        let pod_namespace = "test";
+        let component_label = "kube-thingz";
+        let tier_label = "control-plane";
+        let managed_label = "helm";
+        let config_hash = "foobar";
+        let custom_annotation = "kustomannotation";
+        let pod_uid = "a-uid";
+        let fake_pod = serde_json::json!({
+            "kind": "Pod",
+            "apiVersion": "v1",
+            "metadata": {
+                "name": "test-pod",
+                "namespace": pod_namespace,
+                "labels": {
+                    "component": component_label,
+                    "tier": tier_label,
+                    "app.kubernetes.io/managed-by": managed_label
+                },
+                "annotations": {
+                    "kubernetes.io/config.hash": config_hash,
+                    "mycustomannotation": custom_annotation,
+                },
+                "uid": pod_uid
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "name": "test-container",
+                        "resources": {
+                            "requests": {
+                                "memory": "1024",
+                                "cpu": "500m",
+                            },
+                            "limits": {
+                                "memory": ".5G",
+                                "cpu": "1.25",
+                            }
+                        }
+                    }
+                ],
+                "volumes": [
+                    {
+                        "name": "podinfo",
+                        "downwardAPI": {
+                            "items": [
+                                {
+                                    "path": "cpu_limit",
+                                    "resourceFieldRef": {
+                                        "containerName": "test-container",
+                                        "resource": "limits.cpu",
+                                        "divisor": "1m",
+                                    }
+                                },
+                                {
+                                    "path": "cpu_request",
+                                    "resourceFieldRef": {
+                                        "containerName": "test-container",
+                                        "resource": "requests.cpu",
+                                        "divisor": "1",
+                                    }
+                                },
+                                {
+                                    "path": "memory_limit",
+                                    "resourceFieldRef": {
+                                        "containerName": "test-container",
+                                        "resource": "limits.memory",
+                                        "divisor": "1M",
+                                    }
+                                },
+                                {
+                                    "path": "memory_request",
+                                    "resourceFieldRef": {
+                                        "containerName": "test-container",
+                                        "resource": "requests.memory",
+                                        "divisor": "1Ki",
+                                    }
+                                },
+                                {
+                                    "path": "pod_name",
+                                    "fieldRef": {
+                                        "fieldPath": "metadata.name"
+                                    }
+                                },
+                                {
+                                    "path": "pod_namespace",
+                                    "fieldRef": {
+                                        "fieldPath": "metadata.namespace"
+                                    }
+                                },
+                                {
+                                    "path": "pod_uid",
+                                    "fieldRef": {
+                                        "fieldPath": "metadata.uid"
+                                    }
+                                },
+                                {
+                                    "path": "all_labels",
+                                    "fieldRef": {
+                                        "fieldPath": "metadata.labels"
+                                    }
+                                },
+                                {
+                                    "path": "all_annotations",
+                                    "fieldRef": {
+                                        "fieldPath": "metadata.annotations"
+                                    }
+                                },
+                                {
+                                    "path": "normal_label",
+                                    "fieldRef": {
+                                        "fieldPath": "metadata.labels['component']"
+                                    }
+                                },
+                                {
+                                    "path": "pathed_label",
+                                    "fieldRef": {
+                                        "fieldPath": "metadata.labels['app.kubernetes.io/managed-by']"
+                                    }
+                                },
+                                {
+                                    "path": "normal_annotation",
+                                    "fieldRef": {
+                                        "fieldPath": "metadata.annotations['mycustomannotation']"
+                                    }
+                                },
+                                {
+                                    "path": "pathed_annotation",
+                                    "fieldRef": {
+                                        "fieldPath": "metadata.annotations['kubernetes.io/config.hash']"
+                                    }
+                                },
+                            ]
+                        }
+                    }
+                ]
+            }
+        });
+        let fake_pod: Pod = serde_json::from_value(fake_pod).unwrap();
+        let vol = fake_pod.volumes()[0].clone();
+        let mut downward = DownwardApiVolume::new(&vol, fake_pod)
+            .expect("Should be able to create a new DownwardApiVolume");
+        // Setup a tempdir where we can mount things at
+        let tempdir = tempfile::tempdir().expect("Unable to create tempdir");
+        downward
+            .mount(tempdir.path())
+            .await
+            .expect("Mounting should work properly");
+
+        // Test that all the data is there and valid
+        let vol_dir = downward
+            .get_path()
+            .expect("A mounted volume should have a mounted path");
+
+        // Check for unit formatting for resources
+        assert_content(
+            vol_dir.join("cpu_limit"),
+            "1250m",
+            "CPU limit should exist and be written with the correct units",
+        )
+        .await;
+        assert_content(
+            vol_dir.join("cpu_request"),
+            "0.5",
+            "CPU request should exist and be written with the correct units",
+        )
+        .await;
+        assert_content(
+            vol_dir.join("memory_limit"),
+            "500M",
+            "Memory limit should exist and be written with the correct units",
+        )
+        .await;
+        assert_content(
+            vol_dir.join("memory_request"),
+            "1Ki",
+            "Memory request should exist and be written with the correct units",
+        )
+        .await;
+
+        // Now move on to individual metadata items
+        assert_content(
+            vol_dir.join("pod_name"),
+            "test-pod",
+            "Pod name should be correct",
+        )
+        .await;
+        assert_content(
+            vol_dir.join("pod_namespace"),
+            pod_namespace,
+            "Pod namespace should be correct",
+        )
+        .await;
+        assert_content(
+            vol_dir.join("pod_uid"),
+            pod_uid,
+            "Pod UID should be correct",
+        )
+        .await;
+        assert_content(
+            vol_dir.join("normal_label"),
+            component_label,
+            "Normal label should be correct",
+        )
+        .await;
+        assert_content(
+            vol_dir.join("pathed_label"),
+            managed_label,
+            "Pathed label should be correct",
+        )
+        .await;
+        assert_content(
+            vol_dir.join("normal_annotation"),
+            custom_annotation,
+            "Normal annotation should be correct",
+        )
+        .await;
+        assert_content(
+            vol_dir.join("pathed_annotation"),
+            config_hash,
+            "Pathed annotation should be correct",
+        )
+        .await;
+
+        // Now test all labels and all annotations. Due to it being stored in a Btreemap, the keys
+        // will be written out in sorted order
+        let expected = format!(
+            r#"app.kubernetes.io/managed-by="{}"
+component="{}"
+tier="{}""#,
+            managed_label, component_label, tier_label
+        );
+
+        assert_content(
+            vol_dir.join("all_labels"),
+            &expected,
+            "All labels should be correct",
+        )
+        .await;
+
+        let expected = format!(
+            r#"kubernetes.io/config.hash="{}"
+mycustomannotation="{}""#,
+            config_hash, custom_annotation
+        );
+
+        assert_content(
+            vol_dir.join("all_annotations"),
+            &expected,
+            "All annotations should be correct",
+        )
+        .await;
+
+        downward
+            .unmount()
+            .await
+            .expect("Should unmount successfully")
+    }
+
+    #[tokio::test]
+    async fn test_invalid() {
+        let fake_pod = serde_json::json!({
+            "kind": "Pod",
+            "apiVersion": "v1",
+            "metadata": {
+                "name": "test-pod",
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "name": "test-container",
+                    }
+                ],
+                "volumes": [
+                    {
+                        "name": "podinfo",
+                        "downwardAPI": {
+                            "items": [
+                                {
+                                    "path": "test",
+                                    "resourceFieldRef": {
+                                        "containerName": "test-container",
+                                        "resource": "requests.cpu",
+                                        "divisor": "1",
+                                    }
+                                },
+                            ]
+                        }
+                    }
+                ]
+            }
+        });
+
+        let fake_pod: Pod = serde_json::from_value(fake_pod).unwrap();
+        let mut vol = fake_pod.volumes()[0].clone();
+        let mut downward = DownwardApiVolume::new(&vol, fake_pod.clone())
+            .expect("Should be able to create a new DownwardApiVolume");
+        // Setup a tempdir where we can mount things at
+        let tempdir = tempfile::tempdir().expect("Unable to create tempdir");
+        downward
+            .mount(tempdir.path())
+            .await
+            .expect_err("Missing CPU request should fail");
+
+        // This is just changing the path to test memory as well. Yeah, it is 10 lines, but better
+        // than 30 lines of copied JSON from above
+        vol.downward_api
+            .as_mut()
+            .unwrap()
+            .items
+            .get_mut(0)
+            .unwrap()
+            .resource_field_ref
+            .as_mut()
+            .unwrap()
+            .resource = "requests.memory".to_string();
+
+        let mut downward = DownwardApiVolume::new(&vol, fake_pod.clone())
+            .expect("Should be able to create a new DownwardApiVolume");
+        downward
+            .mount(tempdir.path())
+            .await
+            .expect_err("Missing memory request should fail");
+
+        // Remove the resource field and request a non-existent key
+        {
+            // Wrapped in a block to drop the mutable borrow
+            let source = vol.downward_api.as_mut().unwrap().items.get_mut(0).unwrap();
+            source.resource_field_ref = None;
+            source.field_ref = Some(ObjectFieldSelector {
+                field_path: "metadata.nonexistent".to_string(),
+                ..Default::default()
+            });
+        }
+
+        let mut downward = DownwardApiVolume::new(&vol, fake_pod.clone())
+            .expect("Should be able to create a new DownwardApiVolume");
+        downward
+            .mount(tempdir.path())
+            .await
+            .expect_err("Non-existent metadata field should fail");
+
+        // Now try and request something that isn't in metadata
+        vol.downward_api
+            .as_mut()
+            .unwrap()
+            .items
+            .get_mut(0)
+            .unwrap()
+            .field_ref
+            .as_mut()
+            .unwrap()
+            .field_path = "spec.status".to_string();
+
+        let mut downward = DownwardApiVolume::new(&vol, fake_pod)
+            .expect("Should be able to create a new DownwardApiVolume");
+        downward
+            .mount(tempdir.path())
+            .await
+            .expect_err("A valid path outside of metadata should fail");
+    }
+
+    async fn assert_content(path: PathBuf, expected: &str, message: &str) {
+        let content = tokio::fs::read_to_string(path)
+            .await
+            .expect("Unable to read file");
+        assert_eq!(content, expected, "{}", message);
+    }
+}

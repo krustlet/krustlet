@@ -90,6 +90,12 @@ impl ConfigMapVolume {
     pub async fn unmount(&mut self) -> anyhow::Result<()> {
         match self.mounted_path.take() {
             Some(p) => {
+                // Because things are set to read only, we need to remove the read only flag so it
+                // can be deleted
+                let mut perms = tokio::fs::metadata(&p).await?.permissions();
+                perms.set_readonly(false);
+                tokio::fs::set_permissions(&p, perms).await?;
+
                 //although remove_dir_all crate could default to std::fs::remove_dir_all for unix family, we still prefer std::fs implemetation for unix
                 #[cfg(target_family = "windows")]
                 tokio::task::spawn_blocking(|| remove_dir_all::remove_dir_all(p)).await??;

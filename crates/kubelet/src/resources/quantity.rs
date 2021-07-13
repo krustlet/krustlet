@@ -66,6 +66,27 @@ impl Suffix {
     }
 }
 
+impl AsRef<str> for Suffix {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Kilobyte => "K",
+            Self::Megabyte => "M",
+            Self::Gigabyte => "G",
+            Self::Terabyte => "T",
+            Self::Petabyte => "P",
+            Self::Exabyte => "E",
+            Self::Kibibyte => "Ki",
+            Self::Mebibyte => "Mi",
+            Self::Gibibyte => "Gi",
+            Self::Tebibyte => "Ti",
+            Self::Pebibyte => "Pi",
+            Self::Exbibyte => "Ei",
+            Self::Millicpu => "m",
+            Self::None => "",
+        }
+    }
+}
+
 /// A wrapper around a normal Kubernetes quantity to indicate the type of resource this is.
 ///
 /// Unfortunately, due to the quantity type being used for something that is entirely different
@@ -126,8 +147,8 @@ impl Quantity {
             QuantityType::Cpu(_) => {
                 let mut rounded = (calculated * PRECISION_DIVISOR).round() / PRECISION_DIVISOR;
                 // If the number was even lower (e.g. .0000004), round up to the minimum
-                if rounded < 0.001 {
-                    rounded = 0.001
+                if rounded < MILLICPU {
+                    rounded = MILLICPU
                 }
                 Ok(Quantity::Cpu(rounded))
             }
