@@ -30,7 +30,7 @@ download-test-binaries:
         just _download-csi-test-binaries 
     fi;
 
-test-e2e:
+test-e2e: download-test-binaries
     cargo test --test integration_tests
 
 test-e2e-standalone: download-test-binaries

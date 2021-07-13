@@ -69,6 +69,9 @@ tempfile = "3.2"
 tokio = {version = "1.0", features = ["macros", "rt-multi-thread", "time", "process"]}
 tonic = "0.5"
 
+[build-dependencies]
+tonic-build = "0.4"
+
 [workspace]
 members = [
   "crates/kubelet",

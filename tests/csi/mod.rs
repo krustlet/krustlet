@@ -1,4 +1,5 @@
 pub mod setup;
+#[path = "../socket_server.rs"]
 pub mod socket_server;
 
 use std::collections::HashSet;

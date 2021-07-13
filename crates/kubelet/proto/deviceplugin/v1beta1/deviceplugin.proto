@@ -1,4 +1,5 @@
 // From https://github.com/kubernetes/kubelet/blob/v0.21.0/pkg/apis/deviceplugin/v1beta1/api.proto
+// hi
 syntax = "proto3";
 
 package v1beta1;

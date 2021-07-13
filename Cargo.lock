@@ -1414,6 +1414,7 @@ dependencies = [
  "tempfile",
  "tokio 1.9.0",
  "tonic",
+ "tonic-build",
  "tracing-subscriber",
  "wasi-provider",
 ]
