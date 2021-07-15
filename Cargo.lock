@@ -51,6 +51,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "15af2628f6890fe2609a3b91bef4c83450512802e59489f9c1cb1fa5df064a61"
 
 [[package]]
+name = "async-recursion"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7d78656ba01f1b93024b7c3a0467f1608e4be67d725749fdcd7d2c7678fd7a2"
+dependencies = [
+ "proc-macro2",
+ "quote 1.0.9",
+ "syn 1.0.73",
+]
+
+[[package]]
 name = "async-stream"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1335,9 +1346,12 @@ dependencies = [
  "base64 0.13.0",
  "bytes 1.0.1",
  "chrono",
+ "http 0.2.4",
+ "percent-encoding 2.1.0",
  "serde",
  "serde-value",
  "serde_json",
+ "url 2.2.2",
 ]
 
 [[package]]
@@ -1490,6 +1504,7 @@ name = "kubelet"
 version = "0.7.0"
 dependencies = [
  "anyhow",
+ "async-recursion",
  "async-stream",
  "async-trait",
  "base64 0.13.0",

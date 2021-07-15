@@ -49,7 +49,21 @@ impl DownwardApiVolume {
     pub async fn mount(&mut self, base_path: impl AsRef<Path>) -> anyhow::Result<()> {
         let path = base_path.as_ref().join(&self.vol_name);
         tokio::fs::create_dir_all(&path).await?;
+        self.mount_at(path.clone()).await?;
 
+        // Set directory to read-only.
+        let mut perms = tokio::fs::metadata(&path).await?.permissions();
+        perms.set_readonly(true);
+        tokio::fs::set_permissions(path, perms).await?;
+
+        Ok(())
+    }
+
+    /// A function for mounting the file(s) at the given path. It mainly exists to allow the
+    /// projected volumes to mount everything at the same level. The given path must be a directory
+    /// and already exist. This method will not set any permissions, so the caller is responsible
+    /// for setting permissions on the directory
+    pub(crate) async fn mount_at(&mut self, path: PathBuf) -> anyhow::Result<()> {
         // Mount field refs
         let field_refs = self
             .items
@@ -85,11 +99,6 @@ impl DownwardApiVolume {
             .into_iter()
             .chain(resource_refs)
             .collect::<anyhow::Result<_>>()?;
-
-        // Set directory to read-only.
-        let mut perms = tokio::fs::metadata(&path).await?.permissions();
-        perms.set_readonly(true);
-        tokio::fs::set_permissions(&path, perms).await?;
 
         // Update the mounted directory
         self.mounted_path = Some(path);

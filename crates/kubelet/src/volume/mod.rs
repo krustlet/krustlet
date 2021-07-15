@@ -24,6 +24,7 @@ pub use configmap::ConfigMapVolume;
 pub use downward::DownwardApiVolume;
 pub use hostpath::HostPathVolume;
 pub use persistentvolumeclaim::PvcVolume;
+pub use projected::ProjectedVolume;
 pub use secret::SecretVolume;
 
 /// type of volume
@@ -57,9 +58,11 @@ pub enum VolumeRef {
     PersistentVolumeClaim(PvcVolume),
     /// hostpath volume
     HostPath(HostPathVolume),
+    /// DownwardAPI volume
+    DownwardApi(DownwardApiVolume),
     /// Projected volume, a new volume type used for all projected data types (ConfigMap, Secret,
     /// and Downward API)
-    DownwardApi(DownwardApiVolume),
+    Projected(ProjectedVolume),
 }
 
 impl VolumeRef {
@@ -88,6 +91,7 @@ impl VolumeRef {
             VolumeRef::PersistentVolumeClaim(pv) => pv.get_path(),
             VolumeRef::HostPath(host) => host.get_path(),
             VolumeRef::DownwardApi(d) => d.get_path(),
+            VolumeRef::Projected(p) => p.get_path(),
         }
     }
 
@@ -99,6 +103,9 @@ impl VolumeRef {
             VolumeRef::PersistentVolumeClaim(pv) => pv.mount(path).await,
             VolumeRef::HostPath(host) => host.mount().await,
             VolumeRef::DownwardApi(d) => d.mount(path).await,
+            // We need to clone the path here so we are sure that it is owned since this mount call
+            // results in recursion
+            VolumeRef::Projected(p) => p.mount(path.as_ref().to_owned()).await,
         }
     }
 
@@ -111,6 +118,7 @@ impl VolumeRef {
             // Doesn't need any unmounting steps
             VolumeRef::HostPath(_) => Ok(()),
             VolumeRef::DownwardApi(d) => d.unmount().await,
+            VolumeRef::Projected(p) => p.unmount().await,
         }
     }
 }
@@ -170,6 +178,12 @@ async fn to_volume_ref(
         Ok(VolumeRef::DownwardApi(DownwardApiVolume::new(
             vol,
             pod.to_owned(),
+        )?))
+    } else if vol.projected.is_some() {
+        Ok(VolumeRef::Projected(ProjectedVolume::new(
+            vol,
+            pod.to_owned(),
+            client.clone(),
         )?))
     } else {
         Err(anyhow::anyhow!(

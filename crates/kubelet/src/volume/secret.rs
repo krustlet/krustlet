@@ -43,9 +43,26 @@ impl SecretVolume {
     /// Mounts the Secret volume in the given directory. The actual path will be
     /// $BASE_PATH/$VOLUME_NAME
     pub async fn mount(&mut self, base_path: impl AsRef<Path>) -> anyhow::Result<()> {
-        let secret = self.client.get(&self.sec_name).await?;
         let path = base_path.as_ref().join(&self.vol_name);
         tokio::fs::create_dir_all(&path).await?;
+
+        self.mount_at(path.clone()).await?;
+
+        // Set secret directory to read-only.
+        let mut perms = tokio::fs::metadata(&path).await?.permissions();
+        perms.set_readonly(true);
+        tokio::fs::set_permissions(path, perms).await?;
+
+        Ok(())
+    }
+
+    /// A function for mounting the file(s) at the given path. It mainly exists to allow the
+    /// projected volumes to mount everything at the same level. The given path must be a directory
+    /// and already exist. This method will not set any permissions, so the caller is responsible
+    /// for setting permissions on the directory
+    pub(crate) async fn mount_at(&mut self, path: PathBuf) -> anyhow::Result<()> {
+        let secret = self.client.get(&self.sec_name).await?;
+
         let data = secret.data;
         let data = data
             .into_iter()
@@ -60,10 +77,6 @@ impl SecretVolume {
             .await
             .into_iter()
             .collect::<tokio::io::Result<_>>()?;
-        // Set secret directory to read-only.
-        let mut perms = tokio::fs::metadata(&path).await?.permissions();
-        perms.set_readonly(true);
-        tokio::fs::set_permissions(&path, perms).await?;
 
         self.mounted_path = Some(path);
 
