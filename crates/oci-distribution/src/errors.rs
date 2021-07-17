@@ -81,6 +81,8 @@ pub enum OciErrorCode {
     Denied,
     /// This operation is unsupported
     Unsupported,
+    /// Too many requests from client
+    Toomanyrequests,
 }
 
 #[cfg(test)]
