@@ -1366,8 +1366,9 @@ dependencies = [
 
 [[package]]
 name = "krator"
-version = "0.3.0"
-source = "git+https://github.com/krator-rs/krator?branch=main#357f4ad2b083dbdb3c58e42abf641744a496ad11"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb71112409f9b1fe9f2bb6d6a57e679c8c20d8feb186b2485b47842e2874d1a1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1386,8 +1387,9 @@ dependencies = [
 
 [[package]]
 name = "krator-derive"
-version = "0.2.0"
-source = "git+https://github.com/krator-rs/krator?branch=main#357f4ad2b083dbdb3c58e42abf641744a496ad11"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40288f982cf9b76b3784d652f509557a22fa454a070fd4e79fd9c13673a11066"
 dependencies = [
  "proc-macro2",
  "quote 1.0.9",
