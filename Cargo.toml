@@ -13,6 +13,7 @@ authors = [
 ]
 edition = "2018"
 default-run = "krustlet-wasi"
+license = "Apache-2.0"
 license-file = "LICENSE"
 description = "A Kubernetes kubelet implementation in Rust, used for running WebAssembly modules in Kubernetes"
 repository = "https://github.com/deislabs/krustlet"
