@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, env, path::Path, str};
+use std::{convert::TryFrom, env, io, path::Path, str};
 
 use futures::{StreamExt, TryStreamExt};
 use k8s_openapi::api::certificates::v1beta1::CertificateSigningRequest;
@@ -10,7 +10,8 @@ use rcgen::{
     Certificate, CertificateParams, DistinguishedName, DnType, KeyPair, SanType,
     PKCS_ECDSA_P256_SHA256,
 };
-use tokio::fs::{read, write};
+use tokio::fs::{read, write, File};
+use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, instrument, trace};
 
 use crate::config::Config as KubeletConfig;
@@ -272,7 +273,9 @@ async fn bootstrap_tls(
         tokio::fs::create_dir_all(p).await?;
     }
     write(&config.server_config.cert_file, &certificate).await?;
-    write(&config.server_config.private_key_file, &private_key).await?;
+    let mut private_key_file = File::create(&config.server_config.private_key_file).await?;
+    private_key_file.write_all(private_key.as_ref()).await?;
+    restrict_permissions_of_private_file(&private_key_file).await?;
 
     notify(completed_csr_approval("TLS"));
 
@@ -391,4 +394,15 @@ async fn read_from<P: AsRef<Path>>(path: P) -> anyhow::Result<Kubeconfig> {
         .map_err(|e| anyhow::anyhow!(format!("Error parsing bootstrap file: {}", e)))?;
 
     Ok(config)
+}
+
+#[cfg(target_family = "unix")]
+async fn restrict_permissions_of_private_file(file: &File) -> io::Result<()> {
+    let permissions = std::os::unix::fs::PermissionsExt::from_mode(0o600);
+    file.set_permissions(permissions).await
+}
+
+#[cfg(not(target_family = "unix"))]
+async fn restrict_permissions_of_private_file(_file: &File) -> io::Result<()> {
+    Ok(())
 }
