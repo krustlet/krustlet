@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: postman-echo
+  labels:
+    app: postman-echo
+  annotations:
+    alpha.wasi.krustlet.dev/allowed-domains: '["https://postman-echo.com"]'
+    alpha.wasi.krustlet.dev/max-concurrent-requests: "42"
+spec:
+  containers:
+    - image: webassembly.azurecr.io/postman-echo:v1.0.0
+      imagePullPolicy: Always
+      name: postman-echo
+  tolerations:
+    - key: "node.kubernetes.io/network-unavailable"
+      operator: "Exists"
+      effect: "NoSchedule"
+    - key: "kubernetes.io/arch"
+      operator: "Equal"
+      value: "wasm32-wasi"
+      effect: "NoExecute"
+    - key: "kubernetes.io/arch"
+      operator: "Equal"
+      value: "wasm32-wasi"
+      effect: "NoSchedule"

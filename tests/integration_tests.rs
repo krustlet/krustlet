@@ -78,6 +78,7 @@ async fn verify_wasi_node(node: Node) {
     );
 }
 
+const EXPERIMENTAL_WASI_HTTP_POD: &str = "experimental-wasi-http";
 const SIMPLE_WASI_POD: &str = "hello-wasi";
 const VERBOSE_WASI_POD: &str = "hello-world-verbose";
 const FAILY_POD: &str = "faily-pod";
@@ -165,6 +166,63 @@ async fn create_wasi_pod(
                     }
                 }
             ]
+        }
+    }))?;
+
+    let pod = pods.create(&PostParams::default(), &p).await?;
+    resource_manager.push(TestResource::Pod(pod_name.to_owned()));
+
+    assert_eq!(pod.status.unwrap().phase.unwrap(), "Pending");
+
+    wait_for_pod_complete(
+        client,
+        pod_name,
+        resource_manager.namespace(),
+        OnFailure::Panic,
+    )
+    .await
+}
+
+async fn create_experimental_wasi_http_pod(
+    client: kube::Client,
+    pods: &Api<Pod>,
+    resource_manager: &mut TestResourceManager,
+) -> anyhow::Result<()> {
+    let pod_name = EXPERIMENTAL_WASI_HTTP_POD;
+    let p = serde_json::from_value(json!({
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+            "name": pod_name,
+            "annotations": {
+                "alpha.wasi.krustlet.dev/allowed-domains": r#"["https://postman-echo.com"]"#,
+                "alpha.wasi.krustlet.dev/max-concurrent-requests": "42"
+            }
+        },
+        "spec": {
+            "containers": [
+                {
+                    "name": pod_name,
+                    "image": "webassembly.azurecr.io/postman-echo:v1.0.0",
+                },
+            ],
+            "tolerations": [
+                {
+                    "effect": "NoExecute",
+                    "key": "kubernetes.io/arch",
+                    "operator": "Equal",
+                    "value": "wasm32-wasi"
+                },
+                {
+                    "effect": "NoSchedule",
+                    "key": "kubernetes.io/arch",
+                    "operator": "Equal",
+                    "value": "wasm32-wasi"
+                },
+            ],
+            "nodeSelector": {
+                "kubernetes.io/arch": "wasm32-wasi"
+            }
         }
     }))?;
 
@@ -527,6 +585,22 @@ async fn test_wasi_node_should_verify() -> anyhow::Result<()> {
     let node = nodes.get(NODE_NAME).await?;
 
     verify_wasi_node(node).await;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_experimental_wasi_http_pod() -> anyhow::Result<()> {
+    const EXPECTED_POD_LOG: &str = "200 OK";
+
+    let test_ns = "wasi-e2e-experimental-http";
+    let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
+
+    create_experimental_wasi_http_pod(client.clone(), &pods, &mut resource_manager).await?;
+
+    assert::pod_log_contains(&pods, EXPERIMENTAL_WASI_HTTP_POD, EXPECTED_POD_LOG).await?;
+
+    assert::pod_exited_successfully(&pods, EXPERIMENTAL_WASI_HTTP_POD).await?;
 
     Ok(())
 }

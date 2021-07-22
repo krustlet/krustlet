@@ -40,6 +40,7 @@ wasi-common = "0.28"
 wasmtime = "0.28"
 wasmtime-wasi = "0.28"
 wat = "1.0.38"
+wasi-experimental-http-wasmtime = "0.5.0"
 
 [dev-dependencies]
 oci-distribution = {path = "../oci-distribution", version = "0.6"}
