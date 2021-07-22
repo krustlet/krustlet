@@ -1,19 +1,21 @@
-#[path = "../socket_server.rs"]
-pub mod socket_server;
 pub(crate) mod v1beta1 {
     pub const API_VERSION: &str = "v1beta1";
     tonic::include_proto!("v1beta1");
 }
-use v1beta1::{
-    device_plugin_server::{DevicePlugin, DevicePluginServer},
-    registration_client, AllocateRequest, AllocateResponse, Device, DevicePluginOptions, Empty,
-    ListAndWatchResponse, PreStartContainerRequest, PreStartContainerResponse,
-    PreferredAllocationRequest, PreferredAllocationResponse, API_VERSION,
-};
+#[path = "../grpc_sock/mod.rs"]
+pub mod grpc_sock;
 use futures::Stream;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use tokio::sync::{mpsc, watch};
 use tonic::{Request, Response, Status};
+use v1beta1::{
+    device_plugin_server::{DevicePlugin, DevicePluginServer},
+    registration_client, AllocateRequest, AllocateResponse, ContainerAllocateResponse, Device,
+    DevicePluginOptions, Empty, ListAndWatchResponse, PreStartContainerRequest,
+    PreStartContainerResponse, PreferredAllocationRequest, PreferredAllocationResponse,
+    RegisterRequest, API_VERSION,
+};
 
 /// Mock Device Plugin for testing the DeviceManager Sends a new list of devices to the
 /// DeviceManager whenever it's `devices_receiver` is notified of them on a channel.
@@ -32,9 +34,8 @@ impl DevicePlugin for MockDevicePlugin {
         unimplemented!();
     }
 
-    type ListAndWatchStream = Pin<
-        Box<dyn Stream<Item = Result<ListAndWatchResponse, Status>> + Send + Sync + 'static>,
-    >;
+    type ListAndWatchStream =
+        Pin<Box<dyn Stream<Item = Result<ListAndWatchResponse, Status>> + Send + Sync + 'static>>;
     async fn list_and_watch(
         &self,
         _request: Request<Empty>,
@@ -101,8 +102,7 @@ async fn run_mock_device_plugin(
     // return with a channel
     let (tx, rx) = tokio::sync::oneshot::channel();
     tokio::task::spawn(async move {
-        let device_plugin_temp_dir =
-            tempfile::tempdir().expect("should be able to create tempdir");
+        let device_plugin_temp_dir = tempfile::tempdir().expect("should be able to create tempdir");
         let socket_name = "gpu-device-plugin.sock";
         let dp_socket = device_plugin_temp_dir
             .path()
@@ -112,8 +112,7 @@ async fn run_mock_device_plugin(
             .to_string();
         tx.send(dp_socket.clone()).unwrap();
         let device_plugin = MockDevicePlugin { devices_receiver };
-        let socket =
-            grpc_sock::server::Socket::new(&dp_socket).expect("couldn't make dp socket");
+        let socket = grpc_sock::server::Socket::new(&dp_socket).expect("couldn't make dp socket");
         let serv = tonic::transport::Server::builder()
             .add_service(DevicePluginServer::new(device_plugin))
             .serve_with_incoming(socket);

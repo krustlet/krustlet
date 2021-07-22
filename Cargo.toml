@@ -68,6 +68,10 @@ serde_json = "1.0"
 tempfile = "3.2"
 tokio = {version = "1.0", features = ["macros", "rt-multi-thread", "time", "process"]}
 tonic = "0.5"
+tokio-stream = { version="0.1", features = ["fs", "net"] }
+tower = { version = "0.4.2", features = ["util"] }
+# prost is needed for the files built by the protobuf
+prost = "0.8"
 
 [build-dependencies]
 tonic-build = "0.4"

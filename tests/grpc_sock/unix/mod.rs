@@ -1,9 +1,7 @@
-// Copied from the grpc_sock module in the Kubelet crate. The windows stuff is pretty hacky so it
-// shouldn't be exported from there. Before we make this cross platform in the future, we'll need to
-// make sure the server part works well on Windows
+// This is a modified version of: https://github.com/hyperium/tonic/blob/f1275b611e38ec5fe992b2f10552bf95e8448b17/examples/src/uds/server.rs
 
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -15,37 +13,14 @@ use tonic::transport::server::Connected;
 #[derive(Debug)]
 pub struct UnixStream(tokio::net::UnixStream);
 
-/// A `PathBuf` that will get deleted on drop
-struct OwnedPathBuf {
-    inner: PathBuf,
-}
-
-impl Drop for OwnedPathBuf {
-    fn drop(&mut self) {
-        if let Err(e) = std::fs::remove_file(&self.inner) {
-            eprintln!(
-                "cleanup of file {} failed, manual cleanup needed: {}",
-                self.inner.display(),
-                e
-            );
-        }
-    }
-}
-
 pub struct Socket {
     listener: tokio::net::UnixListener,
-    _socket_path: OwnedPathBuf,
 }
 
 impl Socket {
-    pub fn new<P: AsRef<Path> + ?Sized>(path: &P) -> anyhow::Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: &P) -> anyhow::Result<Self> {
         let listener = tokio::net::UnixListener::bind(path)?;
-        Ok(Socket {
-            listener,
-            _socket_path: OwnedPathBuf {
-                inner: path.as_ref().to_owned(),
-            },
-        })
+        Ok(Socket { listener })
     }
 }
 

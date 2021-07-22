@@ -1,6 +1,6 @@
+#[path = "../grpc_sock/mod.rs"]
+pub mod grpc_sock;
 pub mod setup;
-#[path = "../socket_server.rs"]
-pub mod socket_server;
 
 use std::collections::HashSet;
 use std::sync::Arc;
