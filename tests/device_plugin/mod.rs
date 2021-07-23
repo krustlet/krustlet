@@ -5,14 +5,14 @@ pub(crate) mod v1beta1 {
 #[path = "../grpc_sock/mod.rs"]
 pub mod grpc_sock;
 use futures::Stream;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::pin::Pin;
 use tokio::sync::{mpsc, watch};
 use tonic::{Request, Response, Status};
 use v1beta1::{
     device_plugin_server::{DevicePlugin, DevicePluginServer},
     registration_client, AllocateRequest, AllocateResponse, ContainerAllocateResponse, Device,
-    DevicePluginOptions, Empty, ListAndWatchResponse, PreStartContainerRequest,
+    DevicePluginOptions, Empty, ListAndWatchResponse, Mount, PreStartContainerRequest,
     PreStartContainerResponse, PreferredAllocationRequest, PreferredAllocationResponse,
     RegisterRequest, API_VERSION,
 };
@@ -74,10 +74,20 @@ impl DevicePlugin for MockDevicePlugin {
         request: Request<AllocateRequest>,
     ) -> Result<Response<AllocateResponse>, Status> {
         let allocate_request = request.into_inner();
+        let path = "/brb/general.txt";
+        let mut envs = std::collections::HashMap::new();
+        envs.insert("DEVICE_PLUGIN_VAR".to_string(), "foo".to_string());
+        let mounts = vec![Mount {
+            container_path: path.to_string(),
+            host_path: path.to_string(),
+            read_only: false,
+        }];
         let container_responses: Vec<ContainerAllocateResponse> = allocate_request
             .container_requests
             .into_iter()
             .map(|_| ContainerAllocateResponse {
+                envs: envs.clone(),
+                mounts: mounts.clone(),
                 ..Default::default()
             })
             .collect();
@@ -97,37 +107,24 @@ impl DevicePlugin for MockDevicePlugin {
 /// Serves the mock DP and returns its socket path
 async fn run_mock_device_plugin(
     devices_receiver: watch::Receiver<Vec<Device>>,
-) -> anyhow::Result<String> {
-    // Device plugin temp socket deleted when it goes out of scope so create it in thread and
-    // return with a channel
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    tokio::task::spawn(async move {
-        let device_plugin_temp_dir = tempfile::tempdir().expect("should be able to create tempdir");
-        let socket_name = "gpu-device-plugin.sock";
-        let dp_socket = device_plugin_temp_dir
-            .path()
-            .join(socket_name)
-            .to_str()
-            .unwrap()
-            .to_string();
-        tx.send(dp_socket.clone()).unwrap();
-        let device_plugin = MockDevicePlugin { devices_receiver };
-        let socket = grpc_sock::server::Socket::new(&dp_socket).expect("couldn't make dp socket");
-        let serv = tonic::transport::Server::builder()
-            .add_service(DevicePluginServer::new(device_plugin))
-            .serve_with_incoming(socket);
-        #[cfg(target_family = "windows")]
-        let serv = serv.compat();
-        serv.await.expect("Unable to serve mock device plugin");
-    });
-    Ok(rx.await.unwrap())
+    plugin_socket: std::path::PathBuf,
+) -> anyhow::Result<()> {
+    let device_plugin = MockDevicePlugin { devices_receiver };
+    let socket = grpc_sock::server::Socket::new(&plugin_socket)?;
+    let serv = tonic::transport::Server::builder()
+        .add_service(DevicePluginServer::new(device_plugin))
+        .serve_with_incoming(socket);
+    #[cfg(target_family = "windows")]
+    let serv = serv.compat();
+    serv.await?;
+    Ok(())
 }
 
 /// Registers the mock DP with the DeviceManager's registration service
 async fn register_mock_device_plugin(
     kubelet_socket: impl AsRef<Path>,
-    dp_socket: &str,
-    dp_resource_name: &str,
+    plugin_socket: &str,
+    resource_name: &str,
 ) -> anyhow::Result<()> {
     let op = DevicePluginOptions {
         get_preferred_allocation_available: false,
@@ -137,13 +134,64 @@ async fn register_mock_device_plugin(
     let mut registration_client = registration_client::RegistrationClient::new(channel);
     let register_request = tonic::Request::new(RegisterRequest {
         version: API_VERSION.into(),
-        endpoint: dp_socket.to_string(),
-        resource_name: dp_resource_name.to_string(),
+        endpoint: plugin_socket.to_string(),
+        resource_name: resource_name.to_string(),
         options: Some(op),
     });
-    registration_client
-        .register(register_request)
-        .await
-        .unwrap();
+    registration_client.register(register_request).await?;
+    Ok(())
+}
+
+fn get_mock_devices() -> Vec<Device> {
+    // Make 3 mock devices
+    let d1 = Device {
+        id: "d1".to_string(),
+        health: "Healthy".to_string(),
+        topology: None,
+    };
+    let d2 = Device {
+        id: "d2".to_string(),
+        health: "Healthy".to_string(),
+        topology: None,
+    };
+
+    vec![d1, d2]
+}
+
+pub async fn launch_device_plugin(resource_name: &str) -> anyhow::Result<()> {
+    // Create socket for device plugin in the default $HOME/.krustlet/device_plugins directory
+    let krustlet_dir = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Unable to get home directory"))?
+        .join(".krustlet");
+    let kubelet_socket = krustlet_dir.join("device_plugins").join("kubelet.sock");
+    let dp_socket = krustlet_dir.join("device_plugins").join(resource_name);
+    let dp_socket_clone = dp_socket.clone();
+    let (_devices_sender, devices_receiver) = watch::channel(get_mock_devices());
+    tokio::spawn(async move {
+        run_mock_device_plugin(devices_receiver, dp_socket)
+            .await
+            .unwrap();
+    });
+    // Wait for device plugin to be served
+    let time = std::time::Instant::now();
+    loop {
+        if time.elapsed().as_secs() > 1 {
+            return Err(anyhow::anyhow!("Could not connect to device plugin"));
+        }
+        if grpc_sock::client::socket_channel(dp_socket_clone.clone())
+            .await
+            .is_ok()
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+
+    register_mock_device_plugin(
+        kubelet_socket,
+        dp_socket_clone.to_str().unwrap(),
+        resource_name,
+    )
+    .await?;
     Ok(())
 }
