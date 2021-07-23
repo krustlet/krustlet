@@ -54,11 +54,6 @@ pub enum WasmerciserVolumeSource<'a> {
     Pvc(&'a str),
 }
 
-// pub type Quantity = String;
-// pub struct WasmerciserResources {
-//     requests: std::collections::BTreeMap<String, Quantity>,
-// }
-
 const DEFAULT_TEST_REGISTRY: &str = "webassembly";
 const PRIVATE_TEST_REGISTRY: &str = "krustletintegrationtestprivate";
 

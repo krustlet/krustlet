@@ -472,7 +472,7 @@ async fn wasmercise_wasi<'a>(
         inits,
         containers,
         test_volumes,
-        None,
+        test_resources,
         "wasm32-wasi",
     )?;
 
