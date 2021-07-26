@@ -10,12 +10,16 @@ use kubelet::pod::{Handle as PodHandle, PodKey};
 use kubelet::state::common::GenericProviderState;
 use kubelet::volume::VolumeRef;
 
-use crate::wasi_runtime::WasiRuntime;
+use crate::wasi_runtime::{WasiHttpConfig, WasiRuntime};
 use crate::ProviderState;
 
 use super::running::Running;
 use super::terminated::Terminated;
 use super::ContainerState;
+
+pub const MAX_CONNCURRENT_REQUESTS_ANNOTATION_KEY: &str =
+    "alpha.wasi.krustlet.dev/max-concurrent-requests";
+pub const ALLOWED_DOMAINS_ANNOTATION_KEY: &str = "alpha.wasi.krustlet.dev/allowed-domains";
 
 fn volume_path_map(
     container: &Container,
@@ -135,6 +139,52 @@ impl State<ContainerState> for Waiting {
             state.pod.name(),
             container.name()
         );
+
+        let mut wasi_http_config = WasiHttpConfig::default();
+        let annotations = state.pod.annotations();
+
+        // Parse allowed domains from annotation key
+        if let Some(annotation) = annotations.get(ALLOWED_DOMAINS_ANNOTATION_KEY) {
+            match serde_json::from_str(&annotation) {
+                Ok(allowed_domains) => {
+                    wasi_http_config.allowed_domains = Some(allowed_domains);
+                }
+                Err(parse_err) => {
+                    return Transition::next(
+                        self,
+                        Terminated::new(
+                            format!(
+                                "Error parsing annotation from key {:?}: {}",
+                                ALLOWED_DOMAINS_ANNOTATION_KEY, parse_err,
+                            ),
+                            true,
+                        ),
+                    );
+                }
+            }
+        }
+
+        // Parse allowed domains from annotation key
+        if let Some(annotation) = annotations.get(MAX_CONNCURRENT_REQUESTS_ANNOTATION_KEY) {
+            match annotation.parse() {
+                Ok(max_concurrent_requests) => {
+                    wasi_http_config.max_concurrent_requests = Some(max_concurrent_requests);
+                }
+                Err(parse_err) => {
+                    return Transition::next(
+                        self,
+                        Terminated::new(
+                            format!(
+                                "Error parsing annotation from key {:?}: {}",
+                                MAX_CONNCURRENT_REQUESTS_ANNOTATION_KEY, parse_err,
+                            ),
+                            true,
+                        ),
+                    );
+                }
+            }
+        }
+
         // TODO: decide how/what it means to propagate annotations (from run_context) into WASM modules.
         let runtime = match WasiRuntime::new(
             name,
@@ -144,6 +194,7 @@ impl State<ContainerState> for Waiting {
             container_volumes,
             log_path,
             tx,
+            wasi_http_config,
         )
         .await
         {

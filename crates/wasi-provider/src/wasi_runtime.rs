@@ -13,6 +13,8 @@ use kubelet::container::Handle as ContainerHandle;
 use kubelet::container::Status;
 use kubelet::handle::StopHandler;
 
+use wasi_experimental_http_wasmtime::HttpCtx as WasiHttpCtx;
+
 pub struct Runtime {
     handle: JoinHandle<anyhow::Result<()>>,
     interrupt_handle: InterruptHandle,
@@ -34,7 +36,7 @@ impl StopHandler for Runtime {
 /// WasiRuntime provides a WASI compatible runtime. A runtime should be used for
 /// each "instance" of a process and can be passed to a thread pool for running
 pub struct WasiRuntime {
-    // name of the process
+    /// name of the process
     name: String,
     /// Data needed for the runtime
     data: Arc<Data>,
@@ -42,6 +44,15 @@ pub struct WasiRuntime {
     output: Arc<NamedTempFile>,
     /// A channel to send status updates on the runtime
     status_sender: Sender<Status>,
+    /// Configuration for the WASI http
+    http_config: WasiHttpConfig,
+}
+
+// Configuration for WASI http.
+#[derive(Clone, Default)]
+pub struct WasiHttpConfig {
+    pub allowed_domains: Option<Vec<String>>,
+    pub max_concurrent_requests: Option<u32>,
 }
 
 struct Data {
@@ -89,6 +100,7 @@ impl WasiRuntime {
         dirs: HashMap<PathBuf, Option<PathBuf>>,
         log_dir: L,
         status_sender: Sender<Status>,
+        http_config: WasiHttpConfig,
     ) -> anyhow::Result<Self> {
         let temp = tokio::task::spawn_blocking(move || -> anyhow::Result<NamedTempFile> {
             Ok(NamedTempFile::new_in(log_dir)?)
@@ -111,6 +123,7 @@ impl WasiRuntime {
             }),
             output: Arc::new(temp),
             status_sender,
+            http_config,
         })
     }
 
@@ -216,6 +229,15 @@ impl WasiRuntime {
         };
 
         wasmtime_wasi::add_to_linker(&mut linker, |cx| cx)?;
+
+        // Link WASI HTTP
+        let WasiHttpConfig {
+            allowed_domains,
+            max_concurrent_requests,
+        } = self.http_config.clone();
+        let wasi_http = WasiHttpCtx::new(allowed_domains, max_concurrent_requests)?;
+        wasi_http.add_to_linker(&mut linker)?;
+
         let instance = match linker.instantiate(&mut store, &module) {
             // We can't map errors here or it moves the send channel, so we
             // do it in a match
