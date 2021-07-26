@@ -14,8 +14,5 @@ quickly accomplish common tasks.
 - [Running Krustlet on any Kubernetes cluster with
   inlets](krustlet-with-inlets.md)
 - [Running Krustlet on MicroK8s](krustlet-on-microk8s.md)
-- [Running Kubernetes on Kubernetes-in-Docker (KinD)](kubernetes-on-kind.md)
-- [Running Kubernetes on Minikube](kubernetes-on-minikube.md)
-
 - [Running Web Assembly (WASM) workloads in Kubernetes](wasm.md)
 - [Registering a CSI driver](csi.md)
