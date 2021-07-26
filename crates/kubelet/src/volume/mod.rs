@@ -27,24 +27,6 @@ pub use persistentvolumeclaim::PvcVolume;
 pub use projected::ProjectedVolume;
 pub use secret::SecretVolume;
 
-/// type of volume
-#[derive(Debug)]
-pub enum VolumeType {
-    /// configmap volume
-    ConfigMap,
-    /// secret volume
-    Secret,
-    /// PVC volume with an optional staging path if the volume supports stage/unstage
-    PersistentVolumeClaim(Option<PathBuf>),
-    /// hostpath volume
-    HostPath,
-    /// Downward API volume, populated using projected data from the Downward API
-    DownwardApi,
-    /// Projected volume, a new volume type used for all projected data types (ConfigMap, Secret,
-    /// and Downward API)
-    Projected,
-}
-
 /// A reference to a volume that can be mounted and unmounted. A `VolumeRef` should be stored
 /// alongside a pod handle as a way to manage the lifecycle of a Pod's volume. Each embedded type
 /// can be used separately as well
