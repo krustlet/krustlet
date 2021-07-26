@@ -92,6 +92,7 @@ impl WasiRuntime {
     ///     (e.g. /tmp/foo/myfile -> /app/config). If the optional value is not given,
     ///     the same path will be allowed in the runtime
     /// * `log_dir` - location for storing logs
+    #[allow(clippy::too_many_arguments)]
     pub async fn new<L: AsRef<Path> + Send + Sync + 'static>(
         name: String,
         module_data: Vec<u8>,

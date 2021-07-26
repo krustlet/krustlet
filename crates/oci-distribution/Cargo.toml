@@ -19,7 +19,7 @@ license = "Apache-2.0"
 name = "oci-distribution"
 readme = "README.md"
 repository = "https://github.com/deislabs/krustlet"
-version = "0.6.0"
+version = "0.7.0"
 
 [badges]
 maintenance = {status = "actively-developed"}

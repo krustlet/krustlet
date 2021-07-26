@@ -21,7 +21,7 @@ license = "Apache-2.0"
 name = "kubelet"
 readme = "README.md"
 repository = "https://github.com/deislabs/krustlet"
-version = "0.7.0"
+version = "1.0.0-alpha.1"
 
 [badges]
 maintenance = {status = "actively-developed"}
@@ -55,7 +55,7 @@ kube = {version = "0.58", default-features = false, features = ["jsonpatch"]}
 kube-runtime = {version = "0.58", default-features = false}
 lazy_static = "1.4"
 notify = "5.0.0-pre.3"
-oci-distribution = {path = "../oci-distribution", version = "0.6", default-features = false}
+oci-distribution = {path = "../oci-distribution", version = "0.7", default-features = false}
 prost = "0.7"
 prost-types = "0.7"
 rcgen = "0.8"
