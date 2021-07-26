@@ -5,6 +5,8 @@ metadata:
   labels:
     app: greet
 spec:
+  nodeSelector:
+    kubernetes.io/arch: "wasm32-wasi"
   containers:
     - image: webassembly.azurecr.io/hello-wasm:v1
       imagePullPolicy: Always
