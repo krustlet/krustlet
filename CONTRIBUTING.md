@@ -2,11 +2,12 @@
 
 This document describes the requirements for committing to this repository.
 
-## Contributor License Agreement
+## Developer Certificate of Origin (DCO)
 
-This repository is governed under a [Contributor License
-Agreement](https://cla.opensource.microsoft.com/deislabs/krustlet). All PR
-submitters must accept the CLA before their contributions can be merged.
+In order to contribute to this project, you must sign each of your commits to
+attest that you have the right to contribute that code. This is done with the
+`-s`/`--signoff` flag on `git commit`. More information about DCO can be found
+[here](https://developercertificate.org/)
 
 ## Pull Request Management
 
@@ -23,10 +24,5 @@ satisfy the above requirement.
 
 ## Code of Conduct
 
-This project has adopted the
-[Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
-For more information see the
-[Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/)
-or contact
-[opencode@microsoft.com](mailto:opencode@microsoft.com)
-with any additional questions or comments.
+This project has adopted the [CNCF Code of
+Conduct](https://github.com/cncf/foundation/blob/master/code-of-conduct.md).

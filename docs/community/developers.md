@@ -11,6 +11,10 @@ To build krustlet, you will need
 - openssl (Or use the [`rustls-tls`](#building-without-openssl) feature)
 - git
 
+Due to this being a relatively bleeding edge project, we don't have any
+guarantees around MSRV (minimum supported Rust version). Currently, building
+requires rust 1.53.0+
+
 If you want to test krustlet, you will also require
 
 - A Kubernetes cluster
