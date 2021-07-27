@@ -66,6 +66,8 @@ pub enum OciErrorCode {
     /// This error is returned when the manifest, identified by name and tag is unknown to the repository.
     ManifestUnknown,
     /// Manifest failed signature validation
+    ///
+    /// DEPRECATED: This error code has been removed from the OCI spec.
     ManifestUnverified,
     /// Invalid repository name
     NameInvalid,
@@ -74,6 +76,8 @@ pub enum OciErrorCode {
     /// Provided length did not match content length
     SizeInvalid,
     /// Manifest tag did not match URI
+    ///
+    /// DEPRECATED: This error code has been removed from the OCI spec.
     TagInvalid,
     /// Authentication required.
     Unauthorized,
