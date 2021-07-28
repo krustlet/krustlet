@@ -106,6 +106,19 @@ mod test {
         assert_ne!(serde_json::value::Value::Null, e.detail);
     }
 
+    const EXAMPLE_ERROR_TOOMANYREQUESTS: &str = r#"
+      {"errors":[{"code":"TOOMANYREQUESTS","message":"pull request limit exceeded","detail":"You have reached your pull rate limit."}]}
+      "#;
+    #[test]
+    fn test_deserialize_toomanyrequests() {
+        let envelope: OciEnvelope =
+            serde_json::from_str(EXAMPLE_ERROR_TOOMANYREQUESTS).expect("parse example error");
+        let e = &envelope.errors[0];
+        assert_eq!(OciErrorCode::Toomanyrequests, e.code);
+        assert_eq!("pull request limit exceeded", e.message);
+        assert_ne!(serde_json::value::Value::Null, e.detail);
+    }
+
     const EXAMPLE_ERROR_MISSING_MESSAGE: &str = r#"
       {"errors":[{"code":"UNAUTHORIZED","detail":[{"Type":"repository","Name":"hello-wasm","Action":"pull"}]}]}
       "#;
