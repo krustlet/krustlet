@@ -744,6 +744,7 @@ async fn test_can_mount_individual_values() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_container_args() -> anyhow::Result<()> {
+    println!("TEST CONTAINER ARGS STARTED");
     let test_ns = "wasi-e2e-container-args";
     let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
 
@@ -1033,6 +1034,7 @@ async fn test_pod_mounts_with_pvc() -> anyhow::Result<()> {
 }
 
 const RESOURCE_NAME: &str = "example.com/gpu";
+const RESOURCE_ENDPOINT: &str = "gpu-device-plugin.sock";
 
 async fn create_device_plugin_resource_pod(
     client: kube::Client,
@@ -1071,10 +1073,11 @@ async fn create_device_plugin_resource_pod(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_pod_with_device_plugin_resource() -> anyhow::Result<()> {
+    println!("Starting DP test");
     let test_ns = "wasi-e2e-pod-with-device-plugin-resource";
     let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
 
-    device_plugin::launch_device_plugin(RESOURCE_NAME).await?;
+    device_plugin::launch_device_plugin(RESOURCE_NAME, RESOURCE_ENDPOINT).await?;
 
     // Create a Pod that requests the DP's resource
     create_device_plugin_resource_pod(client.clone(), &pods, &mut resource_manager).await?;

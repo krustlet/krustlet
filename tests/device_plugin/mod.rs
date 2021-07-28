@@ -109,6 +109,7 @@ async fn run_mock_device_plugin(
     devices_receiver: watch::Receiver<Vec<Device>>,
     plugin_socket: std::path::PathBuf,
 ) -> anyhow::Result<()> {
+    println!("run_mock_device_plugin");
     let device_plugin = MockDevicePlugin { devices_receiver };
     let socket = grpc_sock::server::Socket::new(&plugin_socket)?;
     let serv = tonic::transport::Server::builder()
@@ -116,7 +117,7 @@ async fn run_mock_device_plugin(
         .serve_with_incoming(socket);
     #[cfg(target_family = "windows")]
     let serv = serv.compat();
-    serv.await?;
+    serv.await.expect("couldnt serve");
     Ok(())
 }
 
@@ -158,13 +159,16 @@ fn get_mock_devices() -> Vec<Device> {
     vec![d1, d2]
 }
 
-pub async fn launch_device_plugin(resource_name: &str) -> anyhow::Result<()> {
+pub async fn launch_device_plugin(resource_name: &str, resource_endpoint: &str) -> anyhow::Result<()> {
+    println!("launching DP test");
     // Create socket for device plugin in the default $HOME/.krustlet/device_plugins directory
     let krustlet_dir = dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("Unable to get home directory"))?
         .join(".krustlet");
     let kubelet_socket = krustlet_dir.join("device_plugins").join("kubelet.sock");
-    let dp_socket = krustlet_dir.join("device_plugins").join(resource_name);
+    let dp_socket = krustlet_dir.join("device_plugins").join(resource_endpoint);
+    // tokio::fs::remove_file(&dp_socket);
+    tokio::fs::create_dir_all(&dp_socket).await.expect("cant create dir");
     let dp_socket_clone = dp_socket.clone();
     let (_devices_sender, devices_receiver) = watch::channel(get_mock_devices());
     tokio::spawn(async move {
@@ -173,19 +177,20 @@ pub async fn launch_device_plugin(resource_name: &str) -> anyhow::Result<()> {
             .unwrap();
     });
     // Wait for device plugin to be served
-    let time = std::time::Instant::now();
-    loop {
-        if time.elapsed().as_secs() > 1 {
-            return Err(anyhow::anyhow!("Could not connect to device plugin"));
-        }
-        if grpc_sock::client::socket_channel(dp_socket_clone.clone())
-            .await
-            .is_ok()
-        {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    }
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    // let time = std::time::Instant::now();
+    // loop {
+    //     if time.elapsed().as_secs() > 1 {
+    //         return Err(anyhow::anyhow!("Could not connect to device plugin"));
+    //     }
+    //     if grpc_sock::client::socket_channel(dp_socket_clone.clone())
+    //         .await
+    //         .is_ok()
+    //     {
+    //         break;
+    //     }
+    //     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    // }
 
     register_mock_device_plugin(
         kubelet_socket,

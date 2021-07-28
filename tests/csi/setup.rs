@@ -16,6 +16,7 @@ pub(crate) struct CsiRunner {
 }
 
 pub(crate) async fn launch_csi_things(node_name: &str) -> anyhow::Result<CsiRunner> {
+    println!("CSI TESTS STARTED");
     let bin_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("csi-test-binaries");
     let mut processes = Vec::with_capacity(3);
 
@@ -127,6 +128,7 @@ fn registrar_start(bin_root: &Path) -> anyhow::Result<Child> {
 
     let process = tokio::process::Command::new(bin)
         .args(&[
+            "--logtostderr",
             "--csi-address",
             "/tmp/csi.sock",
             "--kubelet-registration-path",
