@@ -17,7 +17,7 @@ $ rustup target add wasm32-wasi
 ```
 
 If you don't have Krustlet with the WASI provider running locally, see
-the instructions in the [tutorial](../../../docs/intro/tutorial03.md) for
+the instructions in the [tutorial](https://docs.krustlet.dev/intro/tutorial03) for
 running locally.
 
 ### Building
@@ -30,7 +30,7 @@ $ cargo build --target wasm32-wasi --release
 
 ### Pushing
 
-Detailed instructions for pushing a module can be found [here](../../../docs/intro/tutorial02.md).
+Detailed instructions for pushing a module can be found [here](https://docs.krustlet.dev/intro/tutorial02).
 
 We hope to improve and streamline the build and push process in the future.
 However, for test purposes, the image will be pushed to the `webassembly` Azure

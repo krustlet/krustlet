@@ -13,10 +13,10 @@ instead of a container runtime.
 ## Documentation
 
 If you're new to the project, get started with [the
-introduction](docs/intro/README.md). For more in-depth information about
-Krustlet, plunge right into the [topic guides](docs/topics/README.md).
+introduction](https://docs.krustlet.dev/intro). For more in-depth information about
+Krustlet, plunge right into the [topic guides](https://docs.krustlet.dev/topics).
 
-Looking for the developer guide? [Start here](docs/community/developers.md).
+Looking for the developer guide? [Start here](https://docs.krustlet.dev/community/developers).
 
 ## Community, discussion, contribution, and support
 
@@ -27,7 +27,7 @@ You can reach the Krustlet community and developers via the following channels:
 - Public Community Call on Mondays at 1:00 PM PT:
   - [Zoom](https://us04web.zoom.us/j/71695031152?pwd=T0g1d0JDZVdiMHpNNVF1blhxVC9qUT09)
   - Download the meeting calendar invite
-    [here](https://raw.githubusercontent.com/deislabs/krustlet/master/docs/community/assets/community_meeting.ics)
+    [here](./community_meeting.ics)
 
 ## Code of Conduct
 

@@ -1,7 +1,7 @@
 # Hello World Rust for WASI
 
 This is a variant of the hello world example, demonstrating how to use Krustlet
-with the [Container Storage Interface](../../../docs/topics/csi.md).
+with the [Container Storage Interface](https://docs.krustlet.dev/topics/csi).
 
 A simple hello world example in Rust that will print:
 
@@ -45,13 +45,13 @@ $ rustup target add wasm32-wasi
 ```
 
 If you don't have Krustlet with the WASI provider running locally, see the
-instructions in the [tutorial](../../../docs/intro/tutorial03.md) for running
+instructions in the [tutorial](https://docs.krustlet.dev/intro/tutorial03) for running
 locally.
 
 You will also need to register the [host-path CSI
 driver](https://github.com/kubernetes-csi/csi-driver-host-path). Details on how
 to register the driver can be found in the [CSI HOWTO
-guide](../../../docs/howto/csi.md).
+guide](https://docs.krustlet.dev/howto/csi).
 
 ### Building
 
@@ -64,7 +64,7 @@ $ cargo build --target wasm32-wasi --release
 
 ### Pushing
 
-Detailed instructions for pushing a module can be found [here](../../../docs/intro/tutorial02.md).
+Detailed instructions for pushing a module can be found [here](https://docs.krustlet.dev/intro/tutorial02.md).
 
 We hope to improve and streamline the build and push process in the future.
 However, for test purposes, the image has been pushed to the `webassembly`

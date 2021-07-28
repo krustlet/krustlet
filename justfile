@@ -11,12 +11,6 @@ run-wasi: run
 build +FLAGS='':
     cargo build {{FLAGS}}
 
-lint-docs:
-    markdownlint '**/*.md' -c .markdownlint.json
-
-linkcheck-docs:
-    find . -name \*.md | xargs -I{} markdown-link-check -c .markdownlinkcheck.json {} 
-
 test:
     cargo fmt --all -- --check
     cargo clippy --workspace
@@ -54,5 +48,5 @@ run +FLAGS='': bootstrap
 bootstrap:
     @# This is to get around an issue with the default function returning a string that gets escaped
     @mkdir -p $(eval echo $CONFIG_DIR)
-    @test -f  $(eval echo $CONFIG_DIR)/bootstrap.conf || CONFIG_DIR=$(eval echo $CONFIG_DIR) ./docs/howto/assets/bootstrap.sh
+    @test -f  $(eval echo $CONFIG_DIR)/bootstrap.conf || CONFIG_DIR=$(eval echo $CONFIG_DIR) ./scripts/bootstrap.sh
     @chmod 600 $(eval echo $CONFIG_DIR)/*
