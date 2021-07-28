@@ -39,4 +39,4 @@ run +FLAGS='--no-default-features --features rustls-tls,kubelet/derive': bootstr
 
 bootstrap:
     @# This is to get around an issue with the default function returning a string that gets escaped
-    @if ( -not (Test-Path -LiteralPath "$(Invoke-Expression "echo $env:CONFIG_DIR")\bootstrap.conf") ) { $env:CONFIG_DIR = Invoke-Expression "echo $env:CONFIG_DIR"; .\docs\howto\assets\bootstrap.ps1 }
+    @if ( -not (Test-Path -LiteralPath "$(Invoke-Expression "echo $env:CONFIG_DIR")\bootstrap.conf") ) { $env:CONFIG_DIR = Invoke-Expression "echo $env:CONFIG_DIR"; .\scripts\bootstrap.ps1 }

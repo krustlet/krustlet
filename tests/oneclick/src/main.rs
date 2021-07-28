@@ -241,7 +241,7 @@ fn run_bootstrap() -> anyhow::Result<()> {
 
     let repo_root = std::env!("CARGO_MANIFEST_DIR");
 
-    let bootstrap_script = format!("{}/docs/howto/assets/bootstrap.{}", repo_root, ext);
+    let bootstrap_script = format!("{}/scripts/bootstrap.{}", repo_root, ext);
     let bootstrap_output = std::process::Command::new(shell)
         .arg(bootstrap_script)
         .env("CONFIG_DIR", config_dir())

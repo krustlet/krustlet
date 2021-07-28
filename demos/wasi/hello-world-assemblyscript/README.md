@@ -47,7 +47,7 @@ AssemblyScript
 [getting started guide](https://www.assemblyscript.org/).
 
 If you don't have Krustlet with the WASI provider running locally, see the
-instructions in the [tutorial](../../../docs/intro/tutorial03.md) for running
+instructions in the [tutorial](https://docs.krustlet.dev/intro/tutorial03) for running
 locally.
 
 ### Compiling
@@ -61,4 +61,4 @@ $ npm install && npm run asbuild
 ### Pushing
 
 Detailed instructions for pushing a module can be found in the
-[tutorial](../../../docs/intro/tutorial02.md).
+[tutorial](https://docs.krustlet.dev/intro/tutorial02.).
