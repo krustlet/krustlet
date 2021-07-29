@@ -955,7 +955,7 @@ fn digest_header_value(response: &reqwest::Response) -> anyhow::Result<String> {
     let headers = response.headers();
     let digest_header = headers.get("Docker-Content-Digest");
     match digest_header {
-        None => Err(anyhow::anyhow!("resgistry did not return a digest header")),
+        None => Ok(String::new()),
         Some(hv) => hv
             .to_str()
             .map(|s| s.to_string())
