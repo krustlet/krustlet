@@ -913,6 +913,7 @@ async fn create_projected_pod(
         vec![],
         containers,
         volumes,
+        None,
         OnFailure::Panic,
         resource_manager,
     )
@@ -1052,8 +1053,8 @@ async fn create_device_plugin_resource_pod(
     let mut requests = std::collections::BTreeMap::new();
     requests.insert(RESOURCE_NAME.to_string(), Quantity("1".to_string()));
     let resources = ResourceRequirements {
-        limits: Some(requests.clone()),
-        requests: Some(requests),
+        limits: requests.clone(),
+        requests: requests,
     };
 
     wasmercise_wasi(
