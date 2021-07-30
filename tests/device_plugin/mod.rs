@@ -7,7 +7,7 @@ pub mod grpc_sock;
 use futures::Stream;
 use std::path::Path;
 use std::pin::Pin;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 use v1beta1::{
     device_plugin_server::{DevicePlugin, DevicePluginServer},
@@ -17,12 +17,10 @@ use v1beta1::{
     RegisterRequest, API_VERSION,
 };
 
-/// Mock Device Plugin for testing the DeviceManager Sends a new list of devices to the
-/// DeviceManager whenever it's `devices_receiver` is notified of them on a channel.
+/// Mock Device Plugin for testing the DeviceManager. Reports its list of devices.
 struct MockDevicePlugin {
-    // Using watch so the receiver can be cloned and be moved into a spawned thread in
-    // ListAndWatch
-    devices_receiver: watch::Receiver<Vec<Device>>,
+    // Devices that are advertised
+    devices: Vec<Device>,
 }
 
 #[async_trait::async_trait]
@@ -41,20 +39,16 @@ impl DevicePlugin for MockDevicePlugin {
         _request: Request<Empty>,
     ) -> Result<Response<Self::ListAndWatchStream>, Status> {
         println!("list_and_watch entered");
-        // Create a channel that list_and_watch can periodically send updates to kubelet on
         let (kubelet_update_sender, kubelet_update_receiver) = mpsc::channel(3);
-        let mut devices_receiver = self.devices_receiver.clone();
+        let devices = self.devices.clone();
         tokio::spawn(async move {
-            while devices_receiver.changed().await.is_ok() {
-                let devices = devices_receiver.borrow().clone();
-                println!(
-                    "list_and_watch received new devices [{:?}] to send",
-                    devices
-                );
-                kubelet_update_sender
-                    .send(Ok(ListAndWatchResponse { devices }))
-                    .await
-                    .unwrap();
+            kubelet_update_sender
+                .send(Ok(ListAndWatchResponse { devices }))
+                .await
+                .unwrap();
+            loop {
+                // List and watch should not end
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             }
         });
         Ok(Response::new(Box::pin(
@@ -106,11 +100,10 @@ impl DevicePlugin for MockDevicePlugin {
 
 /// Serves the mock DP and returns its socket path
 async fn run_mock_device_plugin(
-    devices_receiver: watch::Receiver<Vec<Device>>,
+    devices: Vec<Device>,
     plugin_socket: std::path::PathBuf,
 ) -> anyhow::Result<()> {
-    println!("run_mock_device_plugin");
-    let device_plugin = MockDevicePlugin { devices_receiver };
+    let device_plugin = MockDevicePlugin { devices };
     let socket = grpc_sock::server::Socket::new(&plugin_socket)?;
     let serv = tonic::transport::Server::builder()
         .add_service(DevicePluginServer::new(device_plugin))
@@ -144,7 +137,6 @@ async fn register_mock_device_plugin(
 }
 
 fn get_mock_devices() -> Vec<Device> {
-    // Make 3 mock devices
     let d1 = Device {
         id: "d1".to_string(),
         health: "Healthy".to_string(),
@@ -159,7 +151,10 @@ fn get_mock_devices() -> Vec<Device> {
     vec![d1, d2]
 }
 
-pub async fn launch_device_plugin(resource_name: &str, resource_endpoint: &str) -> anyhow::Result<()> {
+pub async fn launch_device_plugin(
+    resource_name: &str,
+    resource_endpoint: &str,
+) -> anyhow::Result<()> {
     println!("launching DP test");
     // Create socket for device plugin in the default $HOME/.krustlet/device_plugins directory
     let krustlet_dir = dirs::home_dir()
@@ -167,30 +162,28 @@ pub async fn launch_device_plugin(resource_name: &str, resource_endpoint: &str) 
         .join(".krustlet");
     let kubelet_socket = krustlet_dir.join("device_plugins").join("kubelet.sock");
     let dp_socket = krustlet_dir.join("device_plugins").join(resource_endpoint);
-    // tokio::fs::remove_file(&dp_socket);
-    tokio::fs::create_dir_all(&dp_socket).await.expect("cant create dir");
+    tokio::fs::remove_file(&dp_socket).await.ok();
     let dp_socket_clone = dp_socket.clone();
-    let (_devices_sender, devices_receiver) = watch::channel(get_mock_devices());
     tokio::spawn(async move {
-        run_mock_device_plugin(devices_receiver, dp_socket)
+        run_mock_device_plugin(get_mock_devices(), dp_socket)
             .await
             .unwrap();
     });
+
     // Wait for device plugin to be served
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    // let time = std::time::Instant::now();
-    // loop {
-    //     if time.elapsed().as_secs() > 1 {
-    //         return Err(anyhow::anyhow!("Could not connect to device plugin"));
-    //     }
-    //     if grpc_sock::client::socket_channel(dp_socket_clone.clone())
-    //         .await
-    //         .is_ok()
-    //     {
-    //         break;
-    //     }
-    //     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    // }
+    let time = std::time::Instant::now();
+    loop {
+        if time.elapsed().as_secs() > 1 {
+            return Err(anyhow::anyhow!("Could not connect to device plugin"));
+        }
+        if grpc_sock::client::socket_channel(dp_socket_clone.clone())
+            .await
+            .is_ok()
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
 
     register_mock_device_plugin(
         kubelet_socket,

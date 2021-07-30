@@ -1044,16 +1044,15 @@ async fn create_device_plugin_resource_pod(
     use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
     let containers = vec![
         WasmerciserContainerSpec::named("device-plugin-test").with_args(&[
-            "write(lit:watermelon)to(file:/brb/general.txt)",
-            "read(file:/brb/general.txt)to(var:myfile)",
-            "write(var:myfile)to(stm:stdout)",
+            "write(lit:watermelon)to(stm:stdout)",
             "assert_exists(env:DEVICE_PLUGIN_VAR)",
         ]),
     ];
+
     let mut requests = std::collections::BTreeMap::new();
     requests.insert(RESOURCE_NAME.to_string(), Quantity("1".to_string()));
     let resources = ResourceRequirements {
-        limits: None,
+        limits: Some(requests.clone()),
         requests: Some(requests),
     };
 
@@ -1081,11 +1080,7 @@ async fn test_pod_with_device_plugin_resource() -> anyhow::Result<()> {
 
     // Create a Pod that requests the DP's resource
     create_device_plugin_resource_pod(client.clone(), &pods, &mut resource_manager).await?;
-
     assert::pod_exited_successfully(&pods, DEVICE_PLUGIN_RESOURCE_POD).await?;
-
-    // This is just a sanity check that the device plugin requested volume get attached
-    // properly as all it is doing is just writing to a local directory
     assert::pod_container_log_contains(
         &pods,
         DEVICE_PLUGIN_RESOURCE_POD,
