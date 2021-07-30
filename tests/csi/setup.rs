@@ -16,7 +16,6 @@ pub(crate) struct CsiRunner {
 }
 
 pub(crate) async fn launch_csi_things(node_name: &str) -> anyhow::Result<CsiRunner> {
-    println!("CSI TESTS STARTED");
     let bin_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("csi-test-binaries");
     let mut processes = Vec::with_capacity(3);
 
@@ -59,7 +58,6 @@ async fn driver_start(
         Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound) => (),
         Err(e) => return Err(e.into()),
     };
-    // TODO handle SOCKET_PATH
     let socket = super::grpc_sock::server::Socket::new(&SOCKET_PATH.to_string())
         .expect("unable to setup server listening on socket");
 

@@ -744,7 +744,6 @@ async fn test_can_mount_individual_values() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_container_args() -> anyhow::Result<()> {
-    println!("TEST CONTAINER ARGS STARTED");
     let test_ns = "wasi-e2e-container-args";
     let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
 

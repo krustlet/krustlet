@@ -21,7 +21,7 @@ message DevicePluginOptions {
 }
 
 message RegisterRequest {
-// Version of the API the Device Plugin was built against
+	// Version of the API the Device Plugin was built against
 	string version = 1;
 	// Name of the unix socket the device plugin is listening on
 	// PATH = path.Join(DevicePluginPath, endpoint)
