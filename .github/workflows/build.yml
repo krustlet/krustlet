@@ -170,15 +170,6 @@ jobs:
           name: e2e-logs
           path: oneclick-logs/
 
-  security_audit:
-    name: Run security audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2.3.4
-      - uses: actions-rs/audit-check@v1.2.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
   cargo-deny:
     name: Run cargo deny
     runs-on: ubuntu-latest
