@@ -10,6 +10,7 @@ authors = [
   "Kevin Flansburg <kevin.flansburg@gmail.com>",
 ]
 edition = "2018"
+license = "Apache-2.0"
 name = "wasi-provider"
 publish = false
 version = "1.0.0-alpha.1"
