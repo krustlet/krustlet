@@ -66,6 +66,8 @@ pub enum OciErrorCode {
     /// This error is returned when the manifest, identified by name and tag is unknown to the repository.
     ManifestUnknown,
     /// Manifest failed signature validation
+    ///
+    /// DEPRECATED: This error code has been removed from the OCI spec.
     ManifestUnverified,
     /// Invalid repository name
     NameInvalid,
@@ -74,6 +76,8 @@ pub enum OciErrorCode {
     /// Provided length did not match content length
     SizeInvalid,
     /// Manifest tag did not match URI
+    ///
+    /// DEPRECATED: This error code has been removed from the OCI spec.
     TagInvalid,
     /// Authentication required.
     Unauthorized,
@@ -81,6 +85,8 @@ pub enum OciErrorCode {
     Denied,
     /// This operation is unsupported
     Unsupported,
+    /// Too many requests from client
+    Toomanyrequests,
 }
 
 #[cfg(test)]
@@ -97,6 +103,19 @@ mod test {
         let e = &envelope.errors[0];
         assert_eq!(OciErrorCode::Unauthorized, e.code);
         assert_eq!("authentication required", e.message);
+        assert_ne!(serde_json::value::Value::Null, e.detail);
+    }
+
+    const EXAMPLE_ERROR_TOOMANYREQUESTS: &str = r#"
+      {"errors":[{"code":"TOOMANYREQUESTS","message":"pull request limit exceeded","detail":"You have reached your pull rate limit."}]}
+      "#;
+    #[test]
+    fn test_deserialize_toomanyrequests() {
+        let envelope: OciEnvelope =
+            serde_json::from_str(EXAMPLE_ERROR_TOOMANYREQUESTS).expect("parse example error");
+        let e = &envelope.errors[0];
+        assert_eq!(OciErrorCode::Toomanyrequests, e.code);
+        assert_eq!("pull request limit exceeded", e.message);
         assert_ne!(serde_json::value::Value::Null, e.detail);
     }
 
