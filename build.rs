@@ -7,8 +7,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(true)
         .build_server(true);
 
-    println!("cargo:warning=Build file ran");
-
     // Generate Device Plugin code
     builder.compile(
         &["crates/kubelet/proto/deviceplugin/v1beta1/deviceplugin.proto"],
