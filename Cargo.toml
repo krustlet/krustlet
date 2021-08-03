@@ -74,7 +74,7 @@ tower = { version = "0.4.2", features = ["util"] }
 prost = "0.8"
 
 [build-dependencies]
-tonic-build = "0.4"
+tonic-build = "0.5"
 
 [workspace]
 members = [
