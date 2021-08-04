@@ -109,8 +109,7 @@ jobs:
       - name: Ensure Docker is running
         run: .\tests\windows\ensure-docker.ps1
       - name: Setup kind cluster
-        # The image flag is a workaround to force to 1.20 until we add support for projected volumes
-        run: kind create cluster --config .\tests\windows\kind-config.yaml --name kind-${{ github.run_id }} --image kindest/node:v1.20.7@sha256:cbeaf907fc78ac97ce7b625e4bf0de16e3ea725daf6b04f930bd14c67c671ff9
+        run: kind create cluster --config .\tests\windows\kind-config.yaml --name kind-${{ github.run_id }}
       # Because Windows uses rustls, it can't use a bare IP address. This
       # switches the kubeconfig file to use localhost instead
       - name: Modify kubeconfig
@@ -144,7 +143,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: engineerd/setup-kind@v0.5.0
         with:
-          version: "v0.10.0"
+          version: "v0.11.1"
       - uses: engineerd/configurator@v0.0.7
         with:
           name: just
