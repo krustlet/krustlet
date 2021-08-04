@@ -7,7 +7,6 @@ use serde_json::json;
 mod assert;
 #[cfg(target_os = "linux")]
 mod csi;
-// #[cfg(target_os = "linux")]
 mod device_plugin;
 mod expectations;
 mod pod_builder;
