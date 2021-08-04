@@ -449,13 +449,13 @@ async fn create_faily_pod(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn wasmercise_wasi(
+async fn wasmercise_wasi<'a>(
     pod_name: &str,
     client: kube::Client,
     pods: &Api<Pod>,
-    inits: Vec<WasmerciserContainerSpec>,
-    containers: Vec<WasmerciserContainerSpec>,
-    test_volumes: Vec<WasmerciserVolumeSpec>,
+    inits: Vec<WasmerciserContainerSpec<'a>>,
+    containers: Vec<WasmerciserContainerSpec<'a>>,
+    test_volumes: Vec<WasmerciserVolumeSpec<'a>>,
     on_failure: OnFailure,
     resource_manager: &mut TestResourceManager,
 ) -> anyhow::Result<()> {
