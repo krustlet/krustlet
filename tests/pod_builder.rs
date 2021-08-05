@@ -7,14 +7,14 @@ pub struct PodLifetimeOwner {
     _tempdirs: Vec<Arc<tempfile::TempDir>>, // only to keep the directories alive
 }
 
-pub struct WasmerciserContainerSpec {
-    name: &'static str,
-    args: &'static [&'static str],
+pub struct WasmerciserContainerSpec<'a> {
+    name: &'a str,
+    args: &'a [&'a str],
     use_private_registry: bool,
 }
 
-impl WasmerciserContainerSpec {
-    pub fn named(name: &'static str) -> Self {
+impl<'a> WasmerciserContainerSpec<'a> {
+    pub fn named(name: &'a str) -> Self {
         WasmerciserContainerSpec {
             name,
             args: &[],
@@ -22,7 +22,7 @@ impl WasmerciserContainerSpec {
         }
     }
 
-    pub fn with_args(mut self, args: &'static [&'static str]) -> Self {
+    pub fn with_args(mut self, args: &'a [&'a str]) -> Self {
         self.args = args;
         self
     }
@@ -33,23 +33,23 @@ impl WasmerciserContainerSpec {
     }
 }
 
-pub struct WasmerciserVolumeSpec {
-    pub volume_name: &'static str,
-    pub mount_path: &'static str,
-    pub source: WasmerciserVolumeSource,
+pub struct WasmerciserVolumeSpec<'a> {
+    pub volume_name: &'a str,
+    pub mount_path: &'a str,
+    pub source: WasmerciserVolumeSource<'a>,
 }
 
-pub enum WasmerciserVolumeSource {
+pub enum WasmerciserVolumeSource<'a> {
     HostPath,
-    ConfigMap(&'static str),
-    ConfigMapItems(&'static str, Vec<(&'static str, &'static str)>),
-    Secret(&'static str),
-    SecretItems(&'static str, Vec<(&'static str, &'static str)>),
+    ConfigMap(&'a str),
+    ConfigMapItems(&'a str, Vec<(&'a str, &'a str)>),
+    Secret(&'a str),
+    SecretItems(&'a str, Vec<(&'a str, &'a str)>),
     // This expects a raw JSON string containing the vector of `sources` as the projected spec is too
     // complex to represent simply here
-    Projected(&'static str),
+    Projected(&'a str),
     #[cfg(target_os = "linux")]
-    Pvc(&'static str),
+    Pvc(&'a str),
 }
 
 const DEFAULT_TEST_REGISTRY: &str = "webassembly";
