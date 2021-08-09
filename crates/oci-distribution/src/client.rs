@@ -1299,7 +1299,11 @@ mod test {
                 .get(reference.registry())
                 .expect("token is available");
             // We test that the token is longer than a minimal hash.
-            assert!(tok.token().len() > 64);
+            if let RegistryTokenType::Bearer(tok) = tok {
+                assert!(tok.token().len() > 64);
+            } else {
+                panic!("Unexpeted Basic Auth Token");
+            }
         }
     }
 
