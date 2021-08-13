@@ -10,7 +10,7 @@ use rcgen::{
     Certificate, CertificateParams, DistinguishedName, DnType, KeyPair, SanType,
     PKCS_ECDSA_P256_SHA256,
 };
-use tokio::fs::{read, read_to_string, write, File};
+use tokio::fs::{read, write, File};
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, instrument, trace};
 
@@ -68,14 +68,11 @@ async fn bootstrap_auth<K: AsRef<Path>>(
         trace!(%server, "Identified server information from bootstrap config");
 
         let ca_data = match named_cluster.cluster.certificate_authority {
-            Some(certificate_authority) => base64::encode(
-                read_to_string(certificate_authority)
-                    .await
-                    .map_err(|e| {
-                        anyhow::anyhow!(format!("Error loading certificate_authority file: {}", e))
-                    })?
-                    .as_bytes(),
-            ),
+            Some(certificate_authority) => {
+                base64::encode(read(certificate_authority).await.map_err(|e| {
+                    anyhow::anyhow!(format!("Error loading certificate_authority file: {}", e))
+                })?)
+            }
             None => match named_cluster.cluster.certificate_authority_data {
                 Some(certificate_authority_data) => certificate_authority_data,
                 None => {
