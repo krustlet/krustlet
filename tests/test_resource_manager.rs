@@ -1,9 +1,10 @@
-use futures::StreamExt;
-use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Pod, Secret};
+use futures::{StreamExt, TryStreamExt};
+use k8s_openapi::{Metadata, api::core::v1::{ConfigMap, Namespace, Pod, Secret, ServiceAccount}};
 #[cfg(target_os = "linux")]
 use k8s_openapi::api::{core::v1::PersistentVolumeClaim, storage::v1::StorageClass};
-use kube::api::{Api, DeleteParams, PostParams};
+use kube::{ResourceExt, api::{Api, DeleteParams, PostParams, ListParams, WatchEvent}};
 use serde_json::json;
+use kube_runtime::{watcher};
 
 #[derive(Clone, Debug)]
 pub enum TestResource {
@@ -103,8 +104,26 @@ impl TestResourceManager {
 
         // k8s seems to need a bit of time for namespace permissions to flow
         // through the system.  TODO: make this less worse
-        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        // tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        let mut lp: ListParams = ListParams::default();
+        
+        lp.field_selector = Some("metadata.name=default".to_string());
 
+        let mut watcher = watcher(
+            Api::<ServiceAccount>::namespaced(client.clone(), &namespace), 
+            lp.clone(),
+        ).boxed() ;
+
+        while let Some(event) = watcher.try_next().await?{
+            if let watcher::Event::Applied(o) = event {
+                let secret = o.secrets.first().unwrap().clone();
+                Api::<Secret>::namespaced(client.clone(), &namespace)
+                .get(secret.name.unwrap().as_str())
+                .await?;
+                break;
+            }
+        }
+        
         let image_pull_secret_opt = std::env::var("KRUSTLET_E2E_IMAGE_PULL_SECRET");
 
         if let Ok(image_pull_secret) = image_pull_secret_opt {
