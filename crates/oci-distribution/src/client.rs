@@ -17,6 +17,7 @@ use futures_util::future;
 use futures_util::stream::StreamExt;
 use hyperx::header::Header;
 use reqwest::header::HeaderMap;
+use reqwest::RequestBuilder;
 use serde::Deserialize;
 use sha2::Digest;
 use std::collections::HashMap;
@@ -104,7 +105,7 @@ impl ImageLayer {
 #[derive(Default)]
 pub struct Client {
     config: ClientConfig,
-    tokens: HashMap<String, RegistryToken>,
+    tokens: HashMap<String, RegistryTokenType>,
     client: reqwest::Client,
 }
 
@@ -290,11 +291,19 @@ impl Client {
 
         let auth = WwwAuthenticate::parse_header(&dist_hdr.as_bytes().into())?;
         // If challenge_opt is not set it means that no challenge was present, even though the header
-        // was present. Since we do not handle basic auth, it could be the case that the upstream service
-        // is in compatibility mode with a Docker v1 registry.
+        // was present.
         let challenge_opt = match auth.get::<BearerChallenge>() {
             Some(co) => co,
-            None => return Ok(()),
+            None => {
+                // Fall back to HTTP Basic Auth
+                if let RegistryAuth::Basic(username, password) = authentication {
+                    self.tokens.insert(
+                        self.get_registry(image),
+                        RegistryTokenType::Basic(username.to_string(), password.to_string()),
+                    );
+                }
+                return Ok(());
+            }
         };
 
         // Allow for either push or pull authentication
@@ -331,7 +340,8 @@ impl Client {
                 let token: RegistryToken = serde_json::from_str(&text)
                     .context("Failed to decode registry token from auth request")?;
                 debug!("Succesfully authorized for image '{:?}'", image);
-                self.tokens.insert(self.get_registry(image), token);
+                self.tokens
+                    .insert(self.get_registry(image), RegistryTokenType::Bearer(token));
                 Ok(())
             }
             _ => {
@@ -357,18 +367,22 @@ impl Client {
 
         let url = self.to_v2_manifest_url(image);
         debug!("Pulling image manifest from {}", url);
-        let request = self.client.get(&url);
+        let res = self
+            .apply_auth(self.client.get(&url), image, None)
+            .send()
+            .await?;
 
-        let res = request.headers(self.auth_headers(image)).send().await?;
-
+        let status = res.status();
+        let headers = res.headers().clone();
+        let text = res.text().await?;
         // The OCI spec technically does not allow any codes but 200, 500, 401, and 404.
         // Obviously, HTTP servers are going to send other codes. This tries to catch the
         // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
-        match res.status() {
-            reqwest::StatusCode::OK => digest_header_value(&res),
+        match status {
+            reqwest::StatusCode::OK => digest_header_value(headers, &text),
             s if s.is_client_error() => {
                 // According to the OCI spec, we should see an error in the message body.
-                let err = res.json::<OciEnvelope>().await?;
+                let err = serde_json::from_str::<OciEnvelope>(&text)?;
                 // FIXME: This should not have to wrap the error.
                 Err(anyhow::anyhow!("{} on {}", err.errors[0], url))
             }
@@ -376,7 +390,7 @@ impl Client {
             s => Err(anyhow::anyhow!(
                 "An unexpected error occured: code={}, message='{}'",
                 s,
-                res.text().await?
+                text
             )),
         }
     }
@@ -430,15 +444,16 @@ impl Client {
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
 
-        let res = request.headers(self.auth_headers(image)).send().await?;
+        let res = self.apply_auth(request, image, None).send().await?;
 
         // The OCI spec technically does not allow any codes but 200, 500, 401, and 404.
         // Obviously, HTTP servers are going to send other codes. This tries to catch the
         // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
         match res.status() {
             reqwest::StatusCode::OK => {
-                let digest = digest_header_value(&res)?;
+                let headers = res.headers().clone();
                 let text = res.text().await?;
+                let digest = digest_header_value(headers, &text)?;
 
                 self.validate_image_manifest(&text).await?;
 
@@ -535,9 +550,7 @@ impl Client {
     ) -> anyhow::Result<()> {
         let url = self.to_v2_blob_url(&self.get_registry(image), image.repository(), digest);
         let mut stream = self
-            .client
-            .get(&url)
-            .headers(self.auth_headers(image))
+            .apply_auth(self.client.get(&url), image, None)
             .send()
             .await?
             .bytes_stream();
@@ -554,10 +567,12 @@ impl Client {
     /// Returns URL with session UUID
     async fn begin_push_session(&self, image: &Reference) -> anyhow::Result<String> {
         let url = &self.to_v2_blob_upload_url(image);
-        let mut headers = self.auth_headers(image);
+        let mut headers = HeaderMap::new();
         headers.insert("Content-Length", "0".parse().unwrap());
-
-        let res = self.client.post(url).headers(headers).send().await?;
+        let res = self
+            .apply_auth(self.client.post(url), image, Some(headers))
+            .send()
+            .await?;
 
         // OCI spec requires the status code be 202 Accepted to successfully begin the push process
         self.extract_location_header(&image, res, &reqwest::StatusCode::ACCEPTED)
@@ -574,10 +589,13 @@ impl Client {
         digest: &str,
     ) -> anyhow::Result<String> {
         let url = format!("{}&digest={}", location, digest);
-        let mut close_headers = self.auth_headers(image);
+        let mut close_headers = HeaderMap::new();
         close_headers.insert("Content-Length", "0".parse().unwrap());
 
-        let res = self.client.put(&url).headers(close_headers).send().await?;
+        let res = self
+            .apply_auth(self.client.put(&url), image, Some(close_headers))
+            .send()
+            .await?;
         self.extract_location_header(&image, res, &reqwest::StatusCode::CREATED)
             .await
     }
@@ -596,7 +614,7 @@ impl Client {
             return Err(anyhow::anyhow!("cannot push a layer without data"));
         };
         let end_byte = start_byte + layer.len() - 1;
-        let mut headers = self.auth_headers(image);
+        let mut headers = HeaderMap::new();
         headers.insert(
             "Content-Range",
             format!("{}-{}", start_byte, end_byte).parse().unwrap(),
@@ -608,9 +626,7 @@ impl Client {
         headers.insert("Content-Type", "application/octet-stream".parse().unwrap());
 
         let res = self
-            .client
-            .patch(location)
-            .headers(headers)
+            .apply_auth(self.client.patch(location), image, Some(headers))
             .body(layer)
             .send()
             .await?;
@@ -650,7 +666,7 @@ impl Client {
     ) -> anyhow::Result<String> {
         let url = self.to_v2_manifest_url(image);
 
-        let mut headers = self.auth_headers(image);
+        let mut headers = HeaderMap::new();
         headers.insert(
             "Content-Type",
             "application/vnd.oci.image.manifest.v1+json"
@@ -659,9 +675,7 @@ impl Client {
         );
 
         let res = self
-            .client
-            .put(&url)
-            .headers(headers)
+            .apply_auth(self.client.put(&url), image, Some(headers))
             .body(serde_json::to_string(manifest)?)
             .send()
             .await?;
@@ -794,19 +808,36 @@ impl Client {
         )
     }
 
-    /// Generate the headers necessary for authentication.
+    /// Updates request as necessary for authentication.
     ///
     /// If the struct has Some(bearer), this will insert the bearer token in an
     /// Authorization header. It will also set the Accept header, which must
-    /// be set on all OCI Registry request.
-    fn auth_headers(&self, image: &Reference) -> HeaderMap {
-        let mut headers = HeaderMap::new();
+    /// be set on all OCI Registry requests. If the struct has HTTP Basic Auth
+    /// credentials, these will be configured.
+    fn apply_auth(
+        &self,
+        request: RequestBuilder,
+        image: &Reference,
+        additional_headers: Option<HeaderMap>,
+    ) -> RequestBuilder {
+        let mut headers = additional_headers.unwrap_or_else(HeaderMap::new);
         headers.insert("Accept", "application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json".parse().unwrap());
 
         if let Some(token) = self.tokens.get(&self.get_registry(&image)) {
-            headers.insert("Authorization", token.bearer_token().parse().unwrap());
+            match token {
+                RegistryTokenType::Bearer(token) => {
+                    debug!("Using bearer token authentication.");
+                    headers.insert("Authorization", token.bearer_token().parse().unwrap());
+                }
+                RegistryTokenType::Basic(username, password) => {
+                    debug!("Using HTTP basic authentication.");
+                    return request
+                        .headers(headers)
+                        .basic_auth(username.to_string(), Some(password.to_string()));
+                }
+            }
         }
-        headers
+        request.headers(headers)
     }
 
     /// Get the registry address of a given `Reference`.
@@ -891,6 +922,11 @@ impl ClientProtocol {
     }
 }
 
+enum RegistryTokenType {
+    Bearer(RegistryToken),
+    Basic(String, String),
+}
+
 /// A token granted during the OAuth2-like workflow for OCI registries.
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -951,11 +987,16 @@ impl Challenge for BearerChallenge {
     }
 }
 
-fn digest_header_value(response: &reqwest::Response) -> anyhow::Result<String> {
-    let headers = response.headers();
+fn digest_header_value(headers: HeaderMap, body: &str) -> anyhow::Result<String> {
     let digest_header = headers.get("Docker-Content-Digest");
     match digest_header {
-        None => Err(anyhow::anyhow!("resgistry did not return a digest header")),
+        None => {
+            // Fallback to hashing payload (tested with ECR)
+            let digest = sha2::Sha256::digest(body.as_bytes());
+            let hex = format!("sha256:{:x}", digest);
+            debug!(%hex, "Computed digest of manifest payload.");
+            Ok(hex)
+        }
         Some(hv) => hv
             .to_str()
             .map(|s| s.to_string())
@@ -1258,7 +1299,11 @@ mod test {
                 .get(reference.registry())
                 .expect("token is available");
             // We test that the token is longer than a minimal hash.
-            assert!(tok.token().len() > 64);
+            if let RegistryTokenType::Bearer(tok) = tok {
+                assert!(tok.token().len() > 64);
+            } else {
+                panic!("Unexpeted Basic Auth Token");
+            }
         }
     }
 
