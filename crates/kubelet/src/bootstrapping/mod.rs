@@ -68,11 +68,14 @@ async fn bootstrap_auth<K: AsRef<Path>>(
         trace!(%server, "Identified server information from bootstrap config");
 
         let ca_data = match named_cluster.cluster.certificate_authority {
-            Some(certificate_authority) => {
-                read_to_string(certificate_authority).await.map_err(|e| {
-                    anyhow::anyhow!(format!("Error loading certificate_authority file: {}", e))
-                })?
-            }
+            Some(certificate_authority) => base64::encode(
+                read_to_string(certificate_authority)
+                    .await
+                    .map_err(|e| {
+                        anyhow::anyhow!(format!("Error loading certificate_authority file: {}", e))
+                    })?
+                    .as_bytes(),
+            ),
             None => match named_cluster.cluster.certificate_authority_data {
                 Some(certificate_authority_data) => certificate_authority_data,
                 None => {
