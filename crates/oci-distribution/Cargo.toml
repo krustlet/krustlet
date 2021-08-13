@@ -44,4 +44,4 @@ tracing = {version = "0.1", features = ['log']}
 www-authenticate = "0.3"
 
 [dev-dependencies]
-rstest = "0.6"
+rstest = "0.11"

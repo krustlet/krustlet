@@ -60,14 +60,14 @@ wasi-provider = {path = "./crates/wasi-provider", version = "1.0.0-alpha.1", def
 [dev-dependencies]
 async-trait = "0.1"
 compiletest_rs = "0.6"
-k8s-csi = "0.3"
+k8s-csi = "0.4"
 kube-runtime = {version = "0.58", default-features = false}
 reqwest = {version = "0.11", default-features = false}
 serde_derive = "1.0"
 serde_json = "1.0"
 tempfile = "3.2"
 tokio = {version = "1.0", features = ["macros", "rt-multi-thread", "time", "process"]}
-tonic = "0.4"
+tonic = "0.5"
 
 [workspace]
 members = [

@@ -35,7 +35,16 @@ impl Stream for Socket {
     }
 }
 
-impl Connected for UnixStream {}
+#[derive(Clone, Debug)]
+pub struct ConnectionData {}
+
+impl Connected for UnixStream {
+    type ConnectInfo = ConnectionData;
+
+    fn connect_info(&self) -> Self::ConnectInfo {
+        ConnectionData {}
+    }
+}
 
 impl AsyncRead for UnixStream {
     fn poll_read(
