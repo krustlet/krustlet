@@ -356,6 +356,10 @@ impl Client {
     ///
     /// If the connection has already gone through authentication, this will
     /// use the bearer token. Otherwise, this will attempt an anonymous pull.
+    ///
+    /// Will first attempt to read the `Docker-Content-Digest` header using a
+    /// HEAD request. If this header is not present, will make a second GET
+    /// request and return the SHA256 of the response body.
     pub async fn fetch_manifest_digest(
         &mut self,
         image: &Reference,
@@ -372,26 +376,54 @@ impl Client {
             .send()
             .await?;
 
-        let status = res.status();
-        let headers = res.headers().clone();
-        let text = res.text().await?;
-        // The OCI spec technically does not allow any codes but 200, 500, 401, and 404.
-        // Obviously, HTTP servers are going to send other codes. This tries to catch the
-        // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
-        match status {
-            reqwest::StatusCode::OK => digest_header_value(headers, &text),
-            s if s.is_client_error() => {
-                // According to the OCI spec, we should see an error in the message body.
-                let err = serde_json::from_str::<OciEnvelope>(&text)?;
-                // FIXME: This should not have to wrap the error.
-                Err(anyhow::anyhow!("{} on {}", err.errors[0], url))
+        if res.headers().get("Docker-Content-Digest").is_none() {
+            let res = self
+                .apply_auth(self.client.get(&url), image, None)
+                .send()
+                .await?;
+            let status = res.status();
+            let headers = res.headers().clone();
+            let text = res.text().await?;
+            // The OCI spec technically does not allow any codes but 200, 500, 401, and 404.
+            // Obviously, HTTP servers are going to send other codes. This tries to catch the
+            // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
+            match status {
+                reqwest::StatusCode::OK => digest_header_value(headers, Some(&text)),
+                s if s.is_client_error() => {
+                    // According to the OCI spec, we should see an error in the message body.
+                    let err = serde_json::from_str::<OciEnvelope>(&text)?;
+                    // FIXME: This should not have to wrap the error.
+                    Err(anyhow::anyhow!("{} on {}", err.errors[0], url))
+                }
+                s if s.is_server_error() => Err(anyhow::anyhow!("Server error at {}", url)),
+                s => Err(anyhow::anyhow!(
+                    "An unexpected error occured: code={}, message='{}'",
+                    s,
+                    text
+                )),
             }
-            s if s.is_server_error() => Err(anyhow::anyhow!("Server error at {}", url)),
-            s => Err(anyhow::anyhow!(
-                "An unexpected error occured: code={}, message='{}'",
-                s,
-                text
-            )),
+        } else {
+            let status = res.status();
+            let headers = res.headers().clone();
+            let text = res.text().await?;
+            // The OCI spec technically does not allow any codes but 200, 500, 401, and 404.
+            // Obviously, HTTP servers are going to send other codes. This tries to catch the
+            // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
+            match status {
+                reqwest::StatusCode::OK => digest_header_value(headers, None),
+                s if s.is_client_error() => {
+                    // According to the OCI spec, we should see an error in the message body.
+                    let err = serde_json::from_str::<OciEnvelope>(&text)?;
+                    // FIXME: This should not have to wrap the error.
+                    Err(anyhow::anyhow!("{} on {}", err.errors[0], url))
+                }
+                s if s.is_server_error() => Err(anyhow::anyhow!("Server error at {}", url)),
+                s => Err(anyhow::anyhow!(
+                    "An unexpected error occured: code={}, message='{}'",
+                    s,
+                    text
+                )),
+            }
         }
     }
 
@@ -453,7 +485,7 @@ impl Client {
             reqwest::StatusCode::OK => {
                 let headers = res.headers().clone();
                 let text = res.text().await?;
-                let digest = digest_header_value(headers, &text)?;
+                let digest = digest_header_value(headers, Some(&text))?;
 
                 self.validate_image_manifest(&text).await?;
 
@@ -987,15 +1019,23 @@ impl Challenge for BearerChallenge {
     }
 }
 
-fn digest_header_value(headers: HeaderMap, body: &str) -> anyhow::Result<String> {
+/// Extract `Docker-Content-Digest` header from manifest GET or HEAD request.
+/// Can optionally supply a response body (i.e. the manifest itself) to
+/// fallback to manually hashing this content. This should only be done if the
+/// response body contains the image manifest.
+fn digest_header_value(headers: HeaderMap, body: Option<&str>) -> anyhow::Result<String> {
     let digest_header = headers.get("Docker-Content-Digest");
     match digest_header {
         None => {
-            // Fallback to hashing payload (tested with ECR)
-            let digest = sha2::Sha256::digest(body.as_bytes());
-            let hex = format!("sha256:{:x}", digest);
-            debug!(%hex, "Computed digest of manifest payload.");
-            Ok(hex)
+            if let Some(body) = body {
+                // Fallback to hashing payload (tested with ECR)
+                let digest = sha2::Sha256::digest(body.as_bytes());
+                let hex = format!("sha256:{:x}", digest);
+                debug!(%hex, "Computed digest of manifest payload.");
+                Ok(hex)
+            } else {
+                Err(anyhow::anyhow!("resgistry did not return a digest header"))
+            }
         }
         Some(hv) => hv
             .to_str()
