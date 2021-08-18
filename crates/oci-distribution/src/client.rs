@@ -23,7 +23,7 @@ use sha2::Digest;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
 
 /// The data for an image or module.
@@ -370,25 +370,29 @@ impl Client {
         }
 
         let url = self.to_v2_manifest_url(image);
-        debug!("Pulling image manifest from {}", url);
+        debug!("HEAD image manifest from {}", url);
         let res = self
             .apply_auth(self.client.get(&url), image, None)
             .send()
             .await?;
 
+        trace!(headers=?res.headers(), "Got Headers");
         if res.headers().get("Docker-Content-Digest").is_none() {
+            debug!("GET image manifest from {}", url);
             let res = self
                 .apply_auth(self.client.get(&url), image, None)
                 .send()
                 .await?;
             let status = res.status();
             let headers = res.headers().clone();
+            trace!(headers=?res.headers(), "Got Headers");
             let text = res.text().await?;
             // The OCI spec technically does not allow any codes but 200, 500, 401, and 404.
             // Obviously, HTTP servers are going to send other codes. This tries to catch the
             // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
             match status {
                 reqwest::StatusCode::OK => digest_header_value(headers, Some(&text)),
+                reqwest::StatusCode::UNAUTHORIZED => anyhow::bail!("Not Authorized"),
                 s if s.is_client_error() => {
                     // According to the OCI spec, we should see an error in the message body.
                     let err = serde_json::from_str::<OciEnvelope>(&text)?;
@@ -411,6 +415,7 @@ impl Client {
             // obvious ones (200, 4XX, 5XX). Anything else is just treated as an error.
             match status {
                 reqwest::StatusCode::OK => digest_header_value(headers, None),
+                reqwest::StatusCode::UNAUTHORIZED => anyhow::bail!("Not Authorized"),
                 s if s.is_client_error() => {
                     // According to the OCI spec, we should see an error in the message body.
                     let err = serde_json::from_str::<OciEnvelope>(&text)?;
