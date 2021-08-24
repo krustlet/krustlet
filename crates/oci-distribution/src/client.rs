@@ -26,6 +26,12 @@ use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tracing::{debug, warn};
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
 
+const MIME_TYPES_DISTRIBUTION_MANIFEST: &[&str] = &[
+    "application/vnd.docker.distribution.manifest.v2+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+    "application/vnd.oci.image.manifest.v1+json",
+];
+
 /// The data for an image or module.
 #[derive(Clone)]
 pub struct ImageData {
@@ -369,6 +375,7 @@ impl Client {
         debug!("Pulling image manifest from {}", url);
 
         let res = RequestBuilderWrapper::from_client(self, |client| client.get(&url))
+            .apply_accept(MIME_TYPES_DISTRIBUTION_MANIFEST)?
             .apply_auth(image)?
             .into_request_builder()
             .send()
@@ -446,6 +453,7 @@ impl Client {
         debug!("Pulling image manifest from {}", url);
 
         let res = RequestBuilderWrapper::from_client(self, |client| client.get(&url))
+            .apply_accept(MIME_TYPES_DISTRIBUTION_MANIFEST)?
             .apply_auth(image)?
             .into_request_builder()
             .send()
@@ -555,6 +563,7 @@ impl Client {
     ) -> anyhow::Result<()> {
         let url = self.to_v2_blob_url(&self.get_registry(image), image.repository(), digest);
         let mut stream = RequestBuilderWrapper::from_client(self, |client| client.get(&url))
+            .apply_accept(MIME_TYPES_DISTRIBUTION_MANIFEST)?
             .apply_auth(image)?
             .into_request_builder()
             .send()
@@ -862,6 +871,19 @@ impl<'a> RequestBuilderWrapper<'a> {
 
 // Composable functions applicable to a `RequestBuilderWrapper`
 impl<'a> RequestBuilderWrapper<'a> {
+    fn apply_accept(&self, accept: &[&str]) -> anyhow::Result<RequestBuilderWrapper> {
+        let request_builder = self
+            .request_builder
+            .try_clone()
+            .ok_or_else(|| anyhow!("could not clone request builder"))?
+            .header("Accept", Vec::from(accept).join(", "));
+
+        Ok(RequestBuilderWrapper {
+            client: self.client,
+            request_builder,
+        })
+    }
+
     /// Updates request as necessary for authentication.
     ///
     /// If the struct has Some(bearer), this will insert the bearer token in an
@@ -870,7 +892,6 @@ impl<'a> RequestBuilderWrapper<'a> {
     /// credentials, these will be configured.
     fn apply_auth(&self, image: &Reference) -> anyhow::Result<RequestBuilderWrapper> {
         let mut headers = HeaderMap::new();
-        headers.insert("Accept", "application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json".parse().unwrap());
 
         if let Some(token) = self.client.tokens.get(&self.client.get_registry(&image)) {
             match token {
