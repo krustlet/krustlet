@@ -1,7 +1,7 @@
 use std::{convert::TryFrom, env, io, path::Path, str};
 
 use futures::{StreamExt, TryStreamExt};
-use k8s_openapi::api::certificates::v1beta1::CertificateSigningRequest;
+use k8s_openapi::api::certificates::v1::CertificateSigningRequest;
 use kube::api::{Api, ListParams, PostParams};
 use kube::config::Kubeconfig;
 use kube::Config;
@@ -86,7 +86,7 @@ async fn bootstrap_auth<K: AsRef<Path>>(
         trace!(csr_name = %config.node_name, "Generating and sending CSR to Kubernetes API");
         let csrs: Api<CertificateSigningRequest> = Api::all(client);
         let csr_json = serde_json::json!({
-          "apiVersion": "certificates.k8s.io/v1beta1",
+          "apiVersion": "certificates.k8s.io/v1",
           "kind": "CertificateSigningRequest",
           "metadata": {
             "name": config.node_name,
@@ -201,7 +201,7 @@ async fn bootstrap_tls(
     let client = kube::Client::try_from(kubeconfig)?;
     let csrs: Api<CertificateSigningRequest> = Api::all(client);
     let csr_json = serde_json::json!({
-        "apiVersion": "certificates.k8s.io/v1beta1",
+        "apiVersion": "certificates.k8s.io/v1",
         "kind": "CertificateSigningRequest",
         "metadata": {
             "name": csr_name,
