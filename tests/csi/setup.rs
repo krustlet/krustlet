@@ -58,7 +58,7 @@ async fn driver_start(
         Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound) => (),
         Err(e) => return Err(e.into()),
     };
-    let socket = super::socket_server::Socket::new(&SOCKET_PATH.to_string())
+    let socket = super::grpc_sock::server::Socket::new(&SOCKET_PATH.to_string())
         .expect("unable to setup server listening on socket");
 
     let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();

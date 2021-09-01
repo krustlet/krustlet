@@ -1,7 +1,5 @@
-// This is a modified version of: https://github.com/hyperium/tonic/blob/f1275b611e38ec5fe992b2f10552bf95e8448b17/examples/src/uds/server.rs
-
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     pin::Pin,
     task::{Context, Poll},
 };
@@ -13,14 +11,37 @@ use tonic::transport::server::Connected;
 #[derive(Debug)]
 pub struct UnixStream(tokio::net::UnixStream);
 
+/// A `PathBuf` that will get deleted on drop
+struct OwnedPathBuf {
+    inner: PathBuf,
+}
+
+impl Drop for OwnedPathBuf {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_file(&self.inner) {
+            eprintln!(
+                "cleanup of file {} failed, manual cleanup needed: {}",
+                self.inner.display(),
+                e
+            );
+        }
+    }
+}
+
 pub struct Socket {
     listener: tokio::net::UnixListener,
+    _socket_path: OwnedPathBuf,
 }
 
 impl Socket {
-    pub fn new<P: AsRef<Path>>(path: &P) -> anyhow::Result<Self> {
+    pub fn new<P: AsRef<Path> + ?Sized>(path: &P) -> anyhow::Result<Self> {
         let listener = tokio::net::UnixListener::bind(path)?;
-        Ok(Socket { listener })
+        Ok(Socket {
+            listener,
+            _socket_path: OwnedPathBuf {
+                inner: path.as_ref().to_owned(),
+            },
+        })
     }
 }
 

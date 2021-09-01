@@ -1,7 +1,5 @@
 pub mod setup;
-#[cfg_attr(target_family = "unix", path = "../grpc_sock/unix/mod.rs")]
-pub mod socket_server;
-
+use crate::grpc_sock;
 use std::collections::HashSet;
 use std::sync::Arc;
 

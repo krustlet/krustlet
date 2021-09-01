@@ -7,8 +7,11 @@ use serde_json::json;
 mod assert;
 #[cfg(target_os = "linux")]
 mod csi;
+#[cfg(target_os = "linux")]
 mod device_plugin;
 mod expectations;
+#[cfg(target_os = "linux")]
+pub mod grpc_sock;
 mod pod_builder;
 mod pod_setup;
 mod test_resource_manager;
@@ -92,6 +95,7 @@ const PRIVATE_REGISTRY_POD: &str = "private-registry-pod";
 const PROJECTED_VOLUME_POD: &str = "projected-volume-pod";
 #[cfg(target_os = "linux")]
 const PVC_MOUNT_POD: &str = "pvc-mount-pod";
+#[cfg(target_os = "linux")]
 const DEVICE_PLUGIN_RESOURCE_POD: &str = "device-plugin-resource-pod";
 #[cfg(target_os = "linux")]
 const HOSTPATH_PROVISIONER: &str = "mock.csi.krustlet.dev";
@@ -1032,9 +1036,12 @@ async fn test_pod_mounts_with_pvc() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 const RESOURCE_NAME: &str = "example.com/gpu";
+#[cfg(target_os = "linux")]
 const RESOURCE_ENDPOINT: &str = "gpu-device-plugin.sock";
 
+#[cfg(target_os = "linux")]
 async fn create_device_plugin_resource_pod(
     client: kube::Client,
     pods: &Api<Pod>,
@@ -1065,6 +1072,7 @@ async fn create_device_plugin_resource_pod(
     .await
 }
 
+#[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_pod_with_device_plugin_resource() -> anyhow::Result<()> {
     println!("Starting DP test");
