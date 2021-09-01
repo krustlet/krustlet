@@ -3831,6 +3831,7 @@ dependencies = [
  "cap-std",
  "chrono",
  "futures",
+ "k8s-openapi",
  "krator",
  "kube",
  "kubelet",

@@ -38,6 +38,8 @@ pub enum VolumeRef {
     Secret(SecretVolume),
     /// PVC volume
     PersistentVolumeClaim(PvcVolume),
+    /// Volume specified by a device plugin
+    DeviceVolume(HostPathVolume, PathBuf),
     /// hostpath volume
     HostPath(HostPathVolume),
     /// DownwardAPI volume
@@ -71,6 +73,7 @@ impl VolumeRef {
             VolumeRef::ConfigMap(cm) => cm.get_path(),
             VolumeRef::Secret(sec) => sec.get_path(),
             VolumeRef::PersistentVolumeClaim(pv) => pv.get_path(),
+            VolumeRef::DeviceVolume(host, _) => host.get_path(),
             VolumeRef::HostPath(host) => host.get_path(),
             VolumeRef::DownwardApi(d) => d.get_path(),
             VolumeRef::Projected(p) => p.get_path(),
@@ -83,6 +86,7 @@ impl VolumeRef {
             VolumeRef::ConfigMap(cm) => cm.mount(path).await,
             VolumeRef::Secret(sec) => sec.mount(path).await,
             VolumeRef::PersistentVolumeClaim(pv) => pv.mount(path).await,
+            VolumeRef::DeviceVolume(host, _) => host.mount().await,
             VolumeRef::HostPath(host) => host.mount().await,
             VolumeRef::DownwardApi(d) => d.mount(path).await,
             // We need to clone the path here so we are sure that it is owned since this mount call
@@ -97,6 +101,7 @@ impl VolumeRef {
             VolumeRef::ConfigMap(cm) => cm.unmount().await,
             VolumeRef::Secret(sec) => sec.unmount().await,
             VolumeRef::PersistentVolumeClaim(pv) => pv.unmount().await,
+            VolumeRef::DeviceVolume(_, _) => Ok(()),
             // Doesn't need any unmounting steps
             VolumeRef::HostPath(_) => Ok(()),
             VolumeRef::DownwardApi(d) => d.unmount().await,
