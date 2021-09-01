@@ -80,9 +80,10 @@ impl GenericPodState for PodState {
         let mut run_context = self.run_context.write().await;
         run_context.modules = modules;
     }
+    // For this provider, set_volumes extends the current volumes rather than re-assigning
     async fn set_volumes(&mut self, volumes: HashMap<String, kubelet::volume::VolumeRef>) {
         let mut run_context = self.run_context.write().await;
-        run_context.volumes = volumes;
+        run_context.volumes.extend(volumes);
     }
     async fn backoff(&mut self, sequence: BackoffSequence) {
         let backoff_strategy = match sequence {
