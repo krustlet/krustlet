@@ -1,4 +1,5 @@
 pub mod setup;
+#[cfg(target_os = "linux")]
 use crate::grpc_sock;
 use std::collections::HashSet;
 use std::sync::Arc;

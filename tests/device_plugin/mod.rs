@@ -2,8 +2,8 @@ pub(crate) mod v1beta1 {
     pub const API_VERSION: &str = "v1beta1";
     tonic::include_proto!("v1beta1");
 }
-#[path = "../grpc_sock/mod.rs"]
-pub mod grpc_sock;
+#[cfg(target_os = "linux")]
+use crate::grpc_sock;
 use futures::Stream;
 use std::path::Path;
 use std::pin::Pin;
