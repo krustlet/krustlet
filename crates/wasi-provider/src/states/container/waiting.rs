@@ -25,31 +25,61 @@ fn volume_path_map(
     container: &Container,
     volumes: &HashMap<String, VolumeRef>,
 ) -> anyhow::Result<HashMap<PathBuf, Option<PathBuf>>> {
-    container
+    // Check for volumes added during the `Resources` State that were not specified in original ContainerSpec
+    // Currently, these are only volumes required by device plugins.
+    let container_vol_names: Vec<String> = container
         .volume_mounts()
         .iter()
-        .map(|vm| -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
-            // Check the volume exists first
-            let vol = volumes.get(&vm.name).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no volume with the name of {} found for container {}",
-                    vm.name,
-                    container.name()
-                )
-            })?;
-            let host_path = vol
-                .get_path()
-                .map(|p| p.to_owned())
-                .ok_or_else(|| anyhow::anyhow!("Volume {} has not been mounted yet", vm.name))?;
-            let mut guest_path = PathBuf::from(&vm.mount_path);
-            if let Some(sub_path) = &vm.sub_path {
-                guest_path.push(sub_path);
+        .cloned()
+        .map(|vm| vm.name)
+        .collect();
+    let mut resource_volumes: HashMap<PathBuf, Option<PathBuf>> = volumes
+        .iter()
+        .filter(|(k, _)| !container_vol_names.contains(k))
+        .map(|(k, v)| -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
+            match v {
+                VolumeRef::DeviceVolume(host_path_vol, guest_path) => {
+                    let host_path = host_path_vol
+                        .get_path()
+                        .map(|p| p.to_owned())
+                        .ok_or_else(|| anyhow::anyhow!("Volume {} has not been mounted yet", k))?;
+                    Ok((host_path.clone(), Some(guest_path.to_owned())))
+                }
+                v_ref => Err(anyhow::anyhow!(
+                    "Volume mounted at path {:?} was not a DeviceVolume",
+                    v_ref.get_path()
+                )),
             }
-            // We can safely assume that this should be valid UTF-8 because it would have
-            // been validated by the k8s API
-            Ok((host_path, Some(guest_path)))
         })
-        .collect::<anyhow::Result<HashMap<PathBuf, Option<PathBuf>>>>()
+        .collect::<anyhow::Result<HashMap<PathBuf, Option<PathBuf>>>>()?;
+
+    resource_volumes.extend(
+        container
+            .volume_mounts()
+            .iter()
+            .map(|vm| -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
+                // Check the volume exists first
+                let vol = volumes.get(&vm.name).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "no volume with the name of {} found for container {}",
+                        vm.name,
+                        container.name()
+                    )
+                })?;
+                let host_path = vol.get_path().map(|p| p.to_owned()).ok_or_else(|| {
+                    anyhow::anyhow!("Volume {} has not been mounted yet", vm.name)
+                })?;
+                let mut guest_path = PathBuf::from(&vm.mount_path);
+                if let Some(sub_path) = &vm.sub_path {
+                    guest_path.push(sub_path);
+                }
+                // We can safely assume that this should be valid UTF-8 because it would have
+                // been validated by the k8s API
+                Ok((host_path, Some(guest_path)))
+            })
+            .collect::<anyhow::Result<HashMap<PathBuf, Option<PathBuf>>>>()?,
+    );
+    Ok(resource_volumes)
 }
 
 /// The container is starting.
@@ -253,5 +283,71 @@ impl State<ContainerState> for Waiting {
         _container: &Container,
     ) -> anyhow::Result<Status> {
         Ok(Status::waiting("Module is starting."))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use k8s_openapi::api::core::v1::Container as KubeContainer;
+    use k8s_openapi::api::core::v1::HostPathVolumeSource;
+    use k8s_openapi::api::core::v1::Volume as KubeVolume;
+    use k8s_openapi::api::core::v1::VolumeMount;
+    use kubelet::volume::HostPathVolume;
+    #[test]
+    fn test_volume_path_map() {
+        let host_path1 = "/host/path/1";
+        let guest_path1 = "/guest/path/1";
+        let volume = VolumeMount {
+            name: host_path1.to_string(),
+            mount_path: guest_path1.to_string(),
+            ..Default::default()
+        };
+        let container = Container::new(&KubeContainer {
+            name: "foo".to_string(),
+            volume_mounts: vec![volume],
+            ..Default::default()
+        });
+        let host_path2 = "/host/path/2";
+        let guest_path2 = "/guest/path/2";
+        // For simplicity, makes the host paths the names of the volumes
+        let volumes: HashMap<std::string::String, kubelet::volume::VolumeRef> = vec![
+            (
+                host_path1.to_string(),
+                VolumeRef::HostPath(create_host_path_vol(host_path1)),
+            ),
+            (
+                host_path2.to_string(),
+                VolumeRef::DeviceVolume(
+                    create_host_path_vol(host_path2),
+                    PathBuf::from(guest_path2),
+                ),
+            ),
+        ]
+        .into_iter()
+        .collect();
+
+        let mounts = volume_path_map(&container, &volumes).unwrap();
+        assert_eq!(
+            mounts.get(&PathBuf::from(host_path1)).unwrap(),
+            &Some(PathBuf::from(guest_path1))
+        );
+        assert_eq!(
+            mounts.get(&PathBuf::from(host_path2)).unwrap(),
+            &Some(PathBuf::from(guest_path2))
+        );
+    }
+
+    fn create_host_path_vol(host_path: &str) -> HostPathVolume {
+        let hp_vol_src = HostPathVolumeSource {
+            path: host_path.to_string(),
+            ..Default::default()
+        };
+        let kube_vol = KubeVolume {
+            name: host_path.to_string(),
+            host_path: Some(hp_vol_src),
+            ..Default::default()
+        };
+        HostPathVolume::new(&kube_vol).unwrap()
     }
 }

@@ -44,4 +44,5 @@ wat = "1.0.38"
 wasi-experimental-http-wasmtime = "0.5.0"
 
 [dev-dependencies]
+k8s-openapi = {version = "0.12", default-features = false, features = ["v1_21", "api"]}
 oci-distribution = {path = "../oci-distribution", version = "0.7"}

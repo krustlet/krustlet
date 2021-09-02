@@ -77,32 +77,45 @@ impl<P: GenericProvider> State<P::PodState> for Resources<P> {
             if let Some(container_allocate_responses) =
                 device_plugin_manager.get_pod_allocate_responses(pod.pod_uid())
             {
-                let mut host_paths: Vec<String> = Vec::new();
+                let mut vol_paths: Vec<(String, String)> = Vec::new();
                 let mut env_vars: HashMap<String, HashMap<String, String>> = HashMap::new();
                 // Get host paths, env vars, and annotations from allocate responses.
                 container_allocate_responses.iter().for_each(|(c, rs)| {
                     rs.iter().for_each(|r| {
                         env_vars.insert(c.clone(), r.envs.clone());
-                        r.mounts
-                            .iter()
-                            .for_each(|m| host_paths.push(m.host_path.clone()))
+                        r.mounts.iter().for_each(|m| {
+                            vol_paths.push((m.host_path.clone(), m.container_path.clone()))
+                        })
                     });
                 });
-                let volumes: HashMap<String, VolumeRef> = host_paths
+                let volumes: HashMap<String, VolumeRef> = vol_paths
                     .into_iter()
-                    .map(|p| HostPathVolumeSource {
-                        path: p,
-                        ..Default::default()
+                    .map(|(p, c)| {
+                        (
+                            HostPathVolumeSource {
+                                path: p,
+                                ..Default::default()
+                            },
+                            c,
+                        )
                     })
-                    .map(|h| KubeVolume {
-                        name: h.path.clone(),
-                        host_path: Some(h),
-                        ..Default::default()
+                    .map(|(h, c)| {
+                        (
+                            KubeVolume {
+                                name: h.path.clone(),
+                                host_path: Some(h),
+                                ..Default::default()
+                            },
+                            c,
+                        )
                     })
-                    .map(|k| {
+                    .map(|(k, c)| {
                         (
                             k.name.clone(),
-                            VolumeRef::HostPath(HostPathVolume::new(&k).unwrap()),
+                            VolumeRef::DeviceVolume(
+                                HostPathVolume::new(&k).unwrap(),
+                                std::path::PathBuf::from(c),
+                            ),
                         )
                     })
                     .collect();
