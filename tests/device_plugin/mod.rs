@@ -3,6 +3,8 @@ pub(crate) mod v1beta1 {
     tonic::include_proto!("v1beta1");
 }
 #[cfg(target_os = "linux")]
+use super::CONTAINER_PATH;
+#[cfg(target_os = "linux")]
 use crate::grpc_sock;
 use futures::Stream;
 use std::path::Path;
@@ -21,6 +23,8 @@ use v1beta1::{
 struct MockDevicePlugin {
     // Devices that are advertised
     devices: Vec<Device>,
+    // Mount to set on all devices
+    volume_mount: String,
 }
 
 #[async_trait::async_trait]
@@ -68,12 +72,11 @@ impl DevicePlugin for MockDevicePlugin {
         request: Request<AllocateRequest>,
     ) -> Result<Response<AllocateResponse>, Status> {
         let allocate_request = request.into_inner();
-        let path = "/brb/general.txt";
         let mut envs = std::collections::HashMap::new();
         envs.insert("DEVICE_PLUGIN_VAR".to_string(), "foo".to_string());
         let mounts = vec![Mount {
-            container_path: path.to_string(),
-            host_path: path.to_string(),
+            container_path: CONTAINER_PATH.to_string(),
+            host_path: self.volume_mount.clone(),
             read_only: false,
         }];
         let container_responses: Vec<ContainerAllocateResponse> = allocate_request
@@ -102,8 +105,12 @@ impl DevicePlugin for MockDevicePlugin {
 async fn run_mock_device_plugin(
     devices: Vec<Device>,
     plugin_socket: std::path::PathBuf,
+    volume_mount: std::path::PathBuf,
 ) -> anyhow::Result<()> {
-    let device_plugin = MockDevicePlugin { devices };
+    let device_plugin = MockDevicePlugin {
+        devices,
+        volume_mount: volume_mount.to_str().unwrap().to_owned(),
+    };
     let socket = grpc_sock::server::Socket::new(&plugin_socket)?;
     let serv = tonic::transport::Server::builder()
         .add_service(DevicePluginServer::new(device_plugin))
@@ -154,6 +161,7 @@ fn get_mock_devices() -> Vec<Device> {
 pub async fn launch_device_plugin(
     resource_name: &str,
     resource_endpoint: &str,
+    volume_mount: impl AsRef<Path>,
 ) -> anyhow::Result<()> {
     println!("launching DP test");
     // Create socket for device plugin in the default $HOME/.krustlet/device_plugins directory
@@ -164,8 +172,9 @@ pub async fn launch_device_plugin(
     let dp_socket = krustlet_dir.join("device_plugins").join(resource_endpoint);
     tokio::fs::remove_file(&dp_socket).await.ok();
     let dp_socket_clone = dp_socket.clone();
+    let volume_mount_string = volume_mount.as_ref().to_owned();
     tokio::spawn(async move {
-        run_mock_device_plugin(get_mock_devices(), dp_socket)
+        run_mock_device_plugin(get_mock_devices(), dp_socket, volume_mount_string)
             .await
             .unwrap();
     });

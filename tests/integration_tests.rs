@@ -1040,6 +1040,8 @@ async fn test_pod_mounts_with_pvc() -> anyhow::Result<()> {
 const RESOURCE_NAME: &str = "example.com/gpu";
 #[cfg(target_os = "linux")]
 const RESOURCE_ENDPOINT: &str = "gpu-device-plugin.sock";
+#[cfg(target_os = "linux")]
+pub const CONTAINER_PATH: &str = "/gpu/dir";
 
 #[cfg(target_os = "linux")]
 async fn create_device_plugin_resource_pod(
@@ -1048,8 +1050,17 @@ async fn create_device_plugin_resource_pod(
     resource_manager: &mut TestResourceManager,
 ) -> anyhow::Result<()> {
     use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
-    let containers = vec![WasmerciserContainerSpec::named("device-plugin-test")
-        .with_args(&["assert_exists(env:DEVICE_PLUGIN_VAR)"])];
+    let container_mount = std::path::PathBuf::from(CONTAINER_PATH).join("foo.txt");
+    let args = [
+        &format!(
+            "write(lit:watermelon)to(file:{})",
+            container_mount.display(),
+        ),
+        &format!("read(file:{})to(var:myfile)", container_mount.display()),
+        "write(var:myfile)to(stm:stdout)",
+        "assert_exists(env:DEVICE_PLUGIN_VAR)",
+    ];
+    let containers = vec![WasmerciserContainerSpec::named("device-plugin-test").with_args(&args)];
 
     let mut requests = std::collections::BTreeMap::new();
     requests.insert(RESOURCE_NAME.to_string(), Quantity("1".to_string()));
@@ -1078,8 +1089,8 @@ async fn test_pod_with_device_plugin_resource() -> anyhow::Result<()> {
     println!("Starting DP test");
     let test_ns = "wasi-e2e-pod-with-device-plugin-resource";
     let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
-
-    device_plugin::launch_device_plugin(RESOURCE_NAME, RESOURCE_ENDPOINT).await?;
+    let temp = tempfile::tempdir()?;
+    device_plugin::launch_device_plugin(RESOURCE_NAME, RESOURCE_ENDPOINT, &temp.path()).await?;
 
     // Create a Pod that requests the DP's resource
     create_device_plugin_resource_pod(client.clone(), &pods, &mut resource_manager).await?;
