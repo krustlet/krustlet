@@ -1,4 +1,4 @@
-use k8s_openapi::api::core::v1::{Node, Pod, Taint};
+use k8s_openapi::api::core::v1::{Node, Pod, ResourceRequirements, Taint};
 #[cfg(target_os = "linux")]
 use kube::api::DeleteParams;
 use kube::api::{Api, PostParams};
@@ -7,7 +7,11 @@ use serde_json::json;
 mod assert;
 #[cfg(target_os = "linux")]
 mod csi;
+#[cfg(target_os = "linux")]
+mod device_plugin;
 mod expectations;
+#[cfg(target_os = "linux")]
+pub mod grpc_sock;
 mod pod_builder;
 mod pod_setup;
 mod test_resource_manager;
@@ -91,6 +95,8 @@ const PRIVATE_REGISTRY_POD: &str = "private-registry-pod";
 const PROJECTED_VOLUME_POD: &str = "projected-volume-pod";
 #[cfg(target_os = "linux")]
 const PVC_MOUNT_POD: &str = "pvc-mount-pod";
+#[cfg(target_os = "linux")]
+const DEVICE_PLUGIN_RESOURCE_POD: &str = "device-plugin-resource-pod";
 #[cfg(target_os = "linux")]
 const HOSTPATH_PROVISIONER: &str = "mock.csi.krustlet.dev";
 
@@ -338,6 +344,7 @@ async fn create_multi_mount_pod(
         vec![],
         containers,
         volumes,
+        None,
         OnFailure::Panic,
         resource_manager,
     )
@@ -394,6 +401,7 @@ async fn create_multi_items_mount_pod(
         vec![],
         containers,
         volumes,
+        None,
         OnFailure::Panic,
         resource_manager,
     )
@@ -419,6 +427,7 @@ async fn create_loggy_pod(
         vec![],
         containers,
         vec![],
+        None,
         OnFailure::Panic,
         resource_manager,
     )
@@ -442,6 +451,7 @@ async fn create_faily_pod(
         vec![],
         containers,
         vec![],
+        None,
         OnFailure::Accept,
         resource_manager,
     )
@@ -456,10 +466,18 @@ async fn wasmercise_wasi<'a>(
     inits: Vec<WasmerciserContainerSpec<'a>>,
     containers: Vec<WasmerciserContainerSpec<'a>>,
     test_volumes: Vec<WasmerciserVolumeSpec<'a>>,
+    test_resources: Option<ResourceRequirements>,
     on_failure: OnFailure,
     resource_manager: &mut TestResourceManager,
 ) -> anyhow::Result<()> {
-    let p = wasmerciser_pod(pod_name, inits, containers, test_volumes, "wasm32-wasi")?;
+    let p = wasmerciser_pod(
+        pod_name,
+        inits,
+        containers,
+        test_volumes,
+        test_resources,
+        "wasm32-wasi",
+    )?;
 
     let pod = pods.create(&PostParams::default(), &p.pod).await?;
     resource_manager.push(TestResource::Pod(pod_name.to_owned()));
@@ -504,6 +522,7 @@ async fn create_pod_with_init_containers(
         inits,
         containers,
         volumes,
+        None,
         OnFailure::Panic,
         resource_manager,
     )
@@ -534,6 +553,7 @@ async fn create_pod_with_failing_init_container(
         inits,
         containers,
         vec![],
+        None,
         OnFailure::Accept,
         resource_manager,
     )
@@ -563,6 +583,7 @@ async fn create_private_registry_pod(
         vec![],
         containers,
         vec![],
+        None,
         OnFailure::Panic,
         resource_manager,
     )
@@ -894,6 +915,7 @@ async fn create_projected_pod(
         vec![],
         containers,
         volumes,
+        None,
         OnFailure::Panic,
         resource_manager,
     )
@@ -948,6 +970,7 @@ async fn create_pvc_mount_pod(
         vec![],
         containers,
         volumes,
+        None,
         OnFailure::Panic,
         resource_manager,
     )
@@ -1009,6 +1032,69 @@ async fn test_pod_mounts_with_pvc() -> anyhow::Result<()> {
     if !called {
         panic!("node_unpublish was not called");
     }
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+const RESOURCE_NAME: &str = "example.com/gpu";
+#[cfg(target_os = "linux")]
+const RESOURCE_ENDPOINT: &str = "gpu-device-plugin.sock";
+#[cfg(target_os = "linux")]
+pub const CONTAINER_PATH: &str = "/gpu/dir";
+
+#[cfg(target_os = "linux")]
+async fn create_device_plugin_resource_pod(
+    client: kube::Client,
+    pods: &Api<Pod>,
+    resource_manager: &mut TestResourceManager,
+) -> anyhow::Result<()> {
+    use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+    let container_mount = std::path::PathBuf::from(CONTAINER_PATH).join("foo.txt");
+    let args = [
+        &format!(
+            "write(lit:watermelon)to(file:{})",
+            container_mount.display(),
+        ),
+        &format!("read(file:{})to(var:myfile)", container_mount.display()),
+        "write(var:myfile)to(stm:stdout)",
+        "assert_exists(env:DEVICE_PLUGIN_VAR)",
+    ];
+    let containers = vec![WasmerciserContainerSpec::named("device-plugin-test").with_args(&args)];
+
+    let mut requests = std::collections::BTreeMap::new();
+    requests.insert(RESOURCE_NAME.to_string(), Quantity("1".to_string()));
+    let resources = ResourceRequirements {
+        limits: requests.clone(),
+        requests: requests,
+    };
+
+    wasmercise_wasi(
+        DEVICE_PLUGIN_RESOURCE_POD,
+        client,
+        pods,
+        vec![],
+        containers,
+        vec![],
+        Some(resources),
+        OnFailure::Panic,
+        resource_manager,
+    )
+    .await
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_pod_with_device_plugin_resource() -> anyhow::Result<()> {
+    println!("Starting DP test");
+    let test_ns = "wasi-e2e-pod-with-device-plugin-resource";
+    let (client, pods, mut resource_manager) = set_up_test(test_ns).await?;
+    let temp = tempfile::tempdir()?;
+    device_plugin::launch_device_plugin(RESOURCE_NAME, RESOURCE_ENDPOINT, &temp.path()).await?;
+
+    // Create a Pod that requests the DP's resource
+    create_device_plugin_resource_pod(client.clone(), &pods, &mut resource_manager).await?;
+    assert::pod_exited_successfully(&pods, DEVICE_PLUGIN_RESOURCE_POD).await?;
 
     Ok(())
 }

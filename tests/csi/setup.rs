@@ -58,7 +58,7 @@ async fn driver_start(
         Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound) => (),
         Err(e) => return Err(e.into()),
     };
-    let socket = super::socket_server::Socket::new(SOCKET_PATH)
+    let socket = super::grpc_sock::server::Socket::new(&SOCKET_PATH.to_string())
         .expect("unable to setup server listening on socket");
 
     let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
@@ -126,6 +126,7 @@ fn registrar_start(bin_root: &Path) -> anyhow::Result<Child> {
 
     let process = tokio::process::Command::new(bin)
         .args(&[
+            "--logtostderr",
             "--csi-address",
             "/tmp/csi.sock",
             "--kubelet-registration-path",

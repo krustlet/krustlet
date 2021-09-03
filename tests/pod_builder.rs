@@ -1,4 +1,6 @@
-use k8s_openapi::api::core::v1::{Container, LocalObjectReference, Pod, Volume, VolumeMount};
+use k8s_openapi::api::core::v1::{
+    Container, LocalObjectReference, Pod, ResourceRequirements, Volume, VolumeMount,
+};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -58,6 +60,7 @@ const PRIVATE_TEST_REGISTRY: &str = "krustletintegrationtestprivate";
 fn wasmerciser_container(
     spec: &WasmerciserContainerSpec,
     volumes: &[WasmerciserVolumeSpec],
+    resources: &Option<ResourceRequirements>,
 ) -> anyhow::Result<Container> {
     let volume_mounts: Vec<_> = volumes
         .iter()
@@ -68,12 +71,21 @@ fn wasmerciser_container(
     } else {
         DEFAULT_TEST_REGISTRY
     };
-    let container: Container = serde_json::from_value(json!({
-        "name": spec.name,
-        "image": format!("{}.azurecr.io/wasmerciser:v0.3.0", registry),
-        "args": spec.args,
-        "volumeMounts": volume_mounts,
-    }))?;
+    let container: Container = match resources {
+        Some(r) => serde_json::from_value(json!({
+            "name": spec.name,
+            "image": format!("{}.azurecr.io/wasmerciser:v0.3.0", registry),
+            "args": spec.args,
+            "volumeMounts": volume_mounts,
+            "resources": r,
+        }))?,
+        None => serde_json::from_value(json!({
+            "name": spec.name,
+            "image": format!("{}.azurecr.io/wasmerciser:v0.3.0", registry),
+            "args": spec.args,
+            "volumeMounts": volume_mounts,
+        }))?,
+    };
     Ok(container)
 }
 
@@ -172,15 +184,16 @@ pub fn wasmerciser_pod(
     inits: Vec<WasmerciserContainerSpec>,
     containers: Vec<WasmerciserContainerSpec>,
     test_volumes: Vec<WasmerciserVolumeSpec>,
+    test_resources: Option<ResourceRequirements>,
     architecture: &str,
 ) -> anyhow::Result<PodLifetimeOwner> {
     let init_container_specs: Vec<_> = inits
         .iter()
-        .map(|spec| wasmerciser_container(spec, &test_volumes).unwrap())
+        .map(|spec| wasmerciser_container(spec, &test_volumes, &test_resources).unwrap())
         .collect();
     let app_container_specs: Vec<_> = containers
         .iter()
-        .map(|spec| wasmerciser_container(spec, &test_volumes).unwrap())
+        .map(|spec| wasmerciser_container(spec, &test_volumes, &test_resources).unwrap())
         .collect();
 
     let volume_maps: Vec<_> = test_volumes

@@ -1406,6 +1406,7 @@ dependencies = [
  "kube-runtime",
  "kubelet",
  "oci-distribution",
+ "prost",
  "regex",
  "reqwest",
  "serde",
@@ -1413,7 +1414,10 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio 1.9.0",
+ "tokio-stream",
  "tonic",
+ "tonic-build",
+ "tower",
  "tracing-subscriber",
  "wasi-provider",
 ]
