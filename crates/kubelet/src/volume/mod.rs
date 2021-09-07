@@ -31,6 +31,7 @@ pub use secret::SecretVolume;
 /// alongside a pod handle as a way to manage the lifecycle of a Pod's volume. Each embedded type
 /// can be used separately as well
 #[allow(clippy::large_enum_variant)]
+#[non_exhaustive]
 pub enum VolumeRef {
     /// configmap volume
     ConfigMap(ConfigMapVolume),
