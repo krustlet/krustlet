@@ -16,7 +16,9 @@ use std::path::{Path, PathBuf};
 
 #[cfg(any(feature = "cli", feature = "docs"))]
 use std::iter::FromIterator;
+use std::str::FromStr;
 
+use anyhow::Error;
 #[cfg(feature = "cli")]
 use structopt::StructOpt;
 
@@ -66,6 +68,8 @@ pub struct Config {
     /// device plugins lives. This is also where device plugins
     /// should host their services.
     pub device_plugins_dir: PathBuf,
+    /// Wasm runtime to use to execute your wasm
+    pub provider: Provider,
 }
 /// The configuration for the Kubelet server.
 #[derive(Clone, Debug)]
@@ -123,6 +127,8 @@ struct ConfigBuilder {
     pub allow_local_modules: Option<bool>,
     #[serde(default, rename = "insecureRegistries")]
     pub insecure_registries: Option<Vec<String>>,
+    #[serde(default, rename = "provider")]
+    pub provider: Option<Provider>,
     #[serde(default, rename = "pluginsDir")]
     pub plugins_dir: Option<PathBuf>,
     #[serde(default, rename = "devicePluginsDir")]
@@ -174,6 +180,7 @@ impl Config {
                 cert_file,
                 private_key_file,
             },
+            provider: Provider::WasmTime,
         })
     }
 
@@ -293,6 +300,7 @@ impl ConfigBuilder {
             server_port: ok_result_of(opts.port),
             server_tls_cert_file: opts.cert_file,
             server_tls_private_key_file: opts.private_key_file,
+            provider: opts.provider.into(),
         }
     }
 
@@ -331,6 +339,7 @@ impl ConfigBuilder {
             server_tls_private_key_file: other
                 .server_tls_private_key_file
                 .or(self.server_tls_private_key_file),
+            provider: other.provider.or(self.provider),
         }
     }
 
@@ -371,6 +380,7 @@ impl ConfigBuilder {
             .max_pods
             .unwrap_or(Ok(DEFAULT_MAX_PODS))
             .map_err(|e| invalid_config_value_error(e, "maximum pods"))?;
+        let provider = self.provider.unwrap_or_else(|| Provider::WasmTime);
 
         Ok(Config {
             node_ip,
@@ -390,6 +400,7 @@ impl ConfigBuilder {
                 addr: server_addr,
                 port: server_port,
             },
+            provider,
         })
     }
 }
@@ -411,6 +422,29 @@ where
 {
     let n = u16::deserialize(d).map_err(|e| anyhow::Error::msg(format!("{}", e)));
     Ok(Some(n))
+}
+
+/// Enum to choose between one wasm provider to another
+#[derive(Debug, Clone, Deserialize)]
+pub enum Provider {
+    /// Wasmtime runtime
+    WasmTime,
+    /// Wasmer runtime
+    Wasmer,
+}
+impl FromStr for Provider {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "wasmtime" => Ok(Self::WasmTime),
+            "wasmer" => Ok(Self::Wasmer),
+            other => Err(anyhow::anyhow!(
+                "unknown provider '{:?}', please choose between 'wasmer' and 'wasmtime'",
+                other
+            )),
+        }
+    }
 }
 
 /// CLI options that can be configured for Kubelet
@@ -541,6 +575,14 @@ pub struct Opts {
         help = "Registries that should be accessed over HTTP instead of HTTPS (comma separated)"
     )]
     insecure_registries: Option<String>,
+
+    #[structopt(
+        long = "provider",
+        env = "KRUSTLET_PROVIDER",
+        default_value = "wasmtime",
+        help = "Wasm runtime to use to execute your wasm"
+    )]
+    provider: Provider,
 }
 
 fn default_hostname() -> anyhow::Result<String> {

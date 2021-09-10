@@ -44,6 +44,7 @@ mod test {
                 cert_file: std::path::PathBuf::from("/nope"),
                 private_key_file: std::path::PathBuf::from("/nope"),
             },
+            provider: crate::config::Provider::WasmTime,
         }
     }
 
