@@ -1,4 +1,4 @@
-use kubelet::config::Config;
+use kubelet::config::{Config, Provider};
 use kubelet::plugin_watcher::PluginRegistry;
 use kubelet::resources::DeviceManager;
 use kubelet::store::composite::ComposableStore;
@@ -7,6 +7,8 @@ use kubelet::Kubelet;
 use std::convert::TryFrom;
 use std::sync::Arc;
 use wasi_provider::WasiProvider;
+// use wasi_provider::WasiProvider;
+use wasmer_provider::WasmerProvider;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
@@ -30,16 +32,32 @@ async fn main() -> anyhow::Result<()> {
         &config.node_name,
     ));
 
-    let provider = WasiProvider::new(
-        store,
-        &config,
-        kubeconfig.clone(),
-        plugin_registry,
-        device_plugin_manager,
-    )
-    .await?;
-    let kubelet = Kubelet::new(provider, kubeconfig, config).await?;
-    kubelet.start().await
+    match config.provider {
+        Provider::WasmTime => {
+            let provider = WasiProvider::new(
+                store,
+                &config,
+                kubeconfig.clone(),
+                plugin_registry,
+                device_plugin_manager,
+            )
+            .await?;
+            let kubelet = Kubelet::new(provider, kubeconfig, config).await?;
+            kubelet.start().await
+        }
+        Provider::Wasmer => {
+            let provider = WasmerProvider::new(
+                store,
+                &config,
+                kubeconfig.clone(),
+                plugin_registry,
+                device_plugin_manager,
+            )
+            .await?;
+            let kubelet = Kubelet::new(provider, kubeconfig, config).await?;
+            kubelet.start().await
+        }
+    }
 }
 
 fn make_store(config: &Config) -> Arc<dyn kubelet::store::Store + Send + Sync> {

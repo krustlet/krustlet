@@ -770,6 +770,7 @@ mod test {
             device_plugins_dir: PathBuf::new(),
             node_labels,
             max_pods: 110,
+            provider: crate::config::Provider::WasmTime,
         };
 
         let mut builder = Node::builder();

@@ -14,7 +14,7 @@ use tokio::fs::{read, write, File};
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, instrument, trace};
 
-use crate::config::{self, Config as KubeletConfig};
+use crate::config::Config as KubeletConfig;
 use crate::kubeconfig::exists as kubeconfig_exists;
 use crate::kubeconfig::KUBECONFIG;
 
