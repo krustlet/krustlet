@@ -14,7 +14,7 @@ use tokio::fs::{read, write, File};
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, instrument, trace};
 
-use crate::config::{self, Config as KubeletConfig};
+use crate::config::Config as KubeletConfig;
 use crate::kubeconfig::exists as kubeconfig_exists;
 use crate::kubeconfig::KUBECONFIG;
 
@@ -105,7 +105,13 @@ async fn bootstrap_auth<K: AsRef<Path>>(
         let post_data = serde_json::from_value(csr_json)
             .expect("Invalid CSR JSON, this is a programming error");
 
-        csrs.create(&PostParams::default(), &post_data).await?;
+        match csrs.create(&PostParams::default(), &post_data).await {
+            Err(kube::Error::Api(e)) if e.code == 409 => {
+                trace!("CSR exists already. Re-using it.");
+            }
+            Err(e) => anyhow::bail!(e),
+            _ => {}
+        }
 
         trace!("CSR creation successful, waiting for certificate approval");
 
