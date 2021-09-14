@@ -25,61 +25,61 @@ fn volume_path_map(
     container: &Container,
     volumes: &HashMap<String, VolumeRef>,
 ) -> anyhow::Result<HashMap<PathBuf, Option<PathBuf>>> {
-    // Check for volumes added during the `Resources` State that were not specified in original ContainerSpec
-    // Currently, these are only volumes required by device plugins.
-    let container_vol_names: Vec<String> = container
-        .volume_mounts()
-        .iter()
-        .cloned()
-        .map(|vm| vm.name)
-        .collect();
-    let mut resource_volumes: HashMap<PathBuf, Option<PathBuf>> = volumes
-        .iter()
-        .filter(|(k, _)| !container_vol_names.contains(k))
-        .map(|(k, v)| -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
-            match v {
-                VolumeRef::DeviceVolume(host_path_vol, guest_path) => {
-                    let host_path = host_path_vol
-                        .get_path()
-                        .map(|p| p.to_owned())
-                        .ok_or_else(|| anyhow::anyhow!("Volume {} has not been mounted yet", k))?;
-                    Ok((host_path.clone(), Some(guest_path.to_owned())))
-                }
-                v_ref => Err(anyhow::anyhow!(
-                    "Volume mounted at path {:?} was not a DeviceVolume",
-                    v_ref.get_path()
-                )),
-            }
-        })
-        .collect::<anyhow::Result<HashMap<PathBuf, Option<PathBuf>>>>()?;
+    if let Some(volume_mounts) = container.volume_mounts().as_ref() {
+        // Check for volumes added during the `Resources` State that were not specified in original ContainerSpec
+        // Currently, these are only volumes required by device plugins.
+        let container_vol_names: Vec<String> =
+            volume_mounts.iter().cloned().map(|vm| vm.name).collect();
+        let mut resource_volumes: HashMap<PathBuf, Option<PathBuf>> =
+            volumes
+                .iter()
+                .filter(|(k, _)| !container_vol_names.contains(k))
+                .map(|(k, v)| -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
+                    match v {
+                        VolumeRef::DeviceVolume(host_path_vol, guest_path) => {
+                            let host_path =
+                                host_path_vol.get_path().map(|p| p.to_owned()).ok_or_else(
+                                    || anyhow::anyhow!("Volume {} has not been mounted yet", k),
+                                )?;
+                            Ok((host_path, Some(guest_path.to_owned())))
+                        }
+                        v_ref => Err(anyhow::anyhow!(
+                            "Volume mounted at path {:?} was not a DeviceVolume",
+                            v_ref.get_path()
+                        )),
+                    }
+                })
+                .collect::<anyhow::Result<HashMap<PathBuf, Option<PathBuf>>>>()?;
 
-    resource_volumes.extend(
-        container
-            .volume_mounts()
-            .iter()
-            .map(|vm| -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
-                // Check the volume exists first
-                let vol = volumes.get(&vm.name).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "no volume with the name of {} found for container {}",
-                        vm.name,
-                        container.name()
-                    )
-                })?;
-                let host_path = vol.get_path().map(|p| p.to_owned()).ok_or_else(|| {
-                    anyhow::anyhow!("Volume {} has not been mounted yet", vm.name)
-                })?;
-                let mut guest_path = PathBuf::from(&vm.mount_path);
-                if let Some(sub_path) = &vm.sub_path {
-                    guest_path.push(sub_path);
-                }
-                // We can safely assume that this should be valid UTF-8 because it would have
-                // been validated by the k8s API
-                Ok((host_path, Some(guest_path)))
-            })
-            .collect::<anyhow::Result<HashMap<PathBuf, Option<PathBuf>>>>()?,
-    );
-    Ok(resource_volumes)
+        resource_volumes.extend(
+            volume_mounts
+                .iter()
+                .map(|vm| -> anyhow::Result<(PathBuf, Option<PathBuf>)> {
+                    // Check the volume exists first
+                    let vol = volumes.get(&vm.name).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "no volume with the name of {} found for container {}",
+                            vm.name,
+                            container.name()
+                        )
+                    })?;
+                    let host_path = vol.get_path().map(|p| p.to_owned()).ok_or_else(|| {
+                        anyhow::anyhow!("Volume {} has not been mounted yet", vm.name)
+                    })?;
+                    let mut guest_path = PathBuf::from(&vm.mount_path);
+                    if let Some(sub_path) = &vm.sub_path {
+                        guest_path.push(sub_path);
+                    }
+                    // We can safely assume that this should be valid UTF-8 because it would have
+                    // been validated by the k8s API
+                    Ok((host_path, Some(guest_path)))
+                })
+                .collect::<anyhow::Result<HashMap<PathBuf, Option<PathBuf>>>>()?,
+        );
+        Ok(resource_volumes)
+    } else {
+        Ok(HashMap::default())
+    }
 }
 
 /// The container is starting.
@@ -158,7 +158,7 @@ impl State<ContainerState> for Waiting {
 
         let mut env = kubelet::provider::env_vars(&container, &state.pod, &client).await;
         env.extend(container_envs);
-        let args = container.args().clone();
+        let args = container.args().clone().unwrap_or_default();
 
         // TODO: ~magic~ number
         let (tx, rx) = mpsc::channel(8);
@@ -305,7 +305,7 @@ mod tests {
         };
         let container = Container::new(&KubeContainer {
             name: "foo".to_string(),
-            volume_mounts: vec![volume],
+            volume_mounts: Some(vec![volume]),
             ..Default::default()
         });
         let host_path2 = "/host/path/2";

@@ -10,7 +10,7 @@ pub struct ConfigMapVolume {
     vol_name: String,
     cm_name: String,
     client: kube::Api<ConfigMap>,
-    items: Vec<KeyToPath>,
+    items: Option<Vec<KeyToPath>>,
     mounted_path: Option<PathBuf>,
 }
 
@@ -61,7 +61,7 @@ impl ConfigMapVolume {
     /// for setting permissions on the directory
     pub(crate) async fn mount_at(&mut self, path: PathBuf) -> anyhow::Result<()> {
         let config_map = self.client.get(&self.cm_name).await?;
-        let binary_data = config_map.binary_data;
+        let binary_data = config_map.binary_data.unwrap_or_default();
         let binary_data = binary_data
             .into_iter()
             .filter_map(
@@ -73,7 +73,7 @@ impl ConfigMapVolume {
             .map(|(file_path, data)| async move { tokio::fs::write(file_path, &data).await });
         let binary_data = futures::future::join_all(binary_data);
 
-        let data = config_map.data;
+        let data = config_map.data.unwrap_or_default();
         let data = data
             .into_iter()
             .filter_map(|(key, data)| match mount_setting_for(&key, &self.items) {

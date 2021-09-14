@@ -27,8 +27,8 @@ backtrace = "0.3"
 cap-std = "0.19"
 chrono = {version = "0.4", features = ["serde"]}
 futures = "0.3"
-krator = {version = "0.4", default-features = false}
-kube = {version = "0.58", default-features = false}
+krator = {version = "0.4", default-features = false, git = "https://github.com/thomastaylor312/krator", branch = "chore/k8s_openapi"}
+kube = {version = "0.60", default-features = false}
 kubelet = {path = "../kubelet", version = "1.0.0-alpha.1", default-features = false, features = ["derive"]}
 serde = "1.0"
 serde_derive = "1.0"
@@ -44,5 +44,5 @@ wat = "1.0.38"
 wasi-experimental-http-wasmtime = "0.6.0"
 
 [dev-dependencies]
-k8s-openapi = {version = "0.12", default-features = false, features = ["v1_21", "api"]}
+k8s-openapi = {version = "0.13", default-features = false, features = ["v1_22", "api"]}
 oci-distribution = {path = "../oci-distribution", version = "0.7"}

@@ -57,8 +57,10 @@ impl VolumeRef {
         client: &kube::Client,
         plugin_registry: Option<Arc<PluginRegistry>>,
     ) -> anyhow::Result<HashMap<String, Self>> {
+        let zero_vec = Vec::with_capacity(0);
         let vols = pod
             .volumes()
+            .unwrap_or(&zero_vec)
             .iter()
             .map(|v| (v, plugin_registry.clone()))
             .map(|(vol, pr)| async move {
@@ -111,16 +113,15 @@ impl VolumeRef {
     }
 }
 
-fn mount_setting_for(key: &str, items_to_mount: &[KeyToPath]) -> ItemMount {
-    if items_to_mount.is_empty() {
-        ItemMount::MountAt(key.to_owned())
-    } else {
-        ItemMount::from(
-            items_to_mount
+fn mount_setting_for(key: &str, items_to_mount: &Option<Vec<KeyToPath>>) -> ItemMount {
+    match items_to_mount {
+        None => ItemMount::MountAt(key.to_string()),
+        Some(items) => ItemMount::from(
+            items
                 .iter()
                 .find(|kp| kp.key == key)
                 .map(|kp| kp.path.to_string()),
-        )
+        ),
     }
 }
 
