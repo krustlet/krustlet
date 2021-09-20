@@ -41,7 +41,7 @@ wasi-common = "0.30"
 wasmtime = "0.30"
 wasmtime-wasi = "0.30"
 wat = "1.0.38"
-wasi-experimental-http-wasmtime = { git = "https://github.com/radu-matei/wasi-experimental-http", branch = "wasmtime-v030" }
+wasi-experimental-http-wasmtime = "0.6.0"
 
 [dev-dependencies]
 k8s-openapi = {version = "0.12", default-features = false, features = ["v1_21", "api"]}
