@@ -19,6 +19,7 @@ default = "deny"
 allow = [
     "LicenseRef-ring",
     "LicenseRef-webpki",
+    "LicenseRef-webpki-roots",
     "LicenseRef-krator",
     "LicenseRef-krator-derive",
     "CC0-1.0",
