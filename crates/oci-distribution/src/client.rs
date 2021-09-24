@@ -280,8 +280,8 @@ impl Client {
         // The version request will tell us where to go.
         let url = format!(
             "{}://{}/v2/",
-            self.config.protocol.scheme_for(&self.get_registry(image)),
-            self.get_registry(&image)
+            self.config.protocol.scheme_for(image.resolve_registry()),
+            image.resolve_registry()
         );
         debug!(?url);
         let res = self.client.get(&url).send().await?;
@@ -593,7 +593,7 @@ impl Client {
         digest: &str,
         mut out: T,
     ) -> anyhow::Result<()> {
-        let url = self.to_v2_blob_url(&self.get_registry(image), image.repository(), digest);
+        let url = self.to_v2_blob_url(image.resolve_registry(), image.repository(), digest);
         let mut stream = self
             .apply_auth(self.client.get(&url), image, RegistryOperation::Pull, None)
             .send()
@@ -783,8 +783,8 @@ impl Client {
         if lh.starts_with("/v2/") {
             Ok(format!(
                 "{}://{}{}",
-                self.config.protocol.scheme_for(&self.get_registry(image)),
-                self.get_registry(image),
+                self.config.protocol.scheme_for(image.resolve_registry()),
+                image.resolve_registry(),
                 lh
             ))
         } else {
@@ -835,8 +835,8 @@ impl Client {
                 "{}://{}/v2/{}/manifests/{}",
                 self.config
                     .protocol
-                    .scheme_for(&self.get_registry(reference)),
-                self.get_registry(reference),
+                    .scheme_for(reference.resolve_registry()),
+                reference.resolve_registry(),
                 reference.repository(),
                 digest,
             )
@@ -845,8 +845,8 @@ impl Client {
                 "{}://{}/v2/{}/manifests/{}",
                 self.config
                     .protocol
-                    .scheme_for(&self.get_registry(reference)),
-                self.get_registry(reference),
+                    .scheme_for(reference.resolve_registry()),
+                reference.resolve_registry(),
                 reference.repository(),
                 reference.tag().unwrap_or("latest")
             )
@@ -867,7 +867,7 @@ impl Client {
     /// Convert a Reference to a v2 blob upload URL.
     fn to_v2_blob_upload_url(&self, reference: &Reference) -> String {
         self.to_v2_blob_url(
-            &self.get_registry(reference),
+            &reference.resolve_registry(),
             &reference.repository(),
             "uploads/",
         )
@@ -904,18 +904,6 @@ impl Client {
             }
         }
         request.headers(headers)
-    }
-
-    /// Get the registry address of a given `Reference`.
-    ///
-    /// Some registries, such as docker.io, uses a different address for the actual
-    /// registry. This function implements such redirection.
-    fn get_registry(&self, image: &Reference) -> String {
-        let registry = image.registry();
-        match registry {
-            "docker.io" => "registry-1.docker.io".into(),
-            _ => registry.into(),
-        }
     }
 }
 
