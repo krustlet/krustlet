@@ -12,13 +12,13 @@ use crate::secrets::RegistryAuth;
 use crate::secrets::*;
 use crate::Reference;
 
+use crate::token_cache::{RegistryOperation, RegistryToken, RegistryTokenType, TokenCache};
 use anyhow::Context;
 use futures_util::future;
 use futures_util::stream::StreamExt;
 use hyperx::header::Header;
 use reqwest::header::HeaderMap;
 use reqwest::RequestBuilder;
-use serde::Deserialize;
 use sha2::Digest;
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -105,7 +105,7 @@ impl ImageLayer {
 #[derive(Default)]
 pub struct Client {
     config: ClientConfig,
-    tokens: HashMap<String, RegistryTokenType>,
+    tokens: TokenCache,
     client: reqwest::Client,
 }
 
@@ -144,7 +144,7 @@ impl TryFrom<ClientConfig> for Client {
 
         Ok(Self {
             config,
-            tokens: HashMap::new(),
+            tokens: TokenCache::new(),
             client: client_builder.build()?,
         })
     }
@@ -158,7 +158,7 @@ impl Client {
             warn!("Creating client with default configuration");
             Self {
                 config,
-                tokens: HashMap::new(),
+                tokens: TokenCache::new(),
                 client: reqwest::Client::new(),
             }
         })
@@ -180,9 +180,9 @@ impl Client {
         accepted_media_types: Vec<&str>,
     ) -> anyhow::Result<ImageData> {
         debug!("Pulling image: {:?}", image);
-
-        if !self.tokens.contains_key(&self.get_registry(image)) {
-            self.auth(image, auth, &RegistryOperation::Pull).await?;
+        let op = RegistryOperation::Pull;
+        if !self.tokens.contains_key(&image, op) {
+            self.auth(image, auth, op).await?;
         }
 
         let (manifest, digest) = self._pull_manifest(image).await?;
@@ -230,9 +230,9 @@ impl Client {
         image_manifest: Option<OciManifest>,
     ) -> anyhow::Result<String> {
         debug!("Pushing image: {:?}", image_ref);
-
-        if !self.tokens.contains_key(&self.get_registry(&image_ref)) {
-            self.auth(image_ref, auth, &RegistryOperation::Push).await?;
+        let op = RegistryOperation::Push;
+        if !self.tokens.contains_key(&image_ref, op) {
+            self.auth(image_ref, auth, op).await?;
         }
 
         // Start push session
@@ -274,7 +274,7 @@ impl Client {
         &mut self,
         image: &Reference,
         authentication: &RegistryAuth,
-        operation: &RegistryOperation,
+        operation: RegistryOperation,
     ) -> anyhow::Result<()> {
         debug!("Authorizing for image: {:?}", image);
         // The version request will tell us where to go.
@@ -283,6 +283,7 @@ impl Client {
             self.config.protocol.scheme_for(&self.get_registry(image)),
             self.get_registry(&image)
         );
+        debug!(?url);
         let res = self.client.get(&url).send().await?;
         let dist_hdr = match res.headers().get(reqwest::header::WWW_AUTHENTICATE) {
             Some(h) => h,
@@ -298,7 +299,8 @@ impl Client {
                 // Fall back to HTTP Basic Auth
                 if let RegistryAuth::Basic(username, password) = authentication {
                     self.tokens.insert(
-                        self.get_registry(image),
+                        &image,
+                        operation,
                         RegistryTokenType::Basic(username.to_string(), password.to_string()),
                     );
                 }
@@ -323,7 +325,7 @@ impl Client {
 
         // TODO: At some point in the future, we should support sending a secret to the
         // server for auth. This particular workflow is for read-only public auth.
-        debug!("Making authentication call to {}", realm);
+        debug!(?realm, ?service, ?scope, "Making authentication call");
 
         let auth_res = self
             .client
@@ -341,7 +343,7 @@ impl Client {
                     .context("Failed to decode registry token from auth request")?;
                 debug!("Succesfully authorized for image '{:?}'", image);
                 self.tokens
-                    .insert(self.get_registry(image), RegistryTokenType::Bearer(token));
+                    .insert(&image, operation, RegistryTokenType::Bearer(token));
                 Ok(())
             }
             _ => {
@@ -365,14 +367,15 @@ impl Client {
         image: &Reference,
         auth: &RegistryAuth,
     ) -> anyhow::Result<String> {
-        if !self.tokens.contains_key(&self.get_registry(image)) {
-            self.auth(image, auth, &RegistryOperation::Pull).await?;
+        let op = RegistryOperation::Pull;
+        if !self.tokens.contains_key(&image, op) {
+            self.auth(image, auth, op).await?;
         }
 
         let url = self.to_v2_manifest_url(image);
         debug!("HEAD image manifest from {}", url);
         let res = self
-            .apply_auth(self.client.get(&url), image, None)
+            .apply_auth(self.client.head(&url), image, RegistryOperation::Pull, None)
             .send()
             .await?;
 
@@ -380,7 +383,7 @@ impl Client {
         if res.headers().get("Docker-Content-Digest").is_none() {
             debug!("GET image manifest from {}", url);
             let res = self
-                .apply_auth(self.client.get(&url), image, None)
+                .apply_auth(self.client.get(&url), image, RegistryOperation::Pull, None)
                 .send()
                 .await?;
             let status = res.status();
@@ -465,8 +468,9 @@ impl Client {
         image: &Reference,
         auth: &RegistryAuth,
     ) -> anyhow::Result<(OciManifest, String)> {
-        if !self.tokens.contains_key(image.registry()) {
-            self.auth(image, auth, &RegistryOperation::Pull).await?;
+        let op = RegistryOperation::Pull;
+        if !self.tokens.contains_key(&image, op) {
+            self.auth(image, auth, op).await?;
         }
 
         self._pull_manifest(image).await
@@ -481,7 +485,10 @@ impl Client {
         debug!("Pulling image manifest from {}", url);
         let request = self.client.get(&url);
 
-        let res = self.apply_auth(request, image, None).send().await?;
+        let res = self
+            .apply_auth(request, image, RegistryOperation::Pull, None)
+            .send()
+            .await?;
 
         // The OCI spec technically does not allow any codes but 200, 500, 401, and 404.
         // Obviously, HTTP servers are going to send other codes. This tries to catch the
@@ -551,8 +558,9 @@ impl Client {
         image: &Reference,
         auth: &RegistryAuth,
     ) -> anyhow::Result<(OciManifest, String, String)> {
-        if !self.tokens.contains_key(image.registry()) {
-            self.auth(image, auth, &RegistryOperation::Pull).await?;
+        let op = RegistryOperation::Pull;
+        if !self.tokens.contains_key(&image, op) {
+            self.auth(image, auth, op).await?;
         }
 
         self._pull_manifest_and_config(image).await
@@ -587,7 +595,7 @@ impl Client {
     ) -> anyhow::Result<()> {
         let url = self.to_v2_blob_url(&self.get_registry(image), image.repository(), digest);
         let mut stream = self
-            .apply_auth(self.client.get(&url), image, None)
+            .apply_auth(self.client.get(&url), image, RegistryOperation::Pull, None)
             .send()
             .await?
             .bytes_stream();
@@ -607,7 +615,12 @@ impl Client {
         let mut headers = HeaderMap::new();
         headers.insert("Content-Length", "0".parse().unwrap());
         let res = self
-            .apply_auth(self.client.post(url), image, Some(headers))
+            .apply_auth(
+                self.client.post(url),
+                image,
+                RegistryOperation::Push,
+                Some(headers),
+            )
             .send()
             .await?;
 
@@ -630,7 +643,12 @@ impl Client {
         close_headers.insert("Content-Length", "0".parse().unwrap());
 
         let res = self
-            .apply_auth(self.client.put(&url), image, Some(close_headers))
+            .apply_auth(
+                self.client.put(&url),
+                image,
+                RegistryOperation::Push,
+                Some(close_headers),
+            )
             .send()
             .await?;
         self.extract_location_header(&image, res, &reqwest::StatusCode::CREATED)
@@ -663,7 +681,12 @@ impl Client {
         headers.insert("Content-Type", "application/octet-stream".parse().unwrap());
 
         let res = self
-            .apply_auth(self.client.patch(location), image, Some(headers))
+            .apply_auth(
+                self.client.patch(location),
+                image,
+                RegistryOperation::Push,
+                Some(headers),
+            )
             .body(layer)
             .send()
             .await?;
@@ -712,7 +735,12 @@ impl Client {
         );
 
         let res = self
-            .apply_auth(self.client.put(&url), image, Some(headers))
+            .apply_auth(
+                self.client.put(&url),
+                image,
+                RegistryOperation::Push,
+                Some(headers),
+            )
             .body(serde_json::to_string(manifest)?)
             .send()
             .await?;
@@ -855,12 +883,13 @@ impl Client {
         &self,
         request: RequestBuilder,
         image: &Reference,
+        op: RegistryOperation,
         additional_headers: Option<HeaderMap>,
     ) -> RequestBuilder {
         let mut headers = additional_headers.unwrap_or_else(HeaderMap::new);
         headers.insert("Accept", "application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json".parse().unwrap());
 
-        if let Some(token) = self.tokens.get(&self.get_registry(&image)) {
+        if let Some(token) = self.tokens.get(&image, op) {
             match token {
                 RegistryTokenType::Bearer(token) => {
                     debug!("Using bearer token authentication.");
@@ -955,33 +984,6 @@ impl ClientProtocol {
                     "https"
                 }
             }
-        }
-    }
-}
-
-enum RegistryTokenType {
-    Bearer(RegistryToken),
-    Basic(String, String),
-}
-
-/// A token granted during the OAuth2-like workflow for OCI registries.
-#[derive(Deserialize)]
-#[serde(untagged)]
-#[serde(rename_all = "snake_case")]
-enum RegistryToken {
-    Token { token: String },
-    AccessToken { access_token: String },
-}
-
-impl RegistryToken {
-    fn bearer_token(&self) -> String {
-        format!("Bearer {}", self.token())
-    }
-
-    fn token(&self) -> &str {
-        match self {
-            RegistryToken::Token { token } => token,
-            RegistryToken::AccessToken { access_token } => access_token,
         }
     }
 }
