@@ -8,14 +8,6 @@ pub enum RegistryAuth {
     Basic(String, String),
 }
 
-/// Desired operation for registry authentication
-pub enum RegistryOperation {
-    /// Authenticate for push operations
-    Push,
-    /// Authenticate for pull operations
-    Pull,
-}
-
 pub(crate) trait Authenticable {
     fn apply_authentication(self, auth: &RegistryAuth) -> Self;
 }
