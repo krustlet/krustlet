@@ -76,6 +76,18 @@ pub struct Reference {
 }
 
 impl Reference {
+    /// Resolve the registry address of a given `Reference`.
+    ///
+    /// Some registries, such as docker.io, uses a different address for the actual
+    /// registry. This function implements such redirection.
+    pub fn resolve_registry(&self) -> &str {
+        let registry = self.registry();
+        match registry {
+            "docker.io" => "registry-1.docker.io".into(),
+            _ => registry.into(),
+        }
+    }
+
     /// registry returns the name of the registry.
     pub fn registry(&self) -> &str {
         &self.registry

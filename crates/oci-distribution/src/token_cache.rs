@@ -1,9 +1,10 @@
 use crate::reference::Reference;
 use serde::Deserialize;
 use std::collections::BTreeMap;
+use tracing::{debug, warn};
 
 /// A token granted during the OAuth2-like workflow for OCI registries.
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 #[serde(untagged)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RegistryToken {
@@ -30,7 +31,7 @@ impl RegistryToken {
 }
 
 /// Desired operation for registry authentication
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RegistryOperation {
     /// Authenticate for push operations
     Push,
@@ -41,7 +42,7 @@ pub enum RegistryOperation {
 #[derive(Default)]
 pub(crate) struct TokenCache {
     // (registry, repository, scope) -> (token, expiration)
-    tokens: BTreeMap<(String, String, RegistryOperation), (RegistryTokenType, usize)>,
+    tokens: BTreeMap<(String, String, RegistryOperation), (RegistryTokenType, u64)>,
 }
 
 impl TokenCache {
@@ -57,18 +58,67 @@ impl TokenCache {
         op: RegistryOperation,
         token: RegistryTokenType,
     ) {
-        todo!()
+        let expiration = match token {
+            RegistryTokenType::Basic(_, _) => u64::MAX,
+            RegistryTokenType::Bearer(ref t) => {
+                let token_str = t.token();
+                match jwt::Token::<
+                    jwt::header::Header,
+                    jwt::claims::Claims,
+                    jwt::token::Unverified,
+                >::parse_unverified(token_str) {
+                    Ok(token) => {
+                        token
+                            .claims()
+                            .registered
+                            .expiration
+                            .unwrap_or_else(|| u64::MAX)
+                    },
+                    Err(error) => {
+                        warn!(?error, "Invalid bearer token");
+                        return;
+                    }
+                }
+            }
+        };
+        let registry = reference.resolve_registry().to_string();
+        let repository = reference.repository().to_string();
+        debug!(%registry, %repository, ?op, %expiration, "Inserting token");
+        self.tokens
+            .insert((registry, repository, op), (token, expiration));
     }
 
     pub(crate) fn get(
         &self,
         reference: &Reference,
         op: RegistryOperation,
-    ) -> Option<RegistryTokenType> {
-        todo!()
+    ) -> Option<&RegistryTokenType> {
+        let registry = reference.resolve_registry().to_string();
+        let repository = reference.repository().to_string();
+        match self.tokens.get(&(registry.clone(), repository.clone(), op)) {
+            Some((ref token, expiration)) => {
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let now = SystemTime::now();
+                let epoch = now
+                    .duration_since(UNIX_EPOCH)
+                    .expect("Time went backwards")
+                    .as_secs();
+                if epoch > *expiration {
+                    debug!(%registry, %repository, ?op, %expiration, miss=false, expired=true, "Fetching token");
+                    None
+                } else {
+                    debug!(%registry, %repository, ?op, %expiration, miss=false, expired=false, "Fetching token");
+                    Some(token)
+                }
+            }
+            None => {
+                debug!(%registry, %repository, ?op, miss=true, "Fetching token");
+                None
+            }
+        }
     }
 
     pub(crate) fn contains_key(&self, reference: &Reference, op: RegistryOperation) -> bool {
-        todo!()
+        self.get(reference, op).is_some()
     }
 }
