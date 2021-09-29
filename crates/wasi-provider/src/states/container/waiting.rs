@@ -158,7 +158,7 @@ impl State<ContainerState> for Waiting {
 
         let mut env = kubelet::provider::env_vars(&container, &state.pod, &client).await;
         env.extend(container_envs);
-        let args = container.args().clone().unwrap_or_default();
+        let args: Vec<String> = container.args().map(|t| t.clone()).unwrap_or_default();
 
         // TODO: ~magic~ number
         let (tx, rx) = mpsc::channel(8);

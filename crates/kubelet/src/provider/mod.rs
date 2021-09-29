@@ -169,7 +169,7 @@ pub trait Provider: Sized + Send + Sync + 'static {
         client: &kube::Client,
     ) -> HashMap<String, String> {
         let mut env = HashMap::new();
-        let vars = match container.env().as_ref() {
+        let vars = match container.env() {
             Some(e) => e,
             None => return env,
         };
@@ -231,7 +231,7 @@ pub async fn env_vars(
     client: &kube::Client,
 ) -> HashMap<String, String> {
     let mut env = HashMap::new();
-    let vars = match container.env().as_ref() {
+    let vars = match container.env() {
         Some(e) => e,
         None => return env,
     };

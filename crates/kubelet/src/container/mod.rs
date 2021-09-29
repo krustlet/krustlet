@@ -138,23 +138,23 @@ impl Container {
     }
 
     /// Get arguments of container.
-    pub fn args(&self) -> &Option<Vec<String>> {
-        &self.0.args
+    pub fn args(&self) -> Option<&Vec<String>> {
+        self.0.args.as_ref()
     }
 
     /// Get command of container.
-    pub fn command(&self) -> &Option<Vec<String>> {
-        &self.0.command
+    pub fn command(&self) -> Option<&Vec<String>> {
+        self.0.command.as_ref()
     }
 
     /// Get environment of container.
-    pub fn env(&self) -> &Option<Vec<k8s_openapi::api::core::v1::EnvVar>> {
-        &self.0.env
+    pub fn env(&self) -> Option<&Vec<k8s_openapi::api::core::v1::EnvVar>> {
+        self.0.env.as_ref()
     }
 
     /// Get environment of container.
-    pub fn env_from(&self) -> &Option<Vec<k8s_openapi::api::core::v1::EnvFromSource>> {
-        &self.0.env_from
+    pub fn env_from(&self) -> Option<&Vec<k8s_openapi::api::core::v1::EnvFromSource>> {
+        self.0.env_from.as_ref()
     }
 
     /// Get image of container as `oci_distribution::Reference`.
@@ -186,8 +186,8 @@ impl Container {
     }
 
     /// Get ports of container.
-    pub fn ports(&self) -> &Option<Vec<k8s_openapi::api::core::v1::ContainerPort>> {
-        &self.0.ports
+    pub fn ports(&self) -> Option<&Vec<k8s_openapi::api::core::v1::ContainerPort>> {
+        self.0.ports.as_ref()
     }
 
     /// Get readiness probe of container.
@@ -236,13 +236,13 @@ impl Container {
     }
 
     /// Get volume devices of container.
-    pub fn volume_devices(&self) -> &Option<Vec<k8s_openapi::api::core::v1::VolumeDevice>> {
-        &self.0.volume_devices
+    pub fn volume_devices(&self) -> Option<&Vec<k8s_openapi::api::core::v1::VolumeDevice>> {
+        self.0.volume_devices.as_ref()
     }
 
     /// Get volume mounts of container.
-    pub fn volume_mounts(&self) -> &Option<Vec<k8s_openapi::api::core::v1::VolumeMount>> {
-        &self.0.volume_mounts
+    pub fn volume_mounts(&self) -> Option<&Vec<k8s_openapi::api::core::v1::VolumeMount>> {
+        self.0.volume_mounts.as_ref()
     }
 
     /// Get working directory of container.
