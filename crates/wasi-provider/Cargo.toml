@@ -24,7 +24,7 @@ rustls-tls = ["kube/rustls-tls", "kubelet/rustls-tls", "krator/rustls-tls"]
 anyhow = "1.0"
 async-trait = "0.1"
 backtrace = "0.3"
-cap-std = "0.13"
+cap-std = "0.19"
 chrono = {version = "0.4", features = ["serde"]}
 futures = "0.3"
 krator = {version = "0.4", default-features = false}
@@ -36,12 +36,12 @@ serde_json = "1.0"
 tempfile = "3.1"
 tokio = {version = "1.0", features = ["fs", "macros", "io-util", "sync"]}
 tracing = {version = "0.1", features = ['log']}
-wasi-cap-std-sync = "0.28"
-wasi-common = "0.28"
-wasmtime = "0.28"
-wasmtime-wasi = "0.28"
+wasi-cap-std-sync = "0.30"
+wasi-common = "0.30"
+wasmtime = "0.30"
+wasmtime-wasi = "0.30"
 wat = "1.0.38"
-wasi-experimental-http-wasmtime = "0.5.0"
+wasi-experimental-http-wasmtime = "0.6.0"
 
 [dev-dependencies]
 k8s-openapi = {version = "0.12", default-features = false, features = ["v1_21", "api"]}

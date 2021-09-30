@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, trace, warn};
 
+use cap_std::ambient_authority;
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
@@ -172,12 +173,14 @@ impl WasiRuntime {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
-        let stdout = wasi_cap_std_sync::file::File::from_cap_std(unsafe {
-            cap_std::fs::File::from_std(output_write.try_clone().await?.into_std().await)
-        });
-        let stderr = wasi_cap_std_sync::file::File::from_cap_std(unsafe {
-            cap_std::fs::File::from_std(output_write.try_clone().await?.into_std().await)
-        });
+        let stdout = wasi_cap_std_sync::file::File::from_cap_std(cap_std::fs::File::from_std(
+            output_write.try_clone().await?.into_std().await,
+            ambient_authority(),
+        ));
+        let stderr = wasi_cap_std_sync::file::File::from_cap_std(cap_std::fs::File::from_std(
+            output_write.try_clone().await?.into_std().await,
+            ambient_authority(),
+        ));
 
         // Create the WASI context builder and pass arguments, environment,
         // and standard output and error.
@@ -195,7 +198,7 @@ impl WasiRuntime {
                 guestpath = %guest_dir.display(),
                 "mounting hostpath in modules"
             );
-            let preopen_dir = unsafe { cap_std::fs::Dir::open_ambient_dir(key) }?;
+            let preopen_dir = cap_std::fs::Dir::open_ambient_dir(key, ambient_authority())?;
 
             builder = builder.preopened_dir(preopen_dir, guest_dir)?;
         }
