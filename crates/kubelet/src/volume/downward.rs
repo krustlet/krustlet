@@ -33,7 +33,7 @@ impl DownwardApiVolume {
         Ok(DownwardApiVolume {
             vol_name: vol.name.clone(),
             pod,
-            items: da_source.items.clone(),
+            items: da_source.items.clone().unwrap_or_default(),
             mounted_path: None,
         })
     }
@@ -252,7 +252,8 @@ fn data_from_resource_ref(
             QuantityType::Cpu(
                 resources
                     .requests
-                    .get("cpu")
+                    .as_ref()
+                    .and_then(|requests| requests.get("cpu"))
                     .ok_or_else(|| anyhow::anyhow!("A CPU request value was not found"))?,
             ),
             resource_ref.divisor.as_ref(),
@@ -261,7 +262,8 @@ fn data_from_resource_ref(
             QuantityType::Memory(
                 resources
                     .requests
-                    .get("memory")
+                    .as_ref()
+                    .and_then(|requests| requests.get("memory"))
                     .ok_or_else(|| anyhow::anyhow!("A memory request value was not found"))?,
             ),
             resource_ref.divisor.as_ref(),
@@ -270,11 +272,23 @@ fn data_from_resource_ref(
         // default to the node allocatable value for CPU and memory. We have no easy way to access
         // that here, so for now we are just defaulting
         ("limits", "cpu") => calculate_value(
-            QuantityType::Cpu(resources.limits.get("cpu").unwrap_or(&empty_quantity)),
+            QuantityType::Cpu(
+                resources
+                    .limits
+                    .as_ref()
+                    .and_then(|requests| requests.get("cpu"))
+                    .unwrap_or(&empty_quantity),
+            ),
             resource_ref.divisor.as_ref(),
         ),
         ("limits", "memory") => calculate_value(
-            QuantityType::Memory(resources.limits.get("memory").unwrap_or(&empty_quantity)),
+            QuantityType::Memory(
+                resources
+                    .limits
+                    .as_ref()
+                    .and_then(|requests| requests.get("memory"))
+                    .unwrap_or(&empty_quantity),
+            ),
             resource_ref.divisor.as_ref(),
         ),
         _ => anyhow::bail!("Resource ref {} does not exist", resource_ref.resource),
@@ -447,7 +461,7 @@ mod test {
             }
         });
         let fake_pod: Pod = serde_json::from_value(fake_pod).unwrap();
-        let vol = fake_pod.volumes()[0].clone();
+        let vol = fake_pod.volumes().unwrap()[0].clone();
         let mut downward = DownwardApiVolume::new(&vol, fake_pod)
             .expect("Should be able to create a new DownwardApiVolume");
         // Setup a tempdir where we can mount things at
@@ -602,7 +616,7 @@ mycustomannotation="{}""#,
         });
 
         let fake_pod: Pod = serde_json::from_value(fake_pod).unwrap();
-        let mut vol = fake_pod.volumes()[0].clone();
+        let mut vol = fake_pod.volumes().unwrap()[0].clone();
         let mut downward = DownwardApiVolume::new(&vol, fake_pod.clone())
             .expect("Should be able to create a new DownwardApiVolume");
         // Setup a tempdir where we can mount things at
@@ -618,6 +632,8 @@ mycustomannotation="{}""#,
             .as_mut()
             .unwrap()
             .items
+            .as_mut()
+            .unwrap()
             .get_mut(0)
             .unwrap()
             .resource_field_ref
@@ -635,7 +651,15 @@ mycustomannotation="{}""#,
         // Remove the resource field and request a non-existent key
         {
             // Wrapped in a block to drop the mutable borrow
-            let source = vol.downward_api.as_mut().unwrap().items.get_mut(0).unwrap();
+            let source = vol
+                .downward_api
+                .as_mut()
+                .unwrap()
+                .items
+                .as_mut()
+                .unwrap()
+                .get_mut(0)
+                .unwrap();
             source.resource_field_ref = None;
             source.field_ref = Some(ObjectFieldSelector {
                 field_path: "metadata.nonexistent".to_string(),
@@ -655,6 +679,8 @@ mycustomannotation="{}""#,
             .as_mut()
             .unwrap()
             .items
+            .as_mut()
+            .unwrap()
             .get_mut(0)
             .unwrap()
             .field_ref

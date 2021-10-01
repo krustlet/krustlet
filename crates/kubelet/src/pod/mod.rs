@@ -51,13 +51,8 @@ impl Pod {
     }
 
     /// Get the pod's node_selector map
-    pub fn node_selector(&self) -> &std::collections::BTreeMap<String, String> {
-        &self
-            .kube_pod
-            .spec
-            .as_ref()
-            .map(|s| &s.node_selector)
-            .unwrap_or(&EMPTY_MAP)
+    pub fn node_selector(&self) -> Option<&std::collections::BTreeMap<String, String>> {
+        self.kube_pod.spec.as_ref()?.node_selector.as_ref()
     }
 
     /// Get the pod's service account name
@@ -67,12 +62,9 @@ impl Pod {
     }
 
     /// Get the pod volumes
-    pub fn volumes(&self) -> &Vec<KubeVolume> {
-        self.kube_pod
-            .spec
-            .as_ref()
-            .map(|s| &s.volumes)
-            .unwrap_or(&EMPTY_VOLUMES)
+    pub fn volumes(&self) -> Option<&Vec<KubeVolume>> {
+        let spec = self.kube_pod.spec.as_ref()?;
+        spec.volumes.as_ref()
     }
 
     /// Get the pod's host ip
@@ -98,23 +90,29 @@ impl Pod {
 
     /// Get an iterator over the pod's labels
     pub fn labels(&self) -> &std::collections::BTreeMap<String, String> {
-        &self.kube_pod.meta().labels
+        self.kube_pod.meta().labels.as_ref().unwrap_or(&EMPTY_MAP)
     }
 
     ///  Get the pod's annotations
     pub fn annotations(&self) -> &std::collections::BTreeMap<String, String> {
-        &self.kube_pod.meta().annotations
+        self.kube_pod
+            .meta()
+            .annotations
+            .as_ref()
+            .unwrap_or(&EMPTY_MAP)
     }
 
     /// Get the names of the pod's image pull secrets
     pub fn image_pull_secrets(&self) -> Vec<String> {
         match self.kube_pod.spec.as_ref() {
             None => vec![],
-            Some(spec) => spec
-                .image_pull_secrets
-                .iter()
-                .filter_map(|objref| objref.name.clone())
-                .collect(),
+            Some(spec) => match spec.image_pull_secrets.as_ref() {
+                None => vec![],
+                Some(objrefs) => objrefs
+                    .iter()
+                    .filter_map(|objref| objref.name.clone())
+                    .collect(),
+            },
         }
     }
 
@@ -122,16 +120,19 @@ impl Pod {
     /// TODO: A missing owner_references field was an indication of static pod in my testing but I
     /// dont know how reliable this is.
     pub fn is_static(&self) -> bool {
-        self.kube_pod.meta().owner_references.is_empty()
+        self.kube_pod.meta().owner_references.is_none()
     }
 
     /// Indicate if this pod is part of a Daemonset
     pub fn is_daemonset(&self) -> bool {
-        self.kube_pod
-            .meta()
-            .owner_references
-            .iter()
-            .any(|owner| owner.kind == "DaemonSet")
+        if let Some(owners) = &self.kube_pod.meta().owner_references {
+            for owner in owners {
+                if owner.kind == "DaemonSet" {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     ///  Get a specific annotation from the pod
@@ -164,16 +165,18 @@ impl Pod {
     pub fn container_status_index(&self, key: &ContainerKey) -> Option<usize> {
         match self.kube_pod.status.as_ref() {
             Some(status) => {
-                let statuses = if key.is_init() {
-                    &status.init_container_statuses
+                match if key.is_init() {
+                    status.init_container_statuses.as_ref()
                 } else {
-                    &status.container_statuses
-                };
-                statuses
-                    .iter()
-                    .enumerate()
-                    .find(|(_, status)| status.name == key.name())
-                    .map(|(idx, _)| idx)
+                    status.container_statuses.as_ref()
+                } {
+                    Some(statuses) => statuses
+                        .iter()
+                        .enumerate()
+                        .find(|(_, status)| status.name == key.name())
+                        .map(|(idx, _)| idx),
+                    None => None,
+                }
             }
             None => None,
         }
@@ -196,7 +199,7 @@ impl Pod {
         self.kube_pod
             .spec
             .as_ref()
-            .map(|s| &s.init_containers)
+            .and_then(|s| s.init_containers.as_ref())
             .unwrap_or(&EMPTY_VEC)
             .iter()
             .map(|c| Container::new(c))

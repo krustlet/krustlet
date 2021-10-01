@@ -11,7 +11,7 @@ pub struct SecretVolume {
     vol_name: String,
     sec_name: String,
     client: kube::Api<Secret>,
-    items: Vec<KeyToPath>,
+    items: Option<Vec<KeyToPath>>,
     mounted_path: Option<PathBuf>,
 }
 
@@ -65,6 +65,7 @@ impl SecretVolume {
 
         let data = secret.data;
         let data = data
+            .unwrap_or_default()
             .into_iter()
             .filter_map(
                 |(key, ByteString(data))| match mount_setting_for(&key, &self.items) {
