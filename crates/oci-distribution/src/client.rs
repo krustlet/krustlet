@@ -237,7 +237,7 @@ impl Client {
     ) -> anyhow::Result<String> {
         debug!("Pushing image: {:?}", image_ref);
 
-        if !self.tokens.contains_key(&self.get_registry(&image_ref)) {
+        if !self.tokens.contains_key(&self.get_registry(image_ref)) {
             self.auth(image_ref, auth, &RegistryOperation::Push).await?;
         }
 
@@ -249,7 +249,7 @@ impl Client {
         for layer in &image_data.layers {
             // Destructuring assignment is not yet supported
             let (next_location, next_byte) = self
-                .push_layer(&location, &image_ref, layer.data.to_vec(), start_byte)
+                .push_layer(&location, image_ref, layer.data.to_vec(), start_byte)
                 .await?;
             location = next_location;
             start_byte = next_byte;
@@ -257,17 +257,17 @@ impl Client {
 
         // End push session, upload manifest
         let image_url = self
-            .end_push_session(&location, &image_ref, &image_data.digest())
+            .end_push_session(&location, image_ref, &image_data.digest())
             .await?;
 
         // Push config and manifest to registry
         let manifest: OciManifest = match image_manifest {
             Some(m) => m,
-            None => self.generate_manifest(&image_data, &config_data, config_media_type),
+            None => self.generate_manifest(image_data, config_data, config_media_type),
         };
-        self.push_config(image_ref, &config_data, &manifest.config.digest)
+        self.push_config(image_ref, config_data, &manifest.config.digest)
             .await?;
-        self.push_manifest(&image_ref, &manifest).await?;
+        self.push_manifest(image_ref, &manifest).await?;
 
         Ok(image_url)
     }
@@ -287,7 +287,7 @@ impl Client {
         let url = format!(
             "{}://{}/v2/",
             self.config.protocol.scheme_for(&self.get_registry(image)),
-            self.get_registry(&image)
+            self.get_registry(image)
         );
         let res = self.client.get(&url).send().await?;
         let dist_hdr = match res.headers().get(reqwest::header::WWW_AUTHENTICATE) {
@@ -496,7 +496,7 @@ impl Client {
 
     async fn validate_image_manifest(&self, text: &str) -> anyhow::Result<()> {
         debug!("validating manifest: {}", text);
-        let versioned: Versioned = serde_json::from_str(&text)
+        let versioned: Versioned = serde_json::from_str(text)
             .with_context(|| "Failed to parse manifest as a Versioned object")?;
         if versioned.schema_version != 2 {
             return Err(anyhow::anyhow!(
@@ -590,7 +590,7 @@ impl Client {
             .await?;
 
         // OCI spec requires the status code be 202 Accepted to successfully begin the push process
-        self.extract_location_header(&image, res, &reqwest::StatusCode::ACCEPTED)
+        self.extract_location_header(image, res, &reqwest::StatusCode::ACCEPTED)
             .await
     }
 
@@ -610,7 +610,7 @@ impl Client {
             .header("Content-Length", 0)
             .send()
             .await?;
-        self.extract_location_header(&image, res, &reqwest::StatusCode::CREATED)
+        self.extract_location_header(image, res, &reqwest::StatusCode::CREATED)
             .await
     }
 
@@ -649,7 +649,7 @@ impl Client {
 
         // Returns location for next chunk and the start byte for the next range
         Ok((
-            self.extract_location_header(&image, res, &reqwest::StatusCode::ACCEPTED)
+            self.extract_location_header(image, res, &reqwest::StatusCode::ACCEPTED)
                 .await?,
             end_byte + 1,
         ))
@@ -666,9 +666,9 @@ impl Client {
     ) -> anyhow::Result<String> {
         let location = self.begin_push_session(image).await?;
         let (end_location, _) = self
-            .push_layer(&location, &image, config_data.to_vec(), 0)
+            .push_layer(&location, image, config_data.to_vec(), 0)
             .await?;
-        self.end_push_session(&end_location, &image, config_digest)
+        self.end_push_session(&end_location, image, config_digest)
             .await
     }
 
@@ -698,7 +698,7 @@ impl Client {
             .send()
             .await?;
 
-        self.extract_location_header(&image, res, &reqwest::StatusCode::CREATED)
+        self.extract_location_header(image, res, &reqwest::StatusCode::CREATED)
             .await
     }
 
@@ -712,7 +712,7 @@ impl Client {
             let location_header = res.headers().get("Location");
             match location_header {
                 None => Err(anyhow::anyhow!("registry did not return a location header")),
-                Some(lh) => self.location_header_to_url(&image, &lh),
+                Some(lh) => self.location_header_to_url(image, lh),
             }
         } else {
             Err(anyhow::anyhow!(
@@ -821,7 +821,7 @@ impl Client {
     fn to_v2_blob_upload_url(&self, reference: &Reference) -> String {
         self.to_v2_blob_url(
             &self.get_registry(reference),
-            &reference.repository(),
+            reference.repository(),
             "uploads/",
         )
     }
@@ -893,7 +893,7 @@ impl<'a> RequestBuilderWrapper<'a> {
     fn apply_auth(&self, image: &Reference) -> anyhow::Result<RequestBuilderWrapper> {
         let mut headers = HeaderMap::new();
 
-        if let Some(token) = self.client.tokens.get(&self.client.get_registry(&image)) {
+        if let Some(token) = self.client.tokens.get(&self.client.get_registry(image)) {
             match token {
                 RegistryTokenType::Bearer(token) => {
                     debug!("Using bearer token authentication.");
