@@ -13,6 +13,13 @@ async fn main() -> anyhow::Result<()> {
     // The provider is responsible for all the "back end" logic. If you are creating
     // a new Kubelet, all you need to implement is a provider.
     let config = Config::new_from_file_and_flags(env!("CARGO_PKG_VERSION"), None);
+    match config.is_valid() {
+        Err(e) => {
+            eprintln!("ERR: {}", e);
+            return Err(e);
+        }
+        Ok(_) => (),
+    }
 
     // Initialize the logger
     tracing_subscriber::fmt()

@@ -249,6 +249,17 @@ impl Config {
         let builder = config_file_builder.unwrap().with_override(cli_builder); // if the config file is actually malformed then we should halt even if there are CLI values
         Config::new_from_builder(builder)
     }
+
+    /// Validate config object
+    pub fn is_valid(&self) -> anyhow::Result<bool> {
+        // cert-file and private-key-file should not the same file, otherwise TLS fails with a parse error
+        if self.server_config.private_key_file == self.server_config.cert_file {
+            return Err(anyhow::anyhow!(
+                "The config private key file and server config certificate file are the same"
+            ));
+        }
+        return Ok(true);
+    }
 }
 
 impl Default for Config {
@@ -1038,5 +1049,36 @@ mod test {
             "Expected 'invalid type' but got '{}'",
             error.to_string()
         );
+    }
+
+    #[test]
+    fn config_with_equal_cert_and_key_path_is_invalid() {
+        let config_builder = builder_from_json_string(
+            r#"{
+            "tlsCertificateFile": "/my/secure/cert",
+            "tlsPrivateKeyFile": "/my/secure/key"
+        }"#,
+        );
+        let config = config_builder.unwrap().build(fallbacks()).unwrap();
+        match config.is_valid() {
+            Err(e) => {
+                assert!(false, "{}", e)
+            }
+            Ok(_) => assert!(true),
+        }
+
+        let config_builder = builder_from_json_string(
+            r#"{
+            "tlsCertificateFile": "/the/same",
+            "tlsPrivateKeyFile": "/the/same"
+        }"#,
+        );
+        let config = config_builder.unwrap().build(fallbacks()).unwrap();
+        match config.is_valid() {
+            Err(e) => {
+                assert!(true, "{}", e)
+            }
+            Ok(_) => assert!(false),
+        }
     }
 }
