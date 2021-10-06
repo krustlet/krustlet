@@ -1,3 +1,6 @@
+[![CII Best
+Practices](https://bestpractices.coreinfrastructure.org/projects/5292/badge)](https://bestpractices.coreinfrastructure.org/projects/5292)
+
 # Krustlet: Kubernetes Kubelet in Rust for running WASM
 
 :postal_horn: Krustlet 1.0 coming soon!
