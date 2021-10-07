@@ -74,8 +74,16 @@ pub async fn initialize_pod_container_statuses(
                 .clone()
                 .unwrap_or_default();
 
-            let num_statuses = status.container_statuses.len();
-            let num_init_statuses = status.init_container_statuses.len();
+            let num_statuses = status
+                .container_statuses
+                .as_ref()
+                .map(|statuses| statuses.len())
+                .unwrap_or(0);
+            let num_init_statuses = status
+                .init_container_statuses
+                .as_ref()
+                .map(|statuses| statuses.len())
+                .unwrap_or(0);
 
             if (num_statuses == num_containers) && (num_init_statuses == num_init_containers) {
                 break 'main Ok(());

@@ -78,17 +78,18 @@ impl ProjectedVolume {
         })?;
         let mut volumes = Vec::new();
         let mut service_accounts = Vec::new();
-        for s in source
-            .sources
-            .iter()
-            .map(|proj| (client.clone(), proj))
-            .map(|(c, proj)| to_volume_ref(c, &pod, proj))
-            .collect::<anyhow::Result<Vec<Either<_, _>>>>()?
-            .into_iter()
-        {
-            match s {
-                Either::Left(v) => volumes.push(v),
-                Either::Right(sa) => service_accounts.push(sa),
+        if let Some(sources) = source.sources.as_ref() {
+            for s in sources
+                .iter()
+                .map(|proj| (client.clone(), proj))
+                .map(|(c, proj)| to_volume_ref(c, &pod, proj))
+                .collect::<anyhow::Result<Vec<Either<_, _>>>>()?
+                .into_iter()
+            {
+                match s {
+                    Either::Left(v) => volumes.push(v),
+                    Either::Right(sa) => service_accounts.push(sa),
+                }
             }
         }
         Ok(ProjectedVolume {

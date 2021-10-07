@@ -325,7 +325,7 @@ mod test {
     #[tokio::test]
     async fn test_env_vars() {
         let container = Container::new(&KubeContainer {
-            env: vec![
+            env: Some(vec![
                 EnvVar {
                     name: "first".into(),
                     value: Some("value".into()),
@@ -397,7 +397,7 @@ mod test {
                     }),
                     ..Default::default()
                 },
-            ],
+            ]),
             ..Default::default()
         });
         let name = "my-name".to_string();
@@ -408,8 +408,8 @@ mod test {
         annotations.insert("annotation".to_string(), "value".to_string());
         let pod = Pod::from(KubePod {
             metadata: ObjectMeta {
-                labels,
-                annotations,
+                labels: Some(labels),
+                annotations: Some(annotations),
                 name: Some(name),
                 namespace,
                 ..Default::default()

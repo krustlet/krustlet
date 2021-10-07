@@ -54,10 +54,10 @@ impl RegistryAuthResolver {
 }
 
 fn parse_auth(secret: &Secret, registry_name: &str) -> Option<RegistryAuth> {
-    if secret.data.is_empty() {
-        None
+    if let Some(data) = secret.data.as_ref() {
+        parse_auth_from_secret_data(data, registry_name)
     } else {
-        parse_auth_from_secret_data(&secret.data, registry_name)
+        None
     }
 }
 

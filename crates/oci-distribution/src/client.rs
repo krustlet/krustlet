@@ -13,18 +13,24 @@ use crate::secrets::*;
 use crate::Reference;
 
 use crate::token_cache::{RegistryOperation, RegistryToken, RegistryTokenType, TokenCache};
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use futures_util::future;
 use futures_util::stream::StreamExt;
 use hyperx::header::Header;
 use reqwest::header::HeaderMap;
-use reqwest::RequestBuilder;
+use reqwest::{RequestBuilder, Url};
 use sha2::Digest;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tracing::{debug, trace, warn};
 use www_authenticate::{Challenge, ChallengeFields, RawChallenge, WwwAuthenticate};
+
+const MIME_TYPES_DISTRIBUTION_MANIFEST: &[&str] = &[
+    "application/vnd.docker.distribution.manifest.v2+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+    "application/vnd.oci.image.manifest.v1+json",
+];
 
 /// The data for an image or module.
 #[derive(Clone)]
@@ -243,7 +249,7 @@ impl Client {
         for layer in &image_data.layers {
             // Destructuring assignment is not yet supported
             let (next_location, next_byte) = self
-                .push_layer(&location, &image_ref, layer.data.to_vec(), start_byte)
+                .push_layer(&location, image_ref, layer.data.to_vec(), start_byte)
                 .await?;
             location = next_location;
             start_byte = next_byte;
@@ -251,17 +257,17 @@ impl Client {
 
         // End push session, upload manifest
         let image_url = self
-            .end_push_session(&location, &image_ref, &image_data.digest())
+            .end_push_session(&location, image_ref, &image_data.digest())
             .await?;
 
         // Push config and manifest to registry
         let manifest: OciManifest = match image_manifest {
             Some(m) => m,
-            None => self.generate_manifest(&image_data, &config_data, config_media_type),
+            None => self.generate_manifest(image_data, config_data, config_media_type),
         };
-        self.push_config(image_ref, &config_data, &manifest.config.digest)
+        self.push_config(image_ref, config_data, &manifest.config.digest)
             .await?;
-        self.push_manifest(&image_ref, &manifest).await?;
+        self.push_manifest(image_ref, &manifest).await?;
 
         Ok(image_url)
     }
@@ -374,16 +380,20 @@ impl Client {
 
         let url = self.to_v2_manifest_url(image);
         debug!("HEAD image manifest from {}", url);
-        let res = self
-            .apply_auth(self.client.head(&url), image, RegistryOperation::Pull, None)
+        let res = RequestBuilderWrapper::from_client(self, |client| client.head(&url))
+            .apply_accept(MIME_TYPES_DISTRIBUTION_MANIFEST)?
+            .apply_auth(image, RegistryOperation::Pull)?
+            .into_request_builder()
             .send()
             .await?;
 
         trace!(headers=?res.headers(), "Got Headers");
         if res.headers().get("Docker-Content-Digest").is_none() {
             debug!("GET image manifest from {}", url);
-            let res = self
-                .apply_auth(self.client.get(&url), image, RegistryOperation::Pull, None)
+            let res = RequestBuilderWrapper::from_client(self, |client| client.get(&url))
+                .apply_accept(MIME_TYPES_DISTRIBUTION_MANIFEST)?
+                .apply_auth(image, RegistryOperation::Pull)?
+                .into_request_builder()
                 .send()
                 .await?;
             let status = res.status();
@@ -483,10 +493,11 @@ impl Client {
     async fn _pull_manifest(&self, image: &Reference) -> anyhow::Result<(OciManifest, String)> {
         let url = self.to_v2_manifest_url(image);
         debug!("Pulling image manifest from {}", url);
-        let request = self.client.get(&url);
 
-        let res = self
-            .apply_auth(request, image, RegistryOperation::Pull, None)
+        let res = RequestBuilderWrapper::from_client(self, |client| client.get(&url))
+            .apply_accept(MIME_TYPES_DISTRIBUTION_MANIFEST)?
+            .apply_auth(image, RegistryOperation::Pull)?
+            .into_request_builder()
             .send()
             .await?;
 
@@ -527,7 +538,7 @@ impl Client {
 
     async fn validate_image_manifest(&self, text: &str) -> anyhow::Result<()> {
         debug!("validating manifest: {}", text);
-        let versioned: Versioned = serde_json::from_str(&text)
+        let versioned: Versioned = serde_json::from_str(text)
             .with_context(|| "Failed to parse manifest as a Versioned object")?;
         if versioned.schema_version != 2 {
             return Err(anyhow::anyhow!(
@@ -594,8 +605,10 @@ impl Client {
         mut out: T,
     ) -> anyhow::Result<()> {
         let url = self.to_v2_blob_url(image.resolve_registry(), image.repository(), digest);
-        let mut stream = self
-            .apply_auth(self.client.get(&url), image, RegistryOperation::Pull, None)
+        let mut stream = RequestBuilderWrapper::from_client(self, |client| client.get(&url))
+            .apply_accept(MIME_TYPES_DISTRIBUTION_MANIFEST)?
+            .apply_auth(image, RegistryOperation::Pull)?
+            .into_request_builder()
             .send()
             .await?
             .bytes_stream();
@@ -612,20 +625,15 @@ impl Client {
     /// Returns URL with session UUID
     async fn begin_push_session(&self, image: &Reference) -> anyhow::Result<String> {
         let url = &self.to_v2_blob_upload_url(image);
-        let mut headers = HeaderMap::new();
-        headers.insert("Content-Length", "0".parse().unwrap());
-        let res = self
-            .apply_auth(
-                self.client.post(url),
-                image,
-                RegistryOperation::Push,
-                Some(headers),
-            )
+        let res = RequestBuilderWrapper::from_client(self, |client| client.post(url))
+            .apply_auth(image, RegistryOperation::Push)?
+            .into_request_builder()
+            .header("Content-Length", 0)
             .send()
             .await?;
 
         // OCI spec requires the status code be 202 Accepted to successfully begin the push process
-        self.extract_location_header(&image, res, &reqwest::StatusCode::ACCEPTED)
+        self.extract_location_header(image, res, &reqwest::StatusCode::ACCEPTED)
             .await
     }
 
@@ -638,20 +646,14 @@ impl Client {
         image: &Reference,
         digest: &str,
     ) -> anyhow::Result<String> {
-        let url = format!("{}&digest={}", location, digest);
-        let mut close_headers = HeaderMap::new();
-        close_headers.insert("Content-Length", "0".parse().unwrap());
-
-        let res = self
-            .apply_auth(
-                self.client.put(&url),
-                image,
-                RegistryOperation::Push,
-                Some(close_headers),
-            )
+        let url = Url::parse_with_params(location, &[("digest", digest)])?;
+        let res = RequestBuilderWrapper::from_client(self, |client| client.put(url.clone()))
+            .apply_auth(image, RegistryOperation::Push)?
+            .into_request_builder()
+            .header("Content-Length", 0)
             .send()
             .await?;
-        self.extract_location_header(&image, res, &reqwest::StatusCode::CREATED)
+        self.extract_location_header(image, res, &reqwest::StatusCode::CREATED)
             .await
     }
 
@@ -680,20 +682,17 @@ impl Client {
         );
         headers.insert("Content-Type", "application/octet-stream".parse().unwrap());
 
-        let res = self
-            .apply_auth(
-                self.client.patch(location),
-                image,
-                RegistryOperation::Push,
-                Some(headers),
-            )
+        let res = RequestBuilderWrapper::from_client(self, |client| client.patch(location))
+            .apply_auth(image, RegistryOperation::Push)?
+            .into_request_builder()
+            .headers(headers)
             .body(layer)
             .send()
             .await?;
 
         // Returns location for next chunk and the start byte for the next range
         Ok((
-            self.extract_location_header(&image, res, &reqwest::StatusCode::ACCEPTED)
+            self.extract_location_header(image, res, &reqwest::StatusCode::ACCEPTED)
                 .await?,
             end_byte + 1,
         ))
@@ -710,9 +709,9 @@ impl Client {
     ) -> anyhow::Result<String> {
         let location = self.begin_push_session(image).await?;
         let (end_location, _) = self
-            .push_layer(&location, &image, config_data.to_vec(), 0)
+            .push_layer(&location, image, config_data.to_vec(), 0)
             .await?;
-        self.end_push_session(&end_location, &image, config_digest)
+        self.end_push_session(&end_location, image, config_digest)
             .await
     }
 
@@ -734,18 +733,15 @@ impl Client {
                 .unwrap(),
         );
 
-        let res = self
-            .apply_auth(
-                self.client.put(&url),
-                image,
-                RegistryOperation::Push,
-                Some(headers),
-            )
+        let res = RequestBuilderWrapper::from_client(self, |client| client.put(url.clone()))
+            .apply_auth(image, RegistryOperation::Push)?
+            .into_request_builder()
+            .headers(headers)
             .body(serde_json::to_string(manifest)?)
             .send()
             .await?;
 
-        self.extract_location_header(&image, res, &reqwest::StatusCode::CREATED)
+        self.extract_location_header(image, res, &reqwest::StatusCode::CREATED)
             .await
     }
 
@@ -759,7 +755,7 @@ impl Client {
             let location_header = res.headers().get("Location");
             match location_header {
                 None => Err(anyhow::anyhow!("registry did not return a location header")),
-                Some(lh) => self.location_header_to_url(&image, &lh),
+                Some(lh) => self.location_header_to_url(image, lh),
             }
         } else {
             Err(anyhow::anyhow!(
@@ -868,9 +864,55 @@ impl Client {
     fn to_v2_blob_upload_url(&self, reference: &Reference) -> String {
         self.to_v2_blob_url(
             &reference.resolve_registry(),
-            &reference.repository(),
+            reference.repository(),
             "uploads/",
         )
+    }
+}
+
+/// The request builder wrapper allows to be instantiated from a
+/// `Client` and allows composable operations on the request builder,
+/// to produce a `RequestBuilder` object that can be executed.
+struct RequestBuilderWrapper<'a> {
+    client: &'a Client,
+    request_builder: RequestBuilder,
+}
+
+// RequestBuilderWrapper type management
+impl<'a> RequestBuilderWrapper<'a> {
+    /// Create a `RequestBuilderWrapper` from a `Client` instance, by
+    /// instantiating the internal `RequestBuilder` with the provided
+    /// function `f`.
+    fn from_client(
+        client: &'a Client,
+        f: impl Fn(&reqwest::Client) -> RequestBuilder,
+    ) -> RequestBuilderWrapper {
+        let request_builder = f(&client.client);
+        RequestBuilderWrapper {
+            client,
+            request_builder,
+        }
+    }
+
+    // Produces a final `RequestBuilder` out of this `RequestBuilderWrapper`
+    fn into_request_builder(self) -> RequestBuilder {
+        self.request_builder
+    }
+}
+
+// Composable functions applicable to a `RequestBuilderWrapper`
+impl<'a> RequestBuilderWrapper<'a> {
+    fn apply_accept(&self, accept: &[&str]) -> anyhow::Result<RequestBuilderWrapper> {
+        let request_builder = self
+            .request_builder
+            .try_clone()
+            .ok_or_else(|| anyhow!("could not clone request builder"))?
+            .header("Accept", Vec::from(accept).join(", "));
+
+        Ok(RequestBuilderWrapper {
+            client: self.client,
+            request_builder,
+        })
     }
 
     /// Updates request as necessary for authentication.
@@ -881,15 +923,12 @@ impl Client {
     /// credentials, these will be configured.
     fn apply_auth(
         &self,
-        request: RequestBuilder,
         image: &Reference,
         op: RegistryOperation,
-        additional_headers: Option<HeaderMap>,
-    ) -> RequestBuilder {
-        let mut headers = additional_headers.unwrap_or_else(HeaderMap::new);
-        headers.insert("Accept", "application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json".parse().unwrap());
+    ) -> anyhow::Result<RequestBuilderWrapper> {
+        let mut headers = HeaderMap::new();
 
-        if let Some(token) = self.tokens.get(&image, op) {
+        if let Some(token) = self.client.tokens.get(&image, op) {
             match token {
                 RegistryTokenType::Bearer(token) => {
                     debug!("Using bearer token authentication.");
@@ -897,13 +936,26 @@ impl Client {
                 }
                 RegistryTokenType::Basic(username, password) => {
                     debug!("Using HTTP basic authentication.");
-                    return request
-                        .headers(headers)
-                        .basic_auth(username.to_string(), Some(password.to_string()));
+                    return Ok(RequestBuilderWrapper {
+                        client: self.client,
+                        request_builder: self
+                            .request_builder
+                            .try_clone()
+                            .ok_or_else(|| anyhow!("could not clone request builder"))?
+                            .headers(headers)
+                            .basic_auth(username.to_string(), Some(password.to_string())),
+                    });
                 }
             }
         }
-        request.headers(headers)
+        Ok(RequestBuilderWrapper {
+            client: self.client,
+            request_builder: self
+                .request_builder
+                .try_clone()
+                .ok_or_else(|| anyhow!("could not clone request builder"))?
+                .headers(headers),
+        })
     }
 }
 
@@ -1064,6 +1116,68 @@ mod test {
         HELLO_IMAGE_TAG_AND_DIGEST,
     ];
     const DOCKER_IO_IMAGE: &str = "docker.io/library/hello-world:latest";
+
+    #[test]
+    fn test_apply_accept() -> Result<(), anyhow::Error> {
+        assert_eq!(
+            RequestBuilderWrapper::from_client(&Client::default(), |client| client
+                .get("https://example.com/some/module.wasm"))
+            .apply_accept(&["*/*"])?
+            .into_request_builder()
+            .build()?
+            .headers()["Accept"],
+            "*/*"
+        );
+
+        assert_eq!(
+            RequestBuilderWrapper::from_client(&Client::default(), |client| client
+                .get("https://example.com/some/module.wasm"))
+            .apply_accept(MIME_TYPES_DISTRIBUTION_MANIFEST)?
+            .into_request_builder()
+            .build()?
+            .headers()["Accept"],
+            MIME_TYPES_DISTRIBUTION_MANIFEST.join(", ")
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_auth_no_token() -> Result<(), anyhow::Error> {
+        assert!(
+            !RequestBuilderWrapper::from_client(&Client::default(), |client| client
+                .get("https://example.com/some/module.wasm"))
+            .apply_auth(&Reference::try_from(HELLO_IMAGE_TAG)?)?
+            .into_request_builder()
+            .build()?
+            .headers()
+            .contains_key("Authorization")
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_auth_bearer_token() -> Result<(), anyhow::Error> {
+        let mut client = Client::default();
+        client.tokens.insert(
+            client.get_registry(&Reference::try_from(HELLO_IMAGE_TAG)?),
+            RegistryTokenType::Bearer(RegistryToken::Token {
+                token: "a_bearer_token".to_string(),
+            }),
+        );
+        assert_eq!(
+            RequestBuilderWrapper::from_client(&client, |client| client
+                .get("https://example.com/some/module.wasm"))
+            .apply_auth(&Reference::try_from(HELLO_IMAGE_TAG)?)?
+            .into_request_builder()
+            .build()?
+            .headers()["Authorization"],
+            "Bearer a_bearer_token"
+        );
+
+        Ok(())
+    }
 
     #[test]
     fn test_to_v2_blob_url() {
