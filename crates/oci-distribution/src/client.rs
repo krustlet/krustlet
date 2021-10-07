@@ -1324,14 +1324,14 @@ mod test {
             c.auth(
                 &reference,
                 &RegistryAuth::Anonymous,
-                &RegistryOperation::Pull,
+                RegistryOperation::Pull,
             )
             .await
             .expect("result from auth request");
 
             let tok = c
                 .tokens
-                .get(reference.registry())
+                .get(&reference, RegistryOperation::Pull)
                 .expect("token is available");
             // We test that the token is longer than a minimal hash.
             if let RegistryTokenType::Bearer(tok) = tok {
@@ -1357,7 +1357,7 @@ mod test {
             c.auth(
                 &reference,
                 &RegistryAuth::Anonymous,
-                &RegistryOperation::Pull,
+                RegistryOperation::Pull,
             )
             .await
             .expect("authenticated");
@@ -1421,7 +1421,7 @@ mod test {
             c.auth(
                 &reference,
                 &RegistryAuth::Anonymous,
-                &RegistryOperation::Pull,
+                RegistryOperation::Pull,
             )
             .await
             .expect("authenticated");
@@ -1446,7 +1446,7 @@ mod test {
             c.auth(
                 &reference,
                 &RegistryAuth::Anonymous,
-                &RegistryOperation::Pull,
+                RegistryOperation::Pull,
             )
             .await
             .expect("authenticated");
@@ -1564,7 +1564,7 @@ mod test {
         let url = "oci.registry.local/hello-wasm:v1";
         let image: Reference = url.parse().unwrap();
 
-        c.auth(&image, &RegistryAuth::Anonymous, &RegistryOperation::Push)
+        c.auth(&image, &RegistryAuth::Anonymous, RegistryOperation::Push)
             .await
             .expect("result from auth request");
 
@@ -1607,7 +1607,7 @@ mod test {
         let url = "oci.registry.local/hello-wasm:v1";
         let image: Reference = url.parse().unwrap();
 
-        c.auth(&image, &RegistryAuth::Anonymous, &RegistryOperation::Push)
+        c.auth(&image, &RegistryAuth::Anonymous, RegistryOperation::Push)
             .await
             .expect("result from auth request");
 
@@ -1667,7 +1667,7 @@ mod test {
         });
 
         let image: Reference = HELLO_IMAGE_TAG_AND_DIGEST.parse().unwrap();
-        c.auth(&image, &RegistryAuth::Anonymous, &RegistryOperation::Pull)
+        c.auth(&image, &RegistryAuth::Anonymous, RegistryOperation::Pull)
             .await
             .expect("authenticated");
 
@@ -1689,7 +1689,7 @@ mod test {
         c.auth(
             &push_image,
             &RegistryAuth::Anonymous,
-            &RegistryOperation::Push,
+            RegistryOperation::Push,
         )
         .await
         .expect("authenticated");
