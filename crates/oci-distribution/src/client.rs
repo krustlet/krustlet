@@ -1147,7 +1147,10 @@ mod test {
         assert!(
             !RequestBuilderWrapper::from_client(&Client::default(), |client| client
                 .get("https://example.com/some/module.wasm"))
-            .apply_auth(&Reference::try_from(HELLO_IMAGE_TAG)?)?
+            .apply_auth(
+                &Reference::try_from(HELLO_IMAGE_TAG)?,
+                RegistryOperation::Pull
+            )?
             .into_request_builder()
             .build()?
             .headers()
@@ -1159,21 +1162,41 @@ mod test {
 
     #[test]
     fn test_apply_auth_bearer_token() -> Result<(), anyhow::Error> {
+        use hmac::{Hmac, NewMac};
+        use jwt::SignWithKey;
+        use sha2::Sha256;
         let mut client = Client::default();
+        let header = jwt::header::Header {
+            algorithm: jwt::algorithm::AlgorithmType::Hs256,
+            key_id: None,
+            type_: None,
+            content_type: None,
+        };
+        let claims: jwt::claims::Claims = Default::default();
+        let key: Hmac<Sha256> = Hmac::new_from_slice(b"some-secret").unwrap();
+        let token = jwt::Token::new(header, claims)
+            .sign_with_key(&key)?
+            .as_str()
+            .to_string();
+
         client.tokens.insert(
-            client.get_registry(&Reference::try_from(HELLO_IMAGE_TAG)?),
+            &Reference::try_from(HELLO_IMAGE_TAG)?,
+            RegistryOperation::Pull,
             RegistryTokenType::Bearer(RegistryToken::Token {
-                token: "a_bearer_token".to_string(),
+                token: token.clone(),
             }),
         );
         assert_eq!(
             RequestBuilderWrapper::from_client(&client, |client| client
                 .get("https://example.com/some/module.wasm"))
-            .apply_auth(&Reference::try_from(HELLO_IMAGE_TAG)?)?
+            .apply_auth(
+                &Reference::try_from(HELLO_IMAGE_TAG)?,
+                RegistryOperation::Pull
+            )?
             .into_request_builder()
             .build()?
             .headers()["Authorization"],
-            "Bearer a_bearer_token"
+            format!("Bearer {}", &token)
         );
 
         Ok(())

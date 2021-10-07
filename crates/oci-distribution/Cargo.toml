@@ -46,3 +46,4 @@ jwt = "0.15"
 
 [dev-dependencies]
 rstest = "0.11"
+hmac = "0.11"
