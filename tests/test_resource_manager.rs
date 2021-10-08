@@ -103,8 +103,7 @@ impl TestResourceManager {
             .await?;
 
         // k8s seems to need a bit of time for namespace permissions to flow
-        // through the system.  TODO: make this less worse
-        // tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        // through the system.
         let mut lp: ListParams = ListParams::default();
         
         lp.field_selector = Some("metadata.name=default".to_string());
@@ -112,7 +111,7 @@ impl TestResourceManager {
         let mut watcher = watcher(
             Api::<ServiceAccount>::namespaced(client.clone(), &namespace), 
             lp.clone(),
-        ).boxed() ;
+        ).boxed();
 
         while let Some(event) = watcher.try_next().await?{
             if let watcher::Event::Applied(o) = event {
