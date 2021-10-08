@@ -7,6 +7,7 @@ pub mod manifest;
 mod reference;
 mod regexp;
 pub mod secrets;
+mod token_cache;
 
 #[doc(inline)]
 pub use client::Client;
