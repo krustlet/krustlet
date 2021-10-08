@@ -72,7 +72,7 @@ impl TokenCache {
                             .claims()
                             .registered
                             .expiration
-                            .unwrap_or_else(|| u64::MAX)
+                            .unwrap_or(u64::MAX)
                     },
                     Err(error) => {
                         warn!(?error, "Invalid bearer token");

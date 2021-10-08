@@ -45,7 +45,7 @@ impl ContainerStatusExpectation<'_> {
                         "Expected {} to have state but it didn't",
                         container_name
                     )),
-                    Some(state) => Self::verify_terminated_state(&state, container_name, expected),
+                    Some(state) => Self::verify_terminated_state(state, container_name, expected),
                 },
             },
         }

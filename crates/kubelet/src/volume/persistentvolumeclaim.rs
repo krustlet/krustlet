@@ -499,7 +499,7 @@ async fn get_csi(
     )))?;
 
     let pv_client: Api<PersistentVolume> = Api::all(client.clone());
-    let pv = pv_client.get(&volume_name).await?;
+    let pv = pv_client.get(volume_name).await?;
 
     // https://github.com/kubernetes/kubernetes/blob/734889ed822d1a60c6dd61ccd8f1ed0e8ab31ea5/pkg/volume/csi/csi_attacher.go#L295-L298
     let csi = pv

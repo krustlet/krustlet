@@ -83,8 +83,8 @@ impl Reference {
     pub fn resolve_registry(&self) -> &str {
         let registry = self.registry();
         match registry {
-            "docker.io" => "registry-1.docker.io".into(),
-            _ => registry.into(),
+            "docker.io" => "registry-1.docker.io",
+            _ => registry,
         }
     }
 

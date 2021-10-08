@@ -317,7 +317,7 @@ async fn clean_up_namespace(namespace: &str) -> Option<String> {
     let namespaces: Api<Namespace> = Api::all(client.clone());
 
     namespaces
-        .delete(&namespace, &DeleteParams::default())
+        .delete(namespace, &DeleteParams::default())
         .await
         .err()
         .map(|e| format!("namespace {} ({})", namespace, e))

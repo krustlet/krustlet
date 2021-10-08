@@ -158,7 +158,7 @@ impl State<ContainerState> for Waiting {
 
         let mut env = kubelet::provider::env_vars(&container, &state.pod, &client).await;
         env.extend(container_envs);
-        let args: Vec<String> = container.args().map(|t| t.clone()).unwrap_or_default();
+        let args: Vec<String> = container.args().map(|t| t.to_owned()).unwrap_or_default();
 
         // TODO: ~magic~ number
         let (tx, rx) = mpsc::channel(8);
@@ -175,7 +175,7 @@ impl State<ContainerState> for Waiting {
 
         // Parse allowed domains from annotation key
         if let Some(annotation) = annotations.get(ALLOWED_DOMAINS_ANNOTATION_KEY) {
-            match serde_json::from_str(&annotation) {
+            match serde_json::from_str(annotation) {
                 Ok(allowed_domains) => {
                     wasi_http_config.allowed_domains = Some(allowed_domains);
                 }
