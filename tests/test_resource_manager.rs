@@ -2,12 +2,10 @@ use futures::{StreamExt, TryStreamExt};
 #[cfg(target_os = "linux")]
 use k8s_openapi::api::{core::v1::PersistentVolumeClaim, storage::v1::StorageClass};
 use k8s_openapi::{
-    api::core::v1::{ConfigMap, Namespace, Pod, Secret, ServiceAccount},
-    Metadata,
+    api::core::v1::{ConfigMap, Namespace, Pod, Secret, ServiceAccount}, 
 };
 use kube::{
-    api::{Api, DeleteParams, ListParams, PostParams, WatchEvent},
-    ResourceExt,
+    api::{Api, DeleteParams, ListParams, PostParams},
 };
 use kube_runtime::watcher;
 use serde_json::json;
