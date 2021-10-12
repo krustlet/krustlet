@@ -1,12 +1,8 @@
 use futures::{StreamExt, TryStreamExt};
+use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Pod, Secret, ServiceAccount};
 #[cfg(target_os = "linux")]
 use k8s_openapi::api::{core::v1::PersistentVolumeClaim, storage::v1::StorageClass};
-use k8s_openapi::{
-    api::core::v1::{ConfigMap, Namespace, Pod, Secret, ServiceAccount}, 
-};
-use kube::{
-    api::{Api, DeleteParams, ListParams, PostParams},
-};
+use kube::api::{Api, DeleteParams, ListParams, PostParams};
 use kube_runtime::watcher;
 use serde_json::json;
 
@@ -108,20 +104,21 @@ impl TestResourceManager {
 
         // k8s seems to need a bit of time for namespace permissions to flow
         // through the system.
-        let mut lp: ListParams = ListParams::default();
-
-        lp.field_selector = Some("metadata.name=default".to_string());
+        let lp: ListParams = ListParams {
+            field_selector: Some("metadata.name=default".to_string()),
+            ..Default::default()
+        };
 
         let mut watcher = watcher(
-            Api::<ServiceAccount>::namespaced(client.clone(), &namespace),
+            Api::<ServiceAccount>::namespaced(client.clone(), namespace),
             lp.clone(),
         )
         .boxed();
 
         while let Some(event) = watcher.try_next().await? {
             if let watcher::Event::Applied(o) = event {
-                let secret = o.secrets.first().unwrap().clone();
-                Api::<Secret>::namespaced(client.clone(), &namespace)
+                let secret = o.secrets.unwrap_or_default().first().unwrap().clone();
+                Api::<Secret>::namespaced(client.clone(), namespace)
                     .get(secret.name.unwrap().as_str())
                     .await?;
                 break;
