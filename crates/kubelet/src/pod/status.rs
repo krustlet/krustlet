@@ -17,7 +17,7 @@ pub async fn patch_status(api: &Api<KubePod>, name: &str, status: Status) {
     debug!(?patch, "Applying status patch to pod");
     match api
         .patch_status(
-            &name,
+            name,
             &PatchParams::default(),
             &kube::api::Patch::Strategic(patch),
         )
@@ -56,12 +56,12 @@ pub async fn initialize_pod_container_statuses(
                 Phase::Failed,
                 "Timed out while initializing container statuses.",
             );
-            patch_status(&api, &name, status).await;
+            patch_status(api, &name, status).await;
             anyhow::bail!("Timed out while initializing container statuses.")
         }
         let (num_containers, num_init_containers) = {
             let pod = pod.latest();
-            patch_status(&api, &name, make_registered_status(&pod)).await;
+            patch_status(api, &name, make_registered_status(&pod)).await;
             let num_containers = pod.containers().len();
             let num_init_containers = pod.init_containers().len();
             (num_containers, num_init_containers)

@@ -118,11 +118,11 @@ pub async fn patch_container_status(
     key: &ContainerKey,
     status: &Status,
 ) -> anyhow::Result<()> {
-    match pod.find_container(&key) {
+    match pod.find_container(key) {
         Some(container) => {
             let kube_status = status.to_kubernetes(container.name());
 
-            let patches = match pod.container_status_index(&key) {
+            let patches = match pod.container_status_index(key) {
                 Some(idx) => {
                     let path_prefix = if key.is_init() {
                         format!("/status/initContainerStatuses/{}", idx)

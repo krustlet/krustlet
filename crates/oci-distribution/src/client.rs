@@ -187,7 +187,7 @@ impl Client {
     ) -> anyhow::Result<ImageData> {
         debug!("Pulling image: {:?}", image);
         let op = RegistryOperation::Pull;
-        if !self.tokens.contains_key(&image, op) {
+        if !self.tokens.contains_key(image, op) {
             self.auth(image, auth, op).await?;
         }
 
@@ -237,7 +237,7 @@ impl Client {
     ) -> anyhow::Result<String> {
         debug!("Pushing image: {:?}", image_ref);
         let op = RegistryOperation::Push;
-        if !self.tokens.contains_key(&image_ref, op) {
+        if !self.tokens.contains_key(image_ref, op) {
             self.auth(image_ref, auth, op).await?;
         }
 
@@ -305,7 +305,7 @@ impl Client {
                 // Fall back to HTTP Basic Auth
                 if let RegistryAuth::Basic(username, password) = authentication {
                     self.tokens.insert(
-                        &image,
+                        image,
                         operation,
                         RegistryTokenType::Basic(username.to_string(), password.to_string()),
                     );
@@ -349,7 +349,7 @@ impl Client {
                     .context("Failed to decode registry token from auth request")?;
                 debug!("Succesfully authorized for image '{:?}'", image);
                 self.tokens
-                    .insert(&image, operation, RegistryTokenType::Bearer(token));
+                    .insert(image, operation, RegistryTokenType::Bearer(token));
                 Ok(())
             }
             _ => {
@@ -374,7 +374,7 @@ impl Client {
         auth: &RegistryAuth,
     ) -> anyhow::Result<String> {
         let op = RegistryOperation::Pull;
-        if !self.tokens.contains_key(&image, op) {
+        if !self.tokens.contains_key(image, op) {
             self.auth(image, auth, op).await?;
         }
 
@@ -479,7 +479,7 @@ impl Client {
         auth: &RegistryAuth,
     ) -> anyhow::Result<(OciManifest, String)> {
         let op = RegistryOperation::Pull;
-        if !self.tokens.contains_key(&image, op) {
+        if !self.tokens.contains_key(image, op) {
             self.auth(image, auth, op).await?;
         }
 
@@ -570,7 +570,7 @@ impl Client {
         auth: &RegistryAuth,
     ) -> anyhow::Result<(OciManifest, String, String)> {
         let op = RegistryOperation::Pull;
-        if !self.tokens.contains_key(&image, op) {
+        if !self.tokens.contains_key(image, op) {
             self.auth(image, auth, op).await?;
         }
 
@@ -863,7 +863,7 @@ impl Client {
     /// Convert a Reference to a v2 blob upload URL.
     fn to_v2_blob_upload_url(&self, reference: &Reference) -> String {
         self.to_v2_blob_url(
-            &reference.resolve_registry(),
+            reference.resolve_registry(),
             reference.repository(),
             "uploads/",
         )
@@ -928,7 +928,7 @@ impl<'a> RequestBuilderWrapper<'a> {
     ) -> anyhow::Result<RequestBuilderWrapper> {
         let mut headers = HeaderMap::new();
 
-        if let Some(token) = self.client.tokens.get(&image, op) {
+        if let Some(token) = self.client.tokens.get(image, op) {
             match token {
                 RegistryTokenType::Bearer(token) => {
                     debug!("Using bearer token authentication.");
@@ -1267,7 +1267,7 @@ mod test {
         assert_eq!(
             "http://webassembly.azurecr.io/v2/hello/blobs/sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             c.to_v2_blob_url(
-                &reference.registry(),
+                reference.registry(),
                 reference.repository(),
                 reference.digest().unwrap()
             )
@@ -1319,7 +1319,7 @@ mod test {
         assert_eq!(
             "https://webassembly.azurecr.io/v2/hello/blobs/sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             c.to_v2_blob_url(
-                &reference.registry(),
+                reference.registry(),
                 reference.repository(),
                 reference.digest().unwrap()
             )
@@ -1339,7 +1339,7 @@ mod test {
         assert_eq!(
             "http://oci.registry.local/v2/hello/blobs/sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             c.to_v2_blob_url(
-                &reference.registry(),
+                reference.registry(),
                 reference.repository(),
                 reference.digest().unwrap()
             )
@@ -1369,35 +1369,35 @@ mod test {
     fn test_registry_token_deserialize() {
         // 'token' field, standalone
         let text = r#"{"token": "abc"}"#;
-        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(text);
         assert!(res.is_ok());
         let rt = res.unwrap();
         assert_eq!(rt.token(), "abc");
 
         // 'access_token' field, standalone
         let text = r#"{"access_token": "xyz"}"#;
-        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(text);
         assert!(res.is_ok());
         let rt = res.unwrap();
         assert_eq!(rt.token(), "xyz");
 
         // both 'token' and 'access_token' fields, 'token' field takes precedence
         let text = r#"{"access_token": "xyz", "token": "abc"}"#;
-        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(text);
         assert!(res.is_ok());
         let rt = res.unwrap();
         assert_eq!(rt.token(), "abc");
 
         // both 'token' and 'access_token' fields, 'token' field takes precedence (reverse order)
         let text = r#"{"token": "abc", "access_token": "xyz"}"#;
-        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(text);
         assert!(res.is_ok());
         let rt = res.unwrap();
         assert_eq!(rt.token(), "abc");
 
         // non-string fields do not break parsing
         let text = r#"{"aaa": 300, "access_token": "xyz", "token": "abc", "zzz": 600}"#;
-        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(text);
         assert!(res.is_ok());
 
         // Note: tokens should always be strings. The next two tests ensure that if one field
@@ -1405,51 +1405,51 @@ mod test {
         //
         // numeric 'access_token' field, but string 'token' field does not in parse error
         let text = r#"{"access_token": 300, "token": "abc"}"#;
-        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(text);
         assert!(res.is_ok());
         let rt = res.unwrap();
         assert_eq!(rt.token(), "abc");
 
         // numeric 'token' field, but string 'accesss_token' field does not in parse error
         let text = r#"{"access_token": "xyz", "token": 300}"#;
-        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(text);
         assert!(res.is_ok());
         let rt = res.unwrap();
         assert_eq!(rt.token(), "xyz");
 
         // numeric 'token' field results in parse error
         let text = r#"{"token": 300}"#;
-        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(text);
         assert!(res.is_err());
 
         // numeric 'access_token' field results in parse error
         let text = r#"{"access_token": 300}"#;
-        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(text);
         assert!(res.is_err());
 
         // object 'token' field results in parse error
         let text = r#"{"token": {"some": "thing"}}"#;
-        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(text);
         assert!(res.is_err());
 
         // object 'access_token' field results in parse error
         let text = r#"{"access_token": {"some": "thing"}}"#;
-        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(text);
         assert!(res.is_err());
 
         // missing fields results in parse error
         let text = r#"{"some": "thing"}"#;
-        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(text);
         assert!(res.is_err());
 
         // bad JSON results in parse error
         let text = r#"{"token": "abc""#;
-        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(text);
         assert!(res.is_err());
 
         // worse JSON results in parse error
         let text = r#"_ _ _ kjbwef??98{9898 }} }}"#;
-        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(&text);
+        let res: Result<RegistryToken, serde_json::Error> = serde_json::from_str(text);
         assert!(res.is_err());
     }
 

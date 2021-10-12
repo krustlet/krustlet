@@ -175,7 +175,7 @@ impl Smiter {
         <T as kube::Resource>::DynamicType: Default,
     {
         let api: Api<T> = match self.namespace.as_ref() {
-            Some(ns) => Api::namespaced(client, &ns),
+            Some(ns) => Api::namespaced(client, ns),
             None => Api::all(client),
         };
         let smite_operations = self
@@ -183,7 +183,7 @@ impl Smiter {
             .iter()
             .map(|name| (name, api.clone(), self.params.clone()))
             .map(|(name, api, params)| async move {
-                api.delete(&name, &params).await?;
+                api.delete(name, &params).await?;
                 Ok::<_, kube::Error>(())
             });
         let smite_results = futures::future::join_all(smite_operations).await;

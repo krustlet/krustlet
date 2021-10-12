@@ -95,7 +95,7 @@ pub async fn create<P: Provider>(client: &kube::Client, config: &Config, provide
         "true",
     );
 
-    node_labels_definition(P::ARCH, &config, &mut builder);
+    node_labels_definition(P::ARCH, config, &mut builder);
 
     // TODO Do we want to detect this?
     builder.add_capacity("cpu", "4");
@@ -137,7 +137,7 @@ pub async fn create<P: Provider>(client: &kube::Client, config: &Config, provide
     match retry!(node_client.create(&PostParams::default(), &node).await, times: 4) {
         Ok(node) => {
             let node_uid = node.metadata.uid.unwrap();
-            if let Err(e) = create_lease(&node_uid, &config.node_name, &client).await {
+            if let Err(e) = create_lease(&node_uid, &config.node_name, client).await {
                 error!(error = %e, "Failed to create lease");
                 return;
             }
@@ -225,7 +225,7 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
                 }
             );
             api.patch_status(
-                &pod.name(),
+                pod.name(),
                 &PatchParams::default(),
                 &kube::api::Patch::Strategic(patch),
             )
@@ -234,7 +234,7 @@ pub async fn evict_pods(client: &kube::Client, node_name: &str) -> anyhow::Resul
             info!("Marked static pod as terminated");
             continue;
         } else {
-            match evict_pod(&client, pod.name(), pod.namespace(), &mut stream).await {
+            match evict_pod(client, pod.name(), pod.namespace(), &mut stream).await {
                 Ok(_) => (),
                 Err(e) => {
                     // Absorb the error and attempt to delete other pods with best effort.

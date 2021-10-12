@@ -63,22 +63,17 @@ impl TokenCache {
             RegistryTokenType::Bearer(ref t) => {
                 let token_str = t.token();
                 match jwt::Token::<
-                    jwt::header::Header,
-                    jwt::claims::Claims,
-                    jwt::token::Unverified,
-                >::parse_unverified(token_str) {
-                    Ok(token) => {
-                        token
-                            .claims()
-                            .registered
-                            .expiration
-                            .unwrap_or_else(|| u64::MAX)
-                    },
-                    Err(error) => {
-                        warn!(?error, "Invalid bearer token");
-                        return;
+                        jwt::header::Header,
+                        jwt::claims::Claims,
+                        jwt::token::Unverified,
+                    >::parse_unverified(token_str)
+                    {
+                        Ok(token) => token.claims().registered.expiration.unwrap_or(u64::MAX),
+                        Err(error) => {
+                            warn!(?error, "Invalid bearer token");
+                            return;
+                        }
                     }
-                }
             }
         };
         let registry = reference.resolve_registry().to_string();
