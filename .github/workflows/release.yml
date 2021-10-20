@@ -136,14 +136,6 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v2
-      # OCI distribution needs to go first because kubelet has a dependency on it
-      - name: publish oci-distribution to crates.io
-        working-directory: ./crates/oci-distribution
-        run: cargo publish --token ${{ secrets.CargoToken }}
-        continue-on-error: true
-      - name: wait for oci-distribution to be published
-        run: sleep 60
       - name: publish kubelet to crates.io
         working-directory: ./crates/kubelet
         run: cargo publish --token ${{ secrets.CargoToken }}
-        continue-on-error: true

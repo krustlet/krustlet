@@ -55,7 +55,7 @@ kube = {version = "0.60", default-features = false, features = ["jsonpatch"]}
 kube-runtime = {version = "0.60", default-features = false}
 lazy_static = "1.4"
 notify = "5.0.0-pre.3"
-oci-distribution = {path = "../oci-distribution", version = "0.7", default-features = false}
+oci-distribution = "0.7"
 prost = "0.8"
 prost-types = "0.8"
 rcgen = "0.8"
