@@ -78,7 +78,7 @@ jobs:
           cd /tmp
           git clone https://github.com/openssl/openssl
           cd openssl
-          git checkout OpenSSL_1_1_1h
+          git checkout OpenSSL_1_1_1l
           sudo mkdir -p $OPENSSL_DIR
           ./Configure linux-aarch64 --prefix=$OPENSSL_DIR --openssldir=$OPENSSL_DIR shared
           make CC=aarch64-linux-gnu-gcc

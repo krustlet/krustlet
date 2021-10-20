@@ -16,7 +16,7 @@ jobs:
               os: "ubuntu-latest",
               arch: "amd64",
               args: "",
-              url: "https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-unknown-linux-musl.tar.gz",
+              url: "https://github.com/casey/just/releases/download/0.10.2/just-0.10.2-x86_64-unknown-linux-musl.tar.gz",
               name: "just",
               pathInArchive: "just",
               env: {},
@@ -25,7 +25,7 @@ jobs:
               os: "ubuntu-latest",
               arch: "aarch64",
               args: "--target aarch64-unknown-linux-gnu",
-              url: "https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-unknown-linux-musl.tar.gz",
+              url: "https://github.com/casey/just/releases/download/0.10.2/just-0.10.2-x86_64-unknown-linux-musl.tar.gz",
               name: "just",
               pathInArchive: "just",
               env: { OPENSSL_DIR: "/usr/local/openssl-aarch64" },
@@ -34,7 +34,7 @@ jobs:
               os: "macos-latest",
               arch: "amd64",
               args: "",
-              url: "https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-apple-darwin.tar.gz",
+              url: "https://github.com/casey/just/releases/download/0.10.2/just-0.10.2-x86_64-apple-darwin.tar.gz",
               name: "just",
               pathInArchive: "just",
               env: {},
@@ -47,7 +47,7 @@ jobs:
           toolchain: stable
           default: true
           components: clippy, rustfmt
-      - uses: engineerd/configurator@v0.0.7
+      - uses: engineerd/configurator@v0.0.8
         with:
           name: ${{ matrix.config.name }}
           url: ${{ matrix.config.url }}
@@ -60,7 +60,7 @@ jobs:
           cd /tmp
           git clone https://github.com/openssl/openssl
           cd openssl
-          git checkout OpenSSL_1_1_1h
+          git checkout OpenSSL_1_1_1l
           sudo mkdir -p $OPENSSL_DIR
           ./Configure linux-aarch64 --prefix=$OPENSSL_DIR --openssldir=$OPENSSL_DIR shared
           make CC=aarch64-linux-gnu-gcc
@@ -88,7 +88,7 @@ jobs:
       - uses: engineerd/configurator@v0.0.5
         with:
           name: just
-          url: "https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-pc-windows-msvc.zip"
+          url: "https://github.com/casey/just/releases/download/0.10.2/just-0.10.2-x86_64-pc-windows-msvc.zip"
           pathInArchive: just.exe
       - name: Build
         run: |
@@ -108,12 +108,12 @@ jobs:
           toolchain: stable
           default: true
           components: clippy, rustfmt
-      - uses: engineerd/configurator@v0.0.7
+      - uses: engineerd/configurator@v0.0.8
         with:
           name: just.exe
           url: "https://github.com/casey/just/releases/download/v0.9.4/just-v0.9.4-x86_64-pc-windows-msvc.zip"
           pathInArchive: just.exe
-      - uses: engineerd/configurator@v0.0.7
+      - uses: engineerd/configurator@v0.0.8
         with:
           name: kind.exe
           url: "https://kind.sigs.k8s.io/dl/v0.11.1/kind-windows-amd64"
@@ -161,10 +161,10 @@ jobs:
       - uses: engineerd/setup-kind@v0.5.0
         with:
           version: "v0.11.1"
-      - uses: engineerd/configurator@v0.0.7
+      - uses: engineerd/configurator@v0.0.8
         with:
           name: just
-          url: https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-unknown-linux-musl.tar.gz
+          url: https://github.com/casey/just/releases/download/0.10.2/just-0.10.2-x86_64-unknown-linux-musl.tar.gz
           pathInArchive: just
       - name: Get NODE_IP
         run: echo "KRUSTLET_NODE_IP=$(ip addr ls eth0 | awk '/inet / {split($2, ary, /\//); print ary[1]}')" >> $GITHUB_ENV
