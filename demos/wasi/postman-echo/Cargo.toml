@@ -2,7 +2,7 @@
 name = "postman-echo"
 version = "0.1.0"
 authors = ["Brian Hardock <brhardoc@microsoft.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 wasi-experimental-http = "0.5.0"
