@@ -64,13 +64,12 @@ jobs:
           OS=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
           echo "RUNNER_OS=${OS}" >> $GITHUB_ENV
 
-      # hack(bacongobbler): install rustfmt to work around darwin toolchain issues
-      - name: "(macOS) install dev tools"
-        if: runner.os == 'macOS'
-        run: |
-          rustup component add rustfmt --toolchain stable-x86_64-apple-darwin
-          rustup component add clippy --toolchain stable-x86_64-apple-darwin
-          rustup update stable
+      - name: Install latest Rust stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+          components: clippy, rustfmt
 
       - name: setup for cross-compile builds
         if: matrix.config.arch == 'aarch64'

@@ -41,18 +41,17 @@ jobs:
             }
     steps:
       - uses: actions/checkout@v2
+      - name: Install latest Rust stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+          components: clippy, rustfmt
       - uses: engineerd/configurator@v0.0.7
         with:
           name: ${{ matrix.config.name }}
           url: ${{ matrix.config.url }}
           pathInArchive: ${{ matrix.config.pathInArchive }}
-      # hack(bacongobbler): install rustfmt to work around darwin toolchain issues
-      - name: "(macOS) install dev tools"
-        if: runner.os == 'macOS'
-        run: |
-          rustup component add rustfmt --toolchain stable-x86_64-apple-darwin
-          rustup component add clippy --toolchain stable-x86_64-apple-darwin
-          rustup update stable
       - name: setup for cross-compile builds
         if: matrix.config.arch == 'aarch64'
         run: |
@@ -80,6 +79,12 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v2
+      - name: Install latest Rust stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+          components: clippy, rustfmt
       - uses: engineerd/configurator@v0.0.5
         with:
           name: just
@@ -97,6 +102,12 @@ jobs:
     runs-on: [self-hosted, windows, x64]
     steps:
       - uses: actions/checkout@v2
+      - name: Install latest Rust stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+          components: clippy, rustfmt
       - uses: engineerd/configurator@v0.0.7
         with:
           name: just.exe
@@ -141,6 +152,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - name: Install latest Rust stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+          components: clippy, rustfmt
       - uses: engineerd/setup-kind@v0.5.0
         with:
           version: "v0.11.1"
