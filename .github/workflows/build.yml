@@ -117,7 +117,7 @@ jobs:
           kubectl config view -o jsonpath='{.clusters[?(@.name == \"kind-kind-${{ github.run_id }}\")].cluster.server}' | % {$_.replace("127.0.0.1", "localhost")} | % {kubectl config set clusters.kind-kind-${{ github.run_id }}.server $_}
       - name: Get NODE_IP
         run: |
-          $addr = (Get-NetIPAddress -AddressFamily IPV4 -InterfaceAlias 'vEthernet (WSL)').IPAddress
+          $addr = "192.168.65.2"
           echo "KRUSTLET_NODE_IP=$addr" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
       - name: Run e2e tests (full)
         if: ${{ github.event_name == 'push' }}
