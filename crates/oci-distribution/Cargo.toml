@@ -10,7 +10,7 @@ authors = [
   "Kevin Flansburg <kevin.flansburg@gmail.com>",
 ]
 description = "An OCI implementation in Rust"
-edition = "2018"
+edition = "2021"
 keywords = [
   "oci",
   "containers",

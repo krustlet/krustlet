@@ -55,6 +55,7 @@ pub async fn pod_exited_successfully(pods: &Api<Pod>, pod_name: &str) -> anyhow:
     let pod = pods.get(pod_name).await?;
 
     let state = (|| {
+        let _ = &pod;
         pod.status?.container_statuses?[0]
             .state
             .as_ref()?
@@ -73,7 +74,11 @@ pub async fn pod_exited_successfully(pods: &Api<Pod>, pod_name: &str) -> anyhow:
 pub async fn pod_exited_with_failure(pods: &Api<Pod>, pod_name: &str) -> anyhow::Result<()> {
     let pod = pods.get(pod_name).await?;
 
-    let phase = (|| pod.status?.phase)().expect("Could not get pod phase");
+    let phase = (|| {
+        let _ = &pod;
+        pod.status?.phase
+    })()
+    .expect("Could not get pod phase");
     assert_eq!(phase, "Failed");
 
     Ok(())
@@ -86,7 +91,11 @@ pub async fn pod_reason_contains(
 ) -> anyhow::Result<()> {
     let pod = pods.get(pod_name).await?;
 
-    let message = (|| pod.status?.reason)().expect("Could not get pod message.");
+    let message = (|| {
+        let _ = &pod;
+        pod.status?.reason
+    })()
+    .expect("Could not get pod message.");
     assert!(
         message.contains(expected_message),
         "Expected pod message containing {} but got {}",
@@ -104,6 +113,7 @@ pub async fn main_container_exited_with_failure(
     let pod = pods.get(pod_name).await?;
 
     let state = (|| {
+        let _ = &pod;
         pod.status?.container_statuses?[0]
             .state
             .as_ref()?
