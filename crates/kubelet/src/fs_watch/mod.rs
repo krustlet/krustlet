@@ -36,14 +36,14 @@ impl FileSystemWatcher {
     #[cfg(not(target_os = "macos"))]
     pub fn new<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let (stream_tx, stream_rx) = unbounded_channel::<NotifyResult<Event>>();
-        let mut watcher: RecommendedWatcher = Watcher::new_immediate(move |res| {
+        let mut watcher: RecommendedWatcher = notify::recommended_watcher(move |res| {
             if let Err(e) = stream_tx.send(res) {
                 error!(error = %e, "Unable to send inotify event into stream")
             }
         })?;
         watcher.configure(Config::PreciseEvents(true))?;
 
-        watcher.watch(path, RecursiveMode::NonRecursive)?;
+        watcher.watch(path.as_ref(), RecursiveMode::NonRecursive)?;
 
         Ok(FileSystemWatcher {
             recv: stream_rx,
