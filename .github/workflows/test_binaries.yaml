@@ -5,11 +5,11 @@ on:
       registrar-version:
         description: "Git tag you wish to build for the Node Driver Registrar"
         required: true
-        default: "v2.2.0"
+        default: "v2.3.0"
       provisioner-version:
         description: "Git tag you wish to build for the External Provisioner"
         required: true
-        default: "v2.2.1"
+        default: "v2.2.2"
 jobs:
   # TODO: Once support is added for all distros (see
   # https://github.com/kubernetes-csi/node-driver-registrar/pull/133). We should
