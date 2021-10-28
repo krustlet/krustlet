@@ -19,6 +19,8 @@ version = "1.0.0-alpha.1"
 default = ["native-tls"]
 native-tls = ["kube/native-tls", "kubelet/kube-native-tls", "krator/kube-native-tls"]
 rustls-tls = ["kube/rustls-tls", "kubelet/rustls-tls", "krator/rustls-tls"]
+wasmedge = ["wasmedge-sdk"]
+wasmtime = ["dep:wasmtime", "wasmtime-wasi", "wasi-experimental-http-wasmtime"]
 
 [dependencies]
 anyhow = "1.0"
@@ -38,10 +40,11 @@ tokio = {version = "1.0", features = ["fs", "macros", "io-util", "sync"]}
 tracing = {version = "0.1", features = ['log']}
 wasi-cap-std-sync = "0.30"
 wasi-common = "0.30"
-wasmtime = "0.30"
-wasmtime-wasi = "0.30"
+wasmedge-sdk = { version = "0.2", optional = true }
+wasmtime = { version = "0.30", optional = true }
+wasmtime-wasi = { version =  "0.30", optional = true }
 wat = "1.0.38"
-wasi-experimental-http-wasmtime = "0.6.0"
+wasi-experimental-http-wasmtime = { version = "0.6.0", optional = true }
 
 [dev-dependencies]
 k8s-openapi = {version = "0.13", default-features = false, features = ["v1_22", "api"]}

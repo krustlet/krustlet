@@ -25,7 +25,7 @@ version = "1.0.0-alpha.1"
 maintenance = {status = "actively-developed"}
 
 [features]
-default = ["native-tls"]
+default = ["native-tls", "wasmtime"]
 native-tls = [
   "kube/native-tls",
   "krator/kube-native-tls",
@@ -40,6 +40,9 @@ rustls-tls = [
   "wasi-provider/rustls-tls",
   "oci-distribution/rustls-tls",
 ]
+
+wasmtime = [ "wasi-provider/wasmtime" ]
+wasmedge = [ "wasi-provider/wasmedge" ]
 
 [dependencies]
 anyhow = "1.0"
