@@ -3,7 +3,9 @@ on:
   push:
     branches:
       - main
-  pull_request: {}
+  pull_request:
+    branches:
+      - main
 jobs:
   build:
     runs-on: ${{ matrix.config.os }}
@@ -16,6 +18,15 @@ jobs:
               os: "ubuntu-latest",
               arch: "amd64",
               args: "",
+              url: "https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-unknown-linux-musl.tar.gz",
+              name: "just",
+              pathInArchive: "just",
+              env: {},
+            }
+          - {
+              os: "ubuntu-latest",
+              arch: "amd64",
+              args: "--features wasmedge",
               url: "https://github.com/casey/just/releases/download/v0.5.11/just-v0.5.11-x86_64-unknown-linux-musl.tar.gz",
               name: "just",
               pathInArchive: "just",
