@@ -27,8 +27,11 @@ backtrace = "0.3"
 cap-std = "0.19"
 chrono = {version = "0.4", features = ["serde"]}
 futures = "0.3"
-krator = {version = "0.5", default-features = false}
-kube = {version = "0.60", default-features = false}
+# TODO: fix once https://github.com/krator-rs/krator/pull/63 is merged and a new
+# release is tagged
+#krator = {version = "0.5", default-features = false}
+krator = {git = "https://github.com/flavio/krator.git", branch = "fix-tokio-rustsec-2021-0124", default-features = false}
+kube = {version = "0.64", default-features = false}
 kubelet = {path = "../kubelet", version = "1.0.0-alpha.1", default-features = false, features = ["derive"]}
 serde = "1.0"
 serde_derive = "1.0"
