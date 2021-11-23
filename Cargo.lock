@@ -1413,8 +1413,9 @@ dependencies = [
 
 [[package]]
 name = "krator"
-version = "0.5.0"
-source = "git+https://github.com/flavio/krator.git?branch=fix-tokio-rustsec-2021-0124#f4b43a09b3a0c7fedf6e3f021a3c9eb951de91cf"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20f7b755840cccc0f9163f5052eb3a297c3296d3ea868c096ceac7f333507146"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1433,8 +1434,9 @@ dependencies = [
 
 [[package]]
 name = "krator-derive"
-version = "0.4.0"
-source = "git+https://github.com/flavio/krator.git?branch=fix-tokio-rustsec-2021-0124#f4b43a09b3a0c7fedf6e3f021a3c9eb951de91cf"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60fdd3fa5cb178350c1c418a08a7d913bdefd6cfc75980219a3f8f9ffb7c8fbf"
 dependencies = [
  "proc-macro2",
  "quote 1.0.10",
