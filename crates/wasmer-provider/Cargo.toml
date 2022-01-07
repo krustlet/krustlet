@@ -34,7 +34,7 @@ wasi-common = "0.28"
 wasmtime = "0.28"
 wasmtime-wasi = "0.28"
 wat = "1.0.38"
-wasi-experimental-http-wasmtime = "0.5.0"
+wasi-experimental-http-wasmer = { version = "0.5.0", path = "../../../wasi-experimental-http/crates/wasi-experimental-http-wasmer" }
 # TODO use upstream version when merged
 wasmer = { version = "2.0.0", git = "https://github.com/bnjjj/wasmer", branch = "feat_send_sync_resolver" }
 wasmer-wasi = { version = "2.0.0", git = "https://github.com/bnjjj/wasmer", branch = "feat_send_sync_resolver" }

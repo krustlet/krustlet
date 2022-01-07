@@ -4077,6 +4077,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasi-experimental-http-wasmer"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "bytes 1.0.1",
+ "futures",
+ "http 0.2.4",
+ "once_cell",
+ "reqwest",
+ "thiserror",
+ "tokio 1.9.0",
+ "tracing",
+ "url 2.2.2",
+ "wasi-common",
+ "wasmer",
+ "wasmer-wasi",
+]
+
+[[package]]
 name = "wasi-experimental-http-wasmtime"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4358,7 +4377,7 @@ dependencies = [
  "tracing",
  "wasi-cap-std-sync",
  "wasi-common",
- "wasi-experimental-http-wasmtime",
+ "wasi-experimental-http-wasmer",
  "wasmer",
  "wasmer-wasi",
  "wasmtime",

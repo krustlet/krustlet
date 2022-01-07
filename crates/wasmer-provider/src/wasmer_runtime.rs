@@ -11,6 +11,7 @@ use tokio::task::JoinHandle;
 use kubelet::container::Handle as ContainerHandle;
 use kubelet::container::Status;
 use kubelet::handle::StopHandler;
+use wasi_experimental_http_wasmer::HttpCtx as WasmerHttpCtx;
 use wasmer::{Cranelift, Instance, Module, Store, Universal};
 use wasmer_wasi::WasiState;
 
@@ -49,6 +50,8 @@ pub struct WasmerRuntime {
     output: Arc<NamedTempFile>,
     /// A channel to send status updates on the runtime
     status_sender: Sender<Status>,
+    /// Configuration for the WASI http
+    http_config: WasiHttpConfig,
 }
 
 // Configuration for WASI http.
@@ -104,6 +107,7 @@ impl WasmerRuntime {
         dirs: HashMap<PathBuf, Option<PathBuf>>,
         log_dir: L,
         status_sender: Sender<Status>,
+        http_config: WasiHttpConfig,
     ) -> anyhow::Result<Self> {
         let temp = tokio::task::spawn_blocking(move || -> anyhow::Result<NamedTempFile> {
             Ok(NamedTempFile::new_in(log_dir)?)
@@ -126,6 +130,7 @@ impl WasmerRuntime {
             }),
             output: Arc::new(temp),
             status_sender,
+            http_config,
         })
     }
 
@@ -217,7 +222,7 @@ impl WasmerRuntime {
         println!("Instantiating module with WASI imports...");
         // Then, we get the import object related to our WASI
         // and attach it to the Wasm instance.
-        let import_object = match wasi_env.import_object(&module) {
+        let mut import_object = match wasi_env.import_object(&module) {
             Ok(i) => i,
             Err(e) => {
                 let message = "unable to import object";
@@ -233,6 +238,16 @@ impl WasmerRuntime {
                 return Err(anyhow::anyhow!("{}: {}", message, e));
             }
         };
+
+        println!("HTTP Config");
+        // Link WASI HTTP
+        let WasiHttpConfig {
+            allowed_domains,
+            max_concurrent_requests,
+        } = self.http_config.clone();
+        let wasi_http = WasmerHttpCtx::new(allowed_domains, max_concurrent_requests)?;
+        wasi_http.add_to_import_object(&store, wasi_env, &mut import_object)?;
+        println!("HTTP Config imported");
 
         let instance = match Instance::new(&module, &import_object) {
             // We can't map errors here or it moves the send channel, so we
@@ -252,7 +267,10 @@ impl WasmerRuntime {
                 return Err(anyhow::anyhow!("{}: {}", message, e));
             }
         };
+        let memory = instance.exports.get_memory("memory")?;
+        // println!("------ memory {:?}", unsafe { memory.data_unchecked() });
 
+        println!("starting run of module");
         info!("starting run of module");
         status_sender
             .send(Status::Running {
@@ -269,6 +287,7 @@ impl WasmerRuntime {
             let span = tracing::info_span!("wasmer_module_run", %name);
             let _enter = span.enter();
 
+            println!("CALLING");
             match func.call(&[]) {
                 // We can't map errors here or it moves the send channel, so we
                 // do it in a match
