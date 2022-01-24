@@ -19,7 +19,6 @@ test:
     @# sufficient for now. We may want to consider improving things using `cfg`
     @# directives to always pull in rustls-tls on windows machines
     Push-Location .\crates\kubelet; cargo test --no-default-features --features rustls-tls,derive; Pop-Location
-    Push-Location .\crates\oci-distribution; cargo test --no-default-features --features rustls-tls; Pop-Location
     Push-Location .\crates\wasi-provider; cargo test --no-default-features --features rustls-tls,kubelet/derive; Pop-Location
 
 test-e2e +FLAGS='--no-default-features --features rustls-tls,kubelet/derive':
