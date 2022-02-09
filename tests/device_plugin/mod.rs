@@ -52,7 +52,7 @@ impl DevicePlugin for MockDevicePlugin {
                 .unwrap();
             loop {
                 // ListAndWatch should not end
-                tokio::time::sleep(tokio::time::Duration::from_secs(std::u64::MAX)).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(u64::MAX)).await;
             }
         });
         Ok(Response::new(Box::pin(

@@ -188,7 +188,7 @@ async fn start_plugin_registry(registrar: Option<Arc<PluginRegistry>>) -> anyhow
             task::spawn(async {
                 loop {
                     // We run a delay here so we don't waste time on NOOP CPU cycles
-                    tokio::time::sleep(tokio::time::Duration::from_secs(std::u64::MAX)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_secs(u64::MAX)).await;
                 }
             })
             .map_err(anyhow::Error::from)
@@ -206,7 +206,7 @@ async fn start_device_manager(device_manager: Option<Arc<DeviceManager>>) -> any
             task::spawn(async {
                 loop {
                     // We run a delay here so we don't waste time on NOOP CPU cycles
-                    tokio::time::sleep(tokio::time::Duration::from_secs(std::u64::MAX)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_secs(u64::MAX)).await;
                 }
             })
             .map_err(anyhow::Error::from)
