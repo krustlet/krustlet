@@ -123,12 +123,11 @@ jobs:
           cd krustlet
           sha256sum * > checksums-${{ env.RELEASE_VERSION }}.txt
       - name: upload to azure
-        uses: bacongobbler/azure-blob-storage-upload@main
+        uses: bacongobbler/azure-blob-storage-upload@v2.0.0
         with:
           source_dir: krustlet
           container_name: releases
           connection_string: ${{ secrets.AzureStorageConnectionString }}
-          sync: false
   crates:
     name: publish to crates.io
     runs-on: ubuntu-latest
