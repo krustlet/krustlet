@@ -1556,7 +1556,7 @@ dependencies = [
  "lazy_static",
  "lazycell",
  "mio 0.6.23",
- "miow 0.2.2",
+ "miow 0.3.7",
  "notify",
  "oci-distribution",
  "prost",
