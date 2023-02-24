@@ -1,5 +1,5 @@
 use super::DeviceIdMap;
-use crate::device_plugin_api::v1beta1::ContainerAllocateResponse;
+use crate::device_plugin_api::v1::ContainerAllocateResponse;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
 use std::collections::{HashMap, HashSet};

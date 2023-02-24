@@ -1,5 +1,5 @@
 use super::DeviceMap;
-use crate::device_plugin_api::v1beta1::{
+use crate::device_plugin_api::v1::{
     device_plugin_client::DevicePluginClient, AllocateRequest, AllocateResponse, Device, Empty,
     ListAndWatchResponse, RegisterRequest,
 };

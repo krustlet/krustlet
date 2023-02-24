@@ -99,9 +99,9 @@ pub(crate) mod plugin_registration_api {
     }
 }
 pub(crate) mod device_plugin_api {
-    pub(crate) mod v1beta1 {
-        pub const API_VERSION: &str = "v1beta1";
-        tonic::include_proto!("v1beta1");
+    pub(crate) mod v1 {
+        pub const API_VERSION: &str = "v1";
+        tonic::include_proto!("v1");
     }
 }
 pub(crate) mod fs_watch;

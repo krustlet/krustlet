@@ -1,6 +1,6 @@
-pub(crate) mod v1beta1 {
-    pub const API_VERSION: &str = "v1beta1";
-    tonic::include_proto!("v1beta1");
+pub(crate) mod v1 {
+    pub const API_VERSION: &str = "v1";
+    tonic::include_proto!("v1");
 }
 #[cfg(target_os = "linux")]
 use super::CONTAINER_PATH;
@@ -11,7 +11,7 @@ use std::path::Path;
 use std::pin::Pin;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
-use v1beta1::{
+use v1::{
     device_plugin_server::{DevicePlugin, DevicePluginServer},
     registration_client, AllocateRequest, AllocateResponse, ContainerAllocateResponse, Device,
     DevicePluginOptions, Empty, ListAndWatchResponse, Mount, PreStartContainerRequest,
