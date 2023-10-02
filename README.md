@@ -1,4 +1,4 @@
-⚠️ This project is currently not actively maintained. Most of the other maintainers have moved on to other WebAssembly related projects. This project could definitely still be useful to anyone who wants to write a custom Kubelet and its sister project [Krator](https://github.com/krustlet/krator) is a state machine-based solution for writing Kubernetes controllers/operators in Rust. If anyone is interested in maintaining these projects, please feel free to reach out!
+⚠️ This project is currently not actively maintained. Most of the other maintainers have moved on to other WebAssembly related projects. This project could definitely still be useful to anyone who wants to write a custom Kubelet and its sister project [Krator](https://github.com/krator-rs/krator) is a state machine-based solution for writing Kubernetes controllers/operators in Rust. If anyone is interested in maintaining these projects, please feel free to reach out!
 
 
 [![CII Best
