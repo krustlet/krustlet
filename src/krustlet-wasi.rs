@@ -1,3 +1,8 @@
+use k8s_openapi::api::certificates::v1::CertificateSigningRequest;
+use kube::{
+    api::{Api, DeleteParams},
+    Client,
+};
 use kubelet::config::Config;
 use kubelet::plugin_watcher::PluginRegistry;
 use kubelet::resources::DeviceManager;
@@ -20,7 +25,20 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let kubeconfig = kubelet::bootstrap(&config, &config.bootstrap_file, notify_bootstrap).await?;
+    let kubeconfig =
+        match kubelet::bootstrap(&config, &config.bootstrap_file, notify_bootstrap).await {
+            Ok(it) => it,
+            Err(err) => {
+                let client = Client::try_default().await?;
+                let csrs: Api<CertificateSigningRequest> = Api::all(client);
+                let csr_name = format!("{}-tls", config.node_name);
+                csrs.delete(&csr_name, &DeleteParams::default())
+                    .await?
+                    .map_left(|o| println!("Deleting CSR : {:?}", o.status))
+                    .map_right(|s| println!("Deleted CSR : {:?}", s));
+                return Err(anyhow::anyhow!("{}", err));
+            }
+        };
 
     let store = make_store(&config);
     let plugin_registry = Arc::new(PluginRegistry::new(&config.plugins_dir));
