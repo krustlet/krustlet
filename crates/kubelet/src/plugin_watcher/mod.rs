@@ -733,7 +733,7 @@ mod test {
         // This path doesn't matter here
         let registrar = PluginRegistry::new("/tmp/foo");
         let mut info = valid_info();
-        info.supported_versions = vec!["v1beta1".to_string()];
+        info.supported_versions = vec!["v1".to_string()];
 
         assert!(
             registrar

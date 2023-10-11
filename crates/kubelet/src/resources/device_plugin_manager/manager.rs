@@ -7,7 +7,7 @@ use super::node_patcher::NodeStatusPatcher;
 use super::plugin_connection::PluginConnection;
 use super::pod_devices::{ContainerDevices, DeviceAllocateInfo, PodDevices};
 use super::{DeviceIdMap, DeviceMap, PluginDevicesMap, PodResourceRequests, HEALTHY};
-use crate::device_plugin_api::v1beta1::{
+use crate::device_plugin_api::v1::{
     device_plugin_client::DevicePluginClient, AllocateRequest, ContainerAllocateRequest,
     ContainerAllocateResponse, RegisterRequest, API_VERSION,
 };
@@ -542,7 +542,7 @@ fn get_num_from_quantity(q: Quantity) -> anyhow::Result<usize> {
 mod tests {
     use super::super::{test_utils, PLUGIN_MANGER_SOCKET_NAME};
     use super::*;
-    use crate::device_plugin_api::v1beta1::{
+    use crate::device_plugin_api::v1::{
         device_plugin_server::{DevicePlugin, DevicePluginServer},
         registration_client, AllocateRequest, AllocateResponse, Device, DevicePluginOptions, Empty,
         ListAndWatchResponse, PreStartContainerRequest, PreStartContainerResponse,

@@ -1,6 +1,6 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=proto/pluginregistration/v1/pluginregistration.proto");
-    println!("cargo:rerun-if-changed=proto/deviceplugin/v1beta1/deviceplugin.proto");
+    println!("cargo:rerun-if-changed=proto/deviceplugin/v1/deviceplugin.proto");
 
     let builder = tonic_build::configure()
         .format(true)
@@ -16,9 +16,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     builder.compile(
         &[
             "proto/pluginregistration/v1/pluginregistration.proto",
-            "proto/deviceplugin/v1beta1/deviceplugin.proto",
+            "proto/deviceplugin/v1/deviceplugin.proto",
         ],
-        &["proto/pluginregistration/v1", "proto/deviceplugin/v1beta1"],
+        &["proto/pluginregistration/v1", "proto/deviceplugin/v1"],
     )?;
 
     Ok(())

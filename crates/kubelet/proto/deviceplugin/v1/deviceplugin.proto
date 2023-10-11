@@ -1,7 +1,7 @@
-// From https://github.com/kubernetes/kubelet/blob/v0.21.0/pkg/apis/deviceplugin/v1beta1/api.proto
+// From https://github.com/kubernetes/kubelet/blob/v0.21.0/pkg/apis/deviceplugin/v1/api.proto
 syntax = "proto3";
 
-package v1beta1;
+package v1;
 
 // Registration is the service advertised by the Kubelet
 // Only when Kubelet answers with a success code to a Register Request
