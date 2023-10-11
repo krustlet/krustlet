@@ -219,7 +219,7 @@ impl GenericProvider for WasiProvider {
         container: &kubelet::container::Container,
     ) -> anyhow::Result<()> {
         if let Some(image) = container.image()? {
-            if image.whole().starts_with("k8s.gcr.io/kube-proxy") {
+            if image.whole().starts_with("registry.k8s.io/kube-proxy") {
                 return Err(anyhow::anyhow!("Cannot run kube-proxy"));
             }
         }
