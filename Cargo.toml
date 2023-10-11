@@ -51,7 +51,7 @@ krator = {version = "0.5", default-features = false}
 kube = {version = "0.60", default-features = false}
 kubelet = {path = "./crates/kubelet", version = "1.0.0-alpha.1", default-features = false, features = ["cli"]}
 oci-distribution = "0.8"
-regex = "1.3"
+regex = "1.5"
 serde = "1.0"
 tokio = {version = "1.0", features = ["macros", "rt-multi-thread", "time"]}
 tracing-subscriber = "0.2"
