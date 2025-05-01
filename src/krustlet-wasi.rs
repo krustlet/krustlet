@@ -56,5 +56,5 @@ fn make_store(config: &Config) -> Arc<dyn kubelet::store::Store + Send + Sync> {
 }
 
 fn notify_bootstrap(message: String) {
-    println!("BOOTSTRAP: {}", message);
+    tracing::info!("BOOTSTRAP: {}", message);
 }
