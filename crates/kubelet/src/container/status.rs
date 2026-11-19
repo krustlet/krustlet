@@ -177,7 +177,7 @@ pub async fn patch_container_status(
     }
 }
 
-/// Create inital container status for registering pod.
+/// Create initial container status for registering pod.
 pub fn make_initial_container_status(container: &Container) -> KubeContainerStatus {
     let state = ContainerState {
         waiting: Some(ContainerStateWaiting {
