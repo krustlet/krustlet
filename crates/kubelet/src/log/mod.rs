@@ -11,7 +11,7 @@ use tracing::{debug, error};
 pub enum SendError {
     /// Client has disconnected.
     ChannelClosed,
-    /// An unexpected error occured.
+    /// An unexpected error occurred.
     Abnormal(anyhow::Error),
 }
 
